@@ -206,7 +206,8 @@ impl Device {
         if n == 0 {
             return Ok(None);
         }
-        let raw = report::parse(&self.buf)?;
+        let wireless = matches!(self.info.transport, Transport::UsbDongle);
+        let raw = report::parse(&self.buf, wireless)?;
         match &raw {
             RawReport::Connected => self.connected = true,
             RawReport::Disconnected => self.connected = false,
