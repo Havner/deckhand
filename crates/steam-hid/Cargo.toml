@@ -1,0 +1,22 @@
+[package]
+name = "steam-hid"
+description = "Read input from and send commands to Steam controllers (Steam Controller / Steam Deck) over HID."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Opt-in (de)serialization for ControllerState/Report/etc. — used by trace recording
+# and the future network path (PLAN §1.5). Off by default so consumers don't pay for it.
+serde = ["dep:serde", "bitflags/serde"]
+
+[dependencies]
+hidapi.workspace = true
+bitflags.workspace = true
+thiserror.workspace = true
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+# TUI example deps land here when the `tui` example is added (PLAN §1.8).

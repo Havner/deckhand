@@ -1,0 +1,14 @@
+# Grant user access to Steam controller HID interfaces (PLAN §1.6).
+#
+# On Linux the in-kernel `hid-steam` driver claims these devices; this rule tags
+# them with `uaccess` so the logged-in user can open the hidraw nodes without
+# root. Install to /etc/udev/rules.d/ and reload:
+#     sudo cp 69-steam-hid.rules /etc/udev/rules.d/
+#     sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# Valve VID 0x28de; PIDs: 1102 wired SC, 1142 wireless dongle, 1205 Steam Deck.
+
+# USB (wired controller + wireless dongle + Deck)
+SUBSYSTEM=="usb", ATTRS{idVendor}=="28de", MODE="0660", TAG+="uaccess"
+# hidraw nodes for the same devices
+KERNEL=="hidraw*", ATTRS{idVendor}=="28de", MODE="0660", TAG+="uaccess"

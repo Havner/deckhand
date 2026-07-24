@@ -1,0 +1,19 @@
+# deckhand — Steam Input–like controller mapper (workspace root).
+# See PLAN.md for the full design; build order is steam-hid first.
+[workspace]
+resolver = "3"
+members = ["crates/steam-hid"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false          # internal crates for now; not for crates.io (see PLAN §0)
+version = "0.0.0"
+
+[workspace.dependencies]
+# Well-maintained, widely-used only (PLAN §0). hidraw backend: no libusb, and it
+# is the right Linux path for the hid-steam raw-access story (PLAN §1.6).
+hidapi = { version = "2", default-features = false, features = ["linux-static-hidraw"] }
+bitflags = "2"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
