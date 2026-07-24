@@ -29,17 +29,22 @@ pub enum RawReport {
     Battery(BatteryRaw),
 }
 
-/// Raw battery status (PLAN §1.4/§1.9 — layout unverified).
+/// Raw battery status from the `0x04` frame (offsets per the kernel: voltage at
+/// `0x0C`, charge at `0x0E`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BatteryRaw {
-    /// Battery voltage in millivolts, as reported.
+    /// Battery voltage in millivolts.
     pub voltage_mv: u16,
+    /// Battery charge, in percent (0..=100).
+    pub charge_percent: u8,
 }
 
 /// Original Steam Controller (Gordon) input fields (PLAN §1.4).
 ///
-/// Battery is not here — it arrives out-of-band as [`RawReport::Battery`].
+/// Battery is not here — it arrives out-of-band as [`RawReport::Battery`] (`0x04`).
+/// (The inline `GCInput @0x3E` field the C# reads was verified vestigial — always
+/// `0` on the dongle — so it is not decoded; PLAN §1.9.)
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct GordonReport {
@@ -118,7 +123,8 @@ pub(crate) fn parse(buf: &[u8]) -> Result<RawReport> {
             _ => RawReport::Connected, // CONNECTED (0x02) and any other → treat as connect
         }),
         event_type::BATTERY => Ok(RawReport::Battery(BatteryRaw {
-            voltage_mv: u16_at(buf, 4),
+            voltage_mv: u16_at(buf, 0x0C),
+            charge_percent: buf[0x0E],
         })),
         // Unknown event byte: model as a benign connect ping for now (PLAN §1.4/§1.9).
         _ => Ok(RawReport::Connected),

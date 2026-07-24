@@ -47,7 +47,10 @@ fn main() -> steam_hid::Result<()> {
     };
 
     let log_path = std::env::args().nth(1).unwrap_or_else(|| {
-        std::env::temp_dir().join("steam-hid-imu.log").to_string_lossy().into_owned()
+        std::env::temp_dir()
+            .join("steam-hid-imu.log")
+            .to_string_lossy()
+            .into_owned()
     });
     let mut log = BufWriter::new(File::create(&log_path).expect("create log file"));
 
@@ -61,26 +64,30 @@ fn main() -> steam_hid::Result<()> {
 
     let mut last = Instant::now();
     loop {
-        if let Some(Report::State(s)) = device.poll(Duration::from_millis(200))? {
-            if last.elapsed() >= Duration::from_millis(200) {
-                last = Instant::now();
-                let (a, g) = (&s.accel, &s.gyro);
-                let line = format!(
-                    "accel raw=({:>6},{:>6},{:>6}) g=({:+.2},{:+.2},{:+.2})  |  \
+        if let Some(Report::State(s)) = device.poll(Duration::from_millis(200))?
+            && last.elapsed() >= Duration::from_millis(200)
+        {
+            last = Instant::now();
+            let (a, g) = (&s.accel, &s.gyro);
+            let line = format!(
+                "accel raw=({:>6},{:>6},{:>6}) g=({:+.2},{:+.2},{:+.2})  |  \
                      gyro raw=({:>6},{:>6},{:>6}) dps=({:+.0},{:+.0},{:+.0})",
-                    a.x, a.y, a.z,
-                    a.x as f32 / ACCEL_RES_PER_G,
-                    a.y as f32 / ACCEL_RES_PER_G,
-                    a.z as f32 / ACCEL_RES_PER_G,
-                    g.x, g.y, g.z,
-                    g.x as f32 / GYRO_RES_PER_DPS,
-                    g.y as f32 / GYRO_RES_PER_DPS,
-                    g.z as f32 / GYRO_RES_PER_DPS,
-                );
-                println!("{line}");
-                writeln!(log, "{line}").ok();
-                log.flush().ok();
-            }
+                a.x,
+                a.y,
+                a.z,
+                a.x as f32 / ACCEL_RES_PER_G,
+                a.y as f32 / ACCEL_RES_PER_G,
+                a.z as f32 / ACCEL_RES_PER_G,
+                g.x,
+                g.y,
+                g.z,
+                g.x as f32 / GYRO_RES_PER_DPS,
+                g.y as f32 / GYRO_RES_PER_DPS,
+                g.z as f32 / GYRO_RES_PER_DPS,
+            );
+            println!("{line}");
+            writeln!(log, "{line}").ok();
+            log.flush().ok();
         }
     }
 }

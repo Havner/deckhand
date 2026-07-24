@@ -42,12 +42,15 @@ impl Report {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Battery {
     pub voltage_mv: u16,
+    /// Battery charge, in percent (0..=100).
+    pub charge_percent: u8,
 }
 
 impl From<&BatteryRaw> for Battery {
     fn from(raw: &BatteryRaw) -> Self {
         Battery {
             voltage_mv: raw.voltage_mv,
+            charge_percent: raw.charge_percent,
         }
     }
 }

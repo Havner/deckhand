@@ -11,9 +11,12 @@ use std::time::Duration;
 use steam_hid::{Manager, Report};
 
 fn main() -> steam_hid::Result<()> {
-    let log_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| std::env::temp_dir().join("steam-hid-read.log").to_string_lossy().into_owned());
+    let log_path = std::env::args().nth(1).unwrap_or_else(|| {
+        std::env::temp_dir()
+            .join("steam-hid-read.log")
+            .to_string_lossy()
+            .into_owned()
+    });
 
     let manager = Manager::new()?;
     let devices = manager.enumerate()?;
