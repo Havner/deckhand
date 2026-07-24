@@ -161,7 +161,13 @@ fn map_gordon_buttons(g: &GordonButtons) -> Buttons {
     set(g.contains(GordonButtons::MENU), Buttons::MENU);
     set(g.contains(GordonButtons::OPTIONS), Buttons::OPTIONS);
     set(g.contains(GordonButtons::STEAM), Buttons::STEAM);
-    set(g.contains(GordonButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    // Left multiplex (PLAN §1.4/§1.9): the left click bit is shared — it also sets
+    // on a left-stick click. Disambiguate on left touch: it's a pad press only when
+    // the pad is actually touched; a stick click surfaces as LSTICK_PRESS alone.
+    set(
+        g.contains(GordonButtons::LPAD_PRESS) && g.contains(GordonButtons::LPAD_TOUCH),
+        Buttons::LPAD_PRESS,
+    );
     set(g.contains(GordonButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
     set(g.contains(GordonButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
     set(g.contains(GordonButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
@@ -170,4 +176,31 @@ fn map_gordon_buttons(g: &GordonButtons) -> Buttons {
         Buttons::LSTICK_PRESS,
     );
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn left_stick_click_is_not_a_pad_press() {
+        // Stick click shares the LPAD_PRESS bit but has no LPAD_TOUCH.
+        let g = GordonReport {
+            buttons: GordonButtons::LPAD_PRESS | GordonButtons::LSTICK_PRESS,
+            ..Default::default()
+        };
+        let s = ControllerState::from_gordon(&g, Timestamp::default());
+        assert!(s.buttons.contains(Buttons::LSTICK_PRESS));
+        assert!(!s.buttons.contains(Buttons::LPAD_PRESS));
+    }
+
+    #[test]
+    fn touched_pad_click_is_a_pad_press() {
+        let g = GordonReport {
+            buttons: GordonButtons::LPAD_PRESS | GordonButtons::LPAD_TOUCH,
+            ..Default::default()
+        };
+        let s = ControllerState::from_gordon(&g, Timestamp::default());
+        assert!(s.buttons.contains(Buttons::LPAD_PRESS));
+    }
 }
