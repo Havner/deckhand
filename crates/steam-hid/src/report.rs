@@ -52,9 +52,9 @@ pub struct GordonReport {
     pub buttons: GordonButtons,
     pub left_trigger: u8,
     pub right_trigger: u8,
-    /// Left stick position (on the dongle this shares `0x10` with the pad — see `parse`).
+    /// Left stick position (shares `0x10` with the pad — see `parse`).
     pub left_stick: Vec2i,
-    /// Left pad position (on the dongle this shares `0x10` with the stick — see `parse`).
+    /// Left pad position (shares `0x10` with the stick — see `parse`).
     pub left_pad: Vec2i,
     pub right_pad: Vec2i,
     pub accel: Vec3i,
@@ -109,7 +109,7 @@ fn vec3i_at(b: &[u8], off: usize) -> Vec3i {
 /// Parse one 64-byte report into a [`RawReport`], dispatching on the event byte.
 ///
 /// Returns [`Error::ShortReport`] if `buf` is too small.
-pub(crate) fn parse(buf: &[u8], wireless: bool) -> Result<RawReport> {
+pub(crate) fn parse(buf: &[u8]) -> Result<RawReport> {
     if buf.len() < REPORT_LEN {
         return Err(Error::ShortReport {
             expected: REPORT_LEN,
@@ -118,7 +118,7 @@ pub(crate) fn parse(buf: &[u8], wireless: bool) -> Result<RawReport> {
     }
     // buf[0..2] == 0x01, 0x00; buf[2] == event type.
     match buf[2] {
-        event_type::INPUT_DATA => Ok(RawReport::Gordon(parse_gordon(buf, wireless))),
+        event_type::INPUT_DATA => Ok(RawReport::Gordon(parse_gordon(buf))),
         event_type::DECK_INPUT_DATA => Ok(RawReport::Neptune(parse_neptune(buf))),
         event_type::CONNECT => Ok(match buf[4] {
             wireless::DISCONNECTED => RawReport::Disconnected,
@@ -135,24 +135,19 @@ pub(crate) fn parse(buf: &[u8], wireless: bool) -> Result<RawReport> {
 
 /// Decode a Gordon input frame (PLAN §1.4 offsets).
 ///
-/// `wireless` selects the left pad/stick handling. On the **dongle** the pad and
-/// stick are multiplexed onto `lpad_x/y` (`0x10`), disambiguated by `LPAD_TOUCH`
-/// (verified on HW: `0x36` stays 0, `LPAD_AND_JOY` unused). **Wired** reportedly
-/// has separate fields (pad `0x10`, stick `0x36`) with no multiplex — **UNVERIFIED**,
-/// confirm when wired is in the loop (PLAN §1.9).
-fn parse_gordon(b: &[u8], wireless: bool) -> GordonReport {
+/// The left pad and analog stick share `lpad_x/y` (`0x10`), disambiguated by
+/// `LPAD_TOUCH`: the pad when touched, the stick when not. Verified on **both** the
+/// wireless dongle and wired — `0x36` is *not* the stick (0 on wireless, small noise
+/// on wired) and `LPAD_AND_JOY` is unused. (PLAN §1.4.)
+fn parse_gordon(b: &[u8]) -> GordonReport {
     let buttons = GordonButtons::from_bits_truncate(
         b[0x08] as u32 | (b[0x09] as u32) << 8 | (b[0x0A] as u32) << 16,
     );
-    let (left_pad, left_stick) = if wireless {
-        let raw = vec2i_at(b, 0x10);
-        if buttons.contains(GordonButtons::LPAD_TOUCH) {
-            (raw, Vec2i::default())
-        } else {
-            (Vec2i::default(), raw)
-        }
+    let left_raw = vec2i_at(b, 0x10);
+    let (left_pad, left_stick) = if buttons.contains(GordonButtons::LPAD_TOUCH) {
+        (left_raw, Vec2i::default())
     } else {
-        (vec2i_at(b, 0x10), vec2i_at(b, 0x36))
+        (Vec2i::default(), left_raw)
     };
     GordonReport {
         seq: u32_at(b, 0x04),
@@ -197,17 +192,17 @@ mod tests {
     fn parse_dispatches_lifecycle_frames() {
         let mut b = frame_buf(event_type::CONNECT);
         b[4] = wireless::CONNECTED;
-        assert_eq!(parse(&b, true).unwrap(), RawReport::Connected);
+        assert_eq!(parse(&b).unwrap(), RawReport::Connected);
         b[4] = wireless::DISCONNECTED;
-        assert_eq!(parse(&b, true).unwrap(), RawReport::Disconnected);
+        assert_eq!(parse(&b).unwrap(), RawReport::Disconnected);
 
         let b = frame_buf(event_type::BATTERY);
-        assert!(matches!(parse(&b, true).unwrap(), RawReport::Battery(_)));
+        assert!(matches!(parse(&b).unwrap(), RawReport::Battery(_)));
     }
 
     #[test]
     fn parse_rejects_short_report() {
         let short = [0u8; 10];
-        assert!(matches!(parse(&short, true), Err(Error::ShortReport { .. })));
+        assert!(matches!(parse(&short), Err(Error::ShortReport { .. })));
     }
 }
