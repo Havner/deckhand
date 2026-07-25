@@ -60,6 +60,15 @@ impl From<&BatteryRaw> for Battery {
 /// Analog inputs are normalized to `f32`; IMU (accel/gyro/orientation) passes
 /// through as raw `i16` with documented scale factors. Battery is *not* here —
 /// it is device-level state / a [`Report::Battery`] signal.
+///
+/// **IMU frame (HW-verified, PLAN §1.9):** right-handed, `X=right, Y=forward
+/// (toward the nose), Z=up (out of the face)`.
+/// - `accel` — specific force; reads `+1g` along whichever axis points up
+///   (`ACCEL_RES_PER_G = 16384`). Passed through raw (already right-handed).
+/// - `gyro` — angular velocity, `x`=pitch, `y`=roll, `z`=yaw rate
+///   (`GYRO_RES_PER_DPS = 16`), right-hand rule: pitch-up / yaw-left / roll-right
+///   are positive. (Gordon's raw `y` is negated during conversion to make the
+///   triple right-handed — see `gordon_gyro`.)
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ControllerState {
@@ -118,13 +127,30 @@ impl ControllerState {
                 touched: b.contains(GordonButtons::RPAD_TOUCH),
             },
             accel: g.accel.clone(),
-            gyro: g.gyro.clone(),
+            gyro: gordon_gyro(&g.gyro),
             orientation: g.orientation.clone(),
         }
     }
 }
 
 // --- normalization helpers (divisors provisional, verify on HW — PLAN §1.5/§1.9) ---
+
+/// Normalize Gordon's raw gyro into the unified right-handed IMU frame.
+///
+/// HW-verified (PLAN §1.9): the raw channels are axis-aligned with the accel
+/// frame `X=right, Y=forward, Z=up` — `x`=pitch, `y`=roll, `z`=yaw rate — but the
+/// device's `y` (roll) channel is mounted **inverted**, giving a left-handed triple
+/// `(ωx, −ωy, ωz)`. Negating `y` yields a proper right-handed angular velocity that
+/// shares the accelerometer's frame and obeys the right-hand rule (pitch-up,
+/// yaw-left, roll-right all positive). (The C# reference's `gyaw`/`groll` field
+/// names are transposed — offsets are right, names lie.)
+fn gordon_gyro(raw: &Vec3i) -> Vec3i {
+    Vec3i {
+        x: raw.x,
+        y: raw.y.saturating_neg(),
+        z: raw.z,
+    }
+}
 
 fn norm_u8(v: u8) -> f32 {
     v as f32 / 255.0

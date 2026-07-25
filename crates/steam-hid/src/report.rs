@@ -58,6 +58,11 @@ pub struct GordonReport {
     pub left_pad: Vec2i,
     pub right_pad: Vec2i,
     pub accel: Vec3i,
+    /// Raw gyro, **device order** `x=0x22, y=0x24, z=0x26` (angular velocity, axes
+    /// aligned with `accel`: pitch/roll/yaw). Left as the device sends it — the raw
+    /// `y` (roll) channel is inverted vs. a right-handed frame; the sign is corrected
+    /// only in [`ControllerState`] (`gordon_gyro`, PLAN §1.9). The C# `gyaw`/`groll`
+    /// field names are transposed; the offsets here are correct.
     pub gyro: Vec3i,
     pub orientation: Quati,
 }

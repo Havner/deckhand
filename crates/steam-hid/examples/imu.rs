@@ -20,6 +20,16 @@ use steam_hid::{Manager, Report};
 const ACCEL_RES_PER_G: f32 = 16384.0;
 const GYRO_RES_PER_DPS: f32 = 16.0;
 
+/// Which of the three channels dominates, with its sign — e.g. `+Z`. Returns `~0`
+/// when the largest channel is below `noise` (nothing meaningfully happening).
+fn dominant(vals: [(i32, &'static str); 3], noise: i32) -> String {
+    let (v, label) = vals.iter().copied().max_by_key(|(v, _)| v.abs()).unwrap();
+    if v.abs() < noise {
+        return "~0".to_string();
+    }
+    format!("{}{label}", if v >= 0 { '+' } else { '-' })
+}
+
 fn main() -> steam_hid::Result<()> {
     let manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&manager)? else {
@@ -41,28 +51,43 @@ fn main() -> steam_hid::Result<()> {
         log_path.display()
     );
 
+    let start = Instant::now();
     let mut last = Instant::now();
     loop {
         if let Some(Report::State(s)) = device.poll(Duration::from_millis(200))?
             && last.elapsed() >= Duration::from_millis(200)
         {
             last = Instant::now();
+            let t = start.elapsed().as_secs_f32();
             let (a, g) = (&s.accel, &s.gyro);
+            // Dominant-axis hints: gravity always drives one accel axis (noise ≈ 0.5g raw);
+            // gyro only when actually turning (noise ≈ 30°/s raw). Frame is the verified
+            // right-handed X=right, Y=forward, Z=up (PLAN §1.9); gyro is pitch/roll/yaw.
+            let accel_dom = dominant(
+                [(a.x as i32, "X"), (a.y as i32, "Y"), (a.z as i32, "Z")],
+                (0.5 * ACCEL_RES_PER_G) as i32,
+            );
+            let gyro_dom = dominant(
+                [(g.x as i32, "X=pitch"), (g.y as i32, "Y=roll"), (g.z as i32, "Z=yaw")],
+                (30.0 * GYRO_RES_PER_DPS) as i32,
+            );
             let line = format!(
-                "accel raw=({:>6},{:>6},{:>6}) g=({:+.2},{:+.2},{:+.2})  |  \
-                     gyro raw=({:>6},{:>6},{:>6}) dps=({:+.0},{:+.0},{:+.0})",
+                "t={t:>5.1}  accel raw=({:>6},{:>6},{:>6}) g=({:+.2},{:+.2},{:+.2}) [{:>2}]  |  \
+                     gyro raw=({:>6},{:>6},{:>6}) dps=({:+.0},{:+.0},{:+.0}) [{:>7}]",
                 a.x,
                 a.y,
                 a.z,
                 a.x as f32 / ACCEL_RES_PER_G,
                 a.y as f32 / ACCEL_RES_PER_G,
                 a.z as f32 / ACCEL_RES_PER_G,
+                accel_dom,
                 g.x,
                 g.y,
                 g.z,
                 g.x as f32 / GYRO_RES_PER_DPS,
                 g.y as f32 / GYRO_RES_PER_DPS,
                 g.z as f32 / GYRO_RES_PER_DPS,
+                gyro_dom,
             );
             println!("{line}");
             writeln!(log, "{line}").ok();
