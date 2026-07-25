@@ -32,9 +32,10 @@ const MOUSE_SCALE: f32 = 300.0;
 const MOUSE_ACCEL: f32 = 12.0;
 
 /// Gyro-aim: raw gyro units → pixels (small), the left-trigger threshold that enables it,
-/// and an optional radial output deadzone (px). Deadzone `0` = off — the sub-pixel
-/// accumulator already cancels Gordon's zero-mean resting noise, so aim stays stable
-/// without one (kept as a knob for setups/sensors that do drift).
+/// and an optional radial deadzone (px) that skips sub-threshold frames. Deadzone `0` = off
+/// — Gordon's gyro rests at ~zero bias (zero-mean noise, §1.9) and is trigger-gated, so
+/// integrating it produces no drift without a deadzone. (A *biased* sensor would drift and
+/// want one — the accumulator faithfully integrates, it does not filter.)
 const GYRO_SENS: f32 = 0.007;
 const GYRO_TRIGGER: f32 = 0.90;
 const GYRO_DEADZONE_PX: f32 = 0.0;
@@ -155,9 +156,9 @@ impl Bridge {
         }
 
         // Gyro → mouse, only while the left trigger is held ≥ 90%: yaw → horizontal,
-        // pitch → vertical. A radial deadzone drops sub-`GYRO_DEADZONE_PX` frames so a
-        // still hand doesn't drift (we discard the noise rather than accumulate it, unlike
-        // the pad). NOTE(sign): flip either term if the axis feels inverted.
+        // pitch → vertical. The optional deadzone gate skips a gyro frame smaller than
+        // `GYRO_DEADZONE_PX` (it never reaches the accumulator); at 0 it's off and gyro
+        // accumulates like the pad. NOTE(sign): flip either term if the axis feels inverted.
         if s.left_trigger >= GYRO_TRIGGER {
             let gdx = -(s.gyro.z as f32) * GYRO_SENS; // yaw-left → cursor left
             let gdy = (s.gyro.x as f32) * GYRO_SENS; // pitch-up → cursor down (inverted)
