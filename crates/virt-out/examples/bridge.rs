@@ -19,6 +19,8 @@
 //! Disables lizard so the controller feeds raw input only (no doubled mouse/keyboard).
 //! Run: `cargo run -p virt-out --example bridge`.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use steam_hid::{Buttons, ControllerState, Device, Manager, Motor, Report, Rumble as HidRumble};
@@ -59,9 +61,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
          (a game or `fftest`) to feel Gordon buzz. Ctrl-C to stop."
     );
 
+    // Catch Ctrl-C so we break the loop and return — running Drop, which restores Gordon's
+    // lizard mode and unplugs the virtual pad. On Windows, Ctrl-C otherwise aborts the
+    // process without running destructors, leaving the controller stuck in lizard-off.
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || r.store(false, Ordering::Relaxed))?;
+
     let mut bridge = Bridge::default();
     let mut last_haptic = Instant::now();
-    loop {
+    while running.load(Ordering::Relaxed) {
         // Gordon input → virtual devices (emit full state each frame; the kernel input
         // core drops unchanged key/abs values, so consumers see only real changes).
         match device.poll(Duration::from_millis(4))? {
@@ -85,6 +94,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rumble = sink.poll_rumble()?;
         apply_haptics(&mut device, &rumble, &mut last_haptic)?;
     }
+
+    // Ctrl-C: fall out of the loop so `device` and `sink` drop here — restoring Gordon's
+    // lizard mode and unplugging the virtual pad before we exit.
+    println!("\nshutting down — restoring controller and unplugging virtual pad.");
+    Ok(())
 }
 
 #[derive(Default)]
