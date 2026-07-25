@@ -32,13 +32,14 @@ const MOUSE_SCALE: f32 = 300.0;
 const MOUSE_ACCEL: f32 = 12.0;
 
 /// Gyro-aim: raw gyro units → pixels (small), the left-trigger threshold that enables it,
-/// and an optional radial deadzone (px) that skips sub-threshold frames. Deadzone `0` = off
-/// — Gordon's gyro rests at ~zero bias (zero-mean noise, §1.9) and is trigger-gated, so
-/// integrating it produces no drift without a deadzone. (A *biased* sensor would drift and
-/// want one — the accumulator faithfully integrates, it does not filter.)
+/// and a small **radial** deadzone (px) on the per-frame gyro delta. Gordon's gyro has a
+/// small DC bias (stationary raw isn't zero-mean, §1.9) that integrates into a slow cursor
+/// drift; a tiny deadzone (~0.1 px) removes it completely while sitting far below real aiming
+/// motion, so fine movement is unaffected. (The accumulator integrates faithfully — it does
+/// not filter — so this deadzone, not the accumulator, is what suppresses the drift.)
 const GYRO_SENS: f32 = 0.007;
 const GYRO_TRIGGER: f32 = 0.90;
-const GYRO_DEADZONE_PX: f32 = 0.0;
+const GYRO_DEADZONE_PX: f32 = 0.1;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manager = Manager::new()?;
@@ -156,9 +157,10 @@ impl Bridge {
         }
 
         // Gyro → mouse, only while the left trigger is held ≥ 90%: yaw → horizontal,
-        // pitch → vertical. The optional deadzone gate skips a gyro frame smaller than
-        // `GYRO_DEADZONE_PX` (it never reaches the accumulator); at 0 it's off and gyro
-        // accumulates like the pad. NOTE(sign): flip either term if the axis feels inverted.
+        // pitch → vertical. The radial deadzone gate skips a gyro frame whose delta is
+        // smaller than `GYRO_DEADZONE_PX` (it never reaches the accumulator) — a tiny value
+        // kills the small resting-bias drift without touching real aiming motion.
+        // NOTE(sign): flip either term if the axis feels inverted.
         if s.left_trigger >= GYRO_TRIGGER {
             let gdx = -(s.gyro.z as f32) * GYRO_SENS; // yaw-left → cursor left
             let gdy = (s.gyro.x as f32) * GYRO_SENS; // pitch-up → cursor down (inverted)
