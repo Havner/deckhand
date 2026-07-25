@@ -1,0 +1,10 @@
+# Grant the logged-in user write access to /dev/uinput (PLAN §2.1).
+#
+# virt-out creates virtual keyboard/mouse/gamepad devices through /dev/uinput, which
+# is root-only by default. This tags the node with `uaccess` so the active local user
+# can open it without root. Install and reload:
+#     sudo cp 70-deckhand-uinput.rules /etc/udev/rules.d/
+#     sudo udevadm control --reload-rules && sudo udevadm trigger
+# (a fresh login/session may be needed for uaccess to apply).
+
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
