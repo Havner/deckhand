@@ -13,6 +13,13 @@ thiserror.workspace = true
 evdev.workspace = true
 libc.workspace = true
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# Virtual Xbox 360 pad via the ViGEmBus driver. `unstable_xtarget_notification` is
+# required to receive game rumble back from the virtual pad (PLAN §2.1 FF back-channel).
+vigem-client = { version = "0.1", features = ["unstable_xtarget_notification"] }
+# SendInput for virtual keyboard/mouse (no driver needed).
+windows = { version = "0.60", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+
 [dev-dependencies]
 # The `bridge` example wires a real Steam controller into the virtual pad (PLAN §2.1
 # Phase B). Dev-only — does NOT enter virt-out's dependency graph or its consumers'.

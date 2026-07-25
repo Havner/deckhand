@@ -2,16 +2,22 @@
 //! to the OS. Platform code sits behind the backend module; the public API is a
 //! platform-agnostic [`Sink`] plus the output vocabulary in [`OutputEvent`]. Sync.
 //!
-//! Linux backend only for now (uinput via `evdev`), so the crate is Linux-gated.
-//! Windows (SendInput + ViGEm) / macOS come later (PLAN §2). See PLAN §2.1.
-
-#![cfg(target_os = "linux")]
+//! Backends: Linux uinput via `evdev`; Windows `SendInput` (kb/mouse) + ViGEm (virtual
+//! Xbox 360 pad). macOS comes later (PLAN §2). See PLAN §2.1.
 
 mod event;
+
+#[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::Sink;
+
+#[cfg(target_os = "windows")]
+mod win;
+#[cfg(target_os = "windows")]
+pub use win::Sink;
 
 pub use event::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent, Rumble};
-pub use linux::Sink;
 
 /// `virt-out` result type.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -20,7 +26,14 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// A uinput / evdev I/O error (often `/dev/uinput` permissions — see the udev rule).
-    #[error("uinput I/O error: {0}")]
+    /// A platform I/O error (Linux: uinput/`/dev/uinput` perms — see the udev rule;
+    /// Windows: a failed `SendInput`).
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// A ViGEmBus error (Windows virtual-gamepad backend) — e.g. the driver isn't
+    /// installed, or the target couldn't be plugged in.
+    #[cfg(target_os = "windows")]
+    #[error("ViGEm error: {0}")]
+    Vigem(#[from] vigem_client::Error),
 }

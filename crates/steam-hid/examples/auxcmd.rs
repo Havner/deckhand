@@ -1,4 +1,5 @@
-//! `aux` — smoke-test the auxiliary output commands (LED, idle timeout, power off).
+//! `auxcmd` — smoke-test the auxiliary output commands (LED, idle timeout, power off).
+//! (Named `auxcmd`, not `aux`: `aux` is a reserved device name on Windows.)
 //!
 //! These have no readable response — verification is **behavioral** (watch the LED,
 //! watch it auto-power-off, watch it power off). Each subcommand fires the command
@@ -6,9 +7,9 @@
 //! idle, so we must stay alive to observe) and logs lifecycle frames with timestamps.
 //!
 //! `--wired`/`--dongle` pick the transport. Run:
-//!   `cargo run -p steam-hid --example aux -- [--dongle] led 0`     (0..=100 %)
-//!   `cargo run -p steam-hid --example aux -- [--dongle] idle 30`   (seconds; 0 disables)
-//!   `cargo run -p steam-hid --example aux -- [--dongle] off`
+//!   `cargo run -p steam-hid --example auxcmd -- [--dongle] led 0`     (0..=100 %)
+//!   `cargo run -p steam-hid --example auxcmd -- [--dongle] idle 30`   (seconds; 0 disables)
+//!   `cargo run -p steam-hid --example auxcmd -- [--dongle] off`
 //! Ctrl-C to stop.
 
 mod common;
@@ -26,7 +27,7 @@ fn main() -> steam_hid::Result<()> {
         .filter(|a| !a.starts_with("--"))
         .collect();
     let Some(sub) = positional.first().map(String::as_str) else {
-        eprintln!("usage: aux [--wired|--dongle] <led N | idle SECS | off>");
+        eprintln!("usage: auxcmd [--wired|--dongle] <led N | idle SECS | off>");
         return Ok(());
     };
 
@@ -62,7 +63,7 @@ fn main() -> steam_hid::Result<()> {
         }
     };
 
-    let log_path = std::env::temp_dir().join("steam-hid-aux.log");
+    let log_path = std::env::temp_dir().join("steam-hid-auxcmd.log");
     let mut log = BufWriter::new(File::create(&log_path).expect("create log file"));
     writeln!(log, "# selected {desc}").ok();
     writeln!(log, "# cmd: {sub} {}", value.unwrap_or("")).ok();
