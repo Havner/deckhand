@@ -25,7 +25,19 @@ use steam_hid::{Buttons, ControllerState, Device, Manager, Motor, Report, Rumble
 use virt_out::{GamepadAxis, GamepadButton, Key, OutputEvent, Rumble, Sink};
 
 /// Pad-units (−1..1) → pixels per frame of relative mouse motion.
-const MOUSE_SCALE: f32 = 900.0;
+const MOUSE_SCALE: f32 = 300.0;
+/// Simplest possible acceleration: output is scaled by `1 + speed·MOUSE_ACCEL`, where
+/// `speed` is the per-frame pad-delta magnitude — slow moves stay ~1:1, fast swipes go
+/// proportionally farther. (A proper time-based curve belongs in the engine.)
+const MOUSE_ACCEL: f32 = 12.0;
+
+/// Gyro-aim: raw gyro units → pixels (small), the left-trigger threshold that enables it,
+/// and an optional radial output deadzone (px). Deadzone `0` = off — the sub-pixel
+/// accumulator already cancels Gordon's zero-mean resting noise, so aim stays stable
+/// without one (kept as a knob for setups/sensors that do drift).
+const GYRO_SENS: f32 = 0.007;
+const GYRO_TRIGGER: f32 = 0.90;
+const GYRO_DEADZONE_PX: f32 = 0.0;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manager = Manager::new()?;
@@ -34,6 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("controller: {:?} / {:?}", device.info().kind, device.info().transport);
     if let Err(e) = device.set_lizard_mode(false) {
         eprintln!("warning: couldn't disable lizard mode: {e}");
+    }
+    if let Err(e) = device.set_gyro(true) {
+        eprintln!("warning: couldn't enable gyro: {e}");
     }
 
     let mut sink = Sink::new()?;
@@ -47,9 +62,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         // Gordon input → virtual devices (emit full state each frame; the kernel input
         // core drops unchanged key/abs values, so consumers see only real changes).
-        if let Some(Report::State(s)) = device.poll(Duration::from_millis(4))? {
-            let events = bridge.frame(&s);
-            sink.emit(&events)?;
+        match device.poll(Duration::from_millis(4))? {
+            Some(Report::State(s)) => {
+                let events = bridge.frame(&s);
+                sink.emit(&events)?;
+            }
+            // The controller resets its config when it re-joins the dongle, so re-apply
+            // on every (re)connect. (In the real product this lives in the engine's
+            // connect-handling — steam-hid stays config-agnostic; PLAN §1.9/§4.)
+            Some(Report::Connected) => {
+                let r = device.set_lizard_mode(false).and_then(|()| device.set_gyro(true));
+                match r {
+                    Ok(()) => println!("controller reconnected — config re-applied"),
+                    Err(e) => eprintln!("warning: couldn't re-apply config on reconnect: {e}"),
+                }
+            }
+            _ => {}
         }
         // Virtual-pad rumble → Gordon trackpad haptics.
         let rumble = sink.poll_rumble()?;
@@ -62,6 +90,9 @@ struct Bridge {
     /// Last right-pad position while touched, for computing relative mouse deltas.
     /// `None` when the finger is up (or mode-shift active), so re-touch doesn't jump.
     prev_rpad: Option<(f32, f32)>,
+    /// Sub-pixel remainder carried between frames: we emit only whole pixels and keep
+    /// the fraction, so slow/small movement isn't truncated away (feels much better).
+    mouse_acc: (f32, f32),
 }
 
 impl Bridge {
@@ -93,8 +124,9 @@ impl Bridge {
         ];
 
         // --- left stick → left stick, or (mode-shift) → right stick ---
-        // NOTE(sign): pass-through Y; flip here if up/down is inverted in-game.
-        let (lx, ly) = (s.left_stick.x, s.left_stick.y);
+        // Y is inverted vs. the Xbox convention (up = negative), so negate it (covers
+        // both the left-stick and mode-shift right-stick paths, which share `ly`).
+        let (lx, ly) = (s.left_stick.x, -s.left_stick.y);
         if modeshift {
             ev.push(ax(GamepadAxis::RightStickX, lx));
             ev.push(ax(GamepadAxis::RightStickY, ly));
@@ -107,19 +139,41 @@ impl Bridge {
             ev.push(ax(GamepadAxis::RightStickY, 0.0));
         }
 
-        // --- right pad → relative mouse (suppressed during mode-shift) ---
+        // --- mouse: right pad (relative) + gyro (rate) → shared sub-pixel accumulator ---
+        // Right pad → relative mouse (suppressed during mode-shift).
         if !modeshift && s.right_pad.touched {
             let (x, y) = (s.right_pad.pos.x, s.right_pad.pos.y);
             if let Some((px, py)) = self.prev_rpad {
-                let dx = ((x - px) * MOUSE_SCALE) as i32;
-                let dy = ((y - py) * -MOUSE_SCALE) as i32; // pad up → cursor up
-                if dx != 0 || dy != 0 {
-                    ev.push(OutputEvent::MouseMove { dx, dy });
-                }
+                let (rx, ry) = (x - px, y - py);
+                let accel = 1.0 + rx.hypot(ry) * MOUSE_ACCEL; // fast swipes travel farther
+                self.mouse_acc.0 += rx * MOUSE_SCALE * accel;
+                self.mouse_acc.1 += ry * -MOUSE_SCALE * accel; // pad up → cursor up
             }
             self.prev_rpad = Some((x, y));
         } else {
             self.prev_rpad = None; // finger up / mode-shift → no jump on next touch
+        }
+
+        // Gyro → mouse, only while the left trigger is held ≥ 90%: yaw → horizontal,
+        // pitch → vertical. A radial deadzone drops sub-`GYRO_DEADZONE_PX` frames so a
+        // still hand doesn't drift (we discard the noise rather than accumulate it, unlike
+        // the pad). NOTE(sign): flip either term if the axis feels inverted.
+        if s.left_trigger >= GYRO_TRIGGER {
+            let gdx = -(s.gyro.z as f32) * GYRO_SENS; // yaw-left → cursor left
+            let gdy = (s.gyro.x as f32) * GYRO_SENS; // pitch-up → cursor down (inverted)
+            if gdx.hypot(gdy) >= GYRO_DEADZONE_PX {
+                self.mouse_acc.0 += gdx;
+                self.mouse_acc.1 += gdy;
+            }
+        }
+
+        // Emit whole pixels; carry the sub-pixel remainder forward (small moves preserved).
+        let dx = self.mouse_acc.0.trunc() as i32;
+        let dy = self.mouse_acc.1.trunc() as i32;
+        self.mouse_acc.0 -= dx as f32;
+        self.mouse_acc.1 -= dy as f32;
+        if dx != 0 || dy != 0 {
+            ev.push(OutputEvent::MouseMove { dx, dy });
         }
 
         ev
@@ -142,8 +196,9 @@ fn axis_of(pos: bool, neg: bool) -> f32 {
 }
 
 /// Route received rumble to Gordon's trackpad actuators (throttled re-fire while the
-/// game commands rumble). ~90 Hz (in Gordon's rumble range, PLAN §1.9) with magnitude
-/// mapped onto the duty cycle as a crude amplitude (non-linear — fine-tuning deferred).
+/// game commands rumble). ~60 Hz (in Gordon's rumble range, PLAN §1.9) with magnitude
+/// mapped onto the duty cycle as a crude amplitude (non-linear — a response curve is a
+/// possible later tweak).
 fn apply_haptics(
     device: &mut Device,
     rumble: &Rumble,
@@ -163,12 +218,15 @@ fn apply_haptics(
 }
 
 fn train(magnitude: u16) -> HidRumble {
-    const PERIOD_US: u32 = 11_000; // ~90 Hz
-    let duty = (magnitude as u32 * PERIOD_US / u16::MAX as u32).clamp(600, PERIOD_US - 600);
+    const PERIOD_US: u32 = 16_667; // ~60 Hz
+    const STRENGTH: f32 = 0.5; // scale amplitude (duty cycle) to 50%
+    // Magnitude 0..65535 → duty cycle (our amplitude lever), linear × STRENGTH.
+    let full = magnitude as f32 / u16::MAX as f32;
+    let duty = ((full * STRENGTH * PERIOD_US as f32) as u32).clamp(600, PERIOD_US - 600);
     HidRumble {
         duration: duty as u16,
         interval: (PERIOD_US - duty) as u16,
-        count: 18, // ~200 ms train, re-fired every 120 ms → continuous while held
+        count: 12, // ~200 ms train, re-fired every 120 ms → continuous while held
         gain: 0,
     }
 }
