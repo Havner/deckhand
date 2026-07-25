@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::time::{Duration, Instant};
 
 use evdev::uinput::VirtualDevice;
 use evdev::{
@@ -16,6 +17,15 @@ use crate::event::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent, Ru
 
 const FF_MAX_EFFECTS: u32 = 16;
 
+/// A stored force-feedback effect: its rumble magnitudes plus the replay timing we
+/// must honor ourselves (the uinput-userspace FF model makes us stop playback when
+/// `length` elapses — the kernel doesn't do it for us).
+struct FfEffect {
+    rumble: Rumble,
+    length_ms: u32, // 0 = play until an explicit stop
+    delay_ms: u32,
+}
+
 /// The output sink: owns the virtual devices and realizes [`OutputEvent`]s.
 ///
 /// Sync — call [`Sink::emit`] from the engine's mapping loop. [`Sink::poll_rumble`]
@@ -25,11 +35,12 @@ pub struct Sink {
     keyboard: VirtualDevice,
     mouse: VirtualDevice,
     gamepad: VirtualDevice,
-    // Force-feedback state: a small pool of effect ids, the rumble magnitudes uploaded
-    // for each, and which one is currently playing.
+    // Force-feedback state: a small pool of effect ids, the effects uploaded for each,
+    // the one currently playing, and when it should auto-stop (per its replay length).
     ff_free_ids: Vec<i16>,
-    ff_effects: HashMap<i16, Rumble>,
+    ff_effects: HashMap<i16, FfEffect>,
     ff_playing: Option<i16>,
+    ff_until: Option<Instant>,
 }
 
 impl Sink {
@@ -43,6 +54,7 @@ impl Sink {
             ff_free_ids: (0..FF_MAX_EFFECTS as i16).rev().collect(),
             ff_effects: HashMap::new(),
             ff_playing: None,
+            ff_until: None,
         })
     }
 
@@ -105,27 +117,32 @@ impl Sink {
         };
         for event in events {
             match event.destructure() {
-                // A consumer uploads an effect — assign it an id, store its magnitudes.
+                // Upload an effect. New effects (id `-1`) get a pooled id; updates (a game
+                // changing an effect in place — e.g. dropping rumble to 0) keep their id.
+                // `FFUploadEvent` owns its fd, so it doesn't borrow `self.gamepad`.
                 EventSummary::UInput(ev, UInputCode::UI_FF_UPLOAD, _) => {
-                    let id = self.ff_free_ids.pop();
-                    let rumble = {
-                        let mut up = self.gamepad.process_ff_upload(ev)?;
-                        match id {
-                            Some(id) => {
-                                up.set_effect_id(id);
-                                up.set_retval(0);
-                            }
-                            None => up.set_retval(-1), // pool exhausted
+                    let mut up = self.gamepad.process_ff_upload(ev)?;
+                    let existing = up.effect_id();
+                    let id = if existing >= 0 { Some(existing) } else { self.ff_free_ids.pop() };
+                    match id {
+                        Some(id) => {
+                            up.set_effect_id(id);
+                            up.set_retval(0);
                         }
-                        match up.effect().kind {
-                            FFEffectKind::Rumble { strong_magnitude, weak_magnitude } => {
-                                Some(Rumble { strong: strong_magnitude, weak: weak_magnitude })
-                            }
-                            _ => None,
-                        }
-                    };
-                    if let (Some(id), Some(r)) = (id, rumble) {
-                        self.ff_effects.insert(id, r);
+                        None => up.set_retval(-1), // pool exhausted
+                    }
+                    let data = up.effect();
+                    if let (Some(id), FFEffectKind::Rumble { strong_magnitude, weak_magnitude }) =
+                        (id, data.kind)
+                    {
+                        self.ff_effects.insert(
+                            id,
+                            FfEffect {
+                                rumble: Rumble { strong: strong_magnitude, weak: weak_magnitude },
+                                length_ms: data.replay.length as u32,
+                                delay_ms: data.replay.delay as u32,
+                            },
+                        );
                     }
                 }
                 // An effect is erased — reclaim its id.
@@ -134,26 +151,44 @@ impl Sink {
                     self.ff_effects.remove(&id);
                     if self.ff_playing == Some(id) {
                         self.ff_playing = None;
+                        self.ff_until = None;
                     }
                     self.ff_free_ids.push(id);
                 }
-                // Play (value != 0) / stop (0) of an effect id. (Single-slot: reports the
-                // most-recently-played effect; layering multiple simultaneous effects is a
-                // future refinement — games typically drive one rumble effect at a time.)
+                // Play (value = repeat count ≥ 1) / stop (0) of an effect id. On play we
+                // honor the effect's replay `length` by scheduling an auto-stop — in the
+                // uinput-userspace FF model nothing stops it for us. `length == 0` means
+                // play until an explicit stop. (Single-slot: last-played effect wins.)
                 EventSummary::ForceFeedback(_, effect, value) => {
                     let id = effect.0 as i16;
                     if value != 0 {
                         self.ff_playing = Some(id);
+                        let (length, delay) = self
+                            .ff_effects
+                            .get(&id)
+                            .map(|e| (e.length_ms, e.delay_ms))
+                            .unwrap_or((0, 0));
+                        self.ff_until = (length > 0).then(|| {
+                            let total = delay + length * value.max(1) as u32;
+                            Instant::now() + Duration::from_millis(total as u64)
+                        });
                     } else if self.ff_playing == Some(id) {
                         self.ff_playing = None;
+                        self.ff_until = None;
                     }
                 }
                 _ => {}
             }
         }
+        // Auto-stop once the replay length has elapsed.
+        if self.ff_until.is_some_and(|t| Instant::now() >= t) {
+            self.ff_playing = None;
+            self.ff_until = None;
+        }
         Ok(self
             .ff_playing
-            .and_then(|id| self.ff_effects.get(&id).cloned())
+            .and_then(|id| self.ff_effects.get(&id))
+            .map(|e| e.rumble.clone())
             .unwrap_or_default())
     }
 }
