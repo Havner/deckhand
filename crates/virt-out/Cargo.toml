@@ -12,3 +12,8 @@ thiserror.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev.workspace = true
 libc.workspace = true
+
+[dev-dependencies]
+# The `bridge` example wires a real Steam controller into the virtual pad (PLAN §2.1
+# Phase B). Dev-only — does NOT enter virt-out's dependency graph or its consumers'.
+steam-hid = { path = "../steam-hid" }
