@@ -123,7 +123,22 @@ impl Sink {
             // the size of one INPUT, as the API requires.
             let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
             if sent as usize != inputs.len() {
-                return Err(std::io::Error::last_os_error().into());
+                // Synthetic input is best-effort: the OS refuses injection (UIPI) while a
+                // higher-integrity or *switching* input desktop owns the foreground — e.g.
+                // a fullscreen/elevated game exiting, or a UAC/secure-desktop prompt. That
+                // shows up as ERROR_ACCESS_DENIED (or, per the SendInput docs, no error set
+                // at all for UIPI). It's transient and environmental, not a fault we can act
+                // on, so drop the frame and carry on rather than tearing down the mapper.
+                // Any other failure is unexpected (likely a malformed INPUT = our bug) and
+                // stays fatal. (A persistent denial — deckhand not elevated vs. an elevated
+                // game — is left for the engine/UI to detect and advise on; PLAN §2.1.)
+                let err = std::io::Error::last_os_error();
+                const ERROR_ACCESS_DENIED: i32 = 5;
+                const ERROR_SUCCESS: i32 = 0;
+                match err.raw_os_error() {
+                    Some(ERROR_ACCESS_DENIED) | Some(ERROR_SUCCESS) => {}
+                    _ => return Err(err.into()),
+                }
             }
         }
         if gp_dirty {
