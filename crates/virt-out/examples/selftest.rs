@@ -16,8 +16,13 @@ use virt_out::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent, Sink};
 fn main() -> virt_out::Result<()> {
     let mut sink = Sink::new()?;
     println!("virtual devices created (keyboard / mouse / 'Microsoft X-Box 360 pad').");
-    println!("Open evtest / jstest to watch. Ctrl-C to stop.\n");
-    sleep(Duration::from_secs(1)); // let userspace notice the new devices
+    println!("Open evtest / jstest to watch. Ctrl-C to stop.");
+    // Give userspace time to notice the new devices, and you time to open a tester.
+    for n in (1..=3).rev() {
+        println!("starting in {n}s…");
+        sleep(Duration::from_secs(1));
+    }
+    println!();
 
     let step = Duration::from_millis(300);
     loop {
