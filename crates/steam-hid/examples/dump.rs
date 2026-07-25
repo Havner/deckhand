@@ -1,8 +1,13 @@
-//! `dump` — enumerate Steam controllers, open the first, and print state changes.
+//! `dump` — open the target controller in full raw mode and print every frame.
 //!
-//! Skeleton per PLAN §1.8. Run with: `cargo run -p steam-hid --example dump`.
+//! Disables lizard (raw pads) and enables gyro, then polls and prints each frame
+//! (state / connect / battery) — the broad "show me everything" diagnostic, vs
+//! `read` which logs only changes. `--wired`/`--dongle` pick the transport.
+//! Run: `cargo run -p steam-hid --example dump -- [--wired|--dongle]`.
 //! (On Linux the in-kernel `hid-steam` driver claims the device; raw access needs
 //! the udev rule in `crates/steam-hid/udev/` — PLAN §1.6.)
+
+mod common;
 
 use std::time::Duration;
 
@@ -10,22 +15,12 @@ use steam_hid::{Manager, Report};
 
 fn main() -> steam_hid::Result<()> {
     let manager = Manager::new()?;
-
-    let devices = manager.enumerate()?;
-    if devices.is_empty() {
-        println!("No Steam controller gamepad interfaces found.");
+    let Some((desc, mut device)) = common::select_device(&manager)? else {
+        println!("No matching controller found — connected/on?");
         return Ok(());
-    }
-    println!("Found {} device(s):", devices.len());
-    for d in &devices {
-        println!(
-            "  {:?} / {:?}  {:04x}:{:04x} iface={} serial={:?}",
-            d.kind, d.transport, d.vid, d.pid, d.interface, d.serial
-        );
-    }
+    };
+    println!("selected {desc}. Enabling raw mode…");
 
-    let mut device = manager.open(&devices[0])?;
-    println!("\nOpened {:?}. Enabling raw mode…", device.info().kind);
     if let Err(e) = device.set_lizard_mode(false) {
         eprintln!("warning: could not disable lizard mode: {e}");
     }

@@ -4,7 +4,11 @@
 //! raw i16 values and their conversion to g / deg·s⁻¹ (PLAN §1.4 scale constants,
 //! provisional). Only sends `set_gyro` (no lizard-off) so it can't leave the
 //! controller dead; the IMU setting is restored on clean exit.
-//! Run: `cargo run -p steam-hid --example imu`.
+//!
+//! `--wired`/`--dongle` pick the transport.
+//! Run: `cargo run -p steam-hid --example imu -- [--wired|--dongle]`.
+
+mod common;
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -18,48 +22,23 @@ const GYRO_RES_PER_DPS: f32 = 16.0;
 
 fn main() -> steam_hid::Result<()> {
     let manager = Manager::new()?;
-    let devices = manager.enumerate()?;
-    if devices.is_empty() {
-        println!("No Steam controller gamepad interfaces found.");
-        return Ok(());
-    }
-
-    // Find the active slot.
-    let mut active = None;
-    for info in &devices {
-        let mut device = manager.open(info)?;
-        for _ in 0..8 {
-            match device.poll(Duration::from_millis(200))? {
-                Some(Report::State(_)) | Some(Report::Connected) => {
-                    active = Some((info.interface, device));
-                    break;
-                }
-                _ => {}
-            }
-        }
-        if active.is_some() {
-            break;
-        }
-    }
-    let Some((iface, mut device)) = active else {
-        println!("No active slot — is the controller powered on?");
+    let Some((desc, mut device)) = common::select_device(&manager)? else {
+        println!("No matching controller found — connected/on?");
         return Ok(());
     };
-
-    let log_path = std::env::args().nth(1).unwrap_or_else(|| {
-        std::env::temp_dir()
-            .join("steam-hid-imu.log")
-            .to_string_lossy()
-            .into_owned()
-    });
-    let mut log = BufWriter::new(File::create(&log_path).expect("create log file"));
+    println!("selected {desc}");
 
     if let Err(e) = device.set_gyro(true) {
         eprintln!("warning: could not enable gyro: {e}");
     }
+
+    let log_path = std::env::temp_dir().join("steam-hid-imu.log");
+    let mut log = BufWriter::new(File::create(&log_path).expect("create log file"));
+    writeln!(log, "# selected {desc}").ok();
     println!(
-        "iface {iface}: gyro enabled. Logging to {log_path}\nHold still (accel ~1g on \
-         one axis, gyro ~0), then rotate/tilt one axis at a time. Ctrl-C to stop.\n"
+        "gyro enabled. Logging to {}\nHold still (accel ~1g on one axis, gyro ~0), then \
+         rotate/tilt one axis at a time. Ctrl-C to stop.\n",
+        log_path.display()
     );
 
     let mut last = Instant::now();

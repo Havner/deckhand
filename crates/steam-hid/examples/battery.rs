@@ -1,8 +1,13 @@
 //! `battery` — report Gordon battery status from the `0x04` frame.
 //!
 //! The dongle sends battery `0x04` frames periodically; this also actively prompts
-//! one with a wireless-state request. Safe (no lizard-off).
-//! Run: `cargo run -p steam-hid --example battery`.
+//! one with a wireless-state request. Safe (no lizard-off). Wired Gordon is
+//! USB-powered and sends no `0x04` frame, so this is a dongle-only diagnostic.
+//!
+//! `--wired`/`--dongle` pick the transport.
+//! Run: `cargo run -p steam-hid --example battery -- [--wired|--dongle]`.
+
+mod common;
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -12,36 +17,15 @@ use steam_hid::{Manager, RawReport};
 
 fn main() -> steam_hid::Result<()> {
     let manager = Manager::new()?;
-    let devices = manager.enumerate()?;
-    if devices.is_empty() {
-        println!("No Steam controller gamepad interfaces found.");
-        return Ok(());
-    }
-
-    // Find the active slot (streams input or reports connected).
-    let mut active = None;
-    for info in &devices {
-        let mut device = manager.open(info)?;
-        for _ in 0..8 {
-            match device.poll_raw(Duration::from_millis(200))? {
-                Some(RawReport::Gordon(_)) | Some(RawReport::Connected) => {
-                    active = Some(device);
-                    break;
-                }
-                _ => {}
-            }
-        }
-        if active.is_some() {
-            break;
-        }
-    }
-    let Some(mut device) = active else {
-        println!("No active slot — is the controller powered on?");
+    let Some((desc, mut device)) = common::select_device(&manager)? else {
+        println!("No matching controller found — connected/on?");
         return Ok(());
     };
+    println!("selected {desc}");
 
     let log_path = std::env::temp_dir().join("steam-hid-battery.log");
     let mut log = BufWriter::new(File::create(&log_path).expect("create log file"));
+    writeln!(log, "# selected {desc}").ok();
     println!(
         "Battery status from 0x04 frames (logging to {}). Ctrl-C to stop.\n",
         log_path.display()
