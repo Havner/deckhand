@@ -1,0 +1,13 @@
+[package]
+name = "virt-out"
+description = "Output HAL: emit virtual mouse/keyboard/gamepad to the OS (Linux uinput; Windows/macOS later)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev.workspace = true
