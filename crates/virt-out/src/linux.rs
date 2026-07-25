@@ -137,7 +137,9 @@ impl Sink {
                     }
                     self.ff_free_ids.push(id);
                 }
-                // Play (value != 0) / stop (0) of an effect id.
+                // Play (value != 0) / stop (0) of an effect id. (Single-slot: reports the
+                // most-recently-played effect; layering multiple simultaneous effects is a
+                // future refinement — games typically drive one rumble effect at a time.)
                 EventSummary::ForceFeedback(_, effect, value) => {
                     let id = effect.0 as i16;
                     if value != 0 {

@@ -11,7 +11,7 @@
 use std::thread::sleep;
 use std::time::Duration;
 
-use virt_out::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent, Sink};
+use virt_out::{GamepadAxis, GamepadButton, OutputEvent, Sink};
 
 fn main() -> virt_out::Result<()> {
     let mut sink = Sink::new()?;
@@ -26,12 +26,7 @@ fn main() -> virt_out::Result<()> {
 
     let step = Duration::from_millis(300);
     loop {
-        // Mouse: nudge right then back left.
-        sink.emit(&[OutputEvent::MouseMove { dx: 15, dy: 0 }])?;
-        sleep(step);
-        sink.emit(&[OutputEvent::MouseMove { dx: -15, dy: 0 }])?;
-        sleep(step);
-
+        // Gamepad-only demo (keyboard/mouse dropped so fftest's terminal stays clean).
         // Gamepad button A tap.
         sink.emit(&[OutputEvent::GamepadButton(GamepadButton::A, true)])?;
         sleep(step);
@@ -47,12 +42,6 @@ fn main() -> virt_out::Result<()> {
         sink.emit(&[OutputEvent::GamepadAxis(GamepadAxis::RightTrigger, 1.0)])?;
         sleep(step);
         sink.emit(&[OutputEvent::GamepadAxis(GamepadAxis::RightTrigger, 0.0)])?;
-
-        // Left mouse button + a key tap.
-        sink.emit(&[OutputEvent::MouseButton(MouseButton::Left, true)])?;
-        sink.emit(&[OutputEvent::MouseButton(MouseButton::Left, false)])?;
-        sink.emit(&[OutputEvent::Key(Key::A, true)])?;
-        sink.emit(&[OutputEvent::Key(Key::A, false)])?;
 
         // Rumble back-channel: print anything a consumer sent us.
         let r = sink.poll_rumble()?;
