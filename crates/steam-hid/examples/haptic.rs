@@ -1,19 +1,20 @@
-//! `haptic` — verify Gordon's trackpad haptics (`0x8F` ID_TRIGGER_HAPTIC_PULSE).
+//! `haptic` — explore Gordon's trackpad haptic parameters (`0x8F` TRIGGER_HAPTIC_PULSE).
 //!
-//! Per the kernel, Gordon has ONE haptic path: `0x8F` driving the two **trackpad**
-//! actuators (`0xEB` rumble + `0xEA` haptic2 are Deck-only — the original SC has no
-//! rumble motors; `0xEB` confirmed to do nothing on Gordon). Pad mapping is verified:
-//! **wire byte 0 = RIGHT pad, 1 = LEFT** (the kernel's "legacy swap").
+//! The `0x8F` pulse is a square wave on a trackpad actuator: each cycle is `duration` µs
+//! ON then `interval` µs OFF, repeated `count` times. So **frequency ≈ 1e6/(duration+
+//! interval) Hz**, the on/off ratio is the **duty cycle**, and `count`×(dur+interval) is
+//! the total length. Low frequencies (~30–150 Hz) feel like **rumble**; high ones (~1 kHz)
+//! are an audible **tone**. `gain` is ignored on Gordon (verified). Pad map (verified):
+//! wire 0 = RIGHT, 1 = LEFT; **`pad=2` (BOTH) is NOT honored by Gordon — it no-ops**, so
+//! "both" is done by firing wire 0 + wire 1 separately. `0xeb`/`0xea` are Deck-only.
 //!
-//! This run isolates the **gain byte** (the kernel's 8-byte variant vs C#'s 7-byte
-//! form): it alternates gain 0 dB / +6 dB on the RIGHT pad back-to-back, then fires the
-//! −24 dB minimum. **Verified outcome (Gordon): gain is ignored** — no audible difference
-//! across −24..+6, so the two packet variants are functionally identical here (the gain
-//! byte is honored only on the Deck per the kernel). Fired raw via the escape hatch.
+//! No args → runs a **frequency sweep** then a **duty-cycle** sweep on both pads.
+//! `<dur_us> <interval_us> <count> [pad]` → fire one **custom** pulse (pad 0=R/1=L/2=both,
+//! default both).
 //!
-//! Disables lizard mode first so pad-touch doesn't trigger lizard's own click-haptics
-//! (Drop restores lizard on exit). `--wired`/`--dongle` pick the transport.
-//! Run: `cargo run -p steam-hid --example haptic -- [--wired|--dongle]`.
+//! Disables lizard first (so pad-touch doesn't fire lizard click-haptics; Drop restores).
+//! `--wired`/`--dongle` pick the transport.
+//! Run: `cargo run -p steam-hid --example haptic -- [--wired|--dongle] [dur int count [pad]]`.
 
 mod common;
 
@@ -22,62 +23,87 @@ use std::time::Duration;
 
 use steam_hid::{Device, Manager};
 
-/// Fire a `0x8F` trackpad haptic pulse (kernel form: 8-byte payload + `gain`).
-/// `wire_pad`: 0 = RIGHT, 1 = LEFT (verified). `dur`/`interval` are microseconds
-/// (pulse on-time / gap), `count` = number of pulses, `gain` in dB (−24..+6, as u8).
-fn pulse(
-    dev: &mut Device,
-    wire_pad: u8,
-    dur: u16,
-    interval: u16,
-    count: u16,
-    gain: u8,
-) -> steam_hid::Result<()> {
+/// Fire one `0x8F` pulse (kernel 8-byte form). `wire_pad`: 0=RIGHT, 1=LEFT (Gordon
+/// no-ops any other value, so do NOT pass 2 here — use `both`).
+fn pulse(dev: &mut Device, wire_pad: u8, dur: u16, interval: u16, count: u16) -> steam_hid::Result<()> {
     let [d0, d1] = dur.to_le_bytes();
     let [i0, i1] = interval.to_le_bytes();
     let [c0, c1] = count.to_le_bytes();
-    dev.send_feature_report(&[0x8F, 8, wire_pad, d0, d1, i0, i1, c0, c1, gain])
+    dev.send_feature_report(&[0x8F, 8, wire_pad, d0, d1, i0, i1, c0, c1, 0])
+}
+
+/// Drive both actuators — Gordon ignores `pad=2`, so fire wire 0 and wire 1 separately
+/// (back-to-back; they run concurrently).
+fn both(dev: &mut Device, dur: u16, interval: u16, count: u16) -> steam_hid::Result<()> {
+    pulse(dev, 0, dur, interval, count)?;
+    pulse(dev, 1, dur, interval, count)
 }
 
 fn main() -> steam_hid::Result<()> {
+    let positional: Vec<String> =
+        std::env::args().skip(1).filter(|a| !a.starts_with("--")).collect();
+
     let manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&manager)? else {
         println!("No matching controller found — connected/on?");
         return Ok(());
     };
     println!("selected {desc}");
-
-    // Disable lizard so pad-touch doesn't fire lizard's own click-haptics while you
-    // feel for the test buzz (Drop restores lizard on exit).
     match device.set_lizard_mode(false) {
-        Ok(()) => println!("lizard disabled for the test\n"),
-        Err(e) => eprintln!("warning: could not disable lizard: {e}\n"),
+        Ok(()) => println!("lizard disabled for the test"),
+        Err(e) => eprintln!("warning: could not disable lizard: {e}"),
+    }
+
+    // Custom single-pulse mode: `haptic <dur_us> <interval_us> <count> [pad]`.
+    if positional.len() >= 3 {
+        let dur: u16 = positional[0].parse().expect("dur_us");
+        let interval: u16 = positional[1].parse().expect("interval_us");
+        let count: u16 = positional[2].parse().expect("count");
+        let pad: u8 = positional.get(3).and_then(|p| p.parse().ok()).unwrap_or(2);
+        let freq = 1_000_000u32 / (dur as u32 + interval as u32).max(1);
+        println!(
+            "\ncustom: pad={pad} dur={dur}µs interval={interval}µs count={count} (~{freq} Hz, \
+             ~{}ms)",
+            count as u32 * (dur as u32 + interval as u32) / 1000
+        );
+        if pad >= 2 {
+            both(&mut device, dur, interval, count)?;
+        } else {
+            pulse(&mut device, pad, dur, interval, count)?;
+        }
+        sleep(Duration::from_millis(1500));
+        return Ok(());
     }
 
     let pause = Duration::from_millis(1800);
-    // A clearly-perceptible ~1 kHz tone: 500 µs on / 500 µs off, 400 pulses (~400 ms).
-    let (dur, intv, cnt) = (500u16, 500u16, 400u16);
-    const RIGHT: u8 = 0;
-
-    // Give yourself a moment to grip the pads before the first buzz.
-    println!("starting in 2s…");
+    println!("\nGrip BOTH pads. Starting in 2s…");
     sleep(Duration::from_secs(2));
 
-    // Alternate low/high on the RIGHT pad, back-to-back, so the gain difference is easy
-    // to compare (−24 dB is encoded as a u8: 256 − 24 = 232).
-    let steps: [(&str, u8); 5] = [
-        ("gain  0 dB (baseline)", 0),
-        ("gain +6 dB (max) — louder?", 6),
-        ("gain  0 dB (baseline)", 0),
-        ("gain +6 dB (max) — louder?", 6),
-        ("gain -24 dB (min) — quietest?", 232),
-    ];
-    for (label, gain) in steps {
-        println!("RIGHT pad: {label}");
-        pulse(&mut device, RIGHT, dur, intv, cnt, gain)?;
+    // --- Frequency sweep: same ~600 ms length each, low (rumble) → high (tone) ---
+    println!("\n=== FREQUENCY SWEEP (both pads, ~600ms each) — feel rumble turn into tone ===");
+    for freq in [25u32, 40, 60, 90, 130, 200, 350, 600, 1000] {
+        let period = 1_000_000 / freq; // µs
+        let half = (period / 2) as u16;
+        let count = ((600 * 1000) / period) as u16;
+        println!("  {freq:>4} Hz  (dur={half}µs interval={half}µs count={count})");
+        both(&mut device, half, half, count)?;
         sleep(pause);
     }
 
-    println!("\nDone. Does +6 dB read louder than 0 dB, and -24 dB quieter (i.e. is gain honored)?");
+    // --- Duty cycle at ~80 Hz: does more on-time = stronger rumble? ---
+    println!("\n=== DUTY CYCLE at ~80 Hz (period 12500µs, ~600ms) — does on-time change strength? ===");
+    let period = 12_500u16;
+    let count = 48; // ~600 ms
+    for (label, dur) in [("10% on", 1_250u16), ("50% on", 6_250), ("90% on", 11_250)] {
+        let interval = period - dur;
+        println!("  {label}  (dur={dur}µs interval={interval}µs count={count})");
+        both(&mut device, dur, interval, count)?;
+        sleep(pause);
+    }
+
+    println!(
+        "\nDone. Which frequencies felt like rumble vs tone? Did higher duty cycle feel \
+         stronger? Then try e.g.:  cargo run -q -p steam-hid --example haptic -- --dongle 6250 6250 48"
+    );
     Ok(())
 }
