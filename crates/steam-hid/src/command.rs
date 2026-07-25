@@ -37,15 +37,18 @@ pub enum Motor {
     Right,
 }
 
-/// Parameters for a haptic pulse / rumble.
+/// Parameters for a `TRIGGER_HAPTIC_PULSE` (`0x8f`) trackpad haptic pulse.
 ///
-/// The exact packet layout is **unverified** — several candidates exist and the
-/// device responds to more than one (PLAN §1.4, §1.9). Treat these fields as the
-/// `TRIGGER_HAPTIC_PULSE` (`0x8f`) parameters for now.
+/// **Verified on Gordon** (PLAN §1.9): the actuator plays `count` pulses, each
+/// `duration` µs on then `interval` µs off — so `duration`/`interval` set the tone
+/// and `count` its length. `gain` (dB, −24..+6) is honored on the Deck per the kernel
+/// but **ignored on Gordon** (no audible difference across the range), which makes the
+/// C# 7-byte and kernel 8-byte packet variants functionally identical on Gordon.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Rumble {
-    pub amplitude: u16,
-    pub period: u16,
+    pub duration: u16,
+    pub interval: u16,
     pub count: u16,
+    pub gain: i8,
 }

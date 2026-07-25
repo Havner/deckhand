@@ -266,19 +266,22 @@ impl Device {
         self.set_settings(&[(setting::SLEEP_INACTIVITY_TIMEOUT, secs)])
     }
 
-    /// Trigger a haptic pulse. **Unverified** packet layout (PLAN §1.4/§1.9);
-    /// the `dump` example fires the other candidates via the escape hatch.
+    /// Trigger a trackpad haptic pulse (`0x8f`), kernel 8-byte form.
+    ///
+    /// **Verified on Gordon** (PLAN §1.9): `Motor::Right`→wire pad 0, `Motor::Left`→wire
+    /// pad 1 (the kernel's legacy left/right swap). `params.gain` is honored on the Deck
+    /// but ignored on Gordon. (`0xeb` rumble / `0xea` haptic2 are Deck-only.)
     pub fn rumble(&mut self, motor: Motor, params: Rumble) -> Result<()> {
         let position: u8 = match motor {
             Motor::Right => 0,
             Motor::Left => 1,
         };
-        let [al, ah] = params.amplitude.to_le_bytes();
-        let [pl, ph] = params.period.to_le_bytes();
-        let [cl, ch] = params.count.to_le_bytes();
+        let [d0, d1] = params.duration.to_le_bytes();
+        let [i0, i1] = params.interval.to_le_bytes();
+        let [c0, c1] = params.count.to_le_bytes();
         self.feature(
             cmd::TRIGGER_HAPTIC_PULSE,
-            &[position, al, ah, pl, ph, cl, ch],
+            &[position, d0, d1, i0, i1, c0, c1, params.gain as u8],
         )
     }
 
