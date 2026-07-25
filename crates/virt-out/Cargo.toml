@@ -11,3 +11,4 @@ thiserror.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev.workspace = true
+libc.workspace = true

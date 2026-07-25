@@ -96,7 +96,13 @@ impl Sink {
     /// currently-commanded rumble (zero if nothing is playing). Non-blocking. Route
     /// the result onward to real-controller haptics (PLAN §2.1 / §6).
     pub fn poll_rumble(&mut self) -> crate::Result<Rumble> {
-        let events: Vec<InputEvent> = self.gamepad.fetch_events()?.collect();
+        // The gamepad fd is non-blocking (set in `build_gamepad`), so with no FF traffic
+        // this returns `WouldBlock` — treat that as "nothing this cycle".
+        let events: Vec<InputEvent> = match self.gamepad.fetch_events() {
+            Ok(iter) => iter.collect(),
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Vec::new(),
+            Err(e) => return Err(e.into()),
+        };
         for event in events {
             match event.destructure() {
                 // A consumer uploads an effect — assign it an id, store its magnitudes.
@@ -199,7 +205,24 @@ fn build_gamepad() -> io::Result<VirtualDevice> {
     for axis in GamepadAxis::ALL {
         builder = builder.with_absolute_axis(&UinputAbsSetup::new(abs_code(axis), abs_info(axis)))?;
     }
-    builder.build()
+    let device = builder.build()?;
+    set_nonblocking(&device)?; // so poll_rumble's fetch_events doesn't block on no FF
+    Ok(device)
+}
+
+/// Put a device's fd in non-blocking mode (evdev's sync `VirtualDevice` reads block
+/// otherwise — only its tokio path sets `O_NONBLOCK`).
+fn set_nonblocking(device: &VirtualDevice) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let fd = device.as_raw_fd();
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 // --- vocabulary → evdev code mapping ---

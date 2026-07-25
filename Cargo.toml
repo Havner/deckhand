@@ -20,3 +20,5 @@ serde = { version = "1", features = ["derive"] }
 # virt-out Linux backend: uinput virtual devices (kb/mouse/gamepad). Widely-used,
 # maintained; matches the user's working `uinput-simulation` reference (PLAN §2.1).
 evdev = "0.13"
+# Set the gamepad uinput fd non-blocking (fcntl) so FF polling doesn't block the loop.
+libc = "0.2"
