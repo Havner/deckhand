@@ -35,12 +35,14 @@ fn main() -> steam_hid::Result<()> {
             None => {} // timeout — nothing this interval
             Some(report) => match report {
                 Report::State(s) => println!(
-                    "seq={:<6} L2={:.2} R2={:.2} lstick=({:+.2},{:+.2}) gyro=({},{},{}) buttons={:?}",
+                    "seq={:<6} L2={:.2} R2={:.2} lstick=({:+.2},{:+.2}) lpad_p={:.2} rpad_p={:.2} gyro=({},{},{}) buttons={:?}",
                     s.seq,
                     s.left_trigger,
                     s.right_trigger,
                     s.left_stick.x,
                     s.left_stick.y,
+                    s.left_pad.pressure,
+                    s.right_pad.pressure,
                     s.gyro.x,
                     s.gyro.y,
                     s.gyro.z,

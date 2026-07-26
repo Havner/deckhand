@@ -142,18 +142,18 @@ impl ControllerState {
             seq: n.seq,
             timestamp,
             buttons: map_neptune_buttons(b),
-            left_trigger: norm_trigger(n.left_trigger),
-            right_trigger: norm_trigger(n.right_trigger),
+            left_trigger: norm_i16(n.left_trigger),
+            right_trigger: norm_i16(n.right_trigger),
             left_stick: norm_stick(&n.left_stick),
             right_stick: norm_stick(&n.right_stick),
             left_pad: TrackPad {
                 pos: norm_stick(&n.left_pad),
-                pressure: norm_pressure(n.left_pad_pressure),
+                pressure: norm_i16(n.left_pad_pressure),
                 touched: b.contains(NeptuneButtons::LPAD_TOUCH),
             },
             right_pad: TrackPad {
                 pos: norm_stick(&n.right_pad),
-                pressure: norm_pressure(n.right_pad_pressure),
+                pressure: norm_i16(n.right_pad_pressure),
                 touched: b.contains(NeptuneButtons::RPAD_TOUCH),
             },
             accel: n.accel.clone(),
@@ -185,13 +185,10 @@ fn gordon_gyro(raw: &Vec3i) -> Vec3i {
 fn norm_u8(v: u8) -> f32 {
     v as f32 / 255.0
 }
-/// Normalize a Deck trigger (raw `i16`, `0..=32767`) to `0.0..=1.0`.
-fn norm_trigger(v: i16) -> f32 {
-    (v as f32 / 32767.0).clamp(0.0, 1.0)
-}
-/// Normalize Deck trackpad pressure (raw `i16`) to `0.0..=1.0`. Full-scale is
-/// provisional — **unverified** (PLAN §1.9).
-fn norm_pressure(v: i16) -> f32 {
+/// Normalize an unsigned-range `i16` (`0..=32767`) to `0.0..=1.0` — Deck triggers
+/// and trackpad pressure. (Bipolar sticks/pads use [`norm_axis`] instead. Pad-
+/// pressure full-scale is provisional — PLAN §1.9.)
+fn norm_i16(v: i16) -> f32 {
     (v as f32 / 32767.0).clamp(0.0, 1.0)
 }
 fn norm_axis(v: i16) -> f32 {
