@@ -13,7 +13,8 @@ use evdev::{
     RelativeAxisEvent, UInputCode, UinputAbsSetup,
 };
 
-use crate::event::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent, Rumble};
+use crate::event::{OutputEvent, Rumble};
+use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 const FF_MAX_EFFECTS: u32 = 16;
 
@@ -68,9 +69,15 @@ impl Sink {
         for ev in events {
             match ev {
                 OutputEvent::Key(k, down) => kb.push(*KeyEvent::new(key_code(k), *down as i32)),
-                OutputEvent::MouseButton(b, down) => {
-                    mouse.push(*KeyEvent::new(mouse_code(b), *down as i32))
-                }
+                OutputEvent::MouseButton(b, down) => match scroll_delta(b) {
+                    // Scroll pseudo-button: one wheel tick on press; release is a no-op.
+                    Some((axis, dir)) => {
+                        if *down {
+                            mouse.push(*RelativeAxisEvent::new(axis, dir));
+                        }
+                    }
+                    None => mouse.push(*KeyEvent::new(mouse_code(b), *down as i32)),
+                },
                 OutputEvent::MouseMove { dx, dy } => {
                     mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_X, *dx));
                     mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_Y, *dy));
@@ -209,7 +216,9 @@ fn build_keyboard() -> io::Result<VirtualDevice> {
 fn build_mouse() -> io::Result<VirtualDevice> {
     let mut buttons = AttributeSet::<KeyCode>::new();
     for b in MouseButton::ALL {
-        buttons.insert(mouse_code(b));
+        if !b.is_scroll() {
+            buttons.insert(mouse_code(b)); // scroll pseudo-buttons use REL_WHEEL, not BTN_*
+        }
     }
     let mut rel = AttributeSet::<RelativeAxisCode>::new();
     rel.insert(RelativeAxisCode::REL_X);
@@ -266,51 +275,6 @@ fn set_nonblocking(device: &VirtualDevice) -> io::Result<()> {
 
 fn key_code(k: &Key) -> KeyCode {
     match k {
-        Key::A => KeyCode::KEY_A,
-        Key::B => KeyCode::KEY_B,
-        Key::C => KeyCode::KEY_C,
-        Key::D => KeyCode::KEY_D,
-        Key::E => KeyCode::KEY_E,
-        Key::F => KeyCode::KEY_F,
-        Key::G => KeyCode::KEY_G,
-        Key::H => KeyCode::KEY_H,
-        Key::I => KeyCode::KEY_I,
-        Key::J => KeyCode::KEY_J,
-        Key::K => KeyCode::KEY_K,
-        Key::L => KeyCode::KEY_L,
-        Key::M => KeyCode::KEY_M,
-        Key::N => KeyCode::KEY_N,
-        Key::O => KeyCode::KEY_O,
-        Key::P => KeyCode::KEY_P,
-        Key::Q => KeyCode::KEY_Q,
-        Key::R => KeyCode::KEY_R,
-        Key::S => KeyCode::KEY_S,
-        Key::T => KeyCode::KEY_T,
-        Key::U => KeyCode::KEY_U,
-        Key::V => KeyCode::KEY_V,
-        Key::W => KeyCode::KEY_W,
-        Key::X => KeyCode::KEY_X,
-        Key::Y => KeyCode::KEY_Y,
-        Key::Z => KeyCode::KEY_Z,
-        Key::Num0 => KeyCode::KEY_0,
-        Key::Num1 => KeyCode::KEY_1,
-        Key::Num2 => KeyCode::KEY_2,
-        Key::Num3 => KeyCode::KEY_3,
-        Key::Num4 => KeyCode::KEY_4,
-        Key::Num5 => KeyCode::KEY_5,
-        Key::Num6 => KeyCode::KEY_6,
-        Key::Num7 => KeyCode::KEY_7,
-        Key::Num8 => KeyCode::KEY_8,
-        Key::Num9 => KeyCode::KEY_9,
-        Key::Space => KeyCode::KEY_SPACE,
-        Key::Enter => KeyCode::KEY_ENTER,
-        Key::Escape => KeyCode::KEY_ESC,
-        Key::Tab => KeyCode::KEY_TAB,
-        Key::Backspace => KeyCode::KEY_BACKSPACE,
-        Key::Up => KeyCode::KEY_UP,
-        Key::Down => KeyCode::KEY_DOWN,
-        Key::Left => KeyCode::KEY_LEFT,
-        Key::Right => KeyCode::KEY_RIGHT,
         Key::LeftShift => KeyCode::KEY_LEFTSHIFT,
         Key::RightShift => KeyCode::KEY_RIGHTSHIFT,
         Key::LeftCtrl => KeyCode::KEY_LEFTCTRL,
@@ -318,6 +282,136 @@ fn key_code(k: &Key) -> KeyCode {
         Key::LeftAlt => KeyCode::KEY_LEFTALT,
         Key::RightAlt => KeyCode::KEY_RIGHTALT,
         Key::LeftMeta => KeyCode::KEY_LEFTMETA,
+        Key::RightMeta => KeyCode::KEY_RIGHTMETA,
+        Key::Esc => KeyCode::KEY_ESC,
+        Key::Tab => KeyCode::KEY_TAB,
+        Key::CapsLock => KeyCode::KEY_CAPSLOCK,
+        Key::Backspace => KeyCode::KEY_BACKSPACE,
+        Key::Enter => KeyCode::KEY_ENTER,
+        Key::Space => KeyCode::KEY_SPACE,
+        Key::Compose => KeyCode::KEY_COMPOSE,
+        Key::Menu => KeyCode::KEY_MENU,
+        Key::Up => KeyCode::KEY_UP,
+        Key::Down => KeyCode::KEY_DOWN,
+        Key::Left => KeyCode::KEY_LEFT,
+        Key::Right => KeyCode::KEY_RIGHT,
+        Key::Insert => KeyCode::KEY_INSERT,
+        Key::Delete => KeyCode::KEY_DELETE,
+        Key::Home => KeyCode::KEY_HOME,
+        Key::End => KeyCode::KEY_END,
+        Key::PageUp => KeyCode::KEY_PAGEUP,
+        Key::PageDown => KeyCode::KEY_PAGEDOWN,
+        Key::Grave => KeyCode::KEY_GRAVE,
+        Key::K102nd => KeyCode::KEY_102ND,
+        Key::Minus => KeyCode::KEY_MINUS,
+        Key::Equal => KeyCode::KEY_EQUAL,
+        Key::LeftBrace => KeyCode::KEY_LEFTBRACE,
+        Key::RightBrace => KeyCode::KEY_RIGHTBRACE,
+        Key::Backslash => KeyCode::KEY_BACKSLASH,
+        Key::Semicolon => KeyCode::KEY_SEMICOLON,
+        Key::Apostrophe => KeyCode::KEY_APOSTROPHE,
+        Key::Comma => KeyCode::KEY_COMMA,
+        Key::Dot => KeyCode::KEY_DOT,
+        Key::Slash => KeyCode::KEY_SLASH,
+        Key::D1 => KeyCode::KEY_1,
+        Key::D2 => KeyCode::KEY_2,
+        Key::D3 => KeyCode::KEY_3,
+        Key::D4 => KeyCode::KEY_4,
+        Key::D5 => KeyCode::KEY_5,
+        Key::D6 => KeyCode::KEY_6,
+        Key::D7 => KeyCode::KEY_7,
+        Key::D8 => KeyCode::KEY_8,
+        Key::D9 => KeyCode::KEY_9,
+        Key::D0 => KeyCode::KEY_0,
+        Key::Q => KeyCode::KEY_Q,
+        Key::W => KeyCode::KEY_W,
+        Key::E => KeyCode::KEY_E,
+        Key::R => KeyCode::KEY_R,
+        Key::T => KeyCode::KEY_T,
+        Key::Y => KeyCode::KEY_Y,
+        Key::U => KeyCode::KEY_U,
+        Key::I => KeyCode::KEY_I,
+        Key::O => KeyCode::KEY_O,
+        Key::P => KeyCode::KEY_P,
+        Key::A => KeyCode::KEY_A,
+        Key::S => KeyCode::KEY_S,
+        Key::D => KeyCode::KEY_D,
+        Key::F => KeyCode::KEY_F,
+        Key::G => KeyCode::KEY_G,
+        Key::H => KeyCode::KEY_H,
+        Key::J => KeyCode::KEY_J,
+        Key::K => KeyCode::KEY_K,
+        Key::L => KeyCode::KEY_L,
+        Key::Z => KeyCode::KEY_Z,
+        Key::X => KeyCode::KEY_X,
+        Key::C => KeyCode::KEY_C,
+        Key::V => KeyCode::KEY_V,
+        Key::B => KeyCode::KEY_B,
+        Key::N => KeyCode::KEY_N,
+        Key::M => KeyCode::KEY_M,
+        Key::F1 => KeyCode::KEY_F1,
+        Key::F2 => KeyCode::KEY_F2,
+        Key::F3 => KeyCode::KEY_F3,
+        Key::F4 => KeyCode::KEY_F4,
+        Key::F5 => KeyCode::KEY_F5,
+        Key::F6 => KeyCode::KEY_F6,
+        Key::F7 => KeyCode::KEY_F7,
+        Key::F8 => KeyCode::KEY_F8,
+        Key::F9 => KeyCode::KEY_F9,
+        Key::F10 => KeyCode::KEY_F10,
+        Key::F11 => KeyCode::KEY_F11,
+        Key::F12 => KeyCode::KEY_F12,
+        Key::Print => KeyCode::KEY_PRINT,
+        Key::SysRq => KeyCode::KEY_SYSRQ,
+        Key::ScrollLock => KeyCode::KEY_SCROLLLOCK,
+        Key::Pause => KeyCode::KEY_PAUSE,
+        Key::NumLock => KeyCode::KEY_NUMLOCK,
+        Key::KpSlash => KeyCode::KEY_KPSLASH,
+        Key::KpAsterisk => KeyCode::KEY_KPASTERISK,
+        Key::KpMinus => KeyCode::KEY_KPMINUS,
+        Key::KpPlus => KeyCode::KEY_KPPLUS,
+        Key::KpEnter => KeyCode::KEY_KPENTER,
+        Key::Kp7 => KeyCode::KEY_KP7,
+        Key::Kp8 => KeyCode::KEY_KP8,
+        Key::Kp9 => KeyCode::KEY_KP9,
+        Key::Kp4 => KeyCode::KEY_KP4,
+        Key::Kp5 => KeyCode::KEY_KP5,
+        Key::Kp6 => KeyCode::KEY_KP6,
+        Key::Kp1 => KeyCode::KEY_KP1,
+        Key::Kp2 => KeyCode::KEY_KP2,
+        Key::Kp3 => KeyCode::KEY_KP3,
+        Key::Kp0 => KeyCode::KEY_KP0,
+        Key::KpDot => KeyCode::KEY_KPDOT,
+        Key::KpComma => KeyCode::KEY_KPCOMMA,
+        Key::KpEqual => KeyCode::KEY_KPEQUAL,
+        Key::KpPlusMinus => KeyCode::KEY_KPPLUSMINUS,
+        Key::KpLeftParen => KeyCode::KEY_KPLEFTPAREN,
+        Key::KpRightParen => KeyCode::KEY_KPRIGHTPAREN,
+        Key::Mute => KeyCode::KEY_MUTE,
+        Key::VolumeDown => KeyCode::KEY_VOLUMEDOWN,
+        Key::VolumeUp => KeyCode::KEY_VOLUMEUP,
+        Key::MicMute => KeyCode::KEY_MICMUTE,
+        Key::PlayPause => KeyCode::KEY_PLAYPAUSE,
+        Key::Play => KeyCode::KEY_PLAY,
+        Key::PreviousSong => KeyCode::KEY_PREVIOUSSONG,
+        Key::NextSong => KeyCode::KEY_NEXTSONG,
+        Key::Rewind => KeyCode::KEY_REWIND,
+        Key::FastForward => KeyCode::KEY_FASTFORWARD,
+        Key::StopCd => KeyCode::KEY_STOPCD,
+        Key::PlayCd => KeyCode::KEY_PLAYCD,
+        Key::PauseCd => KeyCode::KEY_PAUSECD,
+        Key::CloseCd => KeyCode::KEY_CLOSECD,
+        Key::EjectCd => KeyCode::KEY_EJECTCD,
+        Key::EjectCloseCd => KeyCode::KEY_EJECTCLOSECD,
+        Key::Back => KeyCode::KEY_BACK,
+        Key::Forward => KeyCode::KEY_FORWARD,
+        Key::BrightnessDown => KeyCode::KEY_BRIGHTNESSDOWN,
+        Key::BrightnessUp => KeyCode::KEY_BRIGHTNESSUP,
+        Key::BrightnessCycle => KeyCode::KEY_BRIGHTNESS_CYCLE,
+        Key::BrightnessAuto => KeyCode::KEY_BRIGHTNESS_AUTO,
+        Key::KbdIllumToggle => KeyCode::KEY_KBDILLUMTOGGLE,
+        Key::KbdIllumDown => KeyCode::KEY_KBDILLUMDOWN,
+        Key::KbdIllumUp => KeyCode::KEY_KBDILLUMUP,
     }
 }
 
@@ -328,6 +422,23 @@ fn mouse_code(b: &MouseButton) -> KeyCode {
         MouseButton::Middle => KeyCode::BTN_MIDDLE,
         MouseButton::Back => KeyCode::BTN_SIDE,
         MouseButton::Forward => KeyCode::BTN_EXTRA,
+        MouseButton::ScrollUp
+        | MouseButton::ScrollDown
+        | MouseButton::ScrollLeft
+        | MouseButton::ScrollRight => {
+            unreachable!("scroll pseudo-buttons are realized as wheel ticks — see scroll_delta")
+        }
+    }
+}
+
+/// The wheel axis + tick direction for a scroll pseudo-button; `None` for real buttons.
+fn scroll_delta(b: &MouseButton) -> Option<(RelativeAxisCode, i32)> {
+    match b {
+        MouseButton::ScrollUp => Some((RelativeAxisCode::REL_WHEEL, 1)),
+        MouseButton::ScrollDown => Some((RelativeAxisCode::REL_WHEEL, -1)),
+        MouseButton::ScrollRight => Some((RelativeAxisCode::REL_HWHEEL, 1)),
+        MouseButton::ScrollLeft => Some((RelativeAxisCode::REL_HWHEEL, -1)),
+        _ => None,
     }
 }
 

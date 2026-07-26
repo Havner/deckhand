@@ -1,0 +1,16 @@
+[package]
+name = "vocab"
+description = "Hardware-independent output vocabulary (keys / mouse / gamepad) shared by config and virt-out; backends map these bare names to OS codes."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Opt-in (de)serialization for the vocabulary enums — enabled by `config` (RON), off for
+# `virt-out` so the output HAL doesn't pull serde.
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }

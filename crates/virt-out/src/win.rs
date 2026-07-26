@@ -18,14 +18,23 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MAPVK_VK_TO_VSC, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
     MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
     MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT,
-    MapVirtualKeyW, SendInput, VIRTUAL_KEY, VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7,
-    VK_8, VK_9, VK_A, VK_B, VK_BACK, VK_C, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F, VK_G, VK_H,
-    VK_I, VK_J, VK_K, VK_L, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_M, VK_N,
-    VK_O, VK_P, VK_Q, VK_R, VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_S,
-    VK_SPACE, VK_T, VK_TAB, VK_U, VK_UP, VK_V, VK_W, VK_X, VK_Y, VK_Z,
+    MapVirtualKeyW, SendInput, VIRTUAL_KEY,
+    VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9,
+    VK_A, VK_B, VK_C, VK_D, VK_E, VK_F, VK_G, VK_H, VK_I, VK_J, VK_K, VK_L, VK_M, VK_N, VK_O,
+    VK_P, VK_Q, VK_R, VK_S, VK_T, VK_U, VK_V, VK_W, VK_X, VK_Y, VK_Z,
+    VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12,
+    VK_NUMPAD0, VK_NUMPAD1, VK_NUMPAD2, VK_NUMPAD3, VK_NUMPAD4, VK_NUMPAD5, VK_NUMPAD6,
+    VK_NUMPAD7, VK_NUMPAD8, VK_NUMPAD9,
+    VK_ADD, VK_APPS, VK_BACK, VK_CAPITAL, VK_DECIMAL, VK_DELETE, VK_DIVIDE, VK_DOWN, VK_END,
+    VK_ESCAPE, VK_HOME, VK_INSERT, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN,
+    VK_MULTIPLY, VK_NEXT, VK_NUMLOCK, VK_OEM_1, VK_OEM_102, VK_OEM_2, VK_OEM_3, VK_OEM_4,
+    VK_OEM_5, VK_OEM_6, VK_OEM_7, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD, VK_OEM_PLUS,
+    VK_PAUSE, VK_PRIOR, VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN,
+    VK_SCROLL, VK_SNAPSHOT, VK_SPACE, VK_SUBTRACT, VK_TAB, VK_UP,
 };
 
-use crate::event::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent, Rumble};
+use crate::event::{OutputEvent, Rumble};
+use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 /// `mouseData` values for the extra mouse buttons (X1 = back, X2 = forward).
 const XBUTTON1: u32 = 0x0001;
@@ -96,8 +105,20 @@ impl Sink {
 
         for ev in events {
             match ev {
-                OutputEvent::Key(k, down) => inputs.push(key_input(k, *down)),
-                OutputEvent::MouseButton(b, down) => inputs.push(mouse_button_input(b, *down)),
+                OutputEvent::Key(k, down) => {
+                    if let Some(inp) = key_input(k, *down) {
+                        inputs.push(inp);
+                    }
+                }
+                OutputEvent::MouseButton(b, down) => match scroll_of(b) {
+                    // Scroll pseudo-button: one wheel tick on press; release is a no-op.
+                    Some((ticks, horizontal)) => {
+                        if *down {
+                            inputs.push(wheel_input(ticks, horizontal));
+                        }
+                    }
+                    None => inputs.push(mouse_button_input(b, *down)),
+                },
                 OutputEvent::MouseMove { dx, dy } => inputs.push(mouse_move_input(*dx, *dy)),
                 OutputEvent::Scroll { dx, dy } => {
                     if *dy != 0 {
@@ -248,10 +269,17 @@ fn trigger(v: f32) -> u8 {
 
 /// Build a keyboard `INPUT` using scancode injection (games often read scancodes, not
 /// virtual keys). The scancode comes from the virtual key via `MapVirtualKeyW`; extended
-/// keys (arrows, right ctrl/alt, meta) get the extended-key flag so the E0 prefix is set.
-fn key_input(k: &Key, down: bool) -> INPUT {
-    let vk = key_vk(k);
+/// keys (arrows, right ctrl/alt, meta, nav, numpad slash/enter) get the extended-key flag
+/// so the E0 prefix is set. Returns `None` for keys we don't inject on Windows — those with
+/// no `key_vk` mapping (`Compose`, exotic keypad) or no keyboard scancode (media / volume /
+/// browser / brightness keys map to a VK but not a scancode). Linux maps all of them via
+/// evdev; Windows media-key injection can be added later (via VK injection).
+fn key_input(k: &Key, down: bool) -> Option<INPUT> {
+    let vk = key_vk(k)?;
     let scan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
+    if scan == 0 {
+        return None;
+    }
     let mut flags = KEYEVENTF_SCANCODE;
     if is_extended(k) {
         flags |= KEYEVENTF_EXTENDEDKEY;
@@ -259,7 +287,7 @@ fn key_input(k: &Key, down: bool) -> INPUT {
     if !down {
         flags |= KEYEVENTF_KEYUP;
     }
-    INPUT {
+    Some(INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
@@ -270,7 +298,7 @@ fn key_input(k: &Key, down: bool) -> INPUT {
                 dwExtraInfo: 0,
             },
         },
-    }
+    })
 }
 
 fn mouse_move_input(dx: i32, dy: i32) -> INPUT {
@@ -289,8 +317,23 @@ fn mouse_button_input(b: &MouseButton, down: bool) -> INPUT {
         (MouseButton::Back, false) => (MOUSEEVENTF_XUP, XBUTTON1),
         (MouseButton::Forward, true) => (MOUSEEVENTF_XDOWN, XBUTTON2),
         (MouseButton::Forward, false) => (MOUSEEVENTF_XUP, XBUTTON2),
+        (MouseButton::ScrollUp | MouseButton::ScrollDown | MouseButton::ScrollLeft
+        | MouseButton::ScrollRight, _) => {
+            unreachable!("scroll pseudo-buttons are realized as wheel ticks — see scroll_of")
+        }
     };
     mouse_input(0, 0, data, flags)
+}
+
+/// Wheel ticks + horizontal flag for a scroll pseudo-button; `None` for real buttons.
+fn scroll_of(b: &MouseButton) -> Option<(i32, bool)> {
+    match b {
+        MouseButton::ScrollUp => Some((1, false)),
+        MouseButton::ScrollDown => Some((-1, false)),
+        MouseButton::ScrollRight => Some((1, true)),
+        MouseButton::ScrollLeft => Some((-1, true)),
+        _ => None,
+    }
 }
 
 /// Wheel `INPUT`. `mouseData` is a signed notch count × `WHEEL_DELTA`, passed as the
@@ -320,62 +363,24 @@ fn mouse_input(dx: i32, dy: i32, data: u32, flags: windows::Win32::UI::Input::Ke
     }
 }
 
-/// Keys needing the extended-key flag (E0-prefixed scancodes): arrows, right ctrl/alt,
-/// and the left meta/Windows key. (Right shift is *not* extended.)
+/// Keys needing the extended-key flag (E0-prefixed scancodes): arrows, the navigation
+/// cluster, right ctrl/alt, both meta/Windows keys, the application/menu key, numpad
+/// divide, and numpad enter. (Right shift is *not* extended.)
 fn is_extended(k: &Key) -> bool {
     matches!(
         k,
-        Key::Up | Key::Down | Key::Left | Key::Right | Key::RightCtrl | Key::RightAlt | Key::LeftMeta
+        Key::Up | Key::Down | Key::Left | Key::Right
+            | Key::Insert | Key::Delete | Key::Home | Key::End | Key::PageUp | Key::PageDown
+            | Key::RightCtrl | Key::RightAlt | Key::LeftMeta | Key::RightMeta | Key::Menu
+            | Key::KpSlash | Key::KpEnter
     )
 }
 
-fn key_vk(k: &Key) -> VIRTUAL_KEY {
-    match k {
-        Key::A => VK_A,
-        Key::B => VK_B,
-        Key::C => VK_C,
-        Key::D => VK_D,
-        Key::E => VK_E,
-        Key::F => VK_F,
-        Key::G => VK_G,
-        Key::H => VK_H,
-        Key::I => VK_I,
-        Key::J => VK_J,
-        Key::K => VK_K,
-        Key::L => VK_L,
-        Key::M => VK_M,
-        Key::N => VK_N,
-        Key::O => VK_O,
-        Key::P => VK_P,
-        Key::Q => VK_Q,
-        Key::R => VK_R,
-        Key::S => VK_S,
-        Key::T => VK_T,
-        Key::U => VK_U,
-        Key::V => VK_V,
-        Key::W => VK_W,
-        Key::X => VK_X,
-        Key::Y => VK_Y,
-        Key::Z => VK_Z,
-        Key::Num0 => VK_0,
-        Key::Num1 => VK_1,
-        Key::Num2 => VK_2,
-        Key::Num3 => VK_3,
-        Key::Num4 => VK_4,
-        Key::Num5 => VK_5,
-        Key::Num6 => VK_6,
-        Key::Num7 => VK_7,
-        Key::Num8 => VK_8,
-        Key::Num9 => VK_9,
-        Key::Space => VK_SPACE,
-        Key::Enter => VK_RETURN,
-        Key::Escape => VK_ESCAPE,
-        Key::Tab => VK_TAB,
-        Key::Backspace => VK_BACK,
-        Key::Up => VK_UP,
-        Key::Down => VK_DOWN,
-        Key::Left => VK_LEFT,
-        Key::Right => VK_RIGHT,
+/// Map a key to a Windows virtual-key, or `None` if we don't inject it (no VK — `Compose`,
+/// exotic keypad keys — or a VK with no keyboard scancode: media/volume/browser/brightness,
+/// which `key_input` then skips). Numpad Enter maps to Return + the extended flag.
+fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
+    Some(match k {
         Key::LeftShift => VK_LSHIFT,
         Key::RightShift => VK_RSHIFT,
         Key::LeftCtrl => VK_LCONTROL,
@@ -383,5 +388,135 @@ fn key_vk(k: &Key) -> VIRTUAL_KEY {
         Key::LeftAlt => VK_LMENU,
         Key::RightAlt => VK_RMENU,
         Key::LeftMeta => VK_LWIN,
-    }
+        Key::RightMeta => VK_RWIN,
+        Key::Esc => VK_ESCAPE,
+        Key::Tab => VK_TAB,
+        Key::CapsLock => VK_CAPITAL,
+        Key::Backspace => VK_BACK,
+        Key::Enter => VK_RETURN,
+        Key::Space => VK_SPACE,
+        Key::Menu => VK_APPS,
+        Key::Up => VK_UP,
+        Key::Down => VK_DOWN,
+        Key::Left => VK_LEFT,
+        Key::Right => VK_RIGHT,
+        Key::Insert => VK_INSERT,
+        Key::Delete => VK_DELETE,
+        Key::Home => VK_HOME,
+        Key::End => VK_END,
+        Key::PageUp => VK_PRIOR,
+        Key::PageDown => VK_NEXT,
+        Key::Grave => VK_OEM_3,
+        Key::K102nd => VK_OEM_102,
+        Key::Minus => VK_OEM_MINUS,
+        Key::Equal => VK_OEM_PLUS,
+        Key::LeftBrace => VK_OEM_4,
+        Key::RightBrace => VK_OEM_6,
+        Key::Backslash => VK_OEM_5,
+        Key::Semicolon => VK_OEM_1,
+        Key::Apostrophe => VK_OEM_7,
+        Key::Comma => VK_OEM_COMMA,
+        Key::Dot => VK_OEM_PERIOD,
+        Key::Slash => VK_OEM_2,
+        Key::D1 => VK_1,
+        Key::D2 => VK_2,
+        Key::D3 => VK_3,
+        Key::D4 => VK_4,
+        Key::D5 => VK_5,
+        Key::D6 => VK_6,
+        Key::D7 => VK_7,
+        Key::D8 => VK_8,
+        Key::D9 => VK_9,
+        Key::D0 => VK_0,
+        Key::Q => VK_Q,
+        Key::W => VK_W,
+        Key::E => VK_E,
+        Key::R => VK_R,
+        Key::T => VK_T,
+        Key::Y => VK_Y,
+        Key::U => VK_U,
+        Key::I => VK_I,
+        Key::O => VK_O,
+        Key::P => VK_P,
+        Key::A => VK_A,
+        Key::S => VK_S,
+        Key::D => VK_D,
+        Key::F => VK_F,
+        Key::G => VK_G,
+        Key::H => VK_H,
+        Key::J => VK_J,
+        Key::K => VK_K,
+        Key::L => VK_L,
+        Key::Z => VK_Z,
+        Key::X => VK_X,
+        Key::C => VK_C,
+        Key::V => VK_V,
+        Key::B => VK_B,
+        Key::N => VK_N,
+        Key::M => VK_M,
+        Key::F1 => VK_F1,
+        Key::F2 => VK_F2,
+        Key::F3 => VK_F3,
+        Key::F4 => VK_F4,
+        Key::F5 => VK_F5,
+        Key::F6 => VK_F6,
+        Key::F7 => VK_F7,
+        Key::F8 => VK_F8,
+        Key::F9 => VK_F9,
+        Key::F10 => VK_F10,
+        Key::F11 => VK_F11,
+        Key::F12 => VK_F12,
+        Key::Print | Key::SysRq => VK_SNAPSHOT,
+        Key::ScrollLock => VK_SCROLL,
+        Key::Pause => VK_PAUSE,
+        Key::NumLock => VK_NUMLOCK,
+        Key::KpSlash => VK_DIVIDE,
+        Key::KpAsterisk => VK_MULTIPLY,
+        Key::KpMinus => VK_SUBTRACT,
+        Key::KpPlus => VK_ADD,
+        Key::KpEnter => VK_RETURN, // numpad enter → Return (extended flag set)
+        Key::Kp7 => VK_NUMPAD7,
+        Key::Kp8 => VK_NUMPAD8,
+        Key::Kp9 => VK_NUMPAD9,
+        Key::Kp4 => VK_NUMPAD4,
+        Key::Kp5 => VK_NUMPAD5,
+        Key::Kp6 => VK_NUMPAD6,
+        Key::Kp1 => VK_NUMPAD1,
+        Key::Kp2 => VK_NUMPAD2,
+        Key::Kp3 => VK_NUMPAD3,
+        Key::Kp0 => VK_NUMPAD0,
+        Key::KpDot => VK_DECIMAL,
+        // No VK, or a VK with no keyboard scancode → not injected on Windows for now.
+        Key::Compose
+        | Key::KpComma
+        | Key::KpEqual
+        | Key::KpPlusMinus
+        | Key::KpLeftParen
+        | Key::KpRightParen
+        | Key::Mute
+        | Key::VolumeDown
+        | Key::VolumeUp
+        | Key::MicMute
+        | Key::PlayPause
+        | Key::Play
+        | Key::PreviousSong
+        | Key::NextSong
+        | Key::Rewind
+        | Key::FastForward
+        | Key::StopCd
+        | Key::PlayCd
+        | Key::PauseCd
+        | Key::CloseCd
+        | Key::EjectCd
+        | Key::EjectCloseCd
+        | Key::Back
+        | Key::Forward
+        | Key::BrightnessDown
+        | Key::BrightnessUp
+        | Key::BrightnessCycle
+        | Key::BrightnessAuto
+        | Key::KbdIllumToggle
+        | Key::KbdIllumDown
+        | Key::KbdIllumUp => return None,
+    })
 }

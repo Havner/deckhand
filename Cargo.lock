@@ -309,7 +309,15 @@ dependencies = [
  "steam-hid",
  "thiserror",
  "vigem-client",
+ "vocab",
  "windows",
+]
+
+[[package]]
+name = "vocab"
+version = "0.0.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

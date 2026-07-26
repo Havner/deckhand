@@ -2,7 +2,7 @@
 # See PLAN.md for the full design; build order is steam-hid first.
 [workspace]
 resolver = "3"
-members = ["crates/steam-hid", "crates/virt-out"]
+members = ["crates/vocab", "crates/steam-hid", "crates/virt-out"]
 
 [workspace.package]
 edition = "2024"

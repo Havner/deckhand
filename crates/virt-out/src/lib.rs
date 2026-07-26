@@ -17,7 +17,9 @@ mod win;
 #[cfg(target_os = "windows")]
 pub use win::Sink;
 
-pub use event::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent, Rumble};
+pub use event::{OutputEvent, Rumble};
+// Re-export the shared output vocabulary so consumers keep using `virt_out::Key` etc.
+pub use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 /// `virt-out` result type.
 pub type Result<T> = std::result::Result<T, Error>;
