@@ -15,11 +15,13 @@
 //! **input** vocabulary ([`InputSource`]) is our own, hardware-independent.
 
 mod action;
+mod binding;
 mod command;
 mod input;
 mod settings;
 
 pub use action::{Action, ActionSetRef, LayerRef};
+pub use binding::SourceBinding;
 pub use command::{
     Activator, Command, CommandSettings, HapticEdge, HapticStrength, Haptics, Turbo,
 };
