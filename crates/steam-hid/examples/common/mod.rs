@@ -1,8 +1,39 @@
 //! Shared helpers for the steam-hid examples.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use steam_hid::{Device, DeviceInfo, Manager, RawReport, Result, Transport};
+
+/// Ctrl-C run flag returned by [`install_ctrlc`]. [`alive`](Running::alive) is `true`
+/// until the first Ctrl-C; loop examples run `while running.alive()`.
+pub struct Running(Arc<AtomicBool>);
+
+impl Running {
+    /// `true` until Ctrl-C has been pressed.
+    pub fn alive(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+/// Install a Ctrl-C handler and return a [`Running`] flag that flips to `false` on the
+/// first Ctrl-C.
+///
+/// Loop examples run `while running.alive()` so they fall out of the loop and drop their
+/// `Device` — running `Drop`, which restores lizard mode (and reverts LED/idle). This
+/// matters most on **Windows**, where Ctrl-C otherwise aborts the process *without*
+/// running destructors, leaving the controller stuck in lizard-off. (On Linux the kernel
+/// `hid-steam` driver re-asserts lizard on close, but relying on that is a Linux-only
+/// crutch.) See CLAUDE.md "Clean shutdown".
+pub fn install_ctrlc() -> Running {
+    let flag = Arc::new(AtomicBool::new(true));
+    let f = flag.clone();
+    if let Err(e) = ctrlc::set_handler(move || f.store(false, Ordering::Relaxed)) {
+        eprintln!("warning: couldn't install Ctrl-C handler: {e}");
+    }
+    Running(flag)
+}
 
 /// Enumerate and open the target controller — the one selection path all examples
 /// share.

@@ -27,4 +27,4 @@ steam-hid = { path = "../steam-hid" }
 # Ctrl-C handling for the examples so they exit their loop and run Drop (restore the
 # controller's lizard mode, unplug the virtual pad). On Windows Ctrl-C otherwise aborts
 # the process (STATUS_CONTROL_C_EXIT) without running destructors, leaving Gordon stuck.
-ctrlc = "3"
+ctrlc.workspace = true

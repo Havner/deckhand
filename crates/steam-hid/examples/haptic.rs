@@ -53,6 +53,9 @@ fn main() -> steam_hid::Result<()> {
         Ok(()) => println!("lizard disabled for the test"),
         Err(e) => eprintln!("warning: could not disable lizard: {e}"),
     }
+    // Ctrl-C ends the sweep between pulses (and, on Windows, keeps the process alive so
+    // Drop restores lizard instead of the console handler aborting it mid-test).
+    let running = common::install_ctrlc();
 
     // Custom single-pulse mode: `haptic <dur_us> <interval_us> <count> [pad]`.
     if positional.len() >= 3 {
@@ -82,6 +85,9 @@ fn main() -> steam_hid::Result<()> {
     // --- Frequency sweep: same ~600 ms length each, low (rumble) → high (tone) ---
     println!("\n=== FREQUENCY SWEEP (both pads, ~600ms each) — feel rumble turn into tone ===");
     for freq in [25u32, 40, 60, 90, 130, 200, 350, 600, 1000] {
+        if !running.alive() {
+            break;
+        }
         let period = 1_000_000 / freq; // µs
         let half = (period / 2) as u16;
         let count = ((600 * 1000) / period) as u16;
@@ -95,6 +101,9 @@ fn main() -> steam_hid::Result<()> {
     let period = 12_500u16;
     let count = 48; // ~600 ms
     for (label, dur) in [("10% on", 1_250u16), ("50% on", 6_250), ("90% on", 11_250)] {
+        if !running.alive() {
+            break;
+        }
         let interval = period - dur;
         println!("  {label}  (dur={dur}µs interval={interval}µs count={count})");
         both(&mut device, dur, interval, count)?;

@@ -70,8 +70,9 @@ fn main() -> steam_hid::Result<()> {
     println!("{banner}\nLogging lifecycle to {}. Ctrl-C to stop.\n", log_path.display());
 
     // Keep the device open (so Drop's revert doesn't fire) and log lifecycle frames.
+    let running = common::install_ctrlc();
     let start = Instant::now();
-    loop {
+    while running.alive() {
         let Some(report) = device.poll(Duration::from_millis(500))? else {
             continue; // timeout — dongle alive, nothing this interval
         };
@@ -94,4 +95,5 @@ fn main() -> steam_hid::Result<()> {
             return Ok(());
         }
     }
+    Ok(())
 }

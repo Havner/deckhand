@@ -230,6 +230,7 @@ name = "steam-hid"
 version = "0.0.0"
 dependencies = [
  "bitflags",
+ "ctrlc",
  "hidapi",
  "serde",
  "thiserror",

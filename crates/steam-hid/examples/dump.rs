@@ -29,7 +29,8 @@ fn main() -> steam_hid::Result<()> {
     }
 
     println!("Reading (Ctrl-C to stop)…");
-    loop {
+    let running = common::install_ctrlc();
+    while running.alive() {
         match device.poll(Duration::from_millis(1000))? {
             None => {} // timeout — nothing this interval
             Some(report) => match report {
@@ -52,4 +53,5 @@ fn main() -> steam_hid::Result<()> {
             },
         }
     }
+    Ok(())
 }

@@ -4,8 +4,8 @@
 //! `report::parse_gordon`); this prints the parsed result (raw i16, not deadbanded
 //! like `read`'s events) so you can watch the multiplex resolve live.
 //!
-//! `--raw` disables lizard first; `--wired`/`--dongle` pick the transport.
-//! Run: `cargo run -p steam-hid --example left -- [--raw] [--wired|--dongle]`.
+//! Disables lizard mode (raw pads); `--wired`/`--dongle` pick the transport.
+//! Run: `cargo run -p steam-hid --example left -- [--wired|--dongle]`.
 
 mod common;
 
@@ -16,8 +16,6 @@ use std::time::{Duration, Instant};
 use steam_hid::{GordonButtons, Manager, RawReport};
 
 fn main() -> steam_hid::Result<()> {
-    let raw = std::env::args().any(|a| a == "--raw");
-
     let manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&manager)? else {
         println!("No matching controller found — connected/on?");
@@ -25,11 +23,9 @@ fn main() -> steam_hid::Result<()> {
     };
     println!("selected {desc}");
 
-    if raw {
-        match device.set_lizard_mode(false) {
-            Ok(()) => println!("raw mode: lizard disabled"),
-            Err(e) => eprintln!("warning: could not disable lizard: {e}"),
-        }
+    match device.set_lizard_mode(false) {
+        Ok(()) => println!("lizard disabled (raw input)"),
+        Err(e) => eprintln!("warning: could not disable lizard: {e}"),
     }
 
     let log_path = std::env::temp_dir().join("steam-hid-left.log");
@@ -37,8 +33,9 @@ fn main() -> steam_hid::Result<()> {
     writeln!(log, "# selected {desc}").ok();
     println!("Dumping resolved left pad/stick to {}. Ctrl-C to stop.\n", log_path.display());
 
+    let running = common::install_ctrlc();
     let mut last = Instant::now();
-    loop {
+    while running.alive() {
         if let Some(RawReport::Gordon(g)) = device.poll_raw(Duration::from_millis(100))?
             && last.elapsed() >= Duration::from_millis(120)
         {
@@ -57,4 +54,5 @@ fn main() -> steam_hid::Result<()> {
             log.flush().ok();
         }
     }
+    Ok(())
 }

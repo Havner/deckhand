@@ -22,3 +22,9 @@ serde = { version = "1", features = ["derive"] }
 evdev = "0.13"
 # Set the gamepad uinput fd non-blocking (fcntl) so FF polling doesn't block the loop.
 libc = "0.2"
+# Cross-platform Ctrl-C for the examples (and later the engine): the handler flips a
+# flag so loops exit and run Drop — restoring lizard mode / unplugging the virtual pad.
+# Windows Ctrl-C otherwise aborts the process without destructors (CLAUDE "Clean
+# shutdown"). The engine will want its `termination` feature (SIGTERM/SIGHUP) for clean
+# daemon stop.
+ctrlc = "3"

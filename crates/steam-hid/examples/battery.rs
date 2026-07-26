@@ -32,7 +32,8 @@ fn main() -> steam_hid::Result<()> {
     );
     let mut last_request = Instant::now();
 
-    loop {
+    let running = common::install_ctrlc();
+    while running.alive() {
         // Actively prompt an 0x04 status frame every few seconds.
         if last_request.elapsed() >= Duration::from_secs(3) {
             last_request = Instant::now();
@@ -49,4 +50,5 @@ fn main() -> steam_hid::Result<()> {
         writeln!(log, "{line}").ok();
         log.flush().ok();
     }
+    Ok(())
 }

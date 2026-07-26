@@ -2,8 +2,9 @@
 //!
 //! Enables the IMU (raw accel + raw gyro) and prints throttled samples with the
 //! raw i16 values and their conversion to g / deg·s⁻¹ (PLAN §1.4 scale constants,
-//! provisional). Only sends `set_gyro` (no lizard-off) so it can't leave the
-//! controller dead; the IMU setting is restored on clean exit.
+//! provisional). Also disables lizard mode so handling the controller doesn't move
+//! the host cursor / fire pad click-haptics while you sample; both the IMU setting
+//! and lizard mode are restored on clean exit (Drop).
 //!
 //! `--wired`/`--dongle` pick the transport.
 //! Run: `cargo run -p steam-hid --example imu -- [--wired|--dongle]`.
@@ -38,6 +39,9 @@ fn main() -> steam_hid::Result<()> {
     };
     println!("selected {desc}");
 
+    if let Err(e) = device.set_lizard_mode(false) {
+        eprintln!("warning: could not disable lizard mode: {e}");
+    }
     if let Err(e) = device.set_gyro(true) {
         eprintln!("warning: could not enable gyro: {e}");
     }
@@ -51,9 +55,10 @@ fn main() -> steam_hid::Result<()> {
         log_path.display()
     );
 
+    let running = common::install_ctrlc();
     let start = Instant::now();
     let mut last = Instant::now();
-    loop {
+    while running.alive() {
         if let Some(Report::State(s)) = device.poll(Duration::from_millis(200))?
             && last.elapsed() >= Duration::from_millis(200)
         {
@@ -94,4 +99,5 @@ fn main() -> steam_hid::Result<()> {
             log.flush().ok();
         }
     }
+    Ok(())
 }

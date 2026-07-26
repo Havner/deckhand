@@ -19,4 +19,8 @@ thiserror.workspace = true
 serde = { workspace = true, optional = true }
 
 [dev-dependencies]
+# Examples install a Ctrl-C handler so their read loops exit cleanly and run Drop
+# (restore lizard mode) — essential on Windows, where Ctrl-C otherwise aborts the
+# process without running destructors, leaving the controller stuck in lizard-off.
+ctrlc.workspace = true
 # TUI example deps land here when the `tui` example is added (PLAN §1.8).
