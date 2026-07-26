@@ -14,6 +14,12 @@
 //! `MouseButton`, `GamepadButton`, `GamepadAxis`) is the shared [`vocab`] crate; the
 //! **input** vocabulary ([`InputSource`]) is our own, hardware-independent.
 
+mod action;
+mod command;
 mod input;
 
+pub use action::{Action, ActionSetRef, LayerRef};
+pub use command::{
+    Activator, Command, CommandSettings, HapticEdge, HapticStrength, Haptics, Turbo,
+};
 pub use input::{InputSource, Shape, Side, SourceKind};
