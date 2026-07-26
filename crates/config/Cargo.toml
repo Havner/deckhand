@@ -1,0 +1,16 @@
+[package]
+name = "config"
+description = "Deckhand mapping configuration: the ConfigDoc data model, RON (de)serialization, and validation. Compiles to a runtime Program later (co-designed with the engine)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# serde is a hard dep — (de)serialization is the crate's purpose (PLAN §3).
+serde.workspace = true
+ron.workspace = true
+thiserror.workspace = true
+# The shared output vocabulary (Key / MouseButton / GamepadButton), with serde on so it
+# round-trips in RON.
+vocab = { path = "../vocab", features = ["serde"] }

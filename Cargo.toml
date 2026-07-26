@@ -2,7 +2,7 @@
 # See PLAN.md for the full design; build order is steam-hid first.
 [workspace]
 resolver = "3"
-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out"]
+members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config"]
 
 [workspace.package]
 edition = "2024"
@@ -17,6 +17,8 @@ hidapi = { version = "2", default-features = false, features = ["linux-static-hi
 bitflags = "2"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
+# config on-disk format: RON — serde-native, enum-friendly, comments (PLAN §3).
+ron = "0.12"
 # virt-out Linux backend: uinput virtual devices (kb/mouse/gamepad). Widely-used,
 # maintained; matches the user's working `uinput-simulation` reference (PLAN §2.1).
 evdev = "0.13"
