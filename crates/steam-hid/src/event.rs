@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// Deadband applied to analog axes before an [`Event::AxisChanged`] is emitted,
 /// so a change-log doesn't spew at the full stream rate on sensor noise. This is
 /// cosmetic and analog-only — it never touches the snapshot path (PLAN §1.5).
-const AXIS_DEADBAND: f32 = 0.02;
+const AXIS_DEADBAND: f32 = 0.005;
 
 /// A change-driven event derived from the frame stream (PLAN §1.5).
 #[derive(Debug, Clone, PartialEq)]
