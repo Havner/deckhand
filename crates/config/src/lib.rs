@@ -17,9 +17,16 @@
 mod action;
 mod command;
 mod input;
+mod settings;
 
 pub use action::{Action, ActionSetRef, LayerRef};
 pub use command::{
     Activator, Command, CommandSettings, HapticEdge, HapticStrength, Haptics, Turbo,
 };
 pub use input::{InputSource, Shape, Side, SourceKind};
+pub use settings::{
+    Acceleration, Activation, ActivationMode, AntiDeadzone, AsMouseSettings, Curve, Deadzone,
+    DirectionalPadSettings, DpadLayout, GyroSpace, GyroToMouseSettings, Invert, JoystickMouseSettings,
+    JoystickSettings, MouseOutput, OneEuroFilter, OuterRing, Rotation, Sensitivity, SoftPull,
+    StickOutput, TriggerOutput, TriggerSettings,
+};
