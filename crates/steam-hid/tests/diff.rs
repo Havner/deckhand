@@ -31,7 +31,7 @@ fn diff_axis_respects_deadband() {
     );
 
     let mut tiny = base.clone();
-    tiny.left_trigger = 0.005; // below the deadband
+    tiny.left_trigger = 0.002; // below the deadband (AXIS_DEADBAND = 0.005 in event.rs)
     let events: Vec<Event> = tiny.diff(&base).collect();
     assert!(!events.iter().any(|e| matches!(e, Event::AxisChanged(..))));
 }
