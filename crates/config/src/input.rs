@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 /// A logical, hardware-independent input control (the superset; see [`Shape`] for what a
 /// given device provides). Not `#[non_exhaustive]`: adding an input is a deliberate
 /// breaking change that forces the engine's resolution and every `match` to be updated —
-/// a missing case should be a compile error, not a silent drop (PLAN §0).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// a missing case should be a compile error, not a silent drop (PLAN §0). `Ord` (by
+/// declaration order) is derived so it can key a deterministic `BTreeMap` in a profile.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum InputSource {
     // --- button groups (4-button clusters; ButtonPad in v1) ---
     /// A/B/X/Y cluster.

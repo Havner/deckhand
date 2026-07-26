@@ -17,11 +17,15 @@
 mod action;
 mod binding;
 mod command;
+mod global;
 mod input;
+mod profile;
 mod settings;
 
 pub use action::{Action, ActionSetRef, LayerRef};
 pub use binding::SourceBinding;
+pub use global::{GlobalAction, GlobalChord, GlobalConfig, SwitchMode};
+pub use profile::{ActionSet, ConfigDoc, Layer, RumbleSettings};
 pub use command::{
     Activator, Command, CommandSettings, HapticEdge, HapticStrength, Haptics, Turbo,
 };
