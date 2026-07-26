@@ -21,6 +21,7 @@ mod global;
 mod input;
 mod profile;
 mod settings;
+mod validate;
 
 pub use action::{Action, ActionSetRef, LayerRef};
 pub use binding::SourceBinding;
@@ -36,3 +37,4 @@ pub use settings::{
     JoystickSettings, MouseOutput, OneEuroFilter, OuterRing, Rotation, Sensitivity, SoftPull,
     StickOutput, TriggerOutput, TriggerSettings,
 };
+pub use validate::{Diagnostic, Severity};

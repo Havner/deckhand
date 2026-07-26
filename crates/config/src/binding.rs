@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::command::Command;
 use crate::input::SourceKind;
 use crate::settings::{
-    AsMouseSettings, DirectionalPadSettings, GyroToMouseSettings, JoystickMouseSettings,
+    Activation, AsMouseSettings, DirectionalPadSettings, GyroToMouseSettings, JoystickMouseSettings,
     JoystickSettings, TriggerSettings,
 };
 
@@ -99,6 +99,37 @@ impl SourceBinding {
                 | (B::GyroToMouse { .. }, K::Gyro)
                 | (B::Trigger { .. }, K::Trigger)
         )
+    }
+
+    /// All commands across this binding's button/virtual-button slots (for validation and
+    /// later compilation).
+    pub fn commands(&self) -> impl Iterator<Item = &Command> {
+        use SourceBinding::*;
+        let slots: Vec<&Vec<Command>> = match self {
+            Button { commands } => vec![commands],
+            ButtonPad { up, down, left, right } => vec![up, down, left, right],
+            Joystick { outer_ring, .. } => vec![outer_ring],
+            DirectionalPad { up, down, left, right, outer_ring, .. } => {
+                vec![up, down, left, right, outer_ring]
+            }
+            Trigger { soft_pull, .. } => vec![soft_pull],
+            AsMouse { .. } | JoystickMouse { .. } | GyroToMouse { .. } => vec![],
+        };
+        slots.into_iter().flatten()
+    }
+
+    /// This behavior's activation gate, if it has one (the continuous behaviors do; a plain
+    /// button / button-pad / trigger doesn't).
+    pub fn activation(&self) -> Option<&Activation> {
+        use SourceBinding::*;
+        match self {
+            Joystick { settings, .. } => Some(&settings.activation),
+            DirectionalPad { settings, .. } => Some(&settings.activation),
+            AsMouse { settings } => Some(&settings.activation),
+            JoystickMouse { settings } => Some(&settings.activation),
+            GyroToMouse { settings } => Some(&settings.activation),
+            Button { .. } | ButtonPad { .. } | Trigger { .. } => None,
+        }
     }
 }
 
