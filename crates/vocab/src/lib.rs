@@ -133,7 +133,10 @@ impl MouseButton {
     }
 }
 
-/// A virtual-gamepad button (Xbox 360 layout).
+/// A virtual-gamepad button (Xbox 360 layout). The four `Dpad*` are the **logical** dpad
+/// directions — bindable as discrete actions like any button. The XInput/evdev virtual
+/// pad models the dpad as a hat, so the backend folds these four into that hat (opposing
+/// directions cancel to neutral).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum GamepadButton {
@@ -148,6 +151,10 @@ pub enum GamepadButton {
     Guide,
     LeftStick,
     RightStick,
+    DpadUp,
+    DpadDown,
+    DpadLeft,
+    DpadRight,
 }
 
 impl GamepadButton {
@@ -163,11 +170,27 @@ impl GamepadButton {
         GamepadButton::Guide,
         GamepadButton::LeftStick,
         GamepadButton::RightStick,
+        GamepadButton::DpadUp,
+        GamepadButton::DpadDown,
+        GamepadButton::DpadLeft,
+        GamepadButton::DpadRight,
     ];
+
+    /// True for the four dpad directions (the backend folds these into the hat, not a
+    /// `BTN_*`/XInput button bit).
+    pub fn is_dpad(&self) -> bool {
+        matches!(
+            self,
+            GamepadButton::DpadUp
+                | GamepadButton::DpadDown
+                | GamepadButton::DpadLeft
+                | GamepadButton::DpadRight
+        )
+    }
 }
 
-/// A virtual-gamepad axis. Dpad is modelled as a hat axis (Xbox/xpad reality), not
-/// buttons; the engine translates dpad presses to `Dpad{X,Y}` values.
+/// A virtual-gamepad axis — sticks and analog triggers only. The dpad is **not** here:
+/// it's four logical [`GamepadButton`]s (the hat is a backend realization detail).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum GamepadAxis {
@@ -177,8 +200,6 @@ pub enum GamepadAxis {
     RightStickY,
     LeftTrigger,
     RightTrigger,
-    DpadX,
-    DpadY,
 }
 
 impl GamepadAxis {
@@ -189,8 +210,6 @@ impl GamepadAxis {
         GamepadAxis::RightStickY,
         GamepadAxis::LeftTrigger,
         GamepadAxis::RightTrigger,
-        GamepadAxis::DpadX,
-        GamepadAxis::DpadY,
     ];
 }
 

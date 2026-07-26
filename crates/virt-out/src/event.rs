@@ -40,3 +40,40 @@ impl Rumble {
         self.strong == 0 && self.weak == 0
     }
 }
+
+/// Dpad realization state. The vocab exposes the dpad as four logical `GamepadButton`s,
+/// but the XInput/evdev virtual pad models it as a **hat**; each backend tracks the four
+/// directions here and folds them to a hat value (`-1/0/+1` per axis), **cancelling
+/// opposing directions to neutral**.
+#[derive(Default)]
+pub(crate) struct Dpad {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+}
+
+impl Dpad {
+    /// Apply a button event; returns `true` if `b` was a dpad direction (so the caller
+    /// folds to the hat instead of emitting a normal button).
+    pub(crate) fn set(&mut self, b: &GamepadButton, down: bool) -> bool {
+        match b {
+            GamepadButton::DpadUp => self.up = down,
+            GamepadButton::DpadDown => self.down = down,
+            GamepadButton::DpadLeft => self.left = down,
+            GamepadButton::DpadRight => self.right = down,
+            _ => return false,
+        }
+        true
+    }
+
+    /// Hat X: right − left (opposing cancels to 0).
+    pub(crate) fn x(&self) -> i32 {
+        self.right as i32 - self.left as i32
+    }
+
+    /// Hat Y: down − up (opposing cancels to 0).
+    pub(crate) fn y(&self) -> i32 {
+        self.down as i32 - self.up as i32
+    }
+}

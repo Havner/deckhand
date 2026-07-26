@@ -33,7 +33,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_SCROLL, VK_SNAPSHOT, VK_SPACE, VK_SUBTRACT, VK_TAB, VK_UP,
 };
 
-use crate::event::{OutputEvent, Rumble};
+use crate::event::{Dpad, OutputEvent, Rumble};
 use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 /// `mouseData` values for the extra mouse buttons (X1 = back, X2 = forward).
@@ -60,7 +60,8 @@ pub struct Sink {
     // holds only the non-dpad bits; the dpad hat is kept separately and OR'd in at submit
     // (both live in the same XInput button word).
     gamepad: XGamepad,
-    dpad: (i32, i32),
+    // Dpad direction state, folded into the XInput hat bits at submit.
+    dpad: Dpad,
     // Rumble back-channel: a notification thread stores the latest motor speeds here.
     rumble: Arc<RumbleState>,
     notif: Option<JoinHandle<()>>,
@@ -90,7 +91,7 @@ impl Sink {
         Ok(Self {
             target,
             gamepad: XGamepad::default(),
-            dpad: (0, 0),
+            dpad: Dpad::default(),
             rumble,
             notif: Some(notif),
         })
@@ -129,7 +130,9 @@ impl Sink {
                     }
                 }
                 OutputEvent::GamepadButton(b, down) => {
-                    set_button(&mut self.gamepad.buttons, b, *down);
+                    if !self.dpad.set(b, *down) {
+                        set_button(&mut self.gamepad.buttons, b, *down);
+                    }
                     gp_dirty = true;
                 }
                 OutputEvent::GamepadAxis(a, v) => {
@@ -164,7 +167,8 @@ impl Sink {
         }
         if gp_dirty {
             // Fold the dpad hat into the button word alongside the face/shoulder bits.
-            let raw = (self.gamepad.buttons.raw & !DPAD_MASK) | dpad_bits(self.dpad);
+            let raw =
+                (self.gamepad.buttons.raw & !DPAD_MASK) | dpad_bits((self.dpad.x(), self.dpad.y()));
             self.gamepad.buttons = XButtons { raw };
             self.target.update(&self.gamepad)?;
         }
@@ -194,8 +198,6 @@ impl Sink {
             GamepadAxis::RightStickY => self.gamepad.thumb_ry = stick(-v),
             GamepadAxis::LeftTrigger => self.gamepad.left_trigger = trigger(v),
             GamepadAxis::RightTrigger => self.gamepad.right_trigger = trigger(v),
-            GamepadAxis::DpadX => self.dpad.0 = v.round().clamp(-1.0, 1.0) as i32,
-            GamepadAxis::DpadY => self.dpad.1 = v.round().clamp(-1.0, 1.0) as i32,
         }
     }
 }
@@ -230,6 +232,12 @@ fn set_button(buttons: &mut XButtons, b: &GamepadButton, down: bool) {
         GamepadButton::Guide => XButtons::GUIDE,
         GamepadButton::LeftStick => XButtons::LTHUMB,
         GamepadButton::RightStick => XButtons::RTHUMB,
+        GamepadButton::DpadUp
+        | GamepadButton::DpadDown
+        | GamepadButton::DpadLeft
+        | GamepadButton::DpadRight => {
+            unreachable!("dpad directions fold into the hat — see Dpad / emit")
+        }
     };
     if down {
         buttons.raw |= bit;

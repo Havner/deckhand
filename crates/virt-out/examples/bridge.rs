@@ -134,9 +134,11 @@ impl Bridge {
             // triggers (1:1)
             ax(GamepadAxis::LeftTrigger, s.left_trigger),
             ax(GamepadAxis::RightTrigger, s.right_trigger),
-            // left pad → dpad hat (quadrant bits only)
-            ax(GamepadAxis::DpadX, axis_of(held(Buttons::DPAD_RIGHT), held(Buttons::DPAD_LEFT))),
-            ax(GamepadAxis::DpadY, axis_of(held(Buttons::DPAD_DOWN), held(Buttons::DPAD_UP))),
+            // left pad → dpad buttons (quadrant bits only; virt-out folds them into the hat)
+            gp(GamepadButton::DpadUp, held(Buttons::DPAD_UP)),
+            gp(GamepadButton::DpadDown, held(Buttons::DPAD_DOWN)),
+            gp(GamepadButton::DpadLeft, held(Buttons::DPAD_LEFT)),
+            gp(GamepadButton::DpadRight, held(Buttons::DPAD_RIGHT)),
         ];
 
         // --- left stick → left stick, or (mode-shift) → right stick ---
@@ -202,14 +204,6 @@ fn gp(b: GamepadButton, down: bool) -> OutputEvent {
 }
 fn ax(a: GamepadAxis, v: f32) -> OutputEvent {
     OutputEvent::GamepadAxis(a, v)
-}
-/// `+1` if `pos` held, `-1` if `neg` held, else `0` — for a dpad hat axis.
-fn axis_of(pos: bool, neg: bool) -> f32 {
-    match (pos, neg) {
-        (true, false) => 1.0,
-        (false, true) => -1.0,
-        _ => 0.0,
-    }
 }
 
 /// Route received rumble to Gordon's trackpad actuators (throttled re-fire while the

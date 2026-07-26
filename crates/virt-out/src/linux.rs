@@ -13,7 +13,7 @@ use evdev::{
     RelativeAxisEvent, UInputCode, UinputAbsSetup,
 };
 
-use crate::event::{OutputEvent, Rumble};
+use crate::event::{Dpad, OutputEvent, Rumble};
 use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 const FF_MAX_EFFECTS: u32 = 16;
@@ -42,6 +42,8 @@ pub struct Sink {
     ff_effects: HashMap<i16, FfEffect>,
     ff_playing: Option<i16>,
     ff_until: Option<Instant>,
+    // Dpad direction state, folded into the ABS_HAT0X/Y hat on change.
+    dpad: Dpad,
 }
 
 impl Sink {
@@ -56,6 +58,7 @@ impl Sink {
             ff_effects: HashMap::new(),
             ff_playing: None,
             ff_until: None,
+            dpad: Dpad::default(),
         })
     }
 
@@ -91,7 +94,20 @@ impl Sink {
                     }
                 }
                 OutputEvent::GamepadButton(b, down) => {
-                    gp.push(*KeyEvent::new(gamepad_code(b), *down as i32))
+                    if self.dpad.set(b, *down) {
+                        // Dpad direction → fold into the hat (both axes; the kernel drops
+                        // the unchanged one).
+                        gp.push(*AbsoluteAxisEvent::new(
+                            AbsoluteAxisCode::ABS_HAT0X,
+                            self.dpad.x(),
+                        ));
+                        gp.push(*AbsoluteAxisEvent::new(
+                            AbsoluteAxisCode::ABS_HAT0Y,
+                            self.dpad.y(),
+                        ));
+                    } else {
+                        gp.push(*KeyEvent::new(gamepad_code(b), *down as i32));
+                    }
                 }
                 OutputEvent::GamepadAxis(a, v) => {
                     gp.push(*AbsoluteAxisEvent::new(abs_code(a), abs_value(a, *v)))
@@ -235,7 +251,9 @@ fn build_mouse() -> io::Result<VirtualDevice> {
 fn build_gamepad() -> io::Result<VirtualDevice> {
     let mut buttons = AttributeSet::<KeyCode>::new();
     for b in GamepadButton::ALL {
-        buttons.insert(gamepad_code(b));
+        if !b.is_dpad() {
+            buttons.insert(gamepad_code(b)); // dpad directions fold into the hat, below
+        }
     }
     let mut ff = AttributeSet::<FFEffectCode>::new();
     ff.insert(FFEffectCode::FF_RUMBLE);
@@ -250,6 +268,11 @@ fn build_gamepad() -> io::Result<VirtualDevice> {
         .with_ff_effects_max(FF_MAX_EFFECTS);
     for axis in GamepadAxis::ALL {
         builder = builder.with_absolute_axis(&UinputAbsSetup::new(abs_code(axis), abs_info(axis)))?;
+    }
+    // Dpad hat (the four dpad `GamepadButton`s fold into these, -1..1 per axis).
+    let hat = AbsInfo::new(0, -1, 1, 0, 0, 0);
+    for code in [AbsoluteAxisCode::ABS_HAT0X, AbsoluteAxisCode::ABS_HAT0Y] {
+        builder = builder.with_absolute_axis(&UinputAbsSetup::new(code, hat))?;
     }
     let device = builder.build()?;
     set_nonblocking(&device)?; // so poll_rumble's fetch_events doesn't block on no FF
@@ -456,6 +479,12 @@ fn gamepad_code(b: &GamepadButton) -> KeyCode {
         GamepadButton::Guide => KeyCode::BTN_MODE,
         GamepadButton::LeftStick => KeyCode::BTN_THUMBL,
         GamepadButton::RightStick => KeyCode::BTN_THUMBR,
+        GamepadButton::DpadUp
+        | GamepadButton::DpadDown
+        | GamepadButton::DpadLeft
+        | GamepadButton::DpadRight => {
+            unreachable!("dpad directions fold into the hat — see Dpad / emit")
+        }
     }
 }
 
@@ -467,12 +496,10 @@ fn abs_code(a: &GamepadAxis) -> AbsoluteAxisCode {
         GamepadAxis::RightStickY => AbsoluteAxisCode::ABS_RY,
         GamepadAxis::LeftTrigger => AbsoluteAxisCode::ABS_Z,
         GamepadAxis::RightTrigger => AbsoluteAxisCode::ABS_RZ,
-        GamepadAxis::DpadX => AbsoluteAxisCode::ABS_HAT0X,
-        GamepadAxis::DpadY => AbsoluteAxisCode::ABS_HAT0Y,
     }
 }
 
-// xpad ranges: sticks i16, triggers 0..255, dpad hat -1..1.
+// xpad ranges: sticks i16, triggers 0..255. (Dpad is a hat, set directly in emit.)
 fn abs_info(a: &GamepadAxis) -> AbsInfo {
     match a {
         GamepadAxis::LeftStickX
@@ -480,11 +507,10 @@ fn abs_info(a: &GamepadAxis) -> AbsInfo {
         | GamepadAxis::RightStickX
         | GamepadAxis::RightStickY => AbsInfo::new(0, -32768, 32767, 16, 128, 0),
         GamepadAxis::LeftTrigger | GamepadAxis::RightTrigger => AbsInfo::new(0, 0, 255, 0, 0, 0),
-        GamepadAxis::DpadX | GamepadAxis::DpadY => AbsInfo::new(0, -1, 1, 0, 0, 0),
     }
 }
 
-// Normalized f32 → device units: sticks/dpad from -1..1, triggers from 0..1.
+// Normalized f32 → device units: sticks from -1..1, triggers from 0..1.
 fn abs_value(a: &GamepadAxis, v: f32) -> i32 {
     match a {
         GamepadAxis::LeftStickX
@@ -492,6 +518,5 @@ fn abs_value(a: &GamepadAxis, v: f32) -> i32 {
         | GamepadAxis::RightStickX
         | GamepadAxis::RightStickY => (v.clamp(-1.0, 1.0) * 32767.0) as i32,
         GamepadAxis::LeftTrigger | GamepadAxis::RightTrigger => (v.clamp(0.0, 1.0) * 255.0) as i32,
-        GamepadAxis::DpadX | GamepadAxis::DpadY => v.round().clamp(-1.0, 1.0) as i32,
     }
 }
