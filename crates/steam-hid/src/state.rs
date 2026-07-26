@@ -1,7 +1,7 @@
 //! Layer 2: the unified, normalized snapshot (PLAN §1.5).
 
-use crate::buttons::{Axis, Buttons, GordonButtons};
-use crate::report::{BatteryRaw, GordonReport, RawReport};
+use crate::buttons::{Axis, Buttons, GordonButtons, NeptuneButtons};
+use crate::report::{BatteryRaw, GordonReport, NeptuneReport, RawReport};
 use crate::value::{Quati, Timestamp, TrackPad, Vec2, Vec3i};
 
 #[cfg(feature = "serde")]
@@ -27,9 +27,7 @@ impl Report {
     pub(crate) fn decode(raw: &RawReport, timestamp: Timestamp) -> Report {
         match raw {
             RawReport::Gordon(g) => Report::State(ControllerState::from_gordon(g, timestamp)),
-            RawReport::Neptune(_n) => {
-                todo!("Neptune → ControllerState — deferred until the Deck path (PLAN §1.4)")
-            }
+            RawReport::Neptune(n) => Report::State(ControllerState::from_neptune(n, timestamp)),
             RawReport::Connected => Report::Connected,
             RawReport::Disconnected => Report::Disconnected,
             RawReport::Battery(b) => Report::Battery(Battery::from(b)),
@@ -131,6 +129,38 @@ impl ControllerState {
             orientation: g.orientation.clone(),
         }
     }
+
+    /// Convert a Neptune (Steam Deck) wire frame to a unified snapshot.
+    ///
+    /// The Deck reports **separate** stick/pad fields (no Gordon multiplex) and
+    /// direct press/touch bits, so the fold is 1:1. Triggers are `i16` (`0..=32767`).
+    /// IMU passes through **raw** — Neptune axis/sign are unverified (a different
+    /// sensor from Gordon; no `gordon_gyro`-style correction until verified, §1.9).
+    fn from_neptune(n: &NeptuneReport, timestamp: Timestamp) -> Self {
+        let b = &n.buttons;
+        ControllerState {
+            seq: n.seq,
+            timestamp,
+            buttons: map_neptune_buttons(b),
+            left_trigger: norm_trigger(n.left_trigger),
+            right_trigger: norm_trigger(n.right_trigger),
+            left_stick: norm_stick(&n.left_stick),
+            right_stick: norm_stick(&n.right_stick),
+            left_pad: TrackPad {
+                pos: norm_stick(&n.left_pad),
+                pressure: norm_pressure(n.left_pad_pressure),
+                touched: b.contains(NeptuneButtons::LPAD_TOUCH),
+            },
+            right_pad: TrackPad {
+                pos: norm_stick(&n.right_pad),
+                pressure: norm_pressure(n.right_pad_pressure),
+                touched: b.contains(NeptuneButtons::RPAD_TOUCH),
+            },
+            accel: n.accel.clone(),
+            gyro: n.gyro.clone(),
+            orientation: n.orientation.clone(),
+        }
+    }
 }
 
 // --- normalization helpers (divisors provisional, verify on HW — PLAN §1.5/§1.9) ---
@@ -154,6 +184,15 @@ fn gordon_gyro(raw: &Vec3i) -> Vec3i {
 
 fn norm_u8(v: u8) -> f32 {
     v as f32 / 255.0
+}
+/// Normalize a Deck trigger (raw `i16`, `0..=32767`) to `0.0..=1.0`.
+fn norm_trigger(v: i16) -> f32 {
+    (v as f32 / 32767.0).clamp(0.0, 1.0)
+}
+/// Normalize Deck trackpad pressure (raw `i16`) to `0.0..=1.0`. Full-scale is
+/// provisional — **unverified** (PLAN §1.9).
+fn norm_pressure(v: i16) -> f32 {
+    (v as f32 / 32767.0).clamp(0.0, 1.0)
 }
 fn norm_axis(v: i16) -> f32 {
     (v as f32 / 32768.0).clamp(-1.0, 1.0)
@@ -204,6 +243,48 @@ fn map_gordon_buttons(g: &GordonButtons) -> Buttons {
         g.contains(GordonButtons::LSTICK_PRESS),
         Buttons::LSTICK_PRESS,
     );
+    out
+}
+
+/// Fold Neptune's per-device button bits into the unified [`Buttons`] superset.
+///
+/// 1:1 — the Deck has dedicated press/touch bits (no Gordon left-multiplex), and
+/// its raw bit layout already matches the unified naming.
+fn map_neptune_buttons(n: &NeptuneButtons) -> Buttons {
+    let mut out = Buttons::empty();
+    let mut set = |cond: bool, flag: Buttons| {
+        if cond {
+            out |= flag;
+        }
+    };
+    set(n.contains(NeptuneButtons::A), Buttons::A);
+    set(n.contains(NeptuneButtons::B), Buttons::B);
+    set(n.contains(NeptuneButtons::X), Buttons::X);
+    set(n.contains(NeptuneButtons::Y), Buttons::Y);
+    set(n.contains(NeptuneButtons::DPAD_UP), Buttons::DPAD_UP);
+    set(n.contains(NeptuneButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
+    set(n.contains(NeptuneButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
+    set(n.contains(NeptuneButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
+    set(n.contains(NeptuneButtons::L1), Buttons::L1);
+    set(n.contains(NeptuneButtons::R1), Buttons::R1);
+    set(n.contains(NeptuneButtons::L2), Buttons::L2);
+    set(n.contains(NeptuneButtons::R2), Buttons::R2);
+    set(n.contains(NeptuneButtons::L4), Buttons::L4);
+    set(n.contains(NeptuneButtons::R4), Buttons::R4);
+    set(n.contains(NeptuneButtons::L5), Buttons::L5);
+    set(n.contains(NeptuneButtons::R5), Buttons::R5);
+    set(n.contains(NeptuneButtons::MENU), Buttons::MENU);
+    set(n.contains(NeptuneButtons::OPTIONS), Buttons::OPTIONS);
+    set(n.contains(NeptuneButtons::STEAM), Buttons::STEAM);
+    set(n.contains(NeptuneButtons::QUICK_ACCESS), Buttons::QUICK_ACCESS);
+    set(n.contains(NeptuneButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    set(n.contains(NeptuneButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
+    set(n.contains(NeptuneButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
+    set(n.contains(NeptuneButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
+    set(n.contains(NeptuneButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
+    set(n.contains(NeptuneButtons::RSTICK_PRESS), Buttons::RSTICK_PRESS);
+    set(n.contains(NeptuneButtons::LSTICK_TOUCH), Buttons::LSTICK_TOUCH);
+    set(n.contains(NeptuneButtons::RSTICK_TOUCH), Buttons::RSTICK_TOUCH);
     out
 }
 

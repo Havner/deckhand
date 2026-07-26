@@ -175,10 +175,46 @@ fn parse_gordon(b: &[u8]) -> GordonReport {
 
 /// Decode a Neptune (Steam Deck) input frame.
 ///
-/// TODO(PLAN §1.4, dev order): implement + verify once the Deck is in the loop;
-/// development proceeds Gordon-first.
-fn parse_neptune(_b: &[u8]) -> NeptuneReport {
-    todo!("Neptune input parse — deferred until the Deck path (PLAN §1.4, dev order)")
+/// Offsets are cross-checked against the kernel `hid-steam.c`
+/// (`steam_do_deck_input_event` / `_sensors_event`) and the C# `NCInput` struct —
+/// they agree. Unlike Gordon there is **no multiplex**: sticks and pads are
+/// separate fields, both stored raw (the mapper gates the pad on touch). Triggers
+/// are `i16` (`0..=32767`); the trigger **full-pull** is a firmware-synthesized
+/// button bit (`buttons0` bit 0/1 = R2/L2), verified present on the Deck despite
+/// no microswitch. IMU (accel/gyro/orientation) passes through **raw in device
+/// order** — Neptune axis/sign are **unverified** (different sensor; corrected later
+/// in `ControllerState`, PLAN §1.9).
+fn parse_neptune(b: &[u8]) -> NeptuneReport {
+    // buttons0..6 = bytes 0x08..0x0E; byte N at bits 8*N (byte 0x0C is unused).
+    let buttons = NeptuneButtons::from_bits_truncate(
+        b[0x08] as u64
+            | (b[0x09] as u64) << 8
+            | (b[0x0A] as u64) << 16
+            | (b[0x0B] as u64) << 24
+            | (b[0x0C] as u64) << 32
+            | (b[0x0D] as u64) << 40
+            | (b[0x0E] as u64) << 48,
+    );
+    NeptuneReport {
+        seq: u32_at(b, 0x04),
+        buttons,
+        left_trigger: i16_at(b, 0x2C),
+        right_trigger: i16_at(b, 0x2E),
+        left_stick: vec2i_at(b, 0x30),
+        right_stick: vec2i_at(b, 0x34),
+        left_pad: vec2i_at(b, 0x10),
+        right_pad: vec2i_at(b, 0x14),
+        left_pad_pressure: i16_at(b, 0x38),
+        right_pad_pressure: i16_at(b, 0x3A),
+        accel: vec3i_at(b, 0x18),
+        gyro: vec3i_at(b, 0x1E),
+        orientation: Quati {
+            x: i16_at(b, 0x24),
+            y: i16_at(b, 0x26),
+            z: i16_at(b, 0x28),
+            w: i16_at(b, 0x2A),
+        },
+    }
 }
 
 #[cfg(test)]
