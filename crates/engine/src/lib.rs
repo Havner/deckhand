@@ -19,9 +19,11 @@
 //! - `runtime`  — reader thread(s) + central `select!` loop (threads/channels) — S9
 //! - `handle`   — the `Engine` control API — S10
 
+mod compile;
 mod error;
 mod program;
 
+pub use compile::compile;
 pub use error::{Error, Result};
 pub use program::{
     CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId, Program,
