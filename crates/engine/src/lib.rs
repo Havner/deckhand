@@ -21,10 +21,12 @@
 
 mod compile;
 mod error;
+mod logical;
 mod program;
 
 pub use compile::compile;
 pub use error::{Error, Result};
+pub use logical::{Dir, LogicalFrame};
 pub use program::{
     CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId, Program,
     ProgramMeta, Role, SetId, SourceMap,
