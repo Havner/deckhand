@@ -2,7 +2,7 @@
 # See PLAN.md for the full design; build order is steam-hid first.
 [workspace]
 resolver = "3"
-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config"]
+members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine"]
 
 [workspace.package]
 edition = "2024"
@@ -30,3 +30,9 @@ libc = "0.2"
 # shutdown"). The engine will want its `termination` feature (SIGTERM/SIGHUP) for clean
 # daemon stop.
 ctrlc = "3"
+# Engine concurrency (PLAN §4): sync, no async. `select!` over device-frame / control /
+# tick channels in the central mapping loop; multi-producer for thread-per-device readers.
+crossbeam-channel = "0.5"
+# Lightweight logging facade for the engine + a `env_logger` backend in the test binary.
+log = "0.4"
+env_logger = "0.11"

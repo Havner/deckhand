@@ -1,0 +1,25 @@
+[package]
+name = "engine"
+description = "Deckhand headless runtime/manager: compiles config to a Program, runs the mapping loop over steam-hid input, emits via virt-out. See PLAN §4."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The mapping model we compile into the runtime Program (PLAN §4.1, decision A: the IR
+# and compile() live HERE, not in config — config stays pure authoring data).
+config = { path = "../config" }
+# Shared output vocabulary (Key / MouseButton / GamepadButton / GamepadAxis).
+vocab = { path = "../vocab" }
+# Input HAL (devices, ControllerState) and output HAL (Sink, OutputEvent, Rumble). The
+# engine owns and drives both directly (PLAN §4).
+steam-hid = { path = "../steam-hid" }
+virt-out = { path = "../virt-out" }
+# Sync concurrency: `select!` in the central loop over frame/control/tick channels.
+crossbeam-channel.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+# The `deckhand-run` test binary (PLAN §4.2 S10) and its `env_logger`/`ctrlc` deps land
+# with that step; the library (S0–S9) comes first.
