@@ -107,6 +107,8 @@ fn button_flag(source: &InputSource) -> Option<Buttons> {
     Some(match source {
         I::LeftBumper => Buttons::L1,
         I::RightBumper => Buttons::R1,
+        I::LeftFullPull => Buttons::L2,
+        I::RightFullPull => Buttons::R2,
         I::LeftGrip => Buttons::L4,
         I::RightGrip => Buttons::R4,
         I::LeftGrip2 => Buttons::L5,
@@ -122,8 +124,6 @@ fn button_flag(source: &InputSource) -> Option<Buttons> {
         I::RightPadClick => Buttons::RPAD_PRESS,
         I::LeftPadTouch => Buttons::LPAD_TOUCH,
         I::RightPadTouch => Buttons::RPAD_TOUCH,
-        I::LeftFullPull => Buttons::L2,
-        I::RightFullPull => Buttons::R2,
         _ => return None,
     })
 }

@@ -32,24 +32,24 @@ pub enum InputSource {
     // --- motion ---
     Gyro,
     // --- standalone buttons (hardware bits) ---
-    LeftBumper,  // L1
-    RightBumper, // R1
-    LeftGrip,    // L4
-    RightGrip,   // R4
-    LeftGrip2,   // L5 (Neptune)
-    RightGrip2,  // R5 (Neptune)
-    View,        // Back / Deck ⧉ / Gordon '<'
-    Menu,        // Start / Deck ☰ / Gordon '>'
-    Steam,       // Guide
-    QuickAccess, // Deck '⋯' (Neptune)
+    LeftBumper,    // L1
+    RightBumper,   // R1
+    LeftFullPull,  // L2 full-pull hardware bit
+    RightFullPull, // R2 full-pull hardware bit
+    LeftGrip,      // L4
+    RightGrip,     // R4
+    LeftGrip2,     // L5 (Neptune)
+    RightGrip2,    // R5 (Neptune)
+    View,          // Back / Deck ⧉ / Gordon '<'
+    Menu,          // Start / Deck ☰ / Gordon '>'
+    Steam,         // Guide
+    QuickAccess,   // Deck '⋯' (Neptune)
     LeftStickClick,
     RightStickClick, // Neptune (no right stick on Gordon)
     LeftPadClick,
     RightPadClick,
     LeftPadTouch,
     RightPadTouch,
-    LeftFullPull,  // L2 full-pull hardware bit
-    RightFullPull, // R2 full-pull hardware bit
 }
 
 /// The behavioural kind of a control — determines which behaviors/bindings are valid for
@@ -90,9 +90,9 @@ impl InputSource {
             LeftTrigger | RightTrigger => SourceKind::Trigger,
             Gyro => SourceKind::Gyro,
             // Everything else is a standalone button.
-            LeftBumper | RightBumper | LeftGrip | RightGrip | LeftGrip2 | RightGrip2 | View
-            | Menu | Steam | QuickAccess | LeftStickClick | RightStickClick | LeftPadClick
-            | RightPadClick | LeftPadTouch | RightPadTouch | LeftFullPull | RightFullPull => {
+            LeftBumper | RightBumper | LeftFullPull | RightFullPull | LeftGrip | RightGrip
+            | LeftGrip2 | RightGrip2 | View | Menu | Steam | QuickAccess | LeftStickClick
+            | RightStickClick | LeftPadClick | RightPadClick | LeftPadTouch | RightPadTouch => {
                 SourceKind::Button
             }
         }
@@ -104,12 +104,13 @@ impl InputSource {
     pub fn side(&self) -> Side {
         use InputSource::*;
         match self {
-            FaceButtons | RightPad | RightStick | RightTrigger | RightBumper | RightGrip
-            | RightGrip2 | RightStickClick | RightPadClick | RightPadTouch | RightFullPull
+            FaceButtons | RightPad | RightStick | RightTrigger | RightBumper | RightFullPull
+            | RightGrip | RightGrip2 | RightStickClick | RightPadClick | RightPadTouch
             | Menu | QuickAccess => Side::Right,
             // DPad, all Left*, View, Steam, Gyro → Left.
-            DPad | LeftPad | LeftStick | LeftTrigger | Gyro | LeftBumper | LeftGrip | LeftGrip2
-            | View | Steam | LeftStickClick | LeftPadClick | LeftPadTouch | LeftFullPull => {
+            DPad | LeftPad | LeftStick | LeftTrigger | Gyro | LeftBumper | LeftFullPull
+            | LeftGrip | LeftGrip2 | View | Steam | LeftStickClick | LeftPadClick
+            | LeftPadTouch => {
                 Side::Left
             }
         }
@@ -128,6 +129,8 @@ impl InputSource {
         InputSource::Gyro,
         InputSource::LeftBumper,
         InputSource::RightBumper,
+        InputSource::LeftFullPull,
+        InputSource::RightFullPull,
         InputSource::LeftGrip,
         InputSource::RightGrip,
         InputSource::LeftGrip2,
@@ -142,8 +145,6 @@ impl InputSource {
         InputSource::RightPadClick,
         InputSource::LeftPadTouch,
         InputSource::RightPadTouch,
-        InputSource::LeftFullPull,
-        InputSource::RightFullPull,
     ];
 }
 
