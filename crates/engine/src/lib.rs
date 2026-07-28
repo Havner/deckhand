@@ -22,6 +22,7 @@
 mod compile;
 mod error;
 mod logical;
+mod mapper;
 mod program;
 
 pub use compile::compile;

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// → digits → letters → function → print → keypad → media → …). Names are our own;
 /// backends map them to OS codes. Adopted from the `uinput-simulation` reference through
 /// `KbdIllumUp`; the more obscure codes are added when needed.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Key {
     // modifiers
@@ -94,7 +94,7 @@ impl Key {
 /// A mouse button. The four `Scroll*` are **discrete-scroll pseudo-buttons** — a scroll
 /// tick is a button-like impulse (fires per activation, `Turbo` repeats), so it's folded
 /// in here (Round D); the backend realizes them as wheel ticks, not `BTN_*`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum MouseButton {
     Left,
@@ -137,7 +137,7 @@ impl MouseButton {
 /// directions — bindable as discrete actions like any button. The XInput/evdev virtual
 /// pad models the dpad as a hat, so the backend folds these four into that hat (opposing
 /// directions cancel to neutral).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum GamepadButton {
     A,
@@ -191,7 +191,7 @@ impl GamepadButton {
 
 /// A virtual-gamepad axis — sticks and analog triggers only. The dpad is **not** here:
 /// it's four logical [`GamepadButton`]s (the hat is a backend realization detail).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum GamepadAxis {
     LeftStickX,
