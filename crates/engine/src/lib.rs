@@ -20,5 +20,10 @@
 //! - `handle`   — the `Engine` control API — S10
 
 mod error;
+mod program;
 
 pub use error::{Error, Result};
+pub use program::{
+    CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId, Program,
+    ProgramMeta, Role, SetId, SourceMap,
+};
