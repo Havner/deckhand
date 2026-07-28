@@ -30,8 +30,8 @@ bitflags::bitflags! {
         const R4           = 1 << 13;
         const L5           = 1 << 14;
         const R5           = 1 << 15;
-        const MENU         = 1 << 16;
-        const OPTIONS      = 1 << 17;
+        const VIEW         = 1 << 16;
+        const MENU         = 1 << 17;
         const STEAM        = 1 << 18;
         const QUICK_ACCESS = 1 << 19;
         const LPAD_PRESS   = 1 << 20;
@@ -65,9 +65,9 @@ bitflags::bitflags! {
         const DPAD_RIGHT   = 1 << 9;
         const DPAD_LEFT    = 1 << 10;
         const DPAD_DOWN    = 1 << 11;
-        const MENU         = 1 << 12; // "prev" / SELECT
+        const VIEW         = 1 << 12; // BTN_SELECT — Valve "View" (kernel "menu left")
         const STEAM        = 1 << 13;
-        const OPTIONS      = 1 << 14; // "next" / START
+        const MENU         = 1 << 14; // BTN_START — Valve "Menu" (kernel "menu right")
         const L4           = 1 << 15;
         // buttons2
         const R4           = 1 << 16;
@@ -100,9 +100,9 @@ bitflags::bitflags! {
         const DPAD_RIGHT   = 1 << 9;
         const DPAD_LEFT    = 1 << 10;
         const DPAD_DOWN    = 1 << 11;
-        const MENU         = 1 << 12;
+        const VIEW         = 1 << 12;
         const STEAM        = 1 << 13;
-        const OPTIONS      = 1 << 14;
+        const MENU         = 1 << 14;
         const L5           = 1 << 15;
         // buttons2
         const R5           = 1 << 16;
@@ -144,8 +144,8 @@ pub enum Button {
     R4,
     L5,
     R5,
+    View,
     Menu,
-    Options,
     Steam,
     QuickAccess,
     LPadPress,
@@ -178,8 +178,8 @@ impl Button {
             Button::R4 => Buttons::R4,
             Button::L5 => Buttons::L5,
             Button::R5 => Buttons::R5,
+            Button::View => Buttons::VIEW,
             Button::Menu => Buttons::MENU,
-            Button::Options => Buttons::OPTIONS,
             Button::Steam => Buttons::STEAM,
             Button::QuickAccess => Buttons::QUICK_ACCESS,
             Button::LPadPress => Buttons::LPAD_PRESS,
@@ -211,8 +211,8 @@ impl Button {
         Button::R4,
         Button::L5,
         Button::R5,
+        Button::View,
         Button::Menu,
-        Button::Options,
         Button::Steam,
         Button::QuickAccess,
         Button::LPadPress,

@@ -4,7 +4,7 @@
 //! engine/config.
 //!
 //! Mapping (per the user's spec):
-//! - A/B/X/Y, L1/R1→LB/RB, Menu→Back, Options→Start, Steam→Guide  (1:1)
+//! - A/B/X/Y, L1/R1→LB/RB, View→Back, Menu→Start, Steam→Guide  (1:1)
 //! - L4 (left back grip)  → left-stick click
 //! - R4 (right back grip) → right-stick click
 //! - left-stick click     → keyboard `L`
@@ -125,8 +125,8 @@ impl Bridge {
             gp(GamepadButton::Y, held(Buttons::Y)),
             gp(GamepadButton::LeftBumper, held(Buttons::L1)),
             gp(GamepadButton::RightBumper, held(Buttons::R1)),
-            gp(GamepadButton::Back, held(Buttons::MENU)),
-            gp(GamepadButton::Start, held(Buttons::OPTIONS)),
+            gp(GamepadButton::Back, held(Buttons::VIEW)),
+            gp(GamepadButton::Start, held(Buttons::MENU)),
             gp(GamepadButton::Guide, held(Buttons::STEAM)),
             gp(GamepadButton::LeftStick, held(Buttons::L4)), // left back grip
             gp(GamepadButton::RightStick, held(Buttons::R4)), // right back grip

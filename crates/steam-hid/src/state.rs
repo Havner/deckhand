@@ -223,8 +223,8 @@ fn map_gordon_buttons(g: &GordonButtons) -> Buttons {
     set(g.contains(GordonButtons::R2), Buttons::R2);
     set(g.contains(GordonButtons::L4), Buttons::L4);
     set(g.contains(GordonButtons::R4), Buttons::R4);
+    set(g.contains(GordonButtons::VIEW), Buttons::VIEW);
     set(g.contains(GordonButtons::MENU), Buttons::MENU);
-    set(g.contains(GordonButtons::OPTIONS), Buttons::OPTIONS);
     set(g.contains(GordonButtons::STEAM), Buttons::STEAM);
     // Left multiplex (PLAN §1.4/§1.9): the left click bit is shared — it also sets
     // on a left-stick click. Disambiguate on left touch: it's a pad press only when
@@ -270,8 +270,8 @@ fn map_neptune_buttons(n: &NeptuneButtons) -> Buttons {
     set(n.contains(NeptuneButtons::R4), Buttons::R4);
     set(n.contains(NeptuneButtons::L5), Buttons::L5);
     set(n.contains(NeptuneButtons::R5), Buttons::R5);
+    set(n.contains(NeptuneButtons::VIEW), Buttons::VIEW);
     set(n.contains(NeptuneButtons::MENU), Buttons::MENU);
-    set(n.contains(NeptuneButtons::OPTIONS), Buttons::OPTIONS);
     set(n.contains(NeptuneButtons::STEAM), Buttons::STEAM);
     set(n.contains(NeptuneButtons::QUICK_ACCESS), Buttons::QUICK_ACCESS);
     set(n.contains(NeptuneButtons::LPAD_PRESS), Buttons::LPAD_PRESS);

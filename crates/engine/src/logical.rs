@@ -11,9 +11,11 @@
 //! device difference is that inputs a device lacks read as zero/unset (Gordon's right stick,
 //! say) and their behaviors naturally no-op. `Shape`-based skipping/warnings live in the UI.
 //!
-//! One naming gotcha baked in: `steam-hid`'s `MENU` bit is the *select/prev* button and
-//! `OPTIONS` is *start/next*, which is the **opposite** of `config`'s names — so
-//! [`InputSource::View`] → `MENU` and [`InputSource::Menu`] → `OPTIONS`.
+//! `steam-hid` and `config` share Valve's on-device labels for the two small top buttons:
+//! `View` (⧉, left = select) and `Menu` (☰, right = start). So the mapping here is the
+//! identity `View → VIEW`, `Menu → MENU` — no inversion. (`steam-hid` previously carried the
+//! C#-inherited `MENU`/`OPTIONS` labels, where `MENU` was actually the *left/select* button;
+//! both crates were unified onto Valve's names.)
 
 use config::InputSource;
 use steam_hid::{Buttons, ControllerState, TrackPad, Vec2, Vec3i};
@@ -109,9 +111,9 @@ fn button_flag(source: &InputSource) -> Option<Buttons> {
         I::RightGrip => Buttons::R4,
         I::LeftGrip2 => Buttons::L5,
         I::RightGrip2 => Buttons::R5,
-        // config View = select/Back = steam-hid MENU; config Menu = start = steam-hid OPTIONS.
-        I::View => Buttons::MENU,
-        I::Menu => Buttons::OPTIONS,
+        // Valve labels, unified across crates: View = left/select, Menu = right/start.
+        I::View => Buttons::VIEW,
+        I::Menu => Buttons::MENU,
         I::Steam => Buttons::STEAM,
         I::QuickAccess => Buttons::QUICK_ACCESS,
         I::LeftStickClick => Buttons::LSTICK_PRESS,
@@ -154,14 +156,14 @@ mod tests {
     }
 
     #[test]
-    fn view_menu_naming_inversion() {
-        // MENU bit set = config View pressed, config Menu NOT pressed.
-        let f = frame_with(Buttons::MENU, |_| {});
+    fn view_menu_naming() {
+        // VIEW bit (left/select) = View pressed, Menu not.
+        let f = frame_with(Buttons::VIEW, |_| {});
         assert!(f.button(&InputSource::View));
         assert!(!f.button(&InputSource::Menu));
 
-        // OPTIONS bit = config Menu pressed, View not.
-        let f = frame_with(Buttons::OPTIONS, |_| {});
+        // MENU bit (right/start) = Menu pressed, View not.
+        let f = frame_with(Buttons::MENU, |_| {});
         assert!(f.button(&InputSource::Menu));
         assert!(!f.button(&InputSource::View));
     }
