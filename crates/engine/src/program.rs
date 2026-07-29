@@ -27,7 +27,7 @@ pub enum Role {
 }
 
 /// Index of an action set within a [`Program`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SetId(u16);
 
 impl SetId {
@@ -41,7 +41,7 @@ impl SetId {
 
 /// Index of a layer within its [`CompiledSet`]. Layers are per-set, and this index **is**
 /// the layer's declared-order precedence (PLAN §4: higher index = higher precedence).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayerId(u16);
 
 impl LayerId {

@@ -27,6 +27,7 @@ use vocab::GamepadAxis;
 use super::Tick;
 use super::activator::{SlotState, SourceActivators};
 use super::command::eval_commands;
+use super::layers::{LayerOps, NodeHeld};
 use super::reconcile::{DesiredLevels, RelAccum};
 use crate::logical::{Dir, LogicalFrame};
 use crate::program::{CompiledBinding, CompiledCommand};
@@ -51,6 +52,7 @@ pub(super) struct Ctx<'a> {
 
 /// Evaluate one resolved binding into the desired output levels and/or relative accumulators.
 /// `slots` is this source's activator state; the behavior owns the fixed slot numbering below.
+#[allow(clippy::too_many_arguments)] // the pure mapping core threads all its state explicitly.
 pub(super) fn eval_binding(
     binding: &CompiledBinding,
     source: &InputSource,
@@ -58,29 +60,32 @@ pub(super) fn eval_binding(
     slots: &mut SourceActivators,
     desired: &mut DesiredLevels,
     rel: &mut RelAccum,
+    ops: &mut LayerOps,
 ) {
     let frame = ctx.cur;
     let now = &ctx.now;
     match binding {
         CompiledBinding::Button { commands } => {
-            eval_commands(commands, frame.button(source), slots.slot(0), now, desired);
+            let node = NodeHeld::Button(source.clone());
+            eval_commands(commands, frame.button(source), &node, slots.slot(0), now, desired, ops);
         }
         CompiledBinding::ButtonPad { up, down, left, right } => {
-            eval_commands(up, frame.group_member(source, &Dir::Up), slots.slot(0), now, desired);
-            eval_commands(down, frame.group_member(source, &Dir::Down), slots.slot(1), now, desired);
-            eval_commands(left, frame.group_member(source, &Dir::Left), slots.slot(2), now, desired);
-            eval_commands(right, frame.group_member(source, &Dir::Right), slots.slot(3), now, desired);
+            let member = |dir| NodeHeld::Group(source.clone(), dir);
+            eval_commands(up, frame.group_member(source, &Dir::Up), &member(Dir::Up), slots.slot(0), now, desired, ops);
+            eval_commands(down, frame.group_member(source, &Dir::Down), &member(Dir::Down), slots.slot(1), now, desired, ops);
+            eval_commands(left, frame.group_member(source, &Dir::Left), &member(Dir::Left), slots.slot(2), now, desired, ops);
+            eval_commands(right, frame.group_member(source, &Dir::Right), &member(Dir::Right), slots.slot(3), now, desired, ops);
         }
         CompiledBinding::Joystick { settings, outer_ring } => {
-            eval_joystick(source, settings, outer_ring, frame, slots.slot(0), now, desired);
+            eval_joystick(source, settings, outer_ring, frame, slots.slot(0), now, desired, ops);
         }
         CompiledBinding::DirectionalPad { settings, up, down, left, right, outer_ring } => {
             eval_directional_pad(
-                source, settings, up, down, left, right, outer_ring, frame, slots, now, desired,
+                source, settings, up, down, left, right, outer_ring, frame, slots, now, desired, ops,
             );
         }
         CompiledBinding::Trigger { settings, soft_pull } => {
-            eval_trigger(source, settings, soft_pull, frame, slots.slot(0), now, desired);
+            eval_trigger(source, settings, soft_pull, frame, slots.slot(0), now, desired, ops);
         }
         CompiledBinding::AsMouse { settings } => eval_as_mouse(source, settings, ctx, rel),
         CompiledBinding::JoystickMouse { settings } => {
@@ -92,6 +97,7 @@ pub(super) fn eval_binding(
 
 // --- Joystick (Pad/Stick → gamepad stick + outer-ring button) ---------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn eval_joystick(
     source: &InputSource,
     s: &JoystickSettings,
@@ -100,6 +106,7 @@ fn eval_joystick(
     slot: &mut SlotState,
     now: &Tick,
     desired: &mut DesiredLevels,
+    ops: &mut LayerOps,
 ) {
     // When the behavior is gated off (or a pad is untouched) it produces no axes (they
     // reconcile to neutral) and its outer ring reads un-held — but we still advance the slot so
@@ -118,7 +125,7 @@ fn eval_joystick(
     } else {
         false
     };
-    eval_commands(outer_ring, ring_held, slot, now, desired);
+    eval_commands(outer_ring, ring_held, &NodeHeld::Virtual, slot, now, desired, ops);
 }
 
 /// Deadzone-rescale → curve → anti-deadzone, direction preserved, per-axis invert.
@@ -159,10 +166,12 @@ fn eval_directional_pad(
     slots: &mut SourceActivators,
     now: &Tick,
     desired: &mut DesiredLevels,
+    ops: &mut LayerOps,
 ) {
     // Slots: 0=up 1=down 2=left 3=right 4=outer-ring. Gated off / untouched / inside the
     // deadzone → all virtual buttons un-held, but every slot is still advanced (edges stay
-    // correct; reconcile releases any held output).
+    // correct; reconcile releases any held output). Directions are layer-dependent virtual
+    // nodes, so a HoldLayer on one is not robustly re-derivable → NodeHeld::Virtual.
     let pos = is_active(&s.activation, frame).then(|| source_pos(source, frame)).flatten();
     let mag = pos.as_ref().map_or(0.0, magnitude);
     let (mut u, mut d, mut l, mut r) = (false, false, false, false);
@@ -173,11 +182,12 @@ fn eval_directional_pad(
         let (rx, ry) = rotate(pos.x, pos.y, s.rotation.degrees);
         [u, d, l, r] = dpad_dirs(rx, ry, &s.layout);
     }
-    eval_commands(up, u, slots.slot(0), now, desired);
-    eval_commands(down, d, slots.slot(1), now, desired);
-    eval_commands(left, l, slots.slot(2), now, desired);
-    eval_commands(right, r, slots.slot(3), now, desired);
-    eval_commands(outer_ring, mag >= s.outer_ring.radius, slots.slot(4), now, desired);
+    let v = &NodeHeld::Virtual;
+    eval_commands(up, u, v, slots.slot(0), now, desired, ops);
+    eval_commands(down, d, v, slots.slot(1), now, desired, ops);
+    eval_commands(left, l, v, slots.slot(2), now, desired, ops);
+    eval_commands(right, r, v, slots.slot(3), now, desired, ops);
+    eval_commands(outer_ring, mag >= s.outer_ring.radius, v, slots.slot(4), now, desired, ops);
 }
 
 /// Which of `[up, down, left, right]` fire. Convention: `+x` = Right, `+y` = Up (final
@@ -213,6 +223,7 @@ fn dpad_dirs(rx: f32, ry: f32, layout: &DpadLayout) -> [bool; 4] {
 
 // --- Trigger (analog output + soft-pull button) -----------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn eval_trigger(
     source: &InputSource,
     s: &TriggerSettings,
@@ -221,6 +232,7 @@ fn eval_trigger(
     slot: &mut SlotState,
     now: &Tick,
     desired: &mut DesiredLevels,
+    ops: &mut LayerOps,
 ) {
     let pull = frame.trigger(source); // 0.0..=1.0
     let axis = match s.output {
@@ -228,8 +240,10 @@ fn eval_trigger(
         TriggerOutput::Right => GamepadAxis::RightTrigger,
     };
     desired.set_axis(axis, process_trigger(pull, s));
-    // Soft-pull virtual button fires on the raw analog pull vs its threshold.
-    eval_commands(soft_pull, pull >= s.soft_pull.threshold, slot, now, desired);
+    // Soft-pull virtual button fires on the raw analog pull vs its threshold — a frame-local
+    // trigger, so a HoldLayer on it re-derives exactly (NodeHeld::SoftPull).
+    let node = NodeHeld::SoftPull(source.clone(), s.soft_pull.threshold);
+    eval_commands(soft_pull, pull >= s.soft_pull.threshold, &node, slot, now, desired, ops);
 }
 
 fn process_trigger(pull: f32, s: &TriggerSettings) -> f32 {
@@ -416,7 +430,8 @@ mod tests {
         let mut d = DesiredLevels::default();
         let mut rel = RelAccum::default();
         let mut slots = SourceActivators::default();
-        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel);
+        let mut ops = LayerOps::default();
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops);
         d
     }
 
@@ -434,7 +449,8 @@ mod tests {
         let mut d = DesiredLevels::default();
         let mut rel = RelAccum::default();
         let mut slots = SourceActivators::default();
-        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel);
+        let mut ops = LayerOps::default();
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops);
         let mut out = Vec::new();
         rel.flush(&mut out);
         out

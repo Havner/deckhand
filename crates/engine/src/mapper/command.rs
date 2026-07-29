@@ -14,6 +14,7 @@
 use config::{Activator, Turbo};
 
 use super::activator::{CmdState, SlotState};
+use super::layers::{LayerOps, NodeHeld};
 use super::reconcile::DesiredLevels;
 use super::Tick;
 use crate::program::{CompiledAction, CompiledCommand};
@@ -22,15 +23,20 @@ use crate::program::{CompiledAction, CompiledCommand};
 /// in ms — long enough for a game to register, short enough to feel like a tap. HW-tuned later.
 const TAP_MS: u64 = 40;
 
-/// Advance a node's commands one tick and fold the firing ones' output into `desired`.
+/// Advance a node's commands one tick and apply the firing ones' actions — output leaves into
+/// `desired`, layer/set actions into `ops` (for the next tick).
 ///
-/// `held` is the node's digital level this tick; `slot` carries its retained timing/latches.
+/// `held` is the node's digital level this tick; `node` describes how to re-derive that held
+/// state later (for `HoldLayer` latching); `slot` carries its retained timing/latches.
+#[allow(clippy::too_many_arguments)] // a node evaluation genuinely needs all of these.
 pub(super) fn eval_commands(
     commands: &[CompiledCommand],
     held: bool,
+    node: &NodeHeld,
     slot: &mut SlotState,
     now: &Tick,
     desired: &mut DesiredLevels,
+    ops: &mut LayerOps,
 ) {
     let pressed = held && !slot.prev_held;
     let released = !held && slot.prev_held;
@@ -67,9 +73,9 @@ pub(super) fn eval_commands(
         };
 
         if out {
-            // The whole ordered combo is held while the command fires (subcommands = modifiers).
+            // The whole ordered combo fires while the command fires (subcommands = modifiers).
             for action in &cmd.actions {
-                apply_output(action, desired);
+                apply_action(action, node, desired, ops);
             }
         }
     }
@@ -164,14 +170,31 @@ fn tap_active(cs: &CmdState, now: &Tick) -> bool {
     cs.tap_until.as_ref().is_some_and(|tu| now.0 < tu.0)
 }
 
-/// Fold one output-leaf action into the desired levels. Scroll impulses (S7b), layer/set
-/// actions (S8), and `None` produce no *level* here.
-fn apply_output(action: &CompiledAction, desired: &mut DesiredLevels) {
+/// Apply one action of a firing command: output leaves become desired levels; layer/set actions
+/// are queued into `ops` for the next tick (`HoldLayer` carries its trigger node so it can latch
+/// to that node's held-state). Scroll impulses (deferred) and `None` do nothing.
+fn apply_action(
+    action: &CompiledAction,
+    node: &NodeHeld,
+    desired: &mut DesiredLevels,
+    ops: &mut LayerOps,
+) {
     match action {
         CompiledAction::Key(k) => desired.press_key(k.clone()),
         CompiledAction::MouseButton(b) if !b.is_scroll() => desired.press_mouse(b.clone()),
         CompiledAction::GamepadButton(b) => desired.press_pad(b.clone()),
-        _ => {}
+        CompiledAction::ChangeActionSet(s) => ops.set_change = Some(s.clone()),
+        CompiledAction::AddLayer(l) => {
+            ops.adds.insert(l.clone());
+        }
+        CompiledAction::RemoveLayer(l) => {
+            ops.removes.insert(l.clone());
+        }
+        CompiledAction::HoldLayer(l) => {
+            ops.holds.insert(l.clone(), node.clone());
+        }
+        // Scroll pseudo-buttons (impulses, deferred) and `None`.
+        CompiledAction::MouseButton(_) | CompiledAction::None => {}
     }
 }
 
@@ -193,14 +216,18 @@ mod tests {
     /// Run one tick over a single command; return whether its key is desired-held.
     fn step(command: &CompiledCommand, slot: &mut SlotState, held: bool, now: u64) -> bool {
         let mut d = DesiredLevels::default();
-        eval_commands(std::slice::from_ref(command), held, slot, &Tick(now), &mut d);
+        let mut ops = LayerOps::default();
+        let node = NodeHeld::Button(config::InputSource::LeftBumper);
+        eval_commands(std::slice::from_ref(command), held, &node, slot, &Tick(now), &mut d, &mut ops);
         d.has_key(&Key::A)
     }
 
     /// Run one tick over several commands on one node; return the desired levels.
     fn step_many(commands: &[CompiledCommand], slot: &mut SlotState, held: bool, now: u64) -> DesiredLevels {
         let mut d = DesiredLevels::default();
-        eval_commands(commands, held, slot, &Tick(now), &mut d);
+        let mut ops = LayerOps::default();
+        let node = NodeHeld::Button(config::InputSource::LeftBumper);
+        eval_commands(commands, held, &node, slot, &Tick(now), &mut d, &mut ops);
         d
     }
 

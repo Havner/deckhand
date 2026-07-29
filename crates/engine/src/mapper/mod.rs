@@ -16,9 +16,10 @@
 mod activator;
 mod behavior;
 mod command;
+mod layers;
 mod reconcile;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use config::{HapticStrength, InputSource, Side};
 use virt_out::OutputEvent;
@@ -27,6 +28,7 @@ use crate::logical::LogicalFrame;
 use crate::program::{CompiledBinding, CompiledSet, LayerId, Program, SetId};
 
 use activator::{Activators, BindingKey};
+use layers::{LayerOps, NodeHeld};
 use reconcile::{AppliedLevels, DesiredLevels, RelAccum};
 
 /// A monotonic logical clock stamp, injected by the manager loop each tick (PLAN §4.1).
@@ -75,6 +77,12 @@ pub struct Mapper {
     /// Per-source activator state (edges/timers/latches), reset when a source's winning binding
     /// changes (PLAN §4 — no long-press bleed across bindings).
     activators: Activators,
+    /// Persistent layers from `AddLayer`/`RemoveLayer` (stay until removed or a set change).
+    persistent_layers: BTreeSet<LayerId>,
+    /// Active `HoldLayer`s and how to re-derive each's trigger-node held-state — a hold persists
+    /// while its node stays held, latched to the node (not the binding) so it survives
+    /// self-shadowing (PLAN §4).
+    held_layers: BTreeMap<LayerId, NodeHeld>,
 }
 
 impl Mapper {
@@ -88,6 +96,8 @@ impl Mapper {
             prev: None,
             last_tick: None,
             activators: Activators::default(),
+            persistent_layers: BTreeSet::new(),
+            held_layers: BTreeMap::new(),
         }
     }
 
@@ -115,15 +125,60 @@ impl Mapper {
 
         let ctx =
             behavior::Ctx { cur: frame, prev: self.prev.as_ref(), dt: self.dt(&tick), now: tick.clone() };
+        let mut ops = LayerOps::default();
         for (source, binding, key) in resolved {
             let slots = self.activators.for_binding(source, key);
-            behavior::eval_binding(binding, source, &ctx, slots, &mut desired, &mut self.rel);
+            behavior::eval_binding(binding, source, &ctx, slots, &mut desired, &mut self.rel, &mut ops);
         }
 
         self.applied.reconcile(&desired, out);
         self.rel.flush(out);
+        // Apply this tick's collected layer/set changes for the *next* tick (frozen-state rule).
+        self.reconcile_layers(frame, ops);
         self.prev = Some(frame.clone());
         self.last_tick = Some(tick);
+    }
+
+    /// Fold a tick's collected [`LayerOps`] into the layer stack for the **next** tick. A set
+    /// change is a full swap (layers are per-set) that clears the stack; otherwise adds/removes
+    /// update the persistent set and hold-layers persist while their trigger node stays held.
+    /// The resulting `active_layers` is sorted by declared-order precedence (`LayerId` index).
+    fn reconcile_layers(&mut self, frame: &LogicalFrame, ops: LayerOps) {
+        if let Some(set) = ops.set_change {
+            self.active_set = set;
+            self.persistent_layers.clear();
+            self.held_layers.clear();
+        } else {
+            for l in ops.removes {
+                self.persistent_layers.remove(&l);
+            }
+            for l in ops.adds {
+                self.persistent_layers.insert(l);
+            }
+            // A hold persists while its trigger node stays held; this tick's holds refresh it.
+            let mut next = BTreeMap::new();
+            for (l, node) in std::mem::take(&mut self.held_layers) {
+                if node.held(frame) {
+                    next.insert(l, node);
+                }
+            }
+            for (l, node) in ops.holds {
+                if node.held(frame) {
+                    next.insert(l, node);
+                }
+            }
+            self.held_layers = next;
+        }
+
+        let mut active: Vec<LayerId> = self
+            .persistent_layers
+            .iter()
+            .cloned()
+            .chain(self.held_layers.keys().cloned())
+            .collect();
+        active.sort_unstable();
+        active.dedup();
+        self.active_layers = active;
     }
 
     /// Seconds elapsed since the previous tick (`0.0` on the first tick and if the clock did not
@@ -163,6 +218,16 @@ impl Mapper {
         }
         set.base.get(source).map(|b| (b, BindingKey::Base))
     }
+
+    /// Test-only: force a layer active as if a persistent `AddLayer` had fired — both frozen for
+    /// the current tick and kept by [`Self::reconcile_layers`] on subsequent ticks.
+    #[cfg(test)]
+    fn force_layer(&mut self, id: LayerId) {
+        self.persistent_layers.insert(id.clone());
+        if !self.active_layers.contains(&id) {
+            self.active_layers.push(id);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -177,6 +242,43 @@ mod tests {
     /// A `Regular` command firing the given actions.
     fn regular(actions: Vec<CompiledAction>) -> CompiledCommand {
         CompiledCommand { activator: Activator::Regular, actions, settings: CommandSettings::default() }
+    }
+
+    /// A `Button` binding firing `action` on a `Regular` press.
+    fn btn(action: CompiledAction) -> CompiledBinding {
+        CompiledBinding::Button { commands: vec![regular(vec![action])] }
+    }
+
+    /// A `Button` binding firing `action` once on the press edge (`Start`).
+    fn start_btn(action: CompiledAction) -> CompiledBinding {
+        CompiledBinding::Button {
+            commands: vec![CompiledCommand {
+                activator: Activator::Start,
+                actions: vec![action],
+                settings: CommandSettings::default(),
+            }],
+        }
+    }
+
+    fn layer(name: &str, bindings: impl IntoIterator<Item = (InputSource, CompiledBinding)>) -> CompiledLayer {
+        CompiledLayer { name: name.into(), bindings: SourceMap::from_iter(bindings) }
+    }
+
+    /// A program of one or more `(base, layers)` sets.
+    fn program_of(sets: Vec<(SourceMap<CompiledBinding>, Vec<CompiledLayer>)>) -> Program {
+        Program {
+            meta: ProgramMeta { name: "test".into(), role: Role::Active },
+            default_set: SetId::new(0),
+            sets: sets
+                .into_iter()
+                .enumerate()
+                .map(|(i, (base, layers))| CompiledSet { name: format!("set{i}"), base, layers })
+                .collect(),
+        }
+    }
+
+    fn down(events: &[OutputEvent], key: Key) -> bool {
+        events.contains(&OutputEvent::Key(key, true))
     }
 
     /// A single-set program from an iterator of `(source, binding)` base bindings.
@@ -200,7 +302,7 @@ mod tests {
         let mut out = Vec::new();
         let mut haptics = Vec::new();
         mapper.tick(f, Tick(t), program, &mut out, &mut haptics);
-        assert!(haptics.is_empty(), "S5 produces no haptics");
+        assert!(haptics.is_empty(), "command haptics are deferred (decision C)");
         out
     }
 
@@ -312,7 +414,7 @@ mod tests {
 
         // Swap to the layer (still holding L1). Winning binding changed → fresh activator state:
         // A releases, and the layer's Long has NOT armed yet (press_start reset to now).
-        m.active_layers.push(LayerId::new(0));
+        m.force_layer(LayerId::new(0));
         let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 320);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
 
@@ -352,11 +454,174 @@ mod tests {
         let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
-        // Activate the layer (S8 does this for real; poke the state for the S5 resolution test):
-        // release first so applied levels are clean, then the layer's B should win.
+        // Activate the layer (a real AddLayer does this in S8's tests; here force it for the
+        // resolution check): release first so applied levels are clean, then B should win.
         let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 1);
-        m.active_layers.push(LayerId::new(0));
+        m.force_layer(LayerId::new(0));
         let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 2);
         assert_eq!(out, vec![OutputEvent::Key(Key::B, true)]);
+    }
+
+    // --- S8: layer / action-set actions -------------------------------------------------
+
+    #[test]
+    fn hold_layer_activates_next_tick_and_releases_on_node_release() {
+        // Base: L4 → HoldLayer(aim). aim: L1 → Key(A).
+        let program = program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftGrip,
+                btn(CompiledAction::HoldLayer(LayerId::new(0))),
+            )]),
+            vec![layer("aim", [(InputSource::LeftBumper, btn(CompiledAction::Key(Key::A)))])],
+        )]);
+        let mut m = Mapper::new(&program);
+
+        // Press L4 + L1 together: this tick the layer isn't active yet, so L1 does nothing.
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L4 | steam_hid::Buttons::L1), 0);
+        assert!(out.is_empty());
+        // Next tick the layer is active → L1 → A.
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L4 | steam_hid::Buttons::L1), 4);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
+        // Release L4 (the hold's node) but keep L1: the layer drops next tick, A releases.
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 8);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 12);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
+    }
+
+    #[test]
+    fn hold_layer_survives_self_shadowing() {
+        // Base: L1 → HoldLayer(aim). aim rebinds the very same L1 → Key(X). Holding L1 must keep
+        // the layer active (latched to L1's held-state) though the HoldLayer command is shadowed.
+        let program = program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftBumper,
+                btn(CompiledAction::HoldLayer(LayerId::new(0))),
+            )]),
+            vec![layer("aim", [(InputSource::LeftBumper, btn(CompiledAction::Key(Key::X)))])],
+        )]);
+        let mut m = Mapper::new(&program);
+
+        // Press L1: layer arms, no output yet.
+        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0).is_empty());
+        // Now L1 is shadowed by the layer → X down, and it stays down while L1 is held (stable,
+        // no flicker) — the HoldLayer command no longer fires but the hold latches to L1.
+        assert_eq!(
+            run(&mut m, &program, &frame(steam_hid::Buttons::L1), 4),
+            vec![OutputEvent::Key(Key::X, true)]
+        );
+        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::L1), 8).is_empty()); // held, stable
+        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::L1), 12).is_empty());
+        // Release L1 → X releases, layer drops.
+        assert_eq!(
+            run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 16),
+            vec![OutputEvent::Key(Key::X, false)]
+        );
+    }
+
+    #[test]
+    fn non_naming_layer_falls_through_to_base() {
+        // aim binds only RightBumper; L1 is unbound in the layer → falls through to base's A.
+        let program = program_of(vec![(
+            SourceMap::from_iter([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::A)))]),
+            vec![layer("aim", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::B)))])],
+        )]);
+        let mut m = Mapper::new(&program);
+        m.force_layer(LayerId::new(0));
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]); // base A, not shadowed
+    }
+
+    #[test]
+    fn two_hold_layers_stack_with_declared_order_precedence() {
+        // Base: L4 → HoldLayer(0), L5 → HoldLayer(1). Layer 0 binds R1→A and R4→C; layer 1 binds
+        // R1→B. Both held: R1 resolves to the higher-index layer 1 (B), R4 only layer 0 (C).
+        let program = program_of(vec![(
+            SourceMap::from_iter([
+                (InputSource::LeftGrip, btn(CompiledAction::HoldLayer(LayerId::new(0)))),
+                (InputSource::LeftGrip2, btn(CompiledAction::HoldLayer(LayerId::new(1)))),
+            ]),
+            vec![
+                layer(
+                    "l0",
+                    [
+                        (InputSource::RightBumper, btn(CompiledAction::Key(Key::A))),
+                        (InputSource::RightGrip, btn(CompiledAction::Key(Key::C))),
+                    ],
+                ),
+                layer("l1", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::B)))]),
+            ],
+        )]);
+        let mut m = Mapper::new(&program);
+
+        // Arm both holds (press L4 + L5).
+        let held = steam_hid::Buttons::L4 | steam_hid::Buttons::L5;
+        let _ = run(&mut m, &program, &frame(held.clone()), 0);
+        // Now press R1 + R4 too: layer 1 wins R1 (B), layer 0 supplies R4 (C), no A.
+        let out = run(
+            &mut m,
+            &program,
+            &frame(held | steam_hid::Buttons::R1 | steam_hid::Buttons::R4),
+            4,
+        );
+        assert!(down(&out, Key::B) && down(&out, Key::C));
+        assert!(!down(&out, Key::A));
+    }
+
+    #[test]
+    fn add_and_remove_layer_are_persistent() {
+        // Base: L4 → AddLayer(0) [Start], R4 → RemoveLayer(0) [Start]. Layer 0: L1 → A.
+        let program = program_of(vec![(
+            SourceMap::from_iter([
+                (InputSource::LeftGrip, start_btn(CompiledAction::AddLayer(LayerId::new(0)))),
+                (InputSource::RightGrip, start_btn(CompiledAction::RemoveLayer(LayerId::new(0)))),
+            ]),
+            vec![layer("l0", [(InputSource::LeftBumper, btn(CompiledAction::Key(Key::A)))])],
+        )]);
+        let mut m = Mapper::new(&program);
+
+        // Tap L4 → AddLayer. Layer persists after release.
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::L4), 0);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 100);
+        // L1 now → A (layer active though L4 long released).
+        assert_eq!(
+            run(&mut m, &program, &frame(steam_hid::Buttons::L1), 200),
+            vec![OutputEvent::Key(Key::A, true)]
+        );
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 300);
+
+        // Tap R4 → RemoveLayer. Now L1 is unbound (base has no L1) → nothing.
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::R4), 400);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 500);
+        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::L1), 600).is_empty());
+    }
+
+    #[test]
+    fn change_action_set_swaps_and_clears_layers() {
+        // set0 base: L4 → AddLayer(0) [Start], Menu → ChangeActionSet(1) [Start]. set0 layer0:
+        // L1 → A. set1 base: L1 → B.
+        let program = program_of(vec![
+            (
+                SourceMap::from_iter([
+                    (InputSource::LeftGrip, start_btn(CompiledAction::AddLayer(LayerId::new(0)))),
+                    (InputSource::Menu, start_btn(CompiledAction::ChangeActionSet(SetId::new(1)))),
+                ]),
+                vec![layer("l0", [(InputSource::LeftBumper, btn(CompiledAction::Key(Key::A)))])],
+            ),
+            (SourceMap::from_iter([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::B)))]), vec![]),
+        ]);
+        let mut m = Mapper::new(&program);
+
+        // In set0, add layer0, confirm L1 → A.
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::L4), 0);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 100);
+        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::L1), 200), Key::A));
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 300);
+
+        // Tap Menu → ChangeActionSet(1): next tick we're on set1, layer stack cleared.
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::MENU), 400);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 500);
+        // L1 → B now (set1), and the old layer0's A is gone.
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 600);
+        assert!(down(&out, Key::B) && !down(&out, Key::A));
     }
 }
