@@ -68,6 +68,9 @@ pub(super) struct SlotState {
     pub(super) press_start: Option<Tick>,
     /// When the node was last released — the `Double` window base.
     pub(super) last_release: Option<Tick>,
+    /// Whether any non-interruptible command on this node fired during the current press — the
+    /// signal an `interruptible` Regular reads on release (short-vs-long, S7b).
+    pub(super) sibling_fired: bool,
     commands: Vec<CmdState>,
 }
 
@@ -88,4 +91,9 @@ pub(super) struct CmdState {
     pub(super) tap_until: Option<Tick>,
     /// `Double`: the current press qualified as the second-within-window and is held.
     pub(super) double_active: bool,
+    /// `toggle`: the latch state, and the previous raw activation (to flip on its rising edge).
+    pub(super) toggle_on: bool,
+    pub(super) raw_prev: bool,
+    /// `turbo`: when the current pulse train started (`None` while inactive).
+    pub(super) turbo_start: Option<Tick>,
 }

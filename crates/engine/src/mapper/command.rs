@@ -11,9 +11,9 @@
 //! `toggle`/`turbo`/`interruptible` **settings** are S7b, and layer/set action firing is S8
 //! (their output leaves are ignored here for now).
 
-use config::Activator;
+use config::{Activator, Turbo};
 
-use super::activator::SlotState;
+use super::activator::{CmdState, SlotState};
 use super::reconcile::DesiredLevels;
 use super::Tick;
 use crate::program::{CompiledAction, CompiledCommand};
@@ -36,16 +36,37 @@ pub(super) fn eval_commands(
     let released = !held && slot.prev_held;
 
     // Press timing must be visible to the commands this tick; release timing updates *after*
-    // (so `Double` sees the *previous* release, not this one).
+    // (so `Double` sees the *previous* release, not this one). `sibling_fired` restarts each press.
     if pressed {
         slot.press_start = Some(now.clone());
+        slot.sibling_fired = false;
     }
     let press_start = slot.press_start.clone();
     let last_release = slot.last_release.clone();
+    let mut sibling_fired = slot.sibling_fired;
 
     for (i, cmd) in commands.iter().enumerate() {
+        let settings = &cmd.settings;
+        let interruptible = settings.interruptible && matches!(cmd.activator, Activator::Regular);
         let cs = slot.command(i);
-        if fires(&cmd.activator, held, pressed, released, &press_start, &last_release, cs, now) {
+
+        let out = if interruptible {
+            // Deferred "short press": fire as a tap on release iff no sibling fired this press —
+            // so a short tap fires this, a long/double hold fires the sibling and this stays quiet.
+            if released && !sibling_fired {
+                cs.tap_until = Some(Tick(now.0 + TAP_MS));
+            }
+            tap_active(cs, now)
+        } else {
+            let raw = fires(&cmd.activator, held, pressed, released, &press_start, &last_release, cs, now);
+            let toggled = apply_toggle(raw, settings.toggle, cs);
+            let out = apply_turbo(toggled, settings.turbo.as_ref(), cs, now);
+            // A non-interruptible command that fires is a "sibling" for interruptible Regulars.
+            sibling_fired |= out;
+            out
+        };
+
+        if out {
             // The whole ordered combo is held while the command fires (subcommands = modifiers).
             for action in &cmd.actions {
                 apply_output(action, desired);
@@ -53,11 +74,42 @@ pub(super) fn eval_commands(
         }
     }
 
+    slot.sibling_fired = sibling_fired;
     if released {
         slot.last_release = Some(now.clone());
         slot.press_start = None;
     }
     slot.prev_held = held;
+}
+
+/// `toggle`: flip a latch on each **rising edge** of the raw activation; output the latch.
+fn apply_toggle(raw: bool, toggle: bool, cs: &mut CmdState) -> bool {
+    if !toggle {
+        return raw;
+    }
+    if raw && !cs.raw_prev {
+        cs.toggle_on = !cs.toggle_on;
+    }
+    cs.raw_prev = raw;
+    cs.toggle_on
+}
+
+/// `turbo`: while `active`, emit a 50%-duty square wave of period `interval_ms` (fires at once
+/// on activation) so a held output rapid-fires; releases the pulse train when `active` drops.
+fn apply_turbo(active: bool, turbo: Option<&Turbo>, cs: &mut CmdState, now: &Tick) -> bool {
+    let Some(turbo) = turbo else {
+        return active;
+    };
+    if !active {
+        cs.turbo_start = None;
+        return false;
+    }
+    if cs.turbo_start.is_none() {
+        cs.turbo_start = Some(now.clone());
+    }
+    let start = cs.turbo_start.as_ref().map_or(now.0, |t| t.0);
+    let half = (turbo.interval_ms as u64 / 2).max(1);
+    (now.0.saturating_sub(start) / half).is_multiple_of(2)
 }
 
 /// Whether a command's actions should be held **this tick**, per its activator type (S7a).
@@ -69,7 +121,7 @@ fn fires(
     released: bool,
     press_start: &Option<Tick>,
     last_release: &Option<Tick>,
-    cs: &mut super::activator::CmdState,
+    cs: &mut CmdState,
     now: &Tick,
 ) -> bool {
     match activator {
@@ -108,7 +160,7 @@ fn fires(
     }
 }
 
-fn tap_active(cs: &super::activator::CmdState, now: &Tick) -> bool {
+fn tap_active(cs: &CmdState, now: &Tick) -> bool {
     cs.tap_until.as_ref().is_some_and(|tu| now.0 < tu.0)
 }
 
@@ -131,11 +183,11 @@ mod tests {
     use vocab::Key;
 
     fn cmd(activator: Activator) -> CompiledCommand {
-        CompiledCommand {
-            activator,
-            actions: vec![CompiledAction::Key(Key::A)],
-            settings: CommandSettings::default(),
-        }
+        cmd_key(activator, Key::A, CommandSettings::default())
+    }
+
+    fn cmd_key(activator: Activator, key: Key, settings: CommandSettings) -> CompiledCommand {
+        CompiledCommand { activator, actions: vec![CompiledAction::Key(key)], settings }
     }
 
     /// Run one tick over a single command; return whether its key is desired-held.
@@ -143,6 +195,13 @@ mod tests {
         let mut d = DesiredLevels::default();
         eval_commands(std::slice::from_ref(command), held, slot, &Tick(now), &mut d);
         d.has_key(&Key::A)
+    }
+
+    /// Run one tick over several commands on one node; return the desired levels.
+    fn step_many(commands: &[CompiledCommand], slot: &mut SlotState, held: bool, now: u64) -> DesiredLevels {
+        let mut d = DesiredLevels::default();
+        eval_commands(commands, held, slot, &Tick(now), &mut d);
+        d
     }
 
     #[test]
@@ -210,5 +269,65 @@ mod tests {
         assert!(!step(&c, &mut s, true, 0));
         assert!(!step(&c, &mut s, true, 30));
         assert!(!step(&c, &mut s, false, 50)); // released early
+    }
+
+    // --- S7b settings modifiers ---------------------------------------------------------
+
+    #[test]
+    fn toggle_latches_on_alternate_presses() {
+        let c = cmd_key(
+            Activator::Regular,
+            Key::A,
+            CommandSettings { toggle: true, ..Default::default() },
+        );
+        let mut s = SlotState::default();
+        assert!(step(&c, &mut s, true, 0)); // press → latched on
+        assert!(step(&c, &mut s, true, 4)); // held → stays on
+        assert!(step(&c, &mut s, false, 8)); // release → STAYS on (that's toggle)
+        assert!(!step(&c, &mut s, true, 12)); // next press → off
+        assert!(!step(&c, &mut s, false, 16)); // stays off
+        assert!(step(&c, &mut s, true, 20)); // press again → on
+    }
+
+    #[test]
+    fn turbo_pulses_a_square_wave_while_held() {
+        let c = cmd_key(
+            Activator::Regular,
+            Key::A,
+            CommandSettings { turbo: Some(Turbo { interval_ms: 100 }), ..Default::default() },
+        );
+        let mut s = SlotState::default();
+        assert!(step(&c, &mut s, true, 0)); // fires immediately
+        assert!(!step(&c, &mut s, true, 50)); // half period → off
+        assert!(step(&c, &mut s, true, 100)); // full period → on
+        assert!(!step(&c, &mut s, true, 150)); // off
+        assert!(!step(&c, &mut s, false, 160)); // released → train stops
+    }
+
+    #[test]
+    fn interruptible_regular_short_vs_long() {
+        // Node: interruptible Regular → A (short), Long{100} → B (long).
+        let cmds = [
+            cmd_key(
+                Activator::Regular,
+                Key::A,
+                CommandSettings { interruptible: true, ..Default::default() },
+            ),
+            cmd_key(Activator::Long { hold_ms: 100 }, Key::B, CommandSettings::default()),
+        ];
+
+        // Short press: A does NOT fire while held, then taps on release; B never fires.
+        let mut s = SlotState::default();
+        assert!(!step_many(&cmds, &mut s, true, 0).has_key(&Key::A)); // deferred
+        let d = step_many(&cmds, &mut s, false, 50); // release before threshold
+        assert!(d.has_key(&Key::A) && !d.has_key(&Key::B));
+
+        // Long press: B fires at the threshold; A is suppressed (a sibling fired) on release.
+        let mut s = SlotState::default();
+        assert!(!step_many(&cmds, &mut s, true, 0).has_key(&Key::A));
+        let d = step_many(&cmds, &mut s, true, 100);
+        assert!(d.has_key(&Key::B) && !d.has_key(&Key::A));
+        let d = step_many(&cmds, &mut s, false, 110); // release → A stays quiet
+        assert!(!d.has_key(&Key::A) && !d.has_key(&Key::B));
     }
 }
