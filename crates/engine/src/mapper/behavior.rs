@@ -24,6 +24,8 @@ use config::{
 use steam_hid::Vec2;
 use vocab::GamepadAxis;
 
+use super::Tick;
+use super::activator::{SlotState, SourceActivators};
 use super::command::eval_commands;
 use super::reconcile::{DesiredLevels, RelAccum};
 use crate::logical::{Dir, LogicalFrame};
@@ -38,40 +40,47 @@ const JOY_MOUSE_RATE: f32 = 800.0;
 const GYRO_MOUSE_GAIN: f32 = 20.0;
 
 /// Per-tick context for behaviors: the current frame, the previous frame (the pad-delta source
-/// for `AsMouse`), and `dt` in seconds (for the rate-based stick/gyro behaviors).
+/// for `AsMouse`), `dt` in seconds (for the rate-based stick/gyro behaviors), and the injected
+/// clock `now` (for activator timing).
 pub(super) struct Ctx<'a> {
     pub cur: &'a LogicalFrame,
     pub prev: Option<&'a LogicalFrame>,
     pub dt: f32,
+    pub now: Tick,
 }
 
 /// Evaluate one resolved binding into the desired output levels and/or relative accumulators.
+/// `slots` is this source's activator state; the behavior owns the fixed slot numbering below.
 pub(super) fn eval_binding(
     binding: &CompiledBinding,
     source: &InputSource,
     ctx: &Ctx,
+    slots: &mut SourceActivators,
     desired: &mut DesiredLevels,
     rel: &mut RelAccum,
 ) {
     let frame = ctx.cur;
+    let now = &ctx.now;
     match binding {
         CompiledBinding::Button { commands } => {
-            eval_commands(commands, frame.button(source), desired);
+            eval_commands(commands, frame.button(source), slots.slot(0), now, desired);
         }
         CompiledBinding::ButtonPad { up, down, left, right } => {
-            eval_commands(up, frame.group_member(source, &Dir::Up), desired);
-            eval_commands(down, frame.group_member(source, &Dir::Down), desired);
-            eval_commands(left, frame.group_member(source, &Dir::Left), desired);
-            eval_commands(right, frame.group_member(source, &Dir::Right), desired);
+            eval_commands(up, frame.group_member(source, &Dir::Up), slots.slot(0), now, desired);
+            eval_commands(down, frame.group_member(source, &Dir::Down), slots.slot(1), now, desired);
+            eval_commands(left, frame.group_member(source, &Dir::Left), slots.slot(2), now, desired);
+            eval_commands(right, frame.group_member(source, &Dir::Right), slots.slot(3), now, desired);
         }
         CompiledBinding::Joystick { settings, outer_ring } => {
-            eval_joystick(source, settings, outer_ring, frame, desired);
+            eval_joystick(source, settings, outer_ring, frame, slots.slot(0), now, desired);
         }
         CompiledBinding::DirectionalPad { settings, up, down, left, right, outer_ring } => {
-            eval_directional_pad(source, settings, up, down, left, right, outer_ring, frame, desired);
+            eval_directional_pad(
+                source, settings, up, down, left, right, outer_ring, frame, slots, now, desired,
+            );
         }
         CompiledBinding::Trigger { settings, soft_pull } => {
-            eval_trigger(source, settings, soft_pull, frame, desired);
+            eval_trigger(source, settings, soft_pull, frame, slots.slot(0), now, desired);
         }
         CompiledBinding::AsMouse { settings } => eval_as_mouse(source, settings, ctx, rel),
         CompiledBinding::JoystickMouse { settings } => {
@@ -88,21 +97,28 @@ fn eval_joystick(
     s: &JoystickSettings,
     outer_ring: &[CompiledCommand],
     frame: &LogicalFrame,
+    slot: &mut SlotState,
+    now: &Tick,
     desired: &mut DesiredLevels,
 ) {
-    if !is_active(&s.activation, frame) {
-        return;
-    }
-    let Some(pos) = source_pos(source, frame) else { return };
-    let (ox, oy) = process_joystick(&pos, s);
-    let (ax, ay) = match s.output {
-        StickOutput::Left => (GamepadAxis::LeftStickX, GamepadAxis::LeftStickY),
-        StickOutput::Right => (GamepadAxis::RightStickX, GamepadAxis::RightStickY),
+    // When the behavior is gated off (or a pad is untouched) it produces no axes (they
+    // reconcile to neutral) and its outer ring reads un-held — but we still advance the slot so
+    // edge-based activators stay correct across the gap.
+    let pos = is_active(&s.activation, frame).then(|| source_pos(source, frame)).flatten();
+    let ring_held = if let Some(pos) = pos {
+        let (ox, oy) = process_joystick(&pos, s);
+        let (ax, ay) = match s.output {
+            StickOutput::Left => (GamepadAxis::LeftStickX, GamepadAxis::LeftStickY),
+            StickOutput::Right => (GamepadAxis::RightStickX, GamepadAxis::RightStickY),
+        };
+        desired.set_axis(ax, ox);
+        desired.set_axis(ay, oy);
+        // Outer ring fires on raw input deflection, not the processed output.
+        magnitude(&pos) >= s.outer_ring.radius
+    } else {
+        false
     };
-    desired.set_axis(ax, ox);
-    desired.set_axis(ay, oy);
-    // Outer ring fires on raw input deflection, not the processed output.
-    eval_commands(outer_ring, magnitude(&pos) >= s.outer_ring.radius, desired);
+    eval_commands(outer_ring, ring_held, slot, now, desired);
 }
 
 /// Deadzone-rescale → curve → anti-deadzone, direction preserved, per-axis invert.
@@ -140,22 +156,28 @@ fn eval_directional_pad(
     right: &[CompiledCommand],
     outer_ring: &[CompiledCommand],
     frame: &LogicalFrame,
+    slots: &mut SourceActivators,
+    now: &Tick,
     desired: &mut DesiredLevels,
 ) {
-    if !is_active(&s.activation, frame) {
-        return;
-    }
-    let Some(pos) = source_pos(source, frame) else { return };
-    let mag = magnitude(&pos);
-    if mag >= s.deadzone.inner && mag > 1e-6 {
+    // Slots: 0=up 1=down 2=left 3=right 4=outer-ring. Gated off / untouched / inside the
+    // deadzone → all virtual buttons un-held, but every slot is still advanced (edges stay
+    // correct; reconcile releases any held output).
+    let pos = is_active(&s.activation, frame).then(|| source_pos(source, frame)).flatten();
+    let mag = pos.as_ref().map_or(0.0, magnitude);
+    let (mut u, mut d, mut l, mut r) = (false, false, false, false);
+    if let Some(pos) = &pos
+        && mag >= s.deadzone.inner
+        && mag > 1e-6
+    {
         let (rx, ry) = rotate(pos.x, pos.y, s.rotation.degrees);
-        let [u, d, l, r] = dpad_dirs(rx, ry, &s.layout);
-        eval_commands(up, u, desired);
-        eval_commands(down, d, desired);
-        eval_commands(left, l, desired);
-        eval_commands(right, r, desired);
+        [u, d, l, r] = dpad_dirs(rx, ry, &s.layout);
     }
-    eval_commands(outer_ring, mag >= s.outer_ring.radius, desired);
+    eval_commands(up, u, slots.slot(0), now, desired);
+    eval_commands(down, d, slots.slot(1), now, desired);
+    eval_commands(left, l, slots.slot(2), now, desired);
+    eval_commands(right, r, slots.slot(3), now, desired);
+    eval_commands(outer_ring, mag >= s.outer_ring.radius, slots.slot(4), now, desired);
 }
 
 /// Which of `[up, down, left, right]` fire. Convention: `+x` = Right, `+y` = Up (final
@@ -196,6 +218,8 @@ fn eval_trigger(
     s: &TriggerSettings,
     soft_pull: &[CompiledCommand],
     frame: &LogicalFrame,
+    slot: &mut SlotState,
+    now: &Tick,
     desired: &mut DesiredLevels,
 ) {
     let pull = frame.trigger(source); // 0.0..=1.0
@@ -205,7 +229,7 @@ fn eval_trigger(
     };
     desired.set_axis(axis, process_trigger(pull, s));
     // Soft-pull virtual button fires on the raw analog pull vs its threshold.
-    eval_commands(soft_pull, pull >= s.soft_pull.threshold, desired);
+    eval_commands(soft_pull, pull >= s.soft_pull.threshold, slot, now, desired);
 }
 
 fn process_trigger(pull: f32, s: &TriggerSettings) -> f32 {
@@ -388,10 +412,11 @@ mod tests {
 
     fn desired_of(binding: &CompiledBinding, source: &InputSource, state: ControllerState) -> DesiredLevels {
         let frame = LogicalFrame::new(state);
-        let ctx = Ctx { cur: &frame, prev: None, dt: 0.0 };
+        let ctx = Ctx { cur: &frame, prev: None, dt: 0.0, now: Tick(0) };
         let mut d = DesiredLevels::default();
         let mut rel = RelAccum::default();
-        eval_binding(binding, source, &ctx, &mut d, &mut rel);
+        let mut slots = SourceActivators::default();
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel);
         d
     }
 
@@ -405,10 +430,11 @@ mod tests {
     ) -> Vec<OutputEvent> {
         let prev_frame = prev.map(LogicalFrame::new);
         let cur_frame = LogicalFrame::new(cur);
-        let ctx = Ctx { cur: &cur_frame, prev: prev_frame.as_ref(), dt };
+        let ctx = Ctx { cur: &cur_frame, prev: prev_frame.as_ref(), dt, now: Tick(0) };
         let mut d = DesiredLevels::default();
         let mut rel = RelAccum::default();
-        eval_binding(binding, source, &ctx, &mut d, &mut rel);
+        let mut slots = SourceActivators::default();
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel);
         let mut out = Vec::new();
         rel.flush(&mut out);
         out

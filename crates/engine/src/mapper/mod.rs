@@ -13,6 +13,7 @@
 //! actions (S8) fill in the remaining match arms and state. The per-tick pass will grow into
 //! `resolve`/`behavior`/`command` submodules as those steps land.
 
+mod activator;
 mod behavior;
 mod command;
 mod reconcile;
@@ -25,6 +26,7 @@ use virt_out::OutputEvent;
 use crate::logical::LogicalFrame;
 use crate::program::{CompiledBinding, CompiledSet, LayerId, Program, SetId};
 
+use activator::{Activators, BindingKey};
 use reconcile::{AppliedLevels, DesiredLevels, RelAccum};
 
 /// A monotonic logical clock stamp, injected by the manager loop each tick (PLAN §4.1).
@@ -70,6 +72,9 @@ pub struct Mapper {
     prev: Option<LogicalFrame>,
     /// The previous tick's clock stamp, for the per-tick `dt` the rate-based behaviors need.
     last_tick: Option<Tick>,
+    /// Per-source activator state (edges/timers/latches), reset when a source's winning binding
+    /// changes (PLAN §4 — no long-press bleed across bindings).
+    activators: Activators,
 }
 
 impl Mapper {
@@ -82,6 +87,7 @@ impl Mapper {
             rel: RelAccum::default(),
             prev: None,
             last_tick: None,
+            activators: Activators::default(),
         }
     }
 
@@ -99,16 +105,19 @@ impl Mapper {
         let set = program.set(&self.active_set);
         let mut desired = DesiredLevels::default();
 
-        // Resolve every bound input first (releases the `&self` borrow before `rel` is mutated).
-        let resolved: Vec<(&InputSource, &CompiledBinding)> = self
+        // Resolve every bound input first (releases the `&self` borrow before the retained
+        // activator/rel state is mutated in the loop below).
+        let resolved: Vec<(&InputSource, &CompiledBinding, BindingKey)> = self
             .bound_sources(set)
             .into_iter()
-            .filter_map(|s| self.resolve(set, s).map(|b| (s, b)))
+            .filter_map(|s| self.resolve(set, s).map(|(b, key)| (s, b, key)))
             .collect();
 
-        let ctx = behavior::Ctx { cur: frame, prev: self.prev.as_ref(), dt: self.dt(&tick) };
-        for (source, binding) in resolved {
-            behavior::eval_binding(binding, source, &ctx, &mut desired, &mut self.rel);
+        let ctx =
+            behavior::Ctx { cur: frame, prev: self.prev.as_ref(), dt: self.dt(&tick), now: tick.clone() };
+        for (source, binding, key) in resolved {
+            let slots = self.activators.for_binding(source, key);
+            behavior::eval_binding(binding, source, &ctx, slots, &mut desired, &mut self.rel);
         }
 
         self.applied.reconcile(&desired, out);
@@ -136,18 +145,23 @@ impl Mapper {
         sources
     }
 
-    /// The winning binding for `source`: the highest-precedence active layer that binds it
-    /// (precedence = `LayerId` index, declared order), else the base binding, else `None`
-    /// (PLAN §4 — silent layers fall through).
-    fn resolve<'p>(&self, set: &'p CompiledSet, source: &InputSource) -> Option<&'p CompiledBinding> {
+    /// The winning binding for `source` **and its identity** ([`BindingKey`]): the
+    /// highest-precedence active layer that binds it (precedence = `LayerId` index, declared
+    /// order), else the base binding, else `None` (PLAN §4 — silent layers fall through). The
+    /// key lets the activator table reset when the winner changes.
+    fn resolve<'p>(
+        &self,
+        set: &'p CompiledSet,
+        source: &InputSource,
+    ) -> Option<(&'p CompiledBinding, BindingKey)> {
         let mut layers: Vec<&LayerId> = self.active_layers.iter().collect();
         layers.sort_by_key(|id| std::cmp::Reverse(id.index()));
         for id in layers {
             if let Some(binding) = set.layer(id).bindings.get(source) {
-                return Some(binding);
+                return Some((binding, BindingKey::Layer(id.clone())));
             }
         }
-        set.base.get(source)
+        set.base.get(source).map(|b| (b, BindingKey::Base))
     }
 }
 
@@ -248,8 +262,8 @@ mod tests {
     }
 
     #[test]
-    fn unbound_and_non_regular_produce_nothing() {
-        // A Long activator is ignored in S5; an unbound button produces nothing.
+    fn long_activator_does_not_fire_on_the_press_tick() {
+        // A freshly-pressed Long activator (threshold not yet met) produces nothing this tick.
         let program = program_with([(
             InputSource::LeftBumper,
             CompiledBinding::Button {
@@ -263,6 +277,48 @@ mod tests {
         let mut m = Mapper::new(&program);
         let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn activator_state_resets_when_winning_binding_changes() {
+        // Base binds L1 to a 250 ms Long → A. A layer rebinds L1 to Long → B. If we hold L1,
+        // let the base Long arm, then swap in the layer, the layer's Long must NOT inherit the
+        // base's elapsed hold — it starts timing fresh (no long-press bleed across bindings).
+        let long = |key: Key| CompiledBinding::Button {
+            commands: vec![CompiledCommand {
+                activator: Activator::Long { hold_ms: 250 },
+                actions: vec![CompiledAction::Key(key)],
+                settings: CommandSettings::default(),
+            }],
+        };
+        let program = Program {
+            meta: ProgramMeta { name: "test".into(), role: Role::Active },
+            default_set: SetId::new(0),
+            sets: vec![CompiledSet {
+                name: "Game".into(),
+                base: SourceMap::from_iter([(InputSource::LeftBumper, long(Key::A))]),
+                layers: vec![CompiledLayer {
+                    name: "alt".into(),
+                    bindings: SourceMap::from_iter([(InputSource::LeftBumper, long(Key::B))]),
+                }],
+            }],
+        };
+        let mut m = Mapper::new(&program);
+
+        // Hold L1 on base until the Long arms → A down at t=300.
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 300);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
+
+        // Swap to the layer (still holding L1). Winning binding changed → fresh activator state:
+        // A releases, and the layer's Long has NOT armed yet (press_start reset to now).
+        m.active_layers.push(LayerId::new(0));
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 320);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
+
+        // Only after another 250 ms of holding does the layer's Long fire → B.
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 600);
+        assert_eq!(out, vec![OutputEvent::Key(Key::B, true)]);
     }
 
     #[test]
