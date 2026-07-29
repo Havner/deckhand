@@ -10,8 +10,9 @@
 //! so the mapping logic is golden-testable from recorded traces without hardware
 //! (PLAN §4.1). The crate is strictly **headless**: no X/Wayland/DE linkage.
 //!
-//! Built in steps (PLAN §4.2). This is **S0 — scaffold**: the crate, its error type, and
-//! the module map. Each subsequent step adds its module and re-exports:
+//! Built in steps (PLAN §4.2). Through **S5** the crate holds the runtime IR, the compiler,
+//! the logical-frame lens, output reconciliation, and the pure [`Mapper`] skeleton (binding
+//! resolution + Button→level wiring). The module map:
 //! - `program`  — the runtime IR (`Program`) — S1
 //! - `compile`  — `compile(&ConfigDoc) -> Result<Program, Vec<Diagnostic>>` — S2
 //! - `logical`  — `ControllerState -> LogicalFrame` (per `DeviceKind`) — S3
@@ -28,6 +29,7 @@ mod program;
 pub use compile::compile;
 pub use error::{Error, Result};
 pub use logical::{Dir, LogicalFrame};
+pub use mapper::{HapticReq, Mapper, Tick};
 pub use program::{
     CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId, Program,
     ProgramMeta, Role, SetId, SourceMap,
