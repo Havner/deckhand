@@ -13,15 +13,17 @@
 //! actions (S8) fill in the remaining match arms and state. The per-tick pass will grow into
 //! `resolve`/`behavior`/`command` submodules as those steps land.
 
+mod behavior;
+mod command;
 mod reconcile;
 
 use std::collections::BTreeSet;
 
-use config::{Activator, HapticStrength, InputSource, Side};
+use config::{HapticStrength, InputSource, Side};
 use virt_out::OutputEvent;
 
 use crate::logical::LogicalFrame;
-use crate::program::{CompiledAction, CompiledBinding, CompiledSet, LayerId, Program, SetId};
+use crate::program::{CompiledBinding, CompiledSet, LayerId, Program, SetId};
 
 use reconcile::{AppliedLevels, DesiredLevels, RelAccum};
 
@@ -95,27 +97,7 @@ impl Mapper {
 
         for source in self.bound_sources(set) {
             let Some(binding) = self.resolve(set, source) else { continue };
-            // A single real arm today; behaviors add the Joystick/Pad/Trigger/… arms in S6.
-            #[allow(clippy::single_match, clippy::collapsible_match)]
-            match binding {
-                CompiledBinding::Button { commands } => {
-                    // S5: only the held-while-held `Regular` activator; richer activators,
-                    // toggle/turbo/interruptible, and combos-as-sequences land in S7.
-                    if frame.button(source) {
-                        for cmd in commands {
-                            if !matches!(cmd.activator, Activator::Regular) {
-                                continue;
-                            }
-                            for action in &cmd.actions {
-                                apply_output(action, &mut desired);
-                            }
-                        }
-                    }
-                }
-                // Behaviors (S6) and their virtual buttons produce axes / relative nudges /
-                // virtual-button levels; not yet handled.
-                _ => {}
-            }
+            behavior::eval_binding(binding, source, frame, &mut desired);
         }
 
         self.applied.reconcile(&desired, out);
@@ -148,26 +130,13 @@ impl Mapper {
     }
 }
 
-/// Fold one output-leaf action into the desired levels. Non-output actions (layer/set changes,
-/// `None`) and scroll impulses are handled by later steps and ignored here.
-fn apply_output(action: &CompiledAction, desired: &mut DesiredLevels) {
-    match action {
-        CompiledAction::Key(k) => desired.press_key(k.clone()),
-        // Scroll pseudo-buttons are impulses, not levels — turbo/impulse handling is S7.
-        CompiledAction::MouseButton(b) if !b.is_scroll() => desired.press_mouse(b.clone()),
-        CompiledAction::GamepadButton(b) => desired.press_pad(b.clone()),
-        // Scroll impulses, layer/set actions (S8), and `None` produce no level here.
-        _ => {}
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::program::{
-        CompiledCommand, CompiledLayer, CompiledSet, ProgramMeta, Role, SourceMap,
+        CompiledAction, CompiledCommand, CompiledLayer, CompiledSet, ProgramMeta, Role, SourceMap,
     };
-    use config::CommandSettings;
+    use config::{Activator, CommandSettings};
     use vocab::{GamepadButton, Key};
 
     /// A `Regular` command firing the given actions.

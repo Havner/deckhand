@@ -43,6 +43,18 @@ impl DesiredLevels {
     }
 }
 
+#[cfg(test)]
+impl DesiredLevels {
+    /// Read the desired value of an axis (test/inspection accessor).
+    pub fn axis(&self, axis: &GamepadAxis) -> Option<f32> {
+        self.axes.get(axis).copied()
+    }
+    /// Whether a key is desired-held (test/inspection accessor).
+    pub fn has_key(&self, key: &Key) -> bool {
+        self.keys.contains(key)
+    }
+}
+
 /// The last-applied output levels. [`Self::reconcile`] diffs a new [`DesiredLevels`] into it,
 /// pushing only the changed events, and adopts the new state.
 #[derive(Debug, Clone, Default, PartialEq)]
