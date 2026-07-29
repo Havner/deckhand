@@ -17,24 +17,43 @@
 //! bridge at HW validation (S10).
 
 use config::{
-    Activation, ActivationMode, Curve, DirectionalPadSettings, DpadLayout, InputSource,
-    JoystickSettings, StickOutput, TriggerOutput, TriggerSettings,
+    Activation, ActivationMode, AsMouseSettings, Curve, DirectionalPadSettings, DpadLayout,
+    GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, MouseOutput,
+    Sensitivity, StickOutput, TriggerOutput, TriggerSettings,
 };
 use steam_hid::Vec2;
 use vocab::GamepadAxis;
 
 use super::command::eval_commands;
-use super::reconcile::DesiredLevels;
+use super::reconcile::{DesiredLevels, RelAccum};
 use crate::logical::{Dir, LogicalFrame};
 use crate::program::{CompiledBinding, CompiledCommand};
 
-/// Evaluate one resolved binding into the desired output levels.
+/// Raw gyro units per degree/second (steam-hid `GYRO_RES_PER_DPS`, PLAN §1.9).
+const GYRO_RES_PER_DPS: f32 = 16.0;
+/// Behavior output gains — reasonable starting points; final feel is tuned against the bridge
+/// at HW validation (S10). Pixels per normalized-pad-delta / per stick-rate·second / per degree.
+const PAD_MOUSE_GAIN: f32 = 400.0;
+const JOY_MOUSE_RATE: f32 = 800.0;
+const GYRO_MOUSE_GAIN: f32 = 20.0;
+
+/// Per-tick context for behaviors: the current frame, the previous frame (the pad-delta source
+/// for `AsMouse`), and `dt` in seconds (for the rate-based stick/gyro behaviors).
+pub(super) struct Ctx<'a> {
+    pub cur: &'a LogicalFrame,
+    pub prev: Option<&'a LogicalFrame>,
+    pub dt: f32,
+}
+
+/// Evaluate one resolved binding into the desired output levels and/or relative accumulators.
 pub(super) fn eval_binding(
     binding: &CompiledBinding,
     source: &InputSource,
-    frame: &LogicalFrame,
+    ctx: &Ctx,
     desired: &mut DesiredLevels,
+    rel: &mut RelAccum,
 ) {
+    let frame = ctx.cur;
     match binding {
         CompiledBinding::Button { commands } => {
             eval_commands(commands, frame.button(source), desired);
@@ -54,10 +73,11 @@ pub(super) fn eval_binding(
         CompiledBinding::Trigger { settings, soft_pull } => {
             eval_trigger(source, settings, soft_pull, frame, desired);
         }
-        // Relative mouse behaviors — S6b (integrate over the injected clock + previous frame).
-        CompiledBinding::AsMouse { .. }
-        | CompiledBinding::JoystickMouse { .. }
-        | CompiledBinding::GyroToMouse { .. } => {}
+        CompiledBinding::AsMouse { settings } => eval_as_mouse(source, settings, ctx, rel),
+        CompiledBinding::JoystickMouse { settings } => {
+            eval_joystick_mouse(source, settings, ctx, rel)
+        }
+        CompiledBinding::GyroToMouse { settings } => eval_gyro_to_mouse(settings, ctx, rel),
     }
 }
 
@@ -196,7 +216,117 @@ fn process_trigger(pull: f32, s: &TriggerSettings) -> f32 {
     apply_curve(scaled, &s.curve)
 }
 
+// --- AsMouse (Pad → cursor/scroll via frame-to-frame delta) -----------------------------
+
+fn eval_as_mouse(source: &InputSource, s: &AsMouseSettings, ctx: &Ctx, rel: &mut RelAccum) {
+    if !is_active(&s.activation, ctx.cur) {
+        return;
+    }
+    // Positional delta of a pad, only while touched on *both* this frame and the last — so a
+    // touch-down (or lift) never injects a jump. dt-independent (a trackpad reports position).
+    let (Some(cur), Some(prev)) = (ctx.cur.pad(source), ctx.prev.and_then(|p| p.pad(source)))
+    else {
+        return;
+    };
+    if !cur.touched || !prev.touched {
+        return;
+    }
+    let (mx, my) = process_relative(
+        cur.pos.x - prev.pos.x,
+        cur.pos.y - prev.pos.y,
+        &s.sensitivity,
+        &s.invert,
+        s.rotation.degrees,
+        PAD_MOUSE_GAIN,
+    );
+    emit_relative(&s.output, mx, my, rel);
+}
+
+// --- JoystickMouse (Stick → cursor/scroll via deflection→rate·dt) -----------------------
+
+fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ctx, rel: &mut RelAccum) {
+    if !is_active(&s.activation, ctx.cur) {
+        return;
+    }
+    let pos = ctx.cur.pos(source);
+    let (rx, ry) = rotate(pos.x, pos.y, s.rotation.degrees);
+    let mag = (rx * rx + ry * ry).sqrt();
+    if mag <= s.deadzone.inner || mag < 1e-6 {
+        return;
+    }
+    // Deflection past the deadzone → speed; integrated over dt into a pixel delta.
+    let scaled = ((mag - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
+    let speed = apply_curve(scaled, &s.curve) * JOY_MOUSE_RATE * ctx.dt;
+    let (ux, uy) = (rx / mag, ry / mag);
+    let mut mx = ux * speed * s.sensitivity.x;
+    let mut my = uy * speed * s.sensitivity.y;
+    if s.invert.x {
+        mx = -mx;
+    }
+    if s.invert.y {
+        my = -my;
+    }
+    emit_relative(&s.output, mx, my, rel);
+}
+
+// --- GyroToMouse (angular velocity → pixel delta, crude local space) --------------------
+
+fn eval_gyro_to_mouse(s: &GyroToMouseSettings, ctx: &Ctx, rel: &mut RelAccum) {
+    if !is_active(&s.activation, ctx.cur) {
+        return;
+    }
+    // Local space (crude, decision D): yaw (z) → horizontal, pitch (x) → vertical, deg/s.
+    let g = ctx.cur.gyro();
+    let (yaw, pitch) = rotate(
+        g.z as f32 / GYRO_RES_PER_DPS,
+        g.x as f32 / GYRO_RES_PER_DPS,
+        s.rotation.degrees,
+    );
+    let mut mx = yaw * s.sensitivity.x * GYRO_MOUSE_GAIN * ctx.dt;
+    let mut my = pitch * s.sensitivity.y * GYRO_MOUSE_GAIN * ctx.dt;
+    if s.invert.x {
+        mx = -mx;
+    }
+    if s.invert.y {
+        my = -my;
+    }
+    // Radial pixel deadzone kills the resting DC-bias drift (bridge finding; PLAN decision D).
+    if (mx * mx + my * my).sqrt() < s.deadzone.inner {
+        return;
+    }
+    emit_relative(&s.output, mx, my, rel);
+}
+
 // --- shared helpers ---------------------------------------------------------------------
+
+/// Apply rotation, per-axis sensitivity, gain, and invert to a raw relative delta.
+fn process_relative(
+    dx: f32,
+    dy: f32,
+    sens: &Sensitivity,
+    invert: &Invert,
+    rotation_deg: f32,
+    gain: f32,
+) -> (f32, f32) {
+    let (rx, ry) = rotate(dx, dy, rotation_deg);
+    let mut mx = rx * sens.x * gain;
+    let mut my = ry * sens.y * gain;
+    if invert.x {
+        mx = -mx;
+    }
+    if invert.y {
+        my = -my;
+    }
+    (mx, my)
+}
+
+/// Route a relative delta to the chosen mouse output (cursor motion or scroll).
+fn emit_relative(output: &MouseOutput, dx: f32, dy: f32, rel: &mut RelAccum) {
+    match output {
+        MouseOutput::Cursor => rel.add_mouse(dx, dy),
+        MouseOutput::Scroll => rel.add_scroll(dx, dy),
+    }
+}
 
 /// The 2D reading for a source, or `None` when it's a **pad that isn't touched** (a
 /// pad-as-joystick/dpad must not deflect from a stale resting position). Sticks always read.
@@ -241,9 +371,11 @@ mod tests {
     use super::*;
     use crate::program::{CompiledAction, CompiledCommand};
     use config::{
-        Activator, CommandSettings, Deadzone, Invert, OuterRing, SoftPull,
+        Activator, CommandSettings, Deadzone, GyroToMouseSettings, Invert, JoystickMouseSettings,
+        OuterRing, SoftPull,
     };
-    use steam_hid::{Buttons, ControllerState, TrackPad};
+    use steam_hid::{Buttons, ControllerState, TrackPad, Vec3i};
+    use virt_out::OutputEvent;
     use vocab::Key;
 
     fn regular(key: Key) -> Vec<CompiledCommand> {
@@ -256,9 +388,41 @@ mod tests {
 
     fn desired_of(binding: &CompiledBinding, source: &InputSource, state: ControllerState) -> DesiredLevels {
         let frame = LogicalFrame::new(state);
+        let ctx = Ctx { cur: &frame, prev: None, dt: 0.0 };
         let mut d = DesiredLevels::default();
-        eval_binding(binding, source, &frame, &mut d);
+        let mut rel = RelAccum::default();
+        eval_binding(binding, source, &ctx, &mut d, &mut rel);
         d
+    }
+
+    /// Run a relative behavior and return the flushed `MouseMove`/`Scroll` events.
+    fn relative_of(
+        binding: &CompiledBinding,
+        source: &InputSource,
+        prev: Option<ControllerState>,
+        cur: ControllerState,
+        dt: f32,
+    ) -> Vec<OutputEvent> {
+        let prev_frame = prev.map(LogicalFrame::new);
+        let cur_frame = LogicalFrame::new(cur);
+        let ctx = Ctx { cur: &cur_frame, prev: prev_frame.as_ref(), dt };
+        let mut d = DesiredLevels::default();
+        let mut rel = RelAccum::default();
+        eval_binding(binding, source, &ctx, &mut d, &mut rel);
+        let mut out = Vec::new();
+        rel.flush(&mut out);
+        out
+    }
+
+    fn touched(x: f32, y: f32) -> TrackPad {
+        TrackPad { pos: Vec2 { x, y }, pressure: 0.0, touched: true }
+    }
+
+    fn mouse_dx(events: &[OutputEvent]) -> i32 {
+        events.iter().find_map(|e| match e {
+            OutputEvent::MouseMove { dx, .. } => Some(*dx),
+            _ => None,
+        }).unwrap_or(0)
     }
 
     #[test]
@@ -470,5 +634,70 @@ mod tests {
             },
         );
         assert!(d.axis(&GamepadAxis::LeftStickX).unwrap() > 0.99);
+    }
+
+    // --- relative behaviors (S6b) -------------------------------------------------------
+
+    #[test]
+    fn as_mouse_pad_delta_moves_cursor() {
+        let binding = CompiledBinding::AsMouse { settings: AsMouseSettings::default() };
+        // Rightward swipe while touched across two frames → positive dx.
+        let prev = ControllerState { left_pad: touched(0.0, 0.0), ..Default::default() };
+        let cur = ControllerState { left_pad: touched(0.5, 0.0), ..Default::default() };
+        let out = relative_of(&binding, &InputSource::LeftPad, Some(prev), cur, 0.016);
+        assert!(mouse_dx(&out) > 0);
+    }
+
+    #[test]
+    fn as_mouse_needs_touch_on_both_frames() {
+        let binding = CompiledBinding::AsMouse { settings: AsMouseSettings::default() };
+        // Touch-down this frame (prev not touched) → no jump.
+        let prev = ControllerState {
+            left_pad: TrackPad { pos: Vec2 { x: 0.0, y: 0.0 }, pressure: 0.0, touched: false },
+            ..Default::default()
+        };
+        let cur = ControllerState { left_pad: touched(0.5, 0.0), ..Default::default() };
+        let out = relative_of(&binding, &InputSource::LeftPad, Some(prev), cur, 0.016);
+        assert!(out.is_empty());
+        // No previous frame at all → nothing.
+        let cur = ControllerState { left_pad: touched(0.5, 0.0), ..Default::default() };
+        let out = relative_of(&binding, &InputSource::LeftPad, None, cur, 0.016);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn joystick_mouse_rate_scales_with_dt() {
+        let binding =
+            CompiledBinding::JoystickMouse { settings: JoystickMouseSettings::default() };
+        let cur = || ControllerState { left_stick: Vec2 { x: 1.0, y: 0.0 }, ..Default::default() };
+        // dt = 0 (first tick) → no motion despite full deflection.
+        let out = relative_of(&binding, &InputSource::LeftStick, None, cur(), 0.0);
+        assert!(out.is_empty());
+        // dt > 0 → moves right.
+        let out = relative_of(&binding, &InputSource::LeftStick, None, cur(), 0.1);
+        assert!(mouse_dx(&out) > 0);
+    }
+
+    #[test]
+    fn gyro_to_mouse_yaw_moves_horizontally_and_deadzones() {
+        // Default deadzone 0 → a yaw rate moves the cursor horizontally.
+        let binding = CompiledBinding::GyroToMouse { settings: GyroToMouseSettings::default() };
+        let yaw = ControllerState {
+            gyro: Vec3i { x: 0, y: 0, z: (10.0 * GYRO_RES_PER_DPS) as i16 }, // 10 deg/s yaw
+            ..Default::default()
+        };
+        let out = relative_of(&binding, &InputSource::Gyro, None, yaw, 0.1);
+        assert!(mouse_dx(&out) > 0);
+
+        // With a large radial deadzone, a tiny rate is dropped (kills resting drift).
+        let binding = CompiledBinding::GyroToMouse {
+            settings: GyroToMouseSettings { deadzone: Deadzone { inner: 5.0 }, ..Default::default() },
+        };
+        let tiny = ControllerState {
+            gyro: Vec3i { x: 0, y: 0, z: (0.5 * GYRO_RES_PER_DPS) as i16 },
+            ..Default::default()
+        };
+        let out = relative_of(&binding, &InputSource::Gyro, None, tiny, 0.1);
+        assert!(out.is_empty());
     }
 }

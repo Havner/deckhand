@@ -51,8 +51,8 @@ pub struct HapticReq {
 
 /// The live mapping state — everything retained across ticks (PLAN §4.1).
 ///
-/// S5 populates the subset the skeleton needs; later steps add the activator table (S7), the
-/// gyro integrator and relative remainders' companions (S6), and drive the layer stack (S8).
+/// S5/S6 populate the subset the skeleton and behaviors need; later steps add the activator
+/// table (S7) and drive the layer stack (S8).
 pub struct Mapper {
     /// The action set currently active (`ChangeActionSet` retargets it, S8).
     active_set: SetId,
@@ -62,11 +62,14 @@ pub struct Mapper {
     active_layers: Vec<LayerId>,
     /// Last-applied output levels — reconciled against each tick's desired set (S4).
     applied: AppliedLevels,
-    /// Sub-pixel remainders for relative outputs (mouse/scroll); fed by behaviors in S6.
+    /// Sub-pixel remainders for relative outputs (mouse/scroll); fed by the relative behaviors
+    /// (S6b) and flushed each tick as integer `MouseMove`/`Scroll` events.
     rel: RelAccum,
-    /// Previous logical frame, retained for digital edge detection (`cur & !prev`, S7).
-    #[allow(dead_code)] // Read for edge detection once activators land (S7).
+    /// Previous logical frame — the pad-delta source for `AsMouse` (S6b) and digital edge
+    /// detection (S7).
     prev: Option<LogicalFrame>,
+    /// The previous tick's clock stamp, for the per-tick `dt` the rate-based behaviors need.
+    last_tick: Option<Tick>,
 }
 
 impl Mapper {
@@ -78,16 +81,17 @@ impl Mapper {
             applied: AppliedLevels::default(),
             rel: RelAccum::default(),
             prev: None,
+            last_tick: None,
         }
     }
 
     /// Run one mapping pass: resolve the winning binding for every bound input, compute the
-    /// desired output levels, and reconcile them into `out` (emitting only diffs). `haptics`
-    /// is the pulse channel (unused in S5). `_tick` is the injected clock (used from S7).
+    /// desired output levels + relative nudges, and reconcile them into `out` (emitting only
+    /// diffs). `haptics` is the pulse channel (unused in the first cut, decision C).
     pub fn tick(
         &mut self,
         frame: &LogicalFrame,
-        _tick: Tick,
+        tick: Tick,
         program: &Program,
         out: &mut Vec<OutputEvent>,
         _haptics: &mut Vec<HapticReq>,
@@ -95,14 +99,31 @@ impl Mapper {
         let set = program.set(&self.active_set);
         let mut desired = DesiredLevels::default();
 
-        for source in self.bound_sources(set) {
-            let Some(binding) = self.resolve(set, source) else { continue };
-            behavior::eval_binding(binding, source, frame, &mut desired);
+        // Resolve every bound input first (releases the `&self` borrow before `rel` is mutated).
+        let resolved: Vec<(&InputSource, &CompiledBinding)> = self
+            .bound_sources(set)
+            .into_iter()
+            .filter_map(|s| self.resolve(set, s).map(|b| (s, b)))
+            .collect();
+
+        let ctx = behavior::Ctx { cur: frame, prev: self.prev.as_ref(), dt: self.dt(&tick) };
+        for (source, binding) in resolved {
+            behavior::eval_binding(binding, source, &ctx, &mut desired, &mut self.rel);
         }
 
         self.applied.reconcile(&desired, out);
         self.rel.flush(out);
         self.prev = Some(frame.clone());
+        self.last_tick = Some(tick);
+    }
+
+    /// Seconds elapsed since the previous tick (`0.0` on the first tick and if the clock did not
+    /// advance — so rate-based behaviors emit nothing rather than a spurious jump).
+    fn dt(&self, now: &Tick) -> f32 {
+        match &self.last_tick {
+            Some(prev) if now.0 > prev.0 => (now.0 - prev.0) as f32 / 1000.0,
+            _ => 0.0,
+        }
     }
 
     /// The set of inputs to evaluate this tick: every source bound in the base or in any active
