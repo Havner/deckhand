@@ -101,6 +101,21 @@ impl Mapper {
         }
     }
 
+    /// Re-seed the mapper for a (possibly different) `program` — an active↔fallback switch or a
+    /// hot-apply of a new program to the current role. Resets the mapping state (active set,
+    /// layers, activators) to the new program's defaults, since its `SetId`/`LayerId`s are its
+    /// own, but **keeps** the applied output levels + relative remainders: the next tick's
+    /// reconcile then releases the outgoing program's outputs and applies the incoming one's, so
+    /// nothing sticks across the swap.
+    pub fn switch_program(&mut self, program: &Program) {
+        self.active_set = program.default_set.clone();
+        self.active_layers.clear();
+        self.persistent_layers.clear();
+        self.held_layers.clear();
+        self.activators = Activators::default();
+        // applied / rel / prev / last_tick deliberately retained.
+    }
+
     /// Run one mapping pass: resolve the winning binding for every bound input, compute the
     /// desired output levels + relative nudges, and reconcile them into `out` (emitting only
     /// diffs). `haptics` is the pulse channel (unused in the first cut, decision C).
@@ -460,6 +475,23 @@ mod tests {
         m.force_layer(LayerId::new(0));
         let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 2);
         assert_eq!(out, vec![OutputEvent::Key(Key::B, true)]);
+    }
+
+    #[test]
+    fn switch_program_releases_old_outputs_and_applies_new() {
+        // Program A: L1 → A. Program B: L1 → B. Holding L1 across a switch must release A and
+        // press B (no stuck key), which is how the loop hot-swaps active↔fallback (S9).
+        let prog_a = program_with([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::A)))]);
+        let prog_b = program_with([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::B)))]);
+        let mut m = Mapper::new(&prog_a);
+
+        let out = run(&mut m, &prog_a, &frame(steam_hid::Buttons::L1), 0);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
+
+        // Switch to program B (still holding L1) and tick B: A up, B down in one reconcile.
+        m.switch_program(&prog_b);
+        let out = run(&mut m, &prog_b, &frame(steam_hid::Buttons::L1), 4);
+        assert!(down(&out, Key::B) && out.contains(&OutputEvent::Key(Key::A, false)));
     }
 
     // --- S8: layer / action-set actions -------------------------------------------------

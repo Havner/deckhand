@@ -47,6 +47,19 @@ impl LogicalFrame {
         &self.state
     }
 
+    /// A copy with the given physical-button inputs cleared — used to **consume** the buttons a
+    /// global chord fired on, so profile bindings don't also see them (PLAN §3 Round E / §4).
+    /// Non-button inputs are ignored.
+    pub fn masked(&self, consumed: &[InputSource]) -> LogicalFrame {
+        let mut state = self.state.clone();
+        for source in consumed {
+            if let Some(flag) = button_flag(source) {
+                state.buttons.remove(flag);
+            }
+        }
+        LogicalFrame::new(state)
+    }
+
     /// Digital level of a **standalone button** input (bumpers, grips, system buttons,
     /// clicks, touches, full-pulls). `false` for non-button sources.
     pub fn button(&self, source: &InputSource) -> bool {

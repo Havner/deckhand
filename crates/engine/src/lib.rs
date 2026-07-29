@@ -20,6 +20,7 @@
 //! - `runtime`  — reader thread(s) + central `select!` loop (threads/channels) — S9
 //! - `handle`   — the `Engine` control API — S10
 
+mod chords;
 mod compile;
 mod error;
 mod logical;
