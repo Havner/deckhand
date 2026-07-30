@@ -18,8 +18,9 @@ mod behavior;
 mod command;
 mod layers;
 mod reconcile;
+mod smooth;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use config::{HapticStrength, InputSource, Side};
 use virt_out::OutputEvent;
@@ -30,6 +31,7 @@ use crate::program::{CompiledBinding, CompiledSet, LayerId, Program, SetId};
 use activator::{Activators, BindingKey};
 use layers::{LayerOps, NodeHeld};
 use reconcile::{AppliedLevels, DesiredLevels, RelAccum};
+use smooth::OneEuro2;
 
 /// A monotonic logical clock stamp, injected by the manager loop each tick (PLAN §4.1).
 ///
@@ -83,6 +85,9 @@ pub struct Mapper {
     /// while its node stays held, latched to the node (not the binding) so it survives
     /// self-shadowing (PLAN §4).
     held_layers: BTreeMap<LayerId, NodeHeld>,
+    /// Per-source One-Euro filter state for the smoothed relative behaviors (`AsMouse`/
+    /// `GyroToMouse`); only populated for sources that carry one.
+    smoothers: HashMap<InputSource, OneEuro2>,
 }
 
 impl Mapper {
@@ -98,6 +103,7 @@ impl Mapper {
             activators: Activators::default(),
             persistent_layers: BTreeSet::new(),
             held_layers: BTreeMap::new(),
+            smoothers: HashMap::new(),
         }
     }
 
@@ -143,7 +149,15 @@ impl Mapper {
         let mut ops = LayerOps::default();
         for (source, binding, key) in resolved {
             let slots = self.activators.for_binding(source, key);
-            behavior::eval_binding(binding, source, &ctx, slots, &mut desired, &mut self.rel, &mut ops);
+            // Only the smoothed relative behaviors (pad/gyro → mouse) carry a One-Euro filter.
+            let smoother = matches!(
+                binding,
+                CompiledBinding::AsMouse { .. } | CompiledBinding::GyroToMouse { .. }
+            )
+            .then(|| self.smoothers.entry(source.clone()).or_default());
+            behavior::eval_binding(
+                binding, source, &ctx, slots, &mut desired, &mut self.rel, &mut ops, smoother,
+            );
         }
 
         self.applied.reconcile(&desired, out);

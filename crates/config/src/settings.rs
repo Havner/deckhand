@@ -231,7 +231,9 @@ pub struct AsMouseSettings {
     pub activation: Activation,
 }
 
-/// `JoystickMouse` (Stick → cursor/scroll via deflection→rate).
+/// `JoystickMouse` (Stick → cursor/scroll via deflection→rate). No `smoothing`: a stick is already
+/// a smooth analog signal (deflection→rate), so a 1€ filter would only add lag with nothing to
+/// remove — only `AsMouse` (pad delta) and `GyroToMouse` (noisy IMU) carry one.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JoystickMouseSettings {
@@ -242,7 +244,6 @@ pub struct JoystickMouseSettings {
     pub invert: Invert,
     pub curve: Curve,
     pub rotation: Rotation,
-    pub smoothing: Option<OneEuroFilter>,
     pub activation: Activation,
 }
 

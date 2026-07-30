@@ -36,6 +36,7 @@ use super::activator::{SlotState, SourceActivators};
 use super::command::eval_commands;
 use super::layers::{LayerOps, NodeHeld};
 use super::reconcile::{DesiredLevels, RelAccum};
+use super::smooth::OneEuro2;
 use crate::logical::{Dir, LogicalFrame};
 use crate::program::{CompiledBinding, CompiledCommand};
 
@@ -73,6 +74,7 @@ pub(super) fn eval_binding(
     desired: &mut DesiredLevels,
     rel: &mut RelAccum,
     ops: &mut LayerOps,
+    smoother: Option<&mut OneEuro2>,
 ) {
     let frame = ctx.cur;
     let now = &ctx.now;
@@ -99,11 +101,13 @@ pub(super) fn eval_binding(
         CompiledBinding::Trigger { settings, soft_pull } => {
             eval_trigger(source, settings, soft_pull, frame, slots.slot(0), now, desired, ops);
         }
-        CompiledBinding::AsMouse { settings } => eval_as_mouse(source, settings, ctx, rel),
+        CompiledBinding::AsMouse { settings } => eval_as_mouse(source, settings, ctx, rel, smoother),
         CompiledBinding::JoystickMouse { settings } => {
             eval_joystick_mouse(source, settings, ctx, rel)
         }
-        CompiledBinding::GyroToMouse { settings } => eval_gyro_to_mouse(settings, ctx, rel),
+        CompiledBinding::GyroToMouse { settings } => {
+            eval_gyro_to_mouse(settings, ctx, rel, smoother)
+        }
         // Explicit unbind: no output. Overrides a base binding when resolved from a layer; the
         // reconcile then releases whatever the base binding was holding (no stuck output).
         CompiledBinding::None => {}
@@ -281,7 +285,13 @@ fn process_trigger(pull: f32, s: &TriggerSettings) -> f32 {
 
 // --- AsMouse (Pad → cursor/scroll via frame-to-frame delta) -----------------------------
 
-fn eval_as_mouse(source: &InputSource, s: &AsMouseSettings, ctx: &Ctx, rel: &mut RelAccum) {
+fn eval_as_mouse(
+    source: &InputSource,
+    s: &AsMouseSettings,
+    ctx: &Ctx,
+    rel: &mut RelAccum,
+    smoother: Option<&mut OneEuro2>,
+) {
     if !is_active(&s.activation, ctx.cur) {
         return;
     }
@@ -294,7 +304,15 @@ fn eval_as_mouse(source: &InputSource, s: &AsMouseSettings, ctx: &Ctx, rel: &mut
     if !cur.touched || !prev.touched {
         return;
     }
-    let (dx, dy) = (cur.pos.x - prev.pos.x, cur.pos.y - prev.pos.y);
+    let (mut dx, mut dy) = (cur.pos.x - prev.pos.x, cur.pos.y - prev.pos.y);
+    // Optional 1€ smoothing on the *velocity* (delta/dt) — frame-rate-independent — then back to a
+    // delta. When off, this is identity.
+    if let (Some(cfg), Some(sm)) = (&s.smoothing, smoother)
+        && ctx.dt > 0.0
+    {
+        let (vx, vy) = sm.filter(dx / ctx.dt, dy / ctx.dt, ctx.dt, cfg);
+        (dx, dy) = (vx * ctx.dt, vy * ctx.dt);
+    }
     // Acceleration scales with finger **speed** (velocity = delta/dt, pad-units per second), not
     // the per-frame delta — so it's poll-rate-independent. `factor = 0` is off. The base motion
     // stays positional (dt-independent); only the accel multiplier reads dt.
@@ -336,7 +354,12 @@ fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ct
 
 // --- GyroToMouse (angular velocity → pixel delta, crude local space) --------------------
 
-fn eval_gyro_to_mouse(s: &GyroToMouseSettings, ctx: &Ctx, rel: &mut RelAccum) {
+fn eval_gyro_to_mouse(
+    s: &GyroToMouseSettings,
+    ctx: &Ctx,
+    rel: &mut RelAccum,
+    smoother: Option<&mut OneEuro2>,
+) {
     if !is_active(&s.activation, ctx.cur) {
         return;
     }
@@ -344,11 +367,15 @@ fn eval_gyro_to_mouse(s: &GyroToMouseSettings, ctx: &Ctx, rel: &mut RelAccum) {
     // Sign: yaw-left is +z but should move the cursor **left** (−X), so negate yaw. Pitch-up is
     // +x → cursor up (the +up→+down cursor flip in emit_relative supplies that sign).
     let g = ctx.cur.gyro();
-    let (yaw, pitch) = rotate(
+    let (mut yaw, mut pitch) = rotate(
         -(g.z as f32) / GYRO_RES_PER_DPS,
         g.x as f32 / GYRO_RES_PER_DPS,
         s.rotation.degrees,
     );
+    // Optional 1€ smoothing on the angular velocity (deg/s) — the canonical gyro-aim smoothing.
+    if let (Some(cfg), Some(sm)) = (&s.smoothing, smoother) {
+        (yaw, pitch) = sm.filter(yaw, pitch, ctx.dt, cfg);
+    }
     // Angular velocity (deg/s) is already an instantaneous speed → acceleration scales by its
     // magnitude directly (poll-rate-independent). `factor = 0` is off.
     let accel = 1.0 + (yaw * yaw + pitch * pitch).sqrt() * s.acceleration.factor;
@@ -478,7 +505,7 @@ mod tests {
         let mut rel = RelAccum::default();
         let mut slots = SourceActivators::default();
         let mut ops = LayerOps::default();
-        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops);
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, None);
         d
     }
 
@@ -497,7 +524,7 @@ mod tests {
         let mut rel = RelAccum::default();
         let mut slots = SourceActivators::default();
         let mut ops = LayerOps::default();
-        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops);
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, None);
         let mut out = Vec::new();
         rel.flush(&mut out);
         out
@@ -849,6 +876,41 @@ mod tests {
         let fast = relative_of(&accel, &InputSource::LeftPad, Some(prev.clone()), cur.clone(), 0.004);
         let slow = relative_of(&accel, &InputSource::LeftPad, Some(prev), cur, 0.016);
         assert!(mouse_dy(&fast).abs() > mouse_dy(&slow).abs());
+    }
+
+    #[test]
+    fn as_mouse_one_euro_attenuates_a_jitter_spike() {
+        use config::OneEuroFilter;
+        let smoothed = AsMouseSettings {
+            smoothing: Some(OneEuroFilter { min_cutoff: 1.0, beta: 0.0 }),
+            ..Default::default()
+        };
+        let plain = AsMouseSettings::default();
+
+        let pair = |prev_y: f32, cur_y: f32| {
+            (
+                LogicalFrame::new(ControllerState { left_pad: touched(0.0, prev_y), ..Default::default() }),
+                LogicalFrame::new(ControllerState { left_pad: touched(0.0, cur_y), ..Default::default() }),
+            )
+        };
+        let run = |s: &AsMouseSettings, p: &LogicalFrame, c: &LogicalFrame, sm: Option<&mut OneEuro2>| {
+            let ctx = Ctx { cur: c, prev: Some(p), dt: 0.004, now: Tick(0) };
+            let mut rel = RelAccum::default();
+            eval_as_mouse(&InputSource::LeftPad, s, &ctx, &mut rel, sm);
+            let mut out = Vec::new();
+            rel.flush(&mut out);
+            mouse_dy(&out).abs()
+        };
+
+        // Warm the filter with steady slow motion, then hit it with a sudden spike: the smoothed
+        // output is far smaller than the same spike unsmoothed.
+        let mut sm = OneEuro2::default();
+        let (p, c) = pair(0.0, 0.1);
+        run(&smoothed, &p, &c, Some(&mut sm));
+        let (p, c) = pair(0.0, 0.5);
+        let smoothed_dy = run(&smoothed, &p, &c, Some(&mut sm));
+        let raw_dy = run(&plain, &p, &c, None);
+        assert!(smoothed_dy * 2 < raw_dy, "smoothed {smoothed_dy} should be << raw {raw_dy}");
     }
 
     #[test]
