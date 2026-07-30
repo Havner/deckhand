@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 
-use config::GlobalConfig;
+use config::{GlobalConfig, StartProfile};
 use steam_hid::{Device, DeviceKind, Motor, Report, Rumble as HidRumble};
 use virt_out::{Rumble, Sink};
 
@@ -190,9 +190,10 @@ fn run_mapper(
     running: Arc<AtomicBool>,
 ) -> Result<()> {
     let start = Instant::now();
-    let mut mapper = Mapper::new(&active);
-    let mut chords = Chords::new(&globals.chords);
-    let mut role = Role::Active;
+    // Boot into the role named by `start_profile` (read once here — it's a start-only setting).
+    let mut role = start_role(&globals);
+    let mut chords = Chords::new(&globals.chords, role == Role::Fallback);
+    let mut mapper = Mapper::new(program_for(&role, &active, &fallback));
     let mut out: Vec<virt_out::OutputEvent> = Vec::new();
     let mut haptics: Vec<HapticReq> = Vec::new();
     let mut last_rumble = Rumble::default();
@@ -238,7 +239,9 @@ fn run_mapper(
                 },
                 Ok(Control::SetGlobals(g)) => {
                     globals = *g;
-                    chords = Chords::new(&globals.chords);
+                    // Preserve the current role base across the swap — `start_profile` is
+                    // start-only, so a live change to it must not retroactively yank the role.
+                    chords = Chords::new(&globals.chords, chords.fallback_base());
                 }
                 Ok(Control::Stop) | Err(_) => stop = true,
             },
@@ -305,6 +308,14 @@ fn program_for<'a>(role: &Role, active: &'a Program, fallback: &'a Option<Progra
     match role {
         Role::Active => active,
         Role::Fallback => fallback.as_ref().unwrap_or(active),
+    }
+}
+
+/// The role the engine boots into, from `GlobalConfig::start_profile` (read once at loop start).
+fn start_role(globals: &GlobalConfig) -> Role {
+    match globals.start_profile {
+        StartProfile::Active => Role::Active,
+        StartProfile::Fallback => Role::Fallback,
     }
 }
 

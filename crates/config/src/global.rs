@@ -12,6 +12,9 @@ use crate::input::InputSource;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GlobalConfig {
+    /// Which profile slot the engine boots into. **Read once at `start()`** — changing it via a
+    /// live `set_globals` has no effect (by then the role is driven by the chords).
+    pub start_profile: StartProfile,
     /// `0..=100 %` — scales **all** haptic output (activator haptics + rumble back-channel).
     pub master_rumble: u8,
     /// LED brightness `0..=100 %` (applied on connect); `None` = leave default.
@@ -24,8 +27,24 @@ pub struct GlobalConfig {
 
 impl Default for GlobalConfig {
     fn default() -> Self {
-        GlobalConfig { master_rumble: 50, led_brightness: None, idle_timeout: None, chords: vec![] }
+        GlobalConfig {
+            start_profile: StartProfile::default(),
+            master_rumble: 50,
+            led_brightness: None,
+            idle_timeout: None,
+            chords: vec![],
+        }
     }
+}
+
+/// Which of the engine's two profile slots is active on start (the active/main profile, or the
+/// fallback/desktop one). A start-in-`Fallback` boot persists until a `SwitchFallback` chord
+/// changes it — so pair it with a `Toggle` chord to switch to `Active` when ready.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum StartProfile {
+    #[default]
+    Active,
+    Fallback,
 }
 
 /// A top-level chord: physical hardware-bit buttons, **AND-combined** (all held), firing a
@@ -70,6 +89,7 @@ mod tests {
     #[test]
     fn global_config_round_trips_ron() {
         let g = GlobalConfig {
+            start_profile: StartProfile::Fallback,
             master_rumble: 80,
             led_brightness: Some(50),
             idle_timeout: None,

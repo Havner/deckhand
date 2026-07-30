@@ -17,13 +17,17 @@ use crate::program::Role;
 /// Retained per-chord runtime state (toggle latch + engage edge).
 #[derive(Default)]
 pub(crate) struct Chords {
+    /// The persistent base "fallback engaged?" state — seeded from `GlobalConfig::start_profile`
+    /// and flipped by each `SwitchFallback` **Toggle**. Survives releases (unlike a hold), so a
+    /// start-in-Fallback boot sticks until toggled. A **Hold** chord forces Fallback *on top* of
+    /// this while held.
+    persistent_fallback: bool,
     states: Vec<ChordState>,
 }
 
 #[derive(Default, Clone)]
 struct ChordState {
     prev_active: bool,
-    toggle_on: bool,
 }
 
 /// The outcome of evaluating the chords for one frame.
@@ -35,19 +39,29 @@ pub(crate) struct ChordOutcome {
 }
 
 impl Chords {
-    /// A fresh runtime for `chords` (rebuild when `GlobalConfig` is hot-swapped).
-    pub fn new(chords: &[GlobalChord]) -> Self {
-        Chords { states: vec![ChordState::default(); chords.len()] }
+    /// A fresh runtime for `chords`, starting in `Fallback` if `start_fallback` (from
+    /// `GlobalConfig::start_profile`). On a live `GlobalConfig` hot-swap, pass the current base
+    /// ([`Self::fallback_base`]) instead — `start_profile` is a start-only setting.
+    pub fn new(chords: &[GlobalChord], start_fallback: bool) -> Self {
+        Chords { persistent_fallback: start_fallback, states: vec![ChordState::default(); chords.len()] }
+    }
+
+    /// The current persistent base role (`true` = Fallback) — used to preserve the role across a
+    /// hot-swap of the globals (so `start_profile` doesn't retroactively yank the role).
+    pub fn fallback_base(&self) -> bool {
+        self.persistent_fallback
     }
 
     /// Evaluate every chord against `frame`: an all-buttons-held chord is *active* (consumes its
-    /// buttons); `SwitchFallback` decides the role (any engaged switch → Fallback, else Active).
+    /// buttons); a `SwitchFallback` Toggle flips the persistent base on its rising edge, a Hold
+    /// forces Fallback while held. Role = base OR any hold.
     pub fn eval(&mut self, chords: &[GlobalChord], frame: &LogicalFrame) -> ChordOutcome {
         if self.states.len() != chords.len() {
             self.states = vec![ChordState::default(); chords.len()];
         }
         let mut consumed = Vec::new();
-        let mut fallback = false;
+        let mut hold_fallback = false;
+        let mut base = self.persistent_fallback;
 
         for (chord, st) in chords.iter().zip(self.states.iter_mut()) {
             // AND-combined physical buttons; an empty chord never fires.
@@ -57,12 +71,11 @@ impl Chords {
             }
             match &chord.action {
                 GlobalAction::SwitchFallback { mode } => match mode {
-                    SwitchMode::Hold => fallback |= active,
+                    SwitchMode::Hold => hold_fallback |= active,
                     SwitchMode::Toggle => {
                         if active && !st.prev_active {
-                            st.toggle_on = !st.toggle_on;
+                            base = !base;
                         }
-                        fallback |= st.toggle_on;
                     }
                 },
                 // Deferred (decision B): buttons still consumed; subprocess spawn lands later.
@@ -71,7 +84,8 @@ impl Chords {
             st.prev_active = active;
         }
 
-        let role = if fallback { Role::Fallback } else { Role::Active };
+        self.persistent_fallback = base;
+        let role = if base || hold_fallback { Role::Fallback } else { Role::Active };
         ChordOutcome { consumed, role }
     }
 }
@@ -89,10 +103,14 @@ mod tests {
         GlobalChord { buttons, action: GlobalAction::SwitchFallback { mode: SwitchMode::Hold } }
     }
 
+    fn toggle_chord(buttons: Vec<InputSource>) -> GlobalChord {
+        GlobalChord { buttons, action: GlobalAction::SwitchFallback { mode: SwitchMode::Toggle } }
+    }
+
     #[test]
     fn hold_chord_switches_and_consumes_while_held() {
         let chords = vec![hold_chord(vec![InputSource::Steam, InputSource::RightGrip])];
-        let mut c = Chords::new(&chords);
+        let mut c = Chords::new(&chords, false);
 
         // Both held → Fallback, both consumed.
         let out = c.eval(&chords, &frame(Buttons::STEAM | Buttons::R4));
@@ -107,11 +125,8 @@ mod tests {
 
     #[test]
     fn toggle_chord_latches_on_each_engage() {
-        let chords = vec![GlobalChord {
-            buttons: vec![InputSource::Steam, InputSource::RightGrip],
-            action: GlobalAction::SwitchFallback { mode: SwitchMode::Toggle },
-        }];
-        let mut c = Chords::new(&chords);
+        let chords = vec![toggle_chord(vec![InputSource::Steam, InputSource::RightGrip])];
+        let mut c = Chords::new(&chords, false);
         let both = || frame(Buttons::STEAM | Buttons::R4);
         let none = || frame(Buttons::empty());
 
@@ -125,10 +140,30 @@ mod tests {
     #[test]
     fn no_chords_is_always_active() {
         let chords: Vec<GlobalChord> = vec![];
-        let mut c = Chords::new(&chords);
+        let mut c = Chords::new(&chords, false);
         let out = c.eval(&chords, &frame(Buttons::STEAM | Buttons::R4));
         assert_eq!(out.role, Role::Active);
         assert!(out.consumed.is_empty());
+    }
+
+    #[test]
+    fn start_in_fallback_persists_then_toggles() {
+        // Seeded start-in-Fallback: the first (idle) frame is already Fallback, and a Toggle chord
+        // switches to Active — no spurious flip to Active on frame 1.
+        let chords = vec![toggle_chord(vec![InputSource::Steam, InputSource::RightGrip])];
+        let mut c = Chords::new(&chords, true);
+        assert_eq!(c.eval(&chords, &frame(Buttons::empty())).role, Role::Fallback); // idle → stays
+        assert!(c.fallback_base());
+        assert_eq!(c.eval(&chords, &frame(Buttons::STEAM | Buttons::R4)).role, Role::Active); // toggle
+        assert!(!c.fallback_base());
+    }
+
+    #[test]
+    fn start_in_fallback_sticks_even_without_a_chord() {
+        // With no chord there's nothing to flip it, so a Fallback boot simply stays Fallback.
+        let chords: Vec<GlobalChord> = vec![];
+        let mut c = Chords::new(&chords, true);
+        assert_eq!(c.eval(&chords, &frame(Buttons::empty())).role, Role::Fallback);
     }
 
     #[test]
