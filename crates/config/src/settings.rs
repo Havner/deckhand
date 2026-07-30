@@ -48,10 +48,11 @@ impl Default for Sensitivity {
     }
 }
 
-/// Simplest acceleration: output scaled by `1 + speed·factor` (`0` = off). The engine keys this off
-/// each behavior's *instantaneous* speed, whose natural scale differs — so the useful `factor` range
-/// is per-behavior: **pad** (velocity, pad-units/s) and **gyro** (deg/s) want small values (~0.02–0.05),
-/// while **stick→mouse** (deflection, `0..1`) wants a larger one (~1–4). This is expected, not a bug.
+/// Simplest acceleration: output scaled by `1 + speed·factor` (`0` = off). Only the two **velocity**
+/// mouse behaviors carry it — **`AsMouse`** (pad-swipe velocity, pad-units/s) and **`GyroToMouse`**
+/// (angular velocity, deg/s) — both wanting small values (~0.02–0.05). Deflection behaviors
+/// (`Joystick`/`JoystickMouse`/`Trigger`) shape their response with `Curve` instead (a held
+/// deflection has no velocity to accelerate on; accel there would just be a narrower curve).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Acceleration {
@@ -217,7 +218,9 @@ pub struct DirectionalPadSettings {
     pub activation: Activation,
 }
 
-/// `AsMouse` (Pad → cursor/scroll). No deadzone (relative delta, Round B).
+/// `AsMouse` (Pad → cursor/scroll). No deadzone (relative delta, Round B). A **velocity** behavior
+/// (finger-swipe speed), so it carries `acceleration`, NOT `curve` — a curve remaps a held
+/// deflection, which a relative pad delta doesn't have (matches Steam; PLAN §3 Round B).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AsMouseSettings {
@@ -225,21 +228,21 @@ pub struct AsMouseSettings {
     pub sensitivity: Sensitivity,
     pub acceleration: Acceleration,
     pub invert: Invert,
-    pub curve: Curve,
     pub rotation: Rotation,
     pub smoothing: Option<OneEuroFilter>,
     pub activation: Activation,
 }
 
-/// `JoystickMouse` (Stick → cursor/scroll via deflection→rate). No `smoothing`: a stick is already
-/// a smooth analog signal (deflection→rate), so a 1€ filter would only add lag with nothing to
-/// remove — only `AsMouse` (pad delta) and `GyroToMouse` (noisy IMU) carry one.
+/// `JoystickMouse` (Stick → cursor/scroll via deflection→rate). A **deflection** behavior, so it
+/// carries `curve` (which shapes the deflection→rate response — precision near center, fast at the
+/// edge), NOT `acceleration`: accel on a stick would read *deflection* as its speed, which is just a
+/// narrower curve (matches Steam). No `smoothing`: a stick is already a smooth analog signal, so a
+/// 1€ filter would only add lag — only `AsMouse` (pad delta) and `GyroToMouse` (noisy IMU) carry one.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JoystickMouseSettings {
     pub output: MouseOutput,
     pub sensitivity: Sensitivity,
-    pub acceleration: Acceleration,
     pub deadzone: Deadzone,
     pub invert: Invert,
     pub curve: Curve,

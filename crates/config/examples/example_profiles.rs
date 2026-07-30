@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 
 use config::{
     Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings,
-    Command, CommandSettings, ConfigDoc, Deadzone, DirectionalPadSettings, DpadLayout,
+    Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout,
     GlobalAction, GlobalChord, GlobalConfig, GyroToMouseSettings, HapticEdge, HapticStrength,
     Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef,
     MouseOutput, OneEuroFilter, RumbleSettings, Sensitivity, SourceBinding, StartProfile,
@@ -600,8 +600,8 @@ pub fn desktop_profile() -> ConfigDoc {
                 SourceBinding::JoystickMouse {
                     settings: JoystickMouseSettings {
                         output: MouseOutput::Cursor,
-                        sensitivity: Sensitivity { x: 1.0, y: 1.0 },
-                        acceleration: Acceleration { factor: 3.0 },
+                        sensitivity: Sensitivity { x: 2.0, y: 2.0 },
+                        curve: Curve::Power(2.0),
                         deadzone: Deadzone { inner: 0.0 },
                         ..Default::default()
                     },

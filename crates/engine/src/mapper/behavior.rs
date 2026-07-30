@@ -342,11 +342,11 @@ fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ct
     if mag <= s.deadzone.inner || mag < 1e-6 {
         return;
     }
-    // Deflection past the deadzone → speed; integrated over dt into a pixel delta. Deflection is
-    // already an instantaneous speed, so acceleration scales by it directly (poll-rate-independent).
+    // Deflection past the deadzone → speed; integrated over dt into a pixel delta. The `curve`
+    // shapes the deflection→rate response (precision near center, fast at the edge) — a stick is a
+    // held deflection, not a velocity, so it takes a curve, not acceleration (matches Steam).
     let scaled = ((mag - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
-    let accel = 1.0 + scaled * s.acceleration.factor;
-    let speed = apply_curve(scaled, &s.curve) * JOY_MOUSE_RATE * ctx.dt * accel;
+    let speed = apply_curve(scaled, &s.curve) * JOY_MOUSE_RATE * ctx.dt;
     let (ux, uy) = (rx / mag, ry / mag);
     let mut mx = ux * speed * s.sensitivity.x;
     let mut my = uy * speed * s.sensitivity.y;
@@ -923,18 +923,21 @@ mod tests {
     }
 
     #[test]
-    fn joystick_mouse_acceleration_amplifies_deflection() {
-        let cur = || ControllerState { left_stick: Vec2 { x: 1.0, y: 0.0 }, ..Default::default() };
-        let plain = CompiledBinding::JoystickMouse { settings: JoystickMouseSettings::default() };
-        let accel = CompiledBinding::JoystickMouse {
+    fn joystick_mouse_curve_shapes_the_deflection_response() {
+        // A stick-mouse is a deflection behavior: the `curve` shapes deflection→rate (not accel).
+        // At a partial deflection a Power(>1) curve eases the response (precision near center), so
+        // it yields *less* cursor speed than Linear; at full deflection they'd match.
+        let half = || ControllerState { left_stick: Vec2 { x: 0.5, y: 0.0 }, ..Default::default() };
+        let linear = CompiledBinding::JoystickMouse { settings: JoystickMouseSettings::default() };
+        let curved = CompiledBinding::JoystickMouse {
             settings: JoystickMouseSettings {
-                acceleration: config::Acceleration { factor: 2.0 },
+                curve: config::Curve::Power(2.0),
                 ..Default::default()
             },
         };
-        let base = relative_of(&plain, &InputSource::LeftStick, None, cur(), 0.1);
-        let acc = relative_of(&accel, &InputSource::LeftStick, None, cur(), 0.1);
-        assert!(mouse_dx(&acc).abs() > mouse_dx(&base).abs());
+        let base = relative_of(&linear, &InputSource::LeftStick, None, half(), 0.1);
+        let eased = relative_of(&curved, &InputSource::LeftStick, None, half(), 0.1);
+        assert!(mouse_dx(&eased).abs() < mouse_dx(&base).abs());
     }
 
     #[test]
