@@ -30,6 +30,7 @@ mod value;
 
 pub use buttons::{Axis, Button, Buttons, GordonButtons, NeptuneButtons};
 pub use command::{ImuMode, Motor, Rumble};
+pub use protocol::{ACCEL_RES_PER_G, GYRO_RES_PER_DPS};
 pub use device::{Device, DeviceInfo, DeviceKind, Manager, Transport};
 pub use error::{Error, Result};
 pub use event::{Event, Events};

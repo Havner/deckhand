@@ -67,9 +67,12 @@ pub(crate) mod trackpad_mode {
     pub(crate) const NONE: u8 = 7;
 }
 
-/// IMU/gyro scale constants (from the kernel; provisional — verify on HW, PLAN §1.9).
-pub(crate) const ACCEL_RES_PER_G: f32 = 16384.0;
-pub(crate) const GYRO_RES_PER_DPS: f32 = 16.0;
+/// IMU scale constants — HW-verified on Gordon (PLAN §1.9). `ControllerState` carries the raw
+/// i16 IMU readings, so consumers (the engine's gyro-to-mouse) need these to convert to physical
+/// units: `raw / GYRO_RES_PER_DPS` = degrees/second, `raw / ACCEL_RES_PER_G` = g. Re-exported at
+/// the crate root so there's a single source of truth for the scale.
+pub const ACCEL_RES_PER_G: f32 = 16384.0;
+pub const GYRO_RES_PER_DPS: f32 = 16.0;
 
 /// String-attribute id for the unit serial number (used with `GET_STRING_ATTRIBUTE`).
 pub(crate) const ATTRIB_STR_UNIT_SERIAL: u8 = 0x01;

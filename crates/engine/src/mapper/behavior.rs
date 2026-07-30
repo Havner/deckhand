@@ -28,7 +28,7 @@ use config::{
     GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, MouseOutput,
     Sensitivity, StickOutput, TriggerOutput, TriggerSettings,
 };
-use steam_hid::Vec2;
+use steam_hid::{GYRO_RES_PER_DPS, Vec2};
 use vocab::GamepadAxis;
 
 use super::Tick;
@@ -39,8 +39,6 @@ use super::reconcile::{DesiredLevels, RelAccum};
 use crate::logical::{Dir, LogicalFrame};
 use crate::program::{CompiledBinding, CompiledCommand};
 
-/// Raw gyro units per degree/second (steam-hid `GYRO_RES_PER_DPS`, PLAN §1.9).
-const GYRO_RES_PER_DPS: f32 = 16.0;
 /// Behavior output gains — reasonable starting points; final feel is tuned against the bridge
 /// at HW validation (S10). Pixels per normalized-pad-delta / per stick-rate·second / per degree.
 const PAD_MOUSE_GAIN: f32 = 400.0;
