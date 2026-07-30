@@ -96,4 +96,6 @@ pub(super) struct CmdState {
     pub(super) raw_prev: bool,
     /// `turbo`: when the current pulse train started (`None` while inactive).
     pub(super) turbo_start: Option<Tick>,
+    /// The command's previous-tick output level, for firing command-haptic pulses on its edges.
+    pub(super) haptic_prev: bool,
 }

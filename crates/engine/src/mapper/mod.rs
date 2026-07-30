@@ -131,7 +131,7 @@ impl Mapper {
         tick: Tick,
         program: &Program,
         out: &mut Vec<OutputEvent>,
-        _haptics: &mut Vec<HapticReq>,
+        haptics: &mut Vec<HapticReq>,
     ) {
         let set = program.set(&self.active_set);
         let mut desired = DesiredLevels::default();
@@ -156,7 +156,7 @@ impl Mapper {
             )
             .then(|| self.smoothers.entry(source.clone()).or_default());
             behavior::eval_binding(
-                binding, source, &ctx, slots, &mut desired, &mut self.rel, &mut ops, smoother,
+                binding, source, &ctx, slots, &mut desired, &mut self.rel, &mut ops, haptics, smoother,
             );
         }
 

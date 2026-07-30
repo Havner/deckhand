@@ -31,7 +31,7 @@ use config::{
 use steam_hid::{GYRO_RES_PER_DPS, Vec2};
 use vocab::GamepadAxis;
 
-use super::Tick;
+use super::{HapticReq, Tick};
 use super::activator::{SlotState, SourceActivators};
 use super::command::eval_commands;
 use super::layers::{LayerOps, NodeHeld};
@@ -74,32 +74,35 @@ pub(super) fn eval_binding(
     desired: &mut DesiredLevels,
     rel: &mut RelAccum,
     ops: &mut LayerOps,
+    haptics: &mut Vec<HapticReq>,
     smoother: Option<&mut OneEuro2>,
 ) {
     let frame = ctx.cur;
     let now = &ctx.now;
+    // Command haptics fire on the actuator matching this input's side (device-independent).
+    let side = source.side();
     match binding {
         CompiledBinding::Button { commands } => {
             let node = NodeHeld::Button(source.clone());
-            eval_commands(commands, frame.button(source), &node, slots.slot(0), now, desired, ops);
+            eval_commands(commands, frame.button(source), &node, &side, slots.slot(0), now, desired, ops, haptics);
         }
         CompiledBinding::ButtonPad { up, down, left, right } => {
             let member = |dir| NodeHeld::Group(source.clone(), dir);
-            eval_commands(up, frame.group_member(source, &Dir::Up), &member(Dir::Up), slots.slot(0), now, desired, ops);
-            eval_commands(down, frame.group_member(source, &Dir::Down), &member(Dir::Down), slots.slot(1), now, desired, ops);
-            eval_commands(left, frame.group_member(source, &Dir::Left), &member(Dir::Left), slots.slot(2), now, desired, ops);
-            eval_commands(right, frame.group_member(source, &Dir::Right), &member(Dir::Right), slots.slot(3), now, desired, ops);
+            eval_commands(up, frame.group_member(source, &Dir::Up), &member(Dir::Up), &side, slots.slot(0), now, desired, ops, haptics);
+            eval_commands(down, frame.group_member(source, &Dir::Down), &member(Dir::Down), &side, slots.slot(1), now, desired, ops, haptics);
+            eval_commands(left, frame.group_member(source, &Dir::Left), &member(Dir::Left), &side, slots.slot(2), now, desired, ops, haptics);
+            eval_commands(right, frame.group_member(source, &Dir::Right), &member(Dir::Right), &side, slots.slot(3), now, desired, ops, haptics);
         }
         CompiledBinding::Joystick { settings, outer_ring } => {
-            eval_joystick(source, settings, outer_ring, frame, slots.slot(0), now, desired, ops);
+            eval_joystick(source, settings, outer_ring, frame, slots.slot(0), now, desired, ops, haptics);
         }
         CompiledBinding::DirectionalPad { settings, up, down, left, right, outer_ring } => {
             eval_directional_pad(
-                source, settings, up, down, left, right, outer_ring, frame, slots, now, desired, ops,
+                source, settings, up, down, left, right, outer_ring, frame, slots, now, desired, ops, haptics,
             );
         }
         CompiledBinding::Trigger { settings, soft_pull } => {
-            eval_trigger(source, settings, soft_pull, frame, slots.slot(0), now, desired, ops);
+            eval_trigger(source, settings, soft_pull, frame, slots.slot(0), now, desired, ops, haptics);
         }
         CompiledBinding::AsMouse { settings } => eval_as_mouse(source, settings, ctx, rel, smoother),
         CompiledBinding::JoystickMouse { settings } => {
@@ -126,6 +129,7 @@ fn eval_joystick(
     now: &Tick,
     desired: &mut DesiredLevels,
     ops: &mut LayerOps,
+    haptics: &mut Vec<HapticReq>,
 ) {
     // When the behavior is gated off (or a pad is untouched) it produces no axes (they
     // reconcile to neutral) and its outer ring reads un-held — but we still advance the slot so
@@ -150,7 +154,7 @@ fn eval_joystick(
     } else {
         false
     };
-    eval_commands(outer_ring, ring_held, &NodeHeld::Virtual, slot, now, desired, ops);
+    eval_commands(outer_ring, ring_held, &NodeHeld::Virtual, &source.side(), slot, now, desired, ops, haptics);
 }
 
 /// Deadzone-rescale → curve → anti-deadzone, direction preserved, per-axis invert.
@@ -192,6 +196,7 @@ fn eval_directional_pad(
     now: &Tick,
     desired: &mut DesiredLevels,
     ops: &mut LayerOps,
+    haptics: &mut Vec<HapticReq>,
 ) {
     // Slots: 0=up 1=down 2=left 3=right 4=outer-ring. Gated off / untouched / inside the
     // deadzone → all virtual buttons un-held, but every slot is still advanced (edges stay
@@ -208,11 +213,12 @@ fn eval_directional_pad(
         [u, d, l, r] = dpad_dirs(rx, ry, &s.layout);
     }
     let v = &NodeHeld::Virtual;
-    eval_commands(up, u, v, slots.slot(0), now, desired, ops);
-    eval_commands(down, d, v, slots.slot(1), now, desired, ops);
-    eval_commands(left, l, v, slots.slot(2), now, desired, ops);
-    eval_commands(right, r, v, slots.slot(3), now, desired, ops);
-    eval_commands(outer_ring, mag >= s.outer_ring.radius, v, slots.slot(4), now, desired, ops);
+    let side = source.side();
+    eval_commands(up, u, v, &side, slots.slot(0), now, desired, ops, haptics);
+    eval_commands(down, d, v, &side, slots.slot(1), now, desired, ops, haptics);
+    eval_commands(left, l, v, &side, slots.slot(2), now, desired, ops, haptics);
+    eval_commands(right, r, v, &side, slots.slot(3), now, desired, ops, haptics);
+    eval_commands(outer_ring, mag >= s.outer_ring.radius, v, &side, slots.slot(4), now, desired, ops, haptics);
 }
 
 /// Which of `[up, down, left, right]` fire. Convention: `+x` = Right, `+y` = Up (final
@@ -258,6 +264,7 @@ fn eval_trigger(
     now: &Tick,
     desired: &mut DesiredLevels,
     ops: &mut LayerOps,
+    haptics: &mut Vec<HapticReq>,
 ) {
     let pull = frame.trigger(source); // 0.0..=1.0
     // `None` output drives no trigger axis (soft-pull button still fires).
@@ -272,7 +279,7 @@ fn eval_trigger(
     // Soft-pull virtual button fires on the raw analog pull vs its threshold — a frame-local
     // trigger, so a HoldLayer on it re-derives exactly (NodeHeld::SoftPull).
     let node = NodeHeld::SoftPull(source.clone(), s.soft_pull.threshold);
-    eval_commands(soft_pull, pull >= s.soft_pull.threshold, &node, slot, now, desired, ops);
+    eval_commands(soft_pull, pull >= s.soft_pull.threshold, &node, &source.side(), slot, now, desired, ops, haptics);
 }
 
 fn process_trigger(pull: f32, s: &TriggerSettings) -> f32 {
@@ -505,7 +512,8 @@ mod tests {
         let mut rel = RelAccum::default();
         let mut slots = SourceActivators::default();
         let mut ops = LayerOps::default();
-        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, None);
+        let mut haptics = Vec::new();
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, &mut haptics, None);
         d
     }
 
@@ -524,7 +532,8 @@ mod tests {
         let mut rel = RelAccum::default();
         let mut slots = SourceActivators::default();
         let mut ops = LayerOps::default();
-        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, None);
+        let mut haptics = Vec::new();
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, &mut haptics, None);
         let mut out = Vec::new();
         rel.flush(&mut out);
         out

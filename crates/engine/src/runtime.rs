@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 
-use config::{Curve, GlobalConfig, RumbleSettings, StartProfile};
+use config::{Curve, GlobalConfig, HapticStrength, RumbleSettings, Side, StartProfile};
 use steam_hid::{Device, DeviceKind, Motor, Report, Rumble as HidRumble};
 use virt_out::{Rumble, Sink};
 
@@ -85,19 +85,23 @@ impl Runtime {
         let running = Arc::new(AtomicBool::new(true));
         let (frame_tx, frame_rx) = unbounded::<Report>();
         let (rumble_tx, rumble_rx) = unbounded::<RumbleCmd>();
+        let (click_tx, click_rx) = unbounded::<Click>();
         let (control_tx, control_rx) = unbounded::<Control>();
 
         let r_reader = running.clone();
         let reader = thread::Builder::new()
             .name("deckhand-reader".into())
-            .spawn(move || run_reader(device, cfg, frame_tx, rumble_rx, r_reader))
+            .spawn(move || run_reader(device, cfg, frame_tx, rumble_rx, click_rx, r_reader))
             .expect("spawn reader thread");
 
         let r_mapper = running.clone();
         let mapper = thread::Builder::new()
             .name("deckhand-mapper".into())
             .spawn(move || {
-                run_mapper(sink, active, fallback, globals, frame_rx, control_rx, rumble_tx, r_mapper)
+                run_mapper(
+                    sink, active, fallback, globals, frame_rx, control_rx, rumble_tx, click_tx,
+                    r_mapper,
+                )
             })
             .expect("spawn mapper thread");
 
@@ -136,6 +140,7 @@ fn run_reader(
     cfg: DeviceCfg,
     frame_tx: Sender<Report>,
     rumble_rx: Receiver<RumbleCmd>,
+    click_rx: Receiver<Click>,
     running: Arc<AtomicBool>,
 ) -> Result<()> {
     apply_device_cfg(&mut device, &cfg)?;
@@ -175,6 +180,12 @@ fn run_reader(
             apply_haptics(&mut device, &level)?;
             last_haptic = Instant::now();
         }
+
+        // One-shot command-haptic clicks fire immediately (no arbitration — a click may briefly
+        // interrupt the rumble train on its pad, which the re-fire above resumes).
+        while let Ok(click) = click_rx.try_recv() {
+            fire_click(&mut device, &click)?;
+        }
     }
     Ok(())
 }
@@ -190,6 +201,7 @@ fn run_mapper(
     frame_rx: Receiver<Report>,
     control_rx: Receiver<Control>,
     rumble_tx: Sender<RumbleCmd>,
+    click_tx: Sender<Click>,
     running: Arc<AtomicBool>,
 ) -> Result<()> {
     let start = Instant::now();
@@ -219,6 +231,11 @@ fn run_mapper(
                     haptics.clear();
                     mapper.tick(&masked, now, program_for(&role, &active, &fallback), &mut out, &mut haptics);
                     sink.emit(&out)?;
+                    // Command-haptic pulses this tick → the reader (scaled by master rumble %).
+                    for h in haptics.drain(..) {
+                        let duration = click_duration(&h.strength, globals.master_rumble);
+                        let _ = click_tx.send(Click { side: h.side, duration });
+                    }
                 }
                 // Lifecycle/battery: the reader owns device re-apply; nothing to map here yet
                 // (status surfacing is the Engine's job, S10). `Report` is non_exhaustive.
@@ -298,6 +315,46 @@ fn apply_haptics(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
     if cmd.weak > 0 {
         device.rumble(Motor::Right, train(cmd.weak, cmd.hz))?;
     }
+    Ok(())
+}
+
+/// One-shot command-haptic click for the reader to fire immediately: a single `0x8f` pulse
+/// (`count=1`) of `duration` µs on `side`'s pad — distinct from the sustained rumble train, and
+/// with **no arbitration** (it briefly interrupts a rumble on the shared pad, which resumes next
+/// re-fire; the opposite pad is untouched — PLAN §1.9 haptics v1).
+struct Click {
+    side: Side,
+    duration: u16,
+}
+
+/// Command-haptic click durations (µs) for Low/Med/High — a single pulse, HW-tuned via the `haptic`
+/// example (`interval`/`count` are fixed; the duration is the strength). Scaled by master rumble %.
+const CLICK_LOW_US: u16 = 500;
+const CLICK_MED_US: u16 = 1000;
+const CLICK_HIGH_US: u16 = 2000;
+/// Trailing off-phase of the single click pulse (irrelevant to the felt tick at `count=1`).
+const CLICK_INTERVAL_US: u16 = 1000;
+
+/// The click pulse duration for `strength`, attenuated by the global `master` % (like all haptics).
+fn click_duration(strength: &HapticStrength, master: u8) -> u16 {
+    let base = match strength {
+        HapticStrength::Low => CLICK_LOW_US,
+        HapticStrength::Medium => CLICK_MED_US,
+        HapticStrength::High => CLICK_HIGH_US,
+    };
+    ((base as u32 * master.min(100) as u32) / 100).max(1) as u16
+}
+
+/// Fire one command-haptic click on its pad (`Side::Left`→left actuator, `Side::Right`→right).
+fn fire_click(device: &mut Device, click: &Click) -> Result<()> {
+    let motor = match click.side {
+        Side::Left => Motor::Left,
+        Side::Right => Motor::Right,
+    };
+    device.rumble(
+        motor,
+        HidRumble { duration: click.duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 },
+    )?;
     Ok(())
 }
 
@@ -418,6 +475,17 @@ mod tests {
         assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 2);
         let cmd = rumble_cmd(Rumble { strong: u16::MAX, weak: 0 }, 100, &boost);
         assert_eq!(cmd.strong, u16::MAX);
+    }
+
+    #[test]
+    fn click_duration_maps_strength_and_scales_with_master() {
+        // Low/Med/High map to their base durations at full master.
+        assert_eq!(click_duration(&HapticStrength::Low, 100), CLICK_LOW_US);
+        assert_eq!(click_duration(&HapticStrength::Medium, 100), CLICK_MED_US);
+        assert_eq!(click_duration(&HapticStrength::High, 100), CLICK_HIGH_US);
+        // Master attenuates the click like all haptics, but never to silence.
+        assert_eq!(click_duration(&HapticStrength::High, 50), CLICK_HIGH_US / 2);
+        assert_eq!(click_duration(&HapticStrength::Low, 0), 1);
     }
 
     #[test]

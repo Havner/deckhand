@@ -11,12 +11,12 @@
 //! `toggle`/`turbo`/`interruptible` **settings** are S7b, and layer/set action firing is S8
 //! (their output leaves are ignored here for now).
 
-use config::{Activator, Turbo};
+use config::{Activator, HapticEdge, Haptics, Side, Turbo};
 
 use super::activator::{CmdState, SlotState};
 use super::layers::{LayerOps, NodeHeld};
 use super::reconcile::DesiredLevels;
-use super::Tick;
+use super::{HapticReq, Tick};
 use crate::program::{CompiledAction, CompiledCommand};
 
 /// How long a tap-style activator (`Start`/`Release`) holds its action from the trigger edge,
@@ -33,10 +33,12 @@ pub(super) fn eval_commands(
     commands: &[CompiledCommand],
     held: bool,
     node: &NodeHeld,
+    side: &Side,
     slot: &mut SlotState,
     now: &Tick,
     desired: &mut DesiredLevels,
     ops: &mut LayerOps,
+    haptics: &mut Vec<HapticReq>,
 ) {
     let pressed = held && !slot.prev_held;
     let released = !held && slot.prev_held;
@@ -72,6 +74,12 @@ pub(super) fn eval_commands(
             out
         };
 
+        // Command haptic: a singular pulse on the input's side at the command's output edges (rising
+        // = press, falling = release), gated by its `Haptics` setting. Follows the *output* level so
+        // it's uniform across activator types (a Toggle clicks on activate/deactivate; a Turbo would
+        // click per pulse — the user disables haptics on turbo if that's unwanted).
+        emit_haptic(&settings.haptics, cs, out, side, haptics);
+
         if out {
             // The whole ordered combo fires while the command fires (subcommands = modifiers).
             for action in &cmd.actions {
@@ -86,6 +94,29 @@ pub(super) fn eval_commands(
         slot.press_start = None;
     }
     slot.prev_held = held;
+}
+
+/// Push a command-haptic pulse when the command's output crosses the configured edge, tracking the
+/// previous level in `cs.haptic_prev`. `Off` never fires (but still advances the edge state).
+fn emit_haptic(
+    h: &Haptics,
+    cs: &mut CmdState,
+    out: bool,
+    side: &Side,
+    haptics: &mut Vec<HapticReq>,
+) {
+    let rising = out && !cs.haptic_prev;
+    let falling = !out && cs.haptic_prev;
+    let fire = match h.on {
+        HapticEdge::Off => false,
+        HapticEdge::OnPress => rising,
+        HapticEdge::OnRelease => falling,
+        HapticEdge::Both => rising || falling,
+    };
+    if fire {
+        haptics.push(HapticReq { side: side.clone(), strength: h.strength.clone() });
+    }
+    cs.haptic_prev = out;
 }
 
 /// `toggle`: flip a latch on each **rising edge** of the raw activation; output the latch.
@@ -217,8 +248,12 @@ mod tests {
     fn step(command: &CompiledCommand, slot: &mut SlotState, held: bool, now: u64) -> bool {
         let mut d = DesiredLevels::default();
         let mut ops = LayerOps::default();
+        let mut haptics = Vec::new();
         let node = NodeHeld::Button(config::InputSource::LeftBumper);
-        eval_commands(std::slice::from_ref(command), held, &node, slot, &Tick(now), &mut d, &mut ops);
+        eval_commands(
+            std::slice::from_ref(command), held, &node, &Side::Left, slot, &Tick(now), &mut d,
+            &mut ops, &mut haptics,
+        );
         d.has_key(&Key::A)
     }
 
@@ -226,9 +261,23 @@ mod tests {
     fn step_many(commands: &[CompiledCommand], slot: &mut SlotState, held: bool, now: u64) -> DesiredLevels {
         let mut d = DesiredLevels::default();
         let mut ops = LayerOps::default();
+        let mut haptics = Vec::new();
         let node = NodeHeld::Button(config::InputSource::LeftBumper);
-        eval_commands(commands, held, &node, slot, &Tick(now), &mut d, &mut ops);
+        eval_commands(commands, held, &node, &Side::Left, slot, &Tick(now), &mut d, &mut ops, &mut haptics);
         d
+    }
+
+    /// Run one tick and return the haptic pulses produced.
+    fn step_haptics(command: &CompiledCommand, slot: &mut SlotState, held: bool, now: u64) -> Vec<HapticReq> {
+        let mut d = DesiredLevels::default();
+        let mut ops = LayerOps::default();
+        let mut haptics = Vec::new();
+        let node = NodeHeld::Button(config::InputSource::LeftBumper);
+        eval_commands(
+            std::slice::from_ref(command), held, &node, &Side::Right, slot, &Tick(now), &mut d,
+            &mut ops, &mut haptics,
+        );
+        haptics
     }
 
     #[test]
@@ -329,6 +378,46 @@ mod tests {
         assert!(step(&c, &mut s, true, 100)); // full period → on
         assert!(!step(&c, &mut s, true, 150)); // off
         assert!(!step(&c, &mut s, false, 160)); // released → train stops
+    }
+
+    #[test]
+    fn command_haptic_fires_on_configured_edges() {
+        use config::{HapticEdge, HapticStrength, Haptics};
+        let with = |on| {
+            cmd_key(
+                Activator::Regular,
+                Key::A,
+                CommandSettings {
+                    haptics: Haptics { on, strength: HapticStrength::High },
+                    ..Default::default()
+                },
+            )
+        };
+
+        // OnPress: one pulse on the press edge (the input's side, High), none on release/hold.
+        let c = with(HapticEdge::OnPress);
+        let mut s = SlotState::default();
+        let h = step_haptics(&c, &mut s, true, 0);
+        assert_eq!(h.len(), 1);
+        assert_eq!((h[0].side.clone(), h[0].strength.clone()), (Side::Right, HapticStrength::High));
+        assert!(step_haptics(&c, &mut s, true, 4).is_empty()); // held, no edge
+        assert!(step_haptics(&c, &mut s, false, 8).is_empty()); // release, OnPress → quiet
+
+        // OnRelease: quiet on press, fires on release.
+        let c = with(HapticEdge::OnRelease);
+        let mut s = SlotState::default();
+        assert!(step_haptics(&c, &mut s, true, 0).is_empty());
+        assert_eq!(step_haptics(&c, &mut s, false, 8).len(), 1);
+
+        // Both: press and release; Off: never.
+        let c = with(HapticEdge::Both);
+        let mut s = SlotState::default();
+        assert_eq!(step_haptics(&c, &mut s, true, 0).len(), 1);
+        assert_eq!(step_haptics(&c, &mut s, false, 8).len(), 1);
+        let c = with(HapticEdge::Off);
+        let mut s = SlotState::default();
+        assert!(step_haptics(&c, &mut s, true, 0).is_empty());
+        assert!(step_haptics(&c, &mut s, false, 8).is_empty());
     }
 
     #[test]
