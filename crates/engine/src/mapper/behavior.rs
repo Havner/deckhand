@@ -19,8 +19,9 @@
 //! (physical); evdev's cursor `REL_Y` and gamepad `ABS_Y` are both **+down**, and `virt-out`
 //! passes values through unchanged — so analog *vertical output* must be flipped at the emission
 //! boundary (`emit_relative` cursor path, `eval_joystick` stick Y). X already agrees. Scroll
-//! (`REL_WHEEL`) has its own convention (left as-is), and gyro yaw→X sign is a separate,
-//! still-unverified question.
+//! (`REL_WHEEL`) has its own convention (left as-is). `GyroToMouse` additionally negates its
+//! **yaw→X** term (yaw-left = +z must move the cursor left) — a behavior-intrinsic handedness,
+//! HW-confirmed, distinct from the evdev vertical flip above.
 
 use config::{
     Activation, ActivationMode, AsMouseSettings, Curve, DirectionalPadSettings, DpadLayout,
@@ -322,9 +323,11 @@ fn eval_gyro_to_mouse(s: &GyroToMouseSettings, ctx: &Ctx, rel: &mut RelAccum) {
         return;
     }
     // Local space (crude, decision D): yaw (z) → horizontal, pitch (x) → vertical, deg/s.
+    // Sign: yaw-left is +z but should move the cursor **left** (−X), so negate yaw. Pitch-up is
+    // +x → cursor up (the +up→+down cursor flip in emit_relative supplies that sign).
     let g = ctx.cur.gyro();
     let (yaw, pitch) = rotate(
-        g.z as f32 / GYRO_RES_PER_DPS,
+        -(g.z as f32) / GYRO_RES_PER_DPS,
         g.x as f32 / GYRO_RES_PER_DPS,
         s.rotation.degrees,
     );
@@ -767,14 +770,22 @@ mod tests {
 
     #[test]
     fn gyro_to_mouse_yaw_moves_horizontally_and_deadzones() {
-        // Default deadzone 0 → a yaw rate moves the cursor horizontally.
+        // Yaw-left is +z and must move the cursor LEFT (negative REL_X).
         let binding = CompiledBinding::GyroToMouse { settings: GyroToMouseSettings::default() };
-        let yaw = ControllerState {
-            gyro: Vec3i { x: 0, y: 0, z: (10.0 * GYRO_RES_PER_DPS) as i16 }, // 10 deg/s yaw
+        let yaw_left = ControllerState {
+            gyro: Vec3i { x: 0, y: 0, z: (10.0 * GYRO_RES_PER_DPS) as i16 }, // +z = yaw-left
             ..Default::default()
         };
-        let out = relative_of(&binding, &InputSource::Gyro, None, yaw, 0.1);
-        assert!(mouse_dx(&out) > 0);
+        let out = relative_of(&binding, &InputSource::Gyro, None, yaw_left, 0.1);
+        assert!(mouse_dx(&out) < 0);
+
+        // Pitch-up is +x and must move the cursor UP (negative REL_Y).
+        let pitch_up = ControllerState {
+            gyro: Vec3i { x: (10.0 * GYRO_RES_PER_DPS) as i16, y: 0, z: 0 },
+            ..Default::default()
+        };
+        let out = relative_of(&binding, &InputSource::Gyro, None, pitch_up, 0.1);
+        assert!(mouse_dy(&out) < 0);
 
         // With a large radial deadzone, a tiny rate is dropped (kills resting drift).
         let binding = CompiledBinding::GyroToMouse {
