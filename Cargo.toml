@@ -36,3 +36,5 @@ crossbeam-channel = "0.5"
 # Lightweight logging facade for the engine + a `env_logger` backend in the test binary.
 log = "0.4"
 env_logger = "0.11"
+# CLI parsing for the `deckhand-run` test binary (derive mode).
+clap = { version = "4", features = ["derive"] }

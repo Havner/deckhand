@@ -18,5 +18,5 @@ vocab = { path = "../vocab", features = ["serde"] }
 # The worked example carries a #[test] (write a profile to a file + round-trip it), so let
 # `cargo test` run it.
 [[example]]
-name = "bridge_profile"
+name = "example_profiles"
 test = true

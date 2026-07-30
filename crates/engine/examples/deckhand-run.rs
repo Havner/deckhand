@@ -5,52 +5,76 @@
 //! with rumble looped back. This is the first thing that runs the whole stack end to end; it
 //! HW-validates the engine against the `virt-out` bridge.
 //!
-//! Usage:
-//!   cargo run -p engine --example deckhand-run -- [--wired|--dongle] \
-//!       PROFILE.ron [--fallback FALLBACK.ron] [--globals GLOBALS.ron]
+//! Generate profiles with `cargo run -p config --example example_profiles <dir>`, then e.g.:
+//!   cargo run -p engine --example deckhand-run -- --dongle <dir>/game_profile.ron \
+//!       --fallback <dir>/desktop_profile.ron --globals <dir>/globals.ron
 //!
-//! Ctrl-C shuts down cleanly (device → lizard restored, virtual pad unplugged). Set
-//! `RUST_LOG=info` for logs.
+//! With the example globals, holding **Steam + RightGrip** toggles active↔fallback. Ctrl-C
+//! shuts down cleanly (device → lizard restored, virtual pad unplugged). `RUST_LOG=info` for logs.
 
 use std::error::Error;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use clap::Parser;
 use config::{ConfigDoc, GlobalConfig};
 use engine::{DeviceSelect, Engine, Input, Role, compile};
 use steam_hid::Transport;
 
+/// Drive the deckhand engine from RON profiles against a real Steam controller.
+#[derive(Parser)]
+#[command(name = "deckhand-run", version, about)]
+struct Args {
+    /// Active profile (RON) — the mapping that runs on start.
+    profile: PathBuf,
+    /// Optional fallback profile (RON) — swapped to by a SwitchFallback chord.
+    #[arg(long, value_name = "RON")]
+    fallback: Option<PathBuf>,
+    /// Optional global config (RON) — master rumble + chords.
+    #[arg(long, value_name = "RON")]
+    globals: Option<PathBuf>,
+    /// Restrict to the wired controller.
+    #[arg(long, conflicts_with = "dongle")]
+    wired: bool,
+    /// Restrict to the wireless dongle.
+    #[arg(long)]
+    dongle: bool,
+}
+
+impl Args {
+    fn device_select(&self) -> DeviceSelect {
+        if self.wired {
+            DeviceSelect::Transport(Transport::UsbWired)
+        } else if self.dongle {
+            DeviceSelect::Transport(Transport::UsbDongle)
+        } else {
+            DeviceSelect::Auto
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
-    let args: Vec<String> = std::env::args().skip(1).collect();
-
-    let select = if args.iter().any(|a| a == "--wired") {
-        DeviceSelect::Transport(Transport::UsbWired)
-    } else if args.iter().any(|a| a == "--dongle") {
-        DeviceSelect::Transport(Transport::UsbDongle)
-    } else {
-        DeviceSelect::Auto
-    };
-    let profile = positional(&args).ok_or("usage: deckhand-run [--wired|--dongle] PROFILE.ron \
-        [--fallback FB.ron] [--globals G.ron]")?;
+    let args = Args::parse();
 
     let mut engine = Engine::new();
-    engine.set_input(Input::Local(select));
+    engine.set_input(Input::Local(args.device_select()));
 
     // Active profile (required).
-    engine.apply(load_program(&profile)?, Role::Active);
-    println!("active profile: {profile}");
+    engine.apply(load_program(&args.profile)?, Role::Active);
+    println!("active profile: {}", args.profile.display());
 
-    // Optional fallback profile + globals.
-    if let Some(path) = flag_value(&args, "--fallback") {
-        engine.apply(load_program(&path)?, Role::Fallback);
-        println!("fallback profile: {path}");
+    // Optional fallback profile + globals (the SwitchFallback chord in globals swaps to it).
+    if let Some(path) = &args.fallback {
+        engine.apply(load_program(path)?, Role::Fallback);
+        println!("fallback profile: {}", path.display());
     }
-    if let Some(path) = flag_value(&args, "--globals") {
-        let globals: GlobalConfig = ron::from_str(&std::fs::read_to_string(&path)?)?;
+    if let Some(path) = &args.globals {
+        let globals: GlobalConfig = ron::from_str(&std::fs::read_to_string(path)?)?;
         engine.set_globals(globals);
-        println!("globals: {path}");
+        println!("globals: {}", path.display());
     }
 
     // Show what's attached, then start.
@@ -74,25 +98,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// Read a RON profile and compile it to a `Program`.
-fn load_program(path: &str) -> Result<engine::Program, Box<dyn Error>> {
+fn load_program(path: &Path) -> Result<engine::Program, Box<dyn Error>> {
     let doc: ConfigDoc = ron::from_str(&std::fs::read_to_string(path)?)?;
     Ok(compile(&doc).map_err(engine::Error::Compile)?)
-}
-
-/// The first bare positional argument (not a flag, not a flag's value).
-fn positional(args: &[String]) -> Option<String> {
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--fallback" | "--globals" => i += 2, // skip flag + its value
-            a if a.starts_with("--") => i += 1,   // bare flag
-            a => return Some(a.to_string()),
-        }
-    }
-    None
-}
-
-/// The value following `flag`, if present.
-fn flag_value(args: &[String], flag: &str) -> Option<String> {
-    args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned()
 }

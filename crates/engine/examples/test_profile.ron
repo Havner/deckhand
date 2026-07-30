@@ -40,14 +40,25 @@
                 RightTrigger: Trigger(settings: (output: Right)),
                 // Left stick → gamepad left stick.
                 LeftStick: Joystick(settings: (output: Left)),
-                // Right pad → relative mouse cursor.
+                // Right pad → relative mouse cursor; its click holds the aim_stick layer.
                 RightPad: AsMouse(settings: (output: Cursor)),
-                // Gyro → mouse, only while the left full-pull is held.
+                RightPadClick: Button(commands: [(activator: Regular, actions: [HoldLayer("aim_stick")])]),
+                // Gyro → mouse (vertical inverted), only while the left full-pull is held.
                 Gyro: GyroToMouse(settings: (
                     output: Cursor,
+                    invert: (y: true),
                     activation: (mode: HoldToEnable, gaters: [LeftFullPull]),
                 )),
             },
+            // Mode-shift: while the right pad is clicked, the left stick drives the RIGHT stick.
+            layers: [
+                (
+                    name: "aim_stick",
+                    bindings: {
+                        LeftStick: Joystick(settings: (output: Right)),
+                    },
+                ),
+            ],
         ),
     ],
 )

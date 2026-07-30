@@ -28,3 +28,4 @@ thiserror.workspace = true
 ron.workspace = true
 env_logger.workspace = true
 ctrlc = { workspace = true, features = ["termination"] }
+clap.workspace = true

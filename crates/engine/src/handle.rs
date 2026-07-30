@@ -213,11 +213,12 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     /// The shipped `deckhand-run` example profile must parse and compile (keeps the sample
-    /// `.ron` valid as the config model evolves).
+    /// `.ron` valid as the config model evolves — exercises a layer, a HoldLayer action, gyro
+    /// invert, and every behavior kind).
     #[test]
-    fn bridge_profile_compiles() {
-        let ron = include_str!("../examples/bridge_profile.ron");
-        let doc: config::ConfigDoc = ron::from_str(ron).expect("parse bridge_profile.ron");
-        crate::compile(&doc).expect("compile bridge_profile.ron");
+    fn test_profile_compiles() {
+        let ron = include_str!("../examples/test_profile.ron");
+        let doc: config::ConfigDoc = ron::from_str(ron).expect("parse test_profile.ron");
+        crate::compile(&doc).expect("compile test_profile.ron");
     }
 }
