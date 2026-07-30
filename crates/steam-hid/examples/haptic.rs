@@ -155,15 +155,16 @@ fn main() -> steam_hid::Result<()> {
     }
 
     // --- Command-haptic clicks: the singular per-action pulse a `Command`'s `Haptics` fires on
-    // press/release (NOT a sustained train — one short burst). Three strengths Low/Med/High, one
-    // side then the other, so we can feel and then tune what each maps to. Starting values only. ---
+    // press/release — ONE pulse (count=1), like the lizard-mode trackpad ticks, NOT a burst.
+    // Strength is the single pulse's *duration* (interval is trailing-only at count=1). Three
+    // strengths Low/Med/High, one side then the other, to feel and then tune. Starting values. ---
     if run_cmd {
         println!("\n=== COMMAND-HAPTIC CLICKS (singular Low/Med/High, left pad then right) ===");
-        // (dur_us, interval_us, count) — ~160 Hz clicks rising in duty *and* length.
+        // (dur_us, interval_us, count) — one tick each; duration is the only strength lever.
         let clicks = [
-            ("Low ", 400u16, 5850u16, 2u16),
-            ("Med ", 900, 5350, 3),
-            ("High", 1560, 4690, 5),
+            ("Low ", 500u16, 1000u16, 1u16),
+            ("Med ", 1000, 1000, 1),
+            ("High", 2000, 1000, 1),
         ];
         for (side, wire) in [("LEFT", 1u8), ("RIGHT", 0u8)] {
             if !running.alive() {
