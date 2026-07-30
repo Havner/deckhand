@@ -17,8 +17,10 @@ use virt_out::OutputEvent;
 use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 /// The desired output **levels** for one tick (what should be held now). Keys/buttons are
-/// membership; axes carry a position. Scroll pseudo-buttons are **not** levels (they're
-/// impulses) and must not appear here.
+/// membership; axes carry a position. Scroll pseudo-buttons ride this path too — they enter the
+/// mouse-button set like any button, and the backend realizes each **press** (the reconcile's
+/// rising edge) as one wheel tick, no-opping the release (so a hold = one notch, a `Turbo` = one
+/// notch per pulse; there is no meaningful held scroll state to reconcile).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct DesiredLevels {
     keys: BTreeSet<Key>,
@@ -32,7 +34,6 @@ impl DesiredLevels {
         self.keys.insert(key);
     }
     pub fn press_mouse(&mut self, button: MouseButton) {
-        debug_assert!(!button.is_scroll(), "scroll pseudo-buttons are impulses, not levels");
         self.mouse_buttons.insert(button);
     }
     pub fn press_pad(&mut self, button: GamepadButton) {
@@ -52,6 +53,10 @@ impl DesiredLevels {
     /// Whether a key is desired-held (test/inspection accessor).
     pub fn has_key(&self, key: &Key) -> bool {
         self.keys.contains(key)
+    }
+    /// Whether a mouse button is desired-held (test/inspection accessor).
+    pub fn has_mouse(&self, button: &MouseButton) -> bool {
+        self.mouse_buttons.contains(button)
     }
 }
 

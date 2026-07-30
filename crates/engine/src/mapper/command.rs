@@ -203,7 +203,12 @@ fn tap_active(cs: &CmdState, now: &Tick) -> bool {
 
 /// Apply one action of a firing command: output leaves become desired levels; layer/set actions
 /// are queued into `ops` for the next tick (`HoldLayer` carries its trigger node so it can latch
-/// to that node's held-state). Scroll impulses (deferred) and `None` do nothing.
+/// to that node's held-state). `None` does nothing.
+///
+/// Scroll pseudo-buttons (`MouseButton::Scroll*`) ride the ordinary button-level path: virt-out
+/// realizes a scroll button's **press** as one wheel tick and no-ops its release, so a plain press
+/// scrolls one notch and a `Turbo` command (which pulses the level on/off) scrolls one notch per
+/// pulse — continuous scroll while held. (No held-state to reconcile; the backend collapses it.)
 fn apply_action(
     action: &CompiledAction,
     node: &NodeHeld,
@@ -212,7 +217,7 @@ fn apply_action(
 ) {
     match action {
         CompiledAction::Key(k) => desired.press_key(k.clone()),
-        CompiledAction::MouseButton(b) if !b.is_scroll() => desired.press_mouse(b.clone()),
+        CompiledAction::MouseButton(b) => desired.press_mouse(b.clone()),
         CompiledAction::GamepadButton(b) => desired.press_pad(b.clone()),
         CompiledAction::ChangeActionSet(s) => ops.set_change = Some(s.clone()),
         CompiledAction::AddLayer(l) => {
@@ -224,8 +229,7 @@ fn apply_action(
         CompiledAction::HoldLayer(l) => {
             ops.holds.insert(l.clone(), node.clone());
         }
-        // Scroll pseudo-buttons (impulses, deferred) and `None`.
-        CompiledAction::MouseButton(_) | CompiledAction::None => {}
+        CompiledAction::None => {}
     }
 }
 
@@ -378,6 +382,34 @@ mod tests {
         assert!(step(&c, &mut s, true, 100)); // full period → on
         assert!(!step(&c, &mut s, true, 150)); // off
         assert!(!step(&c, &mut s, false, 160)); // released → train stops
+    }
+
+    #[test]
+    fn scroll_button_rides_the_level_path_and_turbo_repeats() {
+        use vocab::MouseButton;
+        let up = |settings| CompiledCommand {
+            activator: Activator::Regular,
+            actions: vec![CompiledAction::MouseButton(MouseButton::ScrollUp)],
+            settings,
+        };
+        let has = |d: &DesiredLevels| d.has_mouse(&MouseButton::ScrollUp);
+        let one = |c: &CompiledCommand, s: &mut SlotState, held, now| {
+            has(&step_many(std::slice::from_ref(c), s, held, now))
+        };
+
+        // Plain press: ScrollUp is a level while held; the reconcile's press edge is one wheel tick.
+        let c = up(CommandSettings::default());
+        let mut s = SlotState::default();
+        assert!(one(&c, &mut s, true, 0)); // press → member (→ one notch)
+        assert!(one(&c, &mut s, true, 4)); // held → still member (backend already ticked, no repeat)
+        assert!(!one(&c, &mut s, false, 8)); // release → gone
+
+        // Turbo pulses the level on/off, so a fresh press (another notch) lands each on-phase.
+        let c = up(CommandSettings { turbo: Some(Turbo { interval_ms: 100 }), ..Default::default() });
+        let mut s = SlotState::default();
+        assert!(one(&c, &mut s, true, 0)); // on → notch
+        assert!(!one(&c, &mut s, true, 50)); // off phase
+        assert!(one(&c, &mut s, true, 100)); // on → next notch
     }
 
     #[test]
