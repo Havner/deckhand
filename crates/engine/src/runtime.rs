@@ -22,7 +22,7 @@ use config::{Curve, GlobalConfig, HapticStrength, RumbleSettings, Side, StartPro
 use steam_hid::{Device, DeviceKind, Motor, Report, Rumble as HidRumble};
 use virt_out::{Rumble, Sink};
 
-use crate::chords::Chords;
+use crate::chords::{Chords, ExecReq};
 use crate::logical::LogicalFrame;
 use crate::program::{Program, Role};
 use crate::{HapticReq, Mapper, Result, Tick};
@@ -223,9 +223,15 @@ fn run_mapper(
                     let outcome = chords.eval(&globals.chords, &frame);
                     if outcome.role != role {
                         role = outcome.role;
-                        mapper.switch_program(program_for(&role, &active, &fallback));
+                        let prog = program_for(&role, &active, &fallback);
+                        log::info!("chord: switched to {role:?} — profile '{}' now active", prog.meta.name);
+                        mapper.switch_program(prog);
                     }
                     let masked = frame.masked(&outcome.consumed);
+                    // CommandExecute chords: run each on its own thread so the loop never blocks.
+                    for exec in outcome.execute {
+                        spawn_command(exec);
+                    }
                     let now = Tick(start.elapsed().as_millis() as u64);
                     out.clear();
                     haptics.clear();
@@ -418,6 +424,30 @@ fn program_for<'a>(role: &Role, active: &'a Program, fallback: &'a Option<Progra
         Role::Active => active,
         Role::Fallback => fallback.as_ref().unwrap_or(active),
     }
+}
+
+/// Run a `CommandExecute` chord's program on a **detached thread** so the mapping loop never blocks
+/// on it. Headless: a direct exec (no shell). Logs the invocation and its exit status + captured
+/// stdout/stderr at `info` (spawn failure at `warn`).
+fn spawn_command(exec: ExecReq) {
+    std::thread::spawn(move || {
+        let shown = if exec.args.is_empty() {
+            exec.command.clone()
+        } else {
+            format!("{} {}", exec.command, exec.args.join(" "))
+        };
+        log::info!("chord: executing `{shown}`");
+        match std::process::Command::new(&exec.command).args(&exec.args).output() {
+            Ok(o) => log::info!(
+                "chord: `{}` exited {} | stdout: {:?} | stderr: {:?}",
+                exec.command,
+                o.status,
+                String::from_utf8_lossy(&o.stdout).trim(),
+                String::from_utf8_lossy(&o.stderr).trim(),
+            ),
+            Err(e) => log::warn!("chord: `{}` failed to spawn: {e}", exec.command),
+        }
+    });
 }
 
 /// The role the engine boots into, from `GlobalConfig::start_profile` (read once at loop start).

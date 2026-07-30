@@ -3,11 +3,12 @@
 //! Global chords are evaluated **before** any profile binding and **consume** their buttons
 //! (masked out of the frame the Mapper sees), so a desktop escape hatch works even with the UI
 //! down. A `SwitchFallback` chord flips the engine between its **Active** and **Fallback**
-//! programs — `Hold` while the chord is held, `Toggle` latched on each engage. `CommandExecute`
-//! is deferred (decision B); its buttons are still consumed when the chord is held.
+//! programs — `Hold` while the chord is held, `Toggle` latched on each engage. A `CommandExecute`
+//! chord runs a headless external program on its **engage edge** (buttons still consumed).
 //!
 //! Pure and golden-testable — the threaded loop (S9b) owns a [`Chords`] and calls [`Chords::eval`]
-//! each frame, then masks the frame and selects the program for the returned [`Role`].
+//! each frame, then masks the frame, spawns any [`ExecReq`], and selects the program for the
+//! returned [`Role`]. `eval` itself never spawns (that's the runtime's job), so it stays testable.
 
 use config::{GlobalAction, GlobalChord, InputSource, SwitchMode};
 
@@ -30,12 +31,20 @@ struct ChordState {
     prev_active: bool,
 }
 
+/// A `CommandExecute` chord that engaged this frame — the runtime spawns the program (headless).
+pub(crate) struct ExecReq {
+    pub command: String,
+    pub args: Vec<String>,
+}
+
 /// The outcome of evaluating the chords for one frame.
 pub(crate) struct ChordOutcome {
     /// Buttons an active chord consumed — mask these out before the Mapper.
     pub consumed: Vec<InputSource>,
     /// Which program role should drive this frame.
     pub role: Role,
+    /// `CommandExecute` chords that engaged this frame (rising edge) — the runtime runs each.
+    pub execute: Vec<ExecReq>,
 }
 
 impl Chords {
@@ -62,6 +71,7 @@ impl Chords {
         let mut consumed = Vec::new();
         let mut hold_fallback = false;
         let mut base = self.persistent_fallback;
+        let mut execute = Vec::new();
 
         for (chord, st) in chords.iter().zip(self.states.iter_mut()) {
             // AND-combined physical buttons; an empty chord never fires.
@@ -78,15 +88,19 @@ impl Chords {
                         }
                     }
                 },
-                // Deferred (decision B): buttons still consumed; subprocess spawn lands later.
-                GlobalAction::CommandExecute { .. } => {}
+                // Fire once on the engage edge; the runtime spawns it (eval stays side-effect-free).
+                GlobalAction::CommandExecute { command, args } => {
+                    if active && !st.prev_active {
+                        execute.push(ExecReq { command: command.clone(), args: args.clone() });
+                    }
+                }
             }
             st.prev_active = active;
         }
 
         self.persistent_fallback = base;
         let role = if base || hold_fallback { Role::Fallback } else { Role::Active };
-        ChordOutcome { consumed, role }
+        ChordOutcome { consumed, role, execute }
     }
 }
 
@@ -135,6 +149,29 @@ mod tests {
         assert_eq!(c.eval(&chords, &none()).role, Role::Fallback); // release → stays latched
         assert_eq!(c.eval(&chords, &both()).role, Role::Active); // press again → latch off
         assert_eq!(c.eval(&chords, &none()).role, Role::Active);
+    }
+
+    #[test]
+    fn command_execute_fires_once_on_engage_and_consumes() {
+        let chords = vec![GlobalChord {
+            buttons: vec![InputSource::Steam, InputSource::RightGrip],
+            action: GlobalAction::CommandExecute { command: "true".into(), args: vec!["x".into()] },
+        }];
+        let mut c = Chords::new(&chords, false);
+        let both = || frame(Buttons::STEAM | Buttons::R4);
+
+        // Engage → one exec req (command + args), buttons consumed, role untouched (stays Active).
+        let out = c.eval(&chords, &both());
+        assert_eq!(out.execute.len(), 1);
+        assert_eq!((out.execute[0].command.as_str(), out.execute[0].args.as_slice()), ("true", &["x".to_string()][..]));
+        assert!(out.consumed.contains(&InputSource::Steam));
+        assert_eq!(out.role, Role::Active);
+
+        // Held → no repeat (edge only).
+        assert!(c.eval(&chords, &both()).execute.is_empty());
+        // Release then re-engage → fires again.
+        c.eval(&chords, &frame(Buttons::empty()));
+        assert_eq!(c.eval(&chords, &both()).execute.len(), 1);
     }
 
     #[test]
