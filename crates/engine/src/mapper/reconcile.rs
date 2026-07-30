@@ -121,6 +121,10 @@ pub(crate) struct RelAccum {
     mouse_y: f32,
     scroll_x: f32,
     scroll_y: f32,
+    // High-res scroll accumulated separately (finer units: 120 = one detent) so a discrete-scroll
+    // and a smooth-scroll binding never share one accumulator.
+    smooth_x: f32,
+    smooth_y: f32,
 }
 
 impl RelAccum {
@@ -131,6 +135,10 @@ impl RelAccum {
     pub fn add_scroll(&mut self, dx: f32, dy: f32) {
         self.scroll_x += dx;
         self.scroll_y += dy;
+    }
+    pub fn add_smooth_scroll(&mut self, dx: f32, dy: f32) {
+        self.smooth_x += dx;
+        self.smooth_y += dy;
     }
 
     /// Emit accumulated integer motion, keeping the sub-integer remainder for next tick.
@@ -146,6 +154,12 @@ impl RelAccum {
             out.push(OutputEvent::Scroll { dx: sx as i32, dy: sy as i32 });
             self.scroll_x -= sx;
             self.scroll_y -= sy;
+        }
+        let (hx, hy) = (self.smooth_x.trunc(), self.smooth_y.trunc());
+        if hx != 0.0 || hy != 0.0 {
+            out.push(OutputEvent::SmoothScroll { dx: hx as i32, dy: hy as i32 });
+            self.smooth_x -= hx;
+            self.smooth_y -= hy;
         }
     }
 }
@@ -247,5 +261,17 @@ mod tests {
         acc.add_scroll(0.0, 0.5);
         acc.flush(&mut out);
         assert_eq!(out, vec![OutputEvent::Scroll { dx: 0, dy: 1 }]);
+    }
+
+    #[test]
+    fn rel_accum_smooth_scroll_is_separate_from_discrete() {
+        let mut acc = RelAccum::default();
+        let mut out = Vec::new();
+        // Discrete and smooth scroll accumulate independently and emit distinct events.
+        acc.add_scroll(0.0, 1.0);
+        acc.add_smooth_scroll(0.0, 8.5);
+        acc.flush(&mut out);
+        assert!(out.contains(&OutputEvent::Scroll { dx: 0, dy: 1 }));
+        assert!(out.contains(&OutputEvent::SmoothScroll { dx: 0, dy: 8 })); // remainder 0.5 carried
     }
 }

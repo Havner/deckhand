@@ -132,6 +132,17 @@ impl Sink {
                         inputs.push(wheel_input(*dx, true));
                     }
                 }
+                OutputEvent::SmoothScroll { dx, dy } => {
+                    // Hi-res units are already in WHEEL_DELTA scale (120 = one notch); pass them
+                    // straight through as sub-notch mouseData. Windows accumulates for apps that
+                    // don't do smooth scroll, so no legacy fallback is needed here.
+                    if *dy != 0 {
+                        inputs.push(wheel_hires_input(*dy, false));
+                    }
+                    if *dx != 0 {
+                        inputs.push(wheel_hires_input(*dx, true));
+                    }
+                }
                 OutputEvent::GamepadButton(b, down) => {
                     if !self.dpad.set(b, *down) {
                         set_button(&mut self.gamepad.buttons, b, *down);
@@ -358,6 +369,17 @@ fn wheel_input(ticks: i32, horizontal: bool) -> INPUT {
         MOUSEEVENTF_WHEEL
     };
     mouse_input(0, 0, (ticks * WHEEL_DELTA) as u32, flags)
+}
+
+/// Hi-res wheel `INPUT`: `units` are already in `WHEEL_DELTA` scale (120 = one notch), so they go
+/// straight into `mouseData` — sub-`WHEEL_DELTA` values scroll smoothly in apps that support it.
+fn wheel_hires_input(units: i32, horizontal: bool) -> INPUT {
+    let flags = if horizontal {
+        MOUSEEVENTF_HWHEEL
+    } else {
+        MOUSEEVENTF_WHEEL
+    };
+    mouse_input(0, 0, units as u32, flags)
 }
 
 fn mouse_input(dx: i32, dy: i32, data: u32, flags: windows::Win32::UI::Input::KeyboardAndMouse::MOUSE_EVENT_FLAGS) -> INPUT {

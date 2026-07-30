@@ -44,6 +44,10 @@ pub struct Sink {
     ff_until: Option<Instant>,
     // Dpad direction state, folded into the ABS_HAT0X/Y hat on change.
     dpad: Dpad,
+    // High-res scroll: accumulated hi-res units (120 = one detent) per axis, so a legacy
+    // REL_WHEEL/REL_HWHEEL notch is synthesized every 120 for non-hi-res consumers.
+    hi_res_wheel: i32,
+    hi_res_hwheel: i32,
 }
 
 impl Sink {
@@ -59,6 +63,8 @@ impl Sink {
             ff_playing: None,
             ff_until: None,
             dpad: Dpad::default(),
+            hi_res_wheel: 0,
+            hi_res_hwheel: 0,
         })
     }
 
@@ -91,6 +97,22 @@ impl Sink {
                     }
                     if *dx != 0 {
                         mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_HWHEEL, *dx));
+                    }
+                }
+                OutputEvent::SmoothScroll { dx, dy } => {
+                    // Emit the fine-grained hi-res value, and synthesize a legacy notch each time
+                    // 120 units (one detent) accumulate so non-hi-res apps still scroll.
+                    if *dy != 0 {
+                        mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_WHEEL_HI_RES, *dy));
+                        if let Some(notch) = accumulate_notch(&mut self.hi_res_wheel, *dy) {
+                            mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_WHEEL, notch));
+                        }
+                    }
+                    if *dx != 0 {
+                        mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_HWHEEL_HI_RES, *dx));
+                        if let Some(notch) = accumulate_notch(&mut self.hi_res_hwheel, *dx) {
+                            mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_HWHEEL, notch));
+                        }
                     }
                 }
                 OutputEvent::GamepadButton(b, down) => {
@@ -241,6 +263,8 @@ fn build_mouse() -> io::Result<VirtualDevice> {
     rel.insert(RelativeAxisCode::REL_Y);
     rel.insert(RelativeAxisCode::REL_WHEEL);
     rel.insert(RelativeAxisCode::REL_HWHEEL);
+    rel.insert(RelativeAxisCode::REL_WHEEL_HI_RES);
+    rel.insert(RelativeAxisCode::REL_HWHEEL_HI_RES);
     VirtualDevice::builder()?
         .name("deckhand virtual mouse")
         .with_keys(&buttons)?
@@ -465,6 +489,20 @@ fn scroll_delta(b: &MouseButton) -> Option<(RelativeAxisCode, i32)> {
     }
 }
 
+/// Add a hi-res scroll `delta` (units of 1/120 detent) to `accum`, returning the number of full
+/// legacy wheel notches that accumulated (with sign), keeping the sub-notch remainder. `None` when
+/// no full notch crossed this event.
+fn accumulate_notch(accum: &mut i32, delta: i32) -> Option<i32> {
+    *accum += delta;
+    let notches = *accum / 120; // truncates toward zero
+    if notches != 0 {
+        *accum -= notches * 120;
+        Some(notches)
+    } else {
+        None
+    }
+}
+
 // A=SOUTH, B=EAST, X=NORTH, Y=WEST — matches xpad/X360 (SDL maps these to A/B/X/Y).
 fn gamepad_code(b: &GamepadButton) -> KeyCode {
     match b {
@@ -518,5 +556,23 @@ fn abs_value(a: &GamepadAxis, v: f32) -> i32 {
         | GamepadAxis::RightStickX
         | GamepadAxis::RightStickY => (v.clamp(-1.0, 1.0) * 32767.0) as i32,
         GamepadAxis::LeftTrigger | GamepadAxis::RightTrigger => (v.clamp(0.0, 1.0) * 255.0) as i32,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::accumulate_notch;
+
+    #[test]
+    fn accumulate_notch_synthesizes_legacy_ticks_per_120() {
+        let mut acc = 0;
+        assert_eq!(accumulate_notch(&mut acc, 80), None); // below a detent
+        assert_eq!(acc, 80);
+        assert_eq!(accumulate_notch(&mut acc, 50), Some(1)); // 130 → one notch, 10 remainder
+        assert_eq!(acc, 10);
+        // A big fast scroll crosses several notches at once, sign preserved.
+        let mut acc = 0;
+        assert_eq!(accumulate_notch(&mut acc, -250), Some(-2));
+        assert_eq!(acc, -10);
     }
 }

@@ -48,6 +48,9 @@ const GYRO_MOUSE_GAIN: f32 = 20.0;
 /// (`REL_WHEEL` counts notches, not pixels), so scroll divides the pixel motion down by this many
 /// pixels per wheel notch. Starting point, HW-tuned; per-behavior `sensitivity` tunes on top.
 const PIXELS_PER_SCROLL_TICK: f32 = 50.0;
+/// High-resolution scroll units per wheel detent (evdev `REL_WHEEL_HI_RES` / Windows `WHEEL_DELTA`).
+/// `SmoothScroll` covers the same distance as `Scroll` but in these finer units → ~120× smoother.
+const SCROLL_HI_RES_PER_TICK: f32 = 120.0;
 
 /// Per-tick context for behaviors: the current frame, the previous frame (the pad-delta source
 /// for `AsMouse`), `dt` in seconds (for the rate-based stick/gyro behaviors), and the injected
@@ -387,18 +390,25 @@ fn process_relative(
     (mx, my)
 }
 
-/// Route a relative delta to the chosen mouse output (cursor motion or scroll).
+/// Route a relative delta to the chosen mouse output (cursor motion, discrete scroll, or smooth
+/// scroll).
 ///
 /// The controller reports stick/pad Y as **+up** (physical), but evdev's cursor `REL_Y` is
 /// **+down**, so the cursor path flips Y to keep "up on the controller" = "up on screen" (X
 /// already agrees). Scroll (`REL_WHEEL`) has the opposite polarity (+ = up), so *not* flipping Y
 /// there likewise means "controller up = scroll up"; but a wheel is far coarser than the cursor,
 /// so scroll divides the pixel-scaled motion down to notches ([`PIXELS_PER_SCROLL_TICK`]).
+/// `SmoothScroll` covers the same distance at high resolution — the same notch value scaled up by
+/// `SCROLL_HI_RES_PER_TICK` (120 units per detent) so it emits ~120× finer and feels smooth.
 fn emit_relative(output: &MouseOutput, dx: f32, dy: f32, rel: &mut RelAccum) {
     match output {
         MouseOutput::Cursor => rel.add_mouse(dx, -dy),
         MouseOutput::Scroll => {
             rel.add_scroll(dx / PIXELS_PER_SCROLL_TICK, dy / PIXELS_PER_SCROLL_TICK)
+        }
+        MouseOutput::SmoothScroll => {
+            let s = SCROLL_HI_RES_PER_TICK / PIXELS_PER_SCROLL_TICK; // hi-res units per pixel
+            rel.add_smooth_scroll(dx * s, dy * s)
         }
     }
 }
@@ -854,6 +864,29 @@ mod tests {
         let base = relative_of(&plain, &InputSource::LeftStick, None, cur(), 0.1);
         let acc = relative_of(&accel, &InputSource::LeftStick, None, cur(), 0.1);
         assert!(mouse_dx(&acc).abs() > mouse_dx(&base).abs());
+    }
+
+    #[test]
+    fn as_mouse_smooth_scroll_emits_fine_hi_res_units() {
+        // A pad delta that yields ~1 discrete notch yields ~120 hi-res units (1 detent) as a
+        // SmoothScroll event — same distance, ~120× finer resolution.
+        let prev = ControllerState { left_pad: touched(0.0, 0.0), ..Default::default() };
+        let cur = ControllerState { left_pad: touched(0.0, 0.15), ..Default::default() };
+
+        let smooth = CompiledBinding::AsMouse {
+            settings: AsMouseSettings { output: MouseOutput::SmoothScroll, ..Default::default() },
+        };
+        let out = relative_of(&smooth, &InputSource::LeftPad, Some(prev), cur, 0.016);
+        let dy = out
+            .iter()
+            .find_map(|e| match e {
+                OutputEvent::SmoothScroll { dy, .. } => Some(*dy),
+                _ => None,
+            })
+            .expect("a SmoothScroll event");
+        // 0.15 pad-units * 400 gain / 50 px-per-tick * 120 hi-res = ~144 units — far finer than
+        // the 1 notch discrete scroll would give.
+        assert!(dy.abs() > 100, "expected hi-res units, got {dy}");
     }
 
     #[test]

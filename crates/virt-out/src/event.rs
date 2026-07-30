@@ -18,8 +18,12 @@ pub enum OutputEvent {
     MouseButton(MouseButton, bool),
     /// Relative pointer motion.
     MouseMove { dx: i32, dy: i32 },
-    /// Wheel ticks (`dy` vertical, `dx` horizontal) — continuous scroll from a behavior.
+    /// Wheel ticks (`dy` vertical, `dx` horizontal) — discrete continuous scroll from a behavior.
     Scroll { dx: i32, dy: i32 },
+    /// High-resolution smooth scroll, in units where **120 = one wheel detent** (evdev
+    /// `REL_WHEEL_HI_RES` / Windows `WHEEL_DELTA`). Backends emit the fine-grained value and
+    /// synthesize a legacy notch every 120 so non-hi-res consumers still scroll.
+    SmoothScroll { dx: i32, dy: i32 },
     /// Virtual-gamepad button down / up.
     GamepadButton(GamepadButton, bool),
     /// Virtual-gamepad axis position — sticks/dpad in `-1.0..=1.0`, triggers `0.0..=1.0`.

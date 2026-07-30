@@ -164,7 +164,11 @@ pub enum TriggerOutput {
 pub enum MouseOutput {
     #[default]
     Cursor,
+    /// Discrete wheel notches (`REL_WHEEL`) — compatible with every app.
     Scroll,
+    /// High-resolution smooth scroll (`REL_WHEEL_HI_RES`; Windows sub-`WHEEL_DELTA`) — pixel-smooth
+    /// in apps that support it, with a legacy notch fallback so others still scroll.
+    SmoothScroll,
 }
 
 /// Directional-pad layout: 4-way (cardinals only) or 8-way (diagonals fire two).
