@@ -293,14 +293,14 @@ fn eval_as_mouse(source: &InputSource, s: &AsMouseSettings, ctx: &Ctx, rel: &mut
     if !cur.touched || !prev.touched {
         return;
     }
-    let (mx, my) = process_relative(
-        cur.pos.x - prev.pos.x,
-        cur.pos.y - prev.pos.y,
-        &s.sensitivity,
-        &s.invert,
-        s.rotation.degrees,
-        PAD_MOUSE_GAIN,
-    );
+    let (dx, dy) = (cur.pos.x - prev.pos.x, cur.pos.y - prev.pos.y);
+    // Acceleration scales with finger **speed** (velocity = delta/dt, pad-units per second), not
+    // the per-frame delta — so it's poll-rate-independent. `factor = 0` is off. The base motion
+    // stays positional (dt-independent); only the accel multiplier reads dt.
+    let speed = if ctx.dt > 0.0 { (dx * dx + dy * dy).sqrt() / ctx.dt } else { 0.0 };
+    let accel = 1.0 + speed * s.acceleration.factor;
+    let (mx, my) =
+        process_relative(dx, dy, &s.sensitivity, &s.invert, s.rotation.degrees, PAD_MOUSE_GAIN * accel);
     emit_relative(&s.output, mx, my, rel);
 }
 
@@ -316,9 +316,11 @@ fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ct
     if mag <= s.deadzone.inner || mag < 1e-6 {
         return;
     }
-    // Deflection past the deadzone → speed; integrated over dt into a pixel delta.
+    // Deflection past the deadzone → speed; integrated over dt into a pixel delta. Deflection is
+    // already an instantaneous speed, so acceleration scales by it directly (poll-rate-independent).
     let scaled = ((mag - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
-    let speed = apply_curve(scaled, &s.curve) * JOY_MOUSE_RATE * ctx.dt;
+    let accel = 1.0 + scaled * s.acceleration.factor;
+    let speed = apply_curve(scaled, &s.curve) * JOY_MOUSE_RATE * ctx.dt * accel;
     let (ux, uy) = (rx / mag, ry / mag);
     let mut mx = ux * speed * s.sensitivity.x;
     let mut my = uy * speed * s.sensitivity.y;
@@ -346,8 +348,11 @@ fn eval_gyro_to_mouse(s: &GyroToMouseSettings, ctx: &Ctx, rel: &mut RelAccum) {
         g.x as f32 / GYRO_RES_PER_DPS,
         s.rotation.degrees,
     );
-    let mut mx = yaw * s.sensitivity.x * GYRO_MOUSE_GAIN * ctx.dt;
-    let mut my = pitch * s.sensitivity.y * GYRO_MOUSE_GAIN * ctx.dt;
+    // Angular velocity (deg/s) is already an instantaneous speed → acceleration scales by its
+    // magnitude directly (poll-rate-independent). `factor = 0` is off.
+    let accel = 1.0 + (yaw * yaw + pitch * pitch).sqrt() * s.acceleration.factor;
+    let mut mx = yaw * s.sensitivity.x * GYRO_MOUSE_GAIN * ctx.dt * accel;
+    let mut my = pitch * s.sensitivity.y * GYRO_MOUSE_GAIN * ctx.dt * accel;
     if s.invert.x {
         mx = -mx;
     }
@@ -812,6 +817,45 @@ mod tests {
 
         assert!(cursor_dy > 100, "cursor should move ~200 px, got {cursor_dy}");
         assert!(scroll_dy > 0 && scroll_dy < 10, "scroll should be a few notches, got {scroll_dy}");
+    }
+
+    #[test]
+    fn as_mouse_acceleration_is_velocity_based() {
+        let prev = ControllerState { left_pad: touched(0.0, 0.0), ..Default::default() };
+        let cur = ControllerState { left_pad: touched(0.0, 0.5), ..Default::default() };
+
+        // factor = 0: motion is purely positional — identical regardless of dt (poll rate).
+        let plain = CompiledBinding::AsMouse { settings: AsMouseSettings::default() };
+        let fast = relative_of(&plain, &InputSource::LeftPad, Some(prev.clone()), cur.clone(), 0.004);
+        let slow = relative_of(&plain, &InputSource::LeftPad, Some(prev.clone()), cur.clone(), 0.016);
+        assert_eq!(mouse_dy(&fast), mouse_dy(&slow));
+
+        // factor > 0: acceleration scales with velocity (delta/dt), so the *same* delta moved
+        // faster (smaller dt) travels farther — the poll-rate-independent, proper behavior.
+        let accel = CompiledBinding::AsMouse {
+            settings: AsMouseSettings {
+                acceleration: config::Acceleration { factor: 0.05 },
+                ..Default::default()
+            },
+        };
+        let fast = relative_of(&accel, &InputSource::LeftPad, Some(prev.clone()), cur.clone(), 0.004);
+        let slow = relative_of(&accel, &InputSource::LeftPad, Some(prev), cur, 0.016);
+        assert!(mouse_dy(&fast).abs() > mouse_dy(&slow).abs());
+    }
+
+    #[test]
+    fn joystick_mouse_acceleration_amplifies_deflection() {
+        let cur = || ControllerState { left_stick: Vec2 { x: 1.0, y: 0.0 }, ..Default::default() };
+        let plain = CompiledBinding::JoystickMouse { settings: JoystickMouseSettings::default() };
+        let accel = CompiledBinding::JoystickMouse {
+            settings: JoystickMouseSettings {
+                acceleration: config::Acceleration { factor: 2.0 },
+                ..Default::default()
+            },
+        };
+        let base = relative_of(&plain, &InputSource::LeftStick, None, cur(), 0.1);
+        let acc = relative_of(&accel, &InputSource::LeftStick, None, cur(), 0.1);
+        assert!(mouse_dx(&acc).abs() > mouse_dx(&base).abs());
     }
 
     #[test]
