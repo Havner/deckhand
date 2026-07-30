@@ -16,6 +16,7 @@
 mod activator;
 mod behavior;
 mod command;
+mod gyro;
 mod layers;
 mod reconcile;
 mod smooth;
@@ -29,6 +30,7 @@ use crate::logical::LogicalFrame;
 use crate::program::{CompiledBinding, CompiledSet, LayerId, Program, SetId};
 
 use activator::{Activators, BindingKey};
+use gyro::GravityEst;
 use layers::{LayerOps, NodeHeld};
 use reconcile::{AppliedLevels, DesiredLevels, RelAccum};
 use smooth::OneEuro2;
@@ -88,6 +90,8 @@ pub struct Mapper {
     /// Per-source One-Euro filter state for the smoothed relative behaviors (`AsMouse`/
     /// `GyroToMouse`); only populated for sources that carry one.
     smoothers: HashMap<InputSource, OneEuro2>,
+    /// Per-source gravity estimate for player-space gyro; only populated for gyro sources.
+    gravity: HashMap<InputSource, GravityEst>,
 }
 
 impl Mapper {
@@ -104,6 +108,7 @@ impl Mapper {
             persistent_layers: BTreeSet::new(),
             held_layers: BTreeMap::new(),
             smoothers: HashMap::new(),
+            gravity: HashMap::new(),
         }
     }
 
@@ -155,8 +160,12 @@ impl Mapper {
                 CompiledBinding::AsMouse { .. } | CompiledBinding::GyroToMouse { .. }
             )
             .then(|| self.smoothers.entry(source.clone()).or_default());
+            // Player-space gyro needs a gravity estimate; only gyro sources carry one.
+            let gravity = matches!(binding, CompiledBinding::GyroToMouse { .. })
+                .then(|| self.gravity.entry(source.clone()).or_default());
             behavior::eval_binding(
-                binding, source, &ctx, slots, &mut desired, &mut self.rel, &mut ops, haptics, smoother,
+                binding, source, &ctx, slots, &mut desired, &mut self.rel, &mut ops, haptics,
+                smoother, gravity,
             );
         }
 

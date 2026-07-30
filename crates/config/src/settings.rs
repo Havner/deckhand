@@ -180,13 +180,21 @@ pub enum DpadLayout {
     EightWay,
 }
 
-/// Gyro mapping space (Round B; `#[non_exhaustive]`-style extensible — more spaces later).
+/// How gyro rotation maps to cursor motion (Round B; more spaces — World/Laser — later). Vertical
+/// is local pitch in every variant here; they differ in what drives **horizontal**.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum GyroSpace {
-    /// Local / direct: raw gyro axes.
+    /// Local preset — horizontal from **yaw** (turn around the controller's vertical axis).
+    Yaw,
+    /// Local preset — horizontal from **roll** (lean around the controller's forward axis).
+    Roll,
+    /// Local preset — horizontal from **yaw + roll** (turn and lean combined). The robust local
+    /// default — works whether you turn the controller or lean it.
     #[default]
-    Local,
-    /// Player space: gravity-aligned yaw+roll blend.
+    YawRoll,
+    /// Player space — horizontal from yaw + roll **around the gravity axis** (from the
+    /// accelerometer), vertical from local pitch. "Turning around real-world vertical" maps to
+    /// horizontal regardless of how the controller is tilted/rolled.
     PlayerSpace,
 }
 

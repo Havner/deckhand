@@ -25,8 +25,8 @@
 
 use config::{
     Activation, ActivationMode, AsMouseSettings, Curve, DirectionalPadSettings, DpadLayout,
-    GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, MouseOutput,
-    Sensitivity, StickOutput, TriggerOutput, TriggerSettings,
+    GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings,
+    MouseOutput, Sensitivity, StickOutput, TriggerOutput, TriggerSettings,
 };
 use steam_hid::{GYRO_RES_PER_DPS, Vec2};
 use vocab::GamepadAxis;
@@ -34,6 +34,7 @@ use vocab::GamepadAxis;
 use super::{HapticReq, Tick};
 use super::activator::{SlotState, SourceActivators};
 use super::command::eval_commands;
+use super::gyro::GravityEst;
 use super::layers::{LayerOps, NodeHeld};
 use super::reconcile::{DesiredLevels, RelAccum};
 use super::smooth::OneEuro2;
@@ -76,6 +77,7 @@ pub(super) fn eval_binding(
     ops: &mut LayerOps,
     haptics: &mut Vec<HapticReq>,
     smoother: Option<&mut OneEuro2>,
+    gravity: Option<&mut GravityEst>,
 ) {
     let frame = ctx.cur;
     let now = &ctx.now;
@@ -109,7 +111,7 @@ pub(super) fn eval_binding(
             eval_joystick_mouse(source, settings, ctx, rel)
         }
         CompiledBinding::GyroToMouse { settings } => {
-            eval_gyro_to_mouse(settings, ctx, rel, smoother)
+            eval_gyro_to_mouse(settings, ctx, rel, smoother, gravity)
         }
         // Explicit unbind: no output. Overrides a base binding when resolved from a layer; the
         // reconcile then releases whatever the base binding was holding (no stuck output).
@@ -366,28 +368,53 @@ fn eval_gyro_to_mouse(
     ctx: &Ctx,
     rel: &mut RelAccum,
     smoother: Option<&mut OneEuro2>,
+    gravity: Option<&mut GravityEst>,
 ) {
     if !is_active(&s.activation, ctx.cur) {
         return;
     }
-    // Local space (crude, decision D): yaw (z) → horizontal, pitch (x) → vertical, deg/s.
-    // Sign: yaw-left is +z but should move the cursor **left** (−X), so negate yaw. Pitch-up is
-    // +x → cursor up (the +up→+down cursor flip in emit_relative supplies that sign).
+    // Gyro rates, deg/s. ControllerState reports x=pitch, y=roll (already sign-corrected), z=yaw.
     let g = ctx.cur.gyro();
-    let (mut yaw, mut pitch) = rotate(
-        -(g.z as f32) / GYRO_RES_PER_DPS,
-        g.x as f32 / GYRO_RES_PER_DPS,
-        s.rotation.degrees,
-    );
+    let pitch = g.x as f32 / GYRO_RES_PER_DPS;
+    let roll = g.y as f32 / GYRO_RES_PER_DPS;
+    let yaw = g.z as f32 / GYRO_RES_PER_DPS;
+
+    // Vertical is always local pitch (pitch-up = +x → cursor up via the +up→+down flip in
+    // emit_relative). Horizontal depends on the space. Base sign: yaw-left is +z but should move
+    // the cursor **left** (−X), so yaw is negated; the roll sign is HW-verified (flip if leaning
+    // goes the wrong way — keep Roll and YawRoll consistent).
+    let horizontal = match s.space {
+        GyroSpace::Yaw => -yaw,
+        GyroSpace::Roll => roll,
+        GyroSpace::YawRoll => -yaw + roll,
+        GyroSpace::PlayerSpace => {
+            // Rotation rate about the gravity (world-up) axis: project the angular velocity onto the
+            // low-passed up vector. Both the state gyro AND the accel are proper right-handed and in
+            // the SAME frame, so use the gyro directly — do NOT un-negate the roll (that would fight
+            // the accel frame and cancel true vertical-axis rotation at intermediate tilts). Negate
+            // the result to keep the yaw-left = −X convention; when flat (up = +Z) it reduces to −yaw.
+            let up = match gravity {
+                Some(gr) => {
+                    let a = ctx.cur.accel();
+                    gr.update([a.x as f32, a.y as f32, a.z as f32], ctx.dt)
+                }
+                None => [0.0, 0.0, 1.0],
+            };
+            let omega = [pitch, roll, yaw]; // proper RH (x=right, y=forward, z=up), matches accel
+            -(omega[0] * up[0] + omega[1] * up[1] + omega[2] * up[2])
+        }
+    };
+
+    let (mut h, mut v) = rotate(horizontal, pitch, s.rotation.degrees);
     // Optional 1€ smoothing on the angular velocity (deg/s) — the canonical gyro-aim smoothing.
     if let (Some(cfg), Some(sm)) = (&s.smoothing, smoother) {
-        (yaw, pitch) = sm.filter(yaw, pitch, ctx.dt, cfg);
+        (h, v) = sm.filter(h, v, ctx.dt, cfg);
     }
     // Angular velocity (deg/s) is already an instantaneous speed → acceleration scales by its
     // magnitude directly (poll-rate-independent). `factor = 0` is off.
-    let accel = 1.0 + (yaw * yaw + pitch * pitch).sqrt() * s.acceleration.factor;
-    let mut mx = yaw * s.sensitivity.x * GYRO_MOUSE_GAIN * ctx.dt * accel;
-    let mut my = pitch * s.sensitivity.y * GYRO_MOUSE_GAIN * ctx.dt * accel;
+    let accel = 1.0 + (h * h + v * v).sqrt() * s.acceleration.factor;
+    let mut mx = h * s.sensitivity.x * GYRO_MOUSE_GAIN * ctx.dt * accel;
+    let mut my = v * s.sensitivity.y * GYRO_MOUSE_GAIN * ctx.dt * accel;
     if s.invert.x {
         mx = -mx;
     }
@@ -513,7 +540,7 @@ mod tests {
         let mut slots = SourceActivators::default();
         let mut ops = LayerOps::default();
         let mut haptics = Vec::new();
-        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, &mut haptics, None);
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, &mut haptics, None, None);
         d
     }
 
@@ -533,7 +560,7 @@ mod tests {
         let mut slots = SourceActivators::default();
         let mut ops = LayerOps::default();
         let mut haptics = Vec::new();
-        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, &mut haptics, None);
+        eval_binding(binding, source, &ctx, &mut slots, &mut d, &mut rel, &mut ops, &mut haptics, None, None);
         let mut out = Vec::new();
         rel.flush(&mut out);
         out
@@ -1032,5 +1059,82 @@ mod tests {
         };
         let out = relative_of(&binding, &InputSource::Gyro, None, tiny, 0.1);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn gyro_local_spaces_pick_different_horizontal_axes() {
+        use config::GyroSpace;
+        // yaw-left (+z) = 10 dps, roll (+y) = 4 dps; pitch = 0.
+        let state = || ControllerState {
+            gyro: Vec3i {
+                x: 0,
+                y: (4.0 * GYRO_RES_PER_DPS) as i16,
+                z: (10.0 * GYRO_RES_PER_DPS) as i16,
+            },
+            ..Default::default()
+        };
+        let dx = |space| {
+            let b = CompiledBinding::GyroToMouse {
+                settings: GyroToMouseSettings { space, ..Default::default() },
+            };
+            mouse_dx(&relative_of(&b, &InputSource::Gyro, None, state(), 0.1))
+        };
+        assert!(dx(GyroSpace::Yaw) < 0); // only −yaw → left
+        assert!(dx(GyroSpace::Roll) > 0); // only +roll → right (opposite here)
+        // Yaw+Roll sums the two: yaw dominates (still left) but roll pulls it toward zero.
+        let yr = dx(GyroSpace::YawRoll);
+        assert!(yr < 0 && yr > dx(GyroSpace::Yaw));
+    }
+
+    #[test]
+    fn player_space_flat_reduces_to_yaw() {
+        use config::GyroSpace;
+        // Flat controller (accel = up, +Z): player space projects yaw+roll onto +Z, so roll drops
+        // out and horizontal ≈ −yaw (same as Yaw). Non-flat orientations are HW-verified.
+        let state = ControllerState {
+            gyro: Vec3i {
+                x: 0,
+                y: (4.0 * GYRO_RES_PER_DPS) as i16,
+                z: (10.0 * GYRO_RES_PER_DPS) as i16,
+            },
+            accel: Vec3i { x: 0, y: 0, z: 4096 }, // any +Z → up = (0,0,1)
+            ..Default::default()
+        };
+        let b = CompiledBinding::GyroToMouse {
+            settings: GyroToMouseSettings { space: GyroSpace::PlayerSpace, ..Default::default() },
+        };
+        assert!(mouse_dx(&relative_of(&b, &InputSource::Gyro, None, state, 0.1)) < 0);
+    }
+
+    #[test]
+    fn player_space_tilted_tracks_rotation_about_gravity() {
+        use config::GyroSpace;
+        // Controller pitched ~45° up → gravity/up ≈ (0, 1, 1) in the local frame. A rotation ABOUT
+        // that world-up axis has EQUAL roll & yaw rates (state gyro (0, m, m)); player space must
+        // produce horizontal motion. (The pre-fix code un-negated roll → roll & yaw cancelled → 0.)
+        let m = (8.0 * GYRO_RES_PER_DPS) as i16;
+        let state = ControllerState {
+            gyro: Vec3i { x: 0, y: m, z: m }, // roll = yaw ⇒ rotation about the tilted up axis
+            accel: Vec3i { x: 0, y: 4096, z: 4096 }, // up ≈ (0, 0.707, 0.707) → ~45° pitch
+            ..Default::default()
+        };
+        let b = CompiledBinding::GyroToMouse {
+            settings: GyroToMouseSettings { space: GyroSpace::PlayerSpace, ..Default::default() },
+        };
+
+        // A real gravity estimate (relative_of passes None → the flat fallback, which would hide it).
+        let frame = LogicalFrame::new(state);
+        let ctx = Ctx { cur: &frame, prev: None, dt: 0.1, now: Tick(0) };
+        let (mut d, mut rel, mut ops) =
+            (DesiredLevels::default(), RelAccum::default(), LayerOps::default());
+        let mut slots = SourceActivators::default();
+        let (mut haptics, mut grav) = (Vec::new(), GravityEst::default());
+        eval_binding(
+            &b, &InputSource::Gyro, &ctx, &mut slots, &mut d, &mut rel, &mut ops, &mut haptics, None,
+            Some(&mut grav),
+        );
+        let mut out = Vec::new();
+        rel.flush(&mut out);
+        assert!(mouse_dx(&out) != 0, "rotation about the gravity axis must move horizontally");
     }
 }
