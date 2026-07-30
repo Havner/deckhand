@@ -10,7 +10,8 @@
 //!       --fallback <dir>/desktop_profile.ron --globals <dir>/globals.ron
 //!
 //! With the example globals, holding **Steam + RightGrip** toggles main↔fallback. Ctrl-C
-//! shuts down cleanly (device → lizard restored, virtual pad unplugged). `RUST_LOG=info` for logs.
+//! shuts down cleanly (device → lizard restored, virtual pad unplugged). `-v`/`-vv`/`-vvv`
+//! (or `RUST_LOG`) raise log verbosity from the default (warn) to info/debug/trace.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -30,17 +31,32 @@ struct Args {
     /// Main profile (RON) — the mapping that runs on start.
     profile: PathBuf,
     /// Optional fallback profile (RON) — swapped to by a SwitchFallback chord.
-    #[arg(long, value_name = "RON")]
+    #[arg(short, long, value_name = "RON")]
     fallback: Option<PathBuf>,
     /// Optional global config (RON) — master rumble + chords.
-    #[arg(long, value_name = "RON")]
+    #[arg(short, long, value_name = "RON")]
     globals: Option<PathBuf>,
     /// Restrict to the wired controller.
-    #[arg(long, conflicts_with = "dongle")]
+    #[arg(short, long, conflicts_with = "dongle")]
     wired: bool,
     /// Restrict to the wireless dongle.
-    #[arg(long)]
+    #[arg(short, long)]
     dongle: bool,
+    /// Increase log verbosity: -v info, -vv debug, -vvv trace (default: warn). `RUST_LOG` overrides.
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+}
+
+impl Args {
+    /// The default log filter for the `-v` count (RUST_LOG, if set, takes precedence).
+    fn log_level(&self) -> &'static str {
+        match self.verbose {
+            0 => "warn",
+            1 => "info",
+            2 => "debug",
+            _ => "trace",
+        }
+    }
 }
 
 impl Args {
@@ -56,8 +72,9 @@ impl Args {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
     let args = Args::parse();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(args.log_level()))
+        .init();
 
     let mut engine = Engine::new();
     engine.set_input(Input::Local(args.device_select()));
