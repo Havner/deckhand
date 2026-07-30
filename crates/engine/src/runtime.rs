@@ -300,14 +300,25 @@ fn apply_haptics(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
     Ok(())
 }
 
-/// A pulse train at the profile's `hz` whose duty cycle encodes the already-scaled `drive` (crude
-/// amplitude; PLAN §1.9 / bridge).
+/// The duty cycle full drive maps to. Gordon's pad actuator saturates above ~25% duty
+/// (HW-tested: the useful strength band is ~1–25%, above that feels identical), so `drive`
+/// spans `0..RUMBLE_MAX_DUTY` of the period rather than `0..1`. Kept **linear** within the band
+/// (close enough; the per-profile `curve` fine-tunes). **HW-specific** — likely differs on other
+/// controllers / haptic packets, so revisit per-`Shape` if that turns out to matter.
+const RUMBLE_MAX_DUTY: f32 = 0.25;
+
+/// A pulse train at the profile's `hz` whose duty cycle encodes the already-scaled `drive` (the
+/// only amplitude lever — `gain` is ignored on Gordon). Maps full drive onto the actuator's
+/// useful duty band ([`RUMBLE_MAX_DUTY`]) at µs resolution, so even a fraction-of-a-percent
+/// effective strength produces a distinct (small) pulse.
 fn train(drive: u16, hz: u16) -> HidRumble {
     let hz = hz.clamp(16, 1000); // period must fit u16 (hz ≥ 16); Gordon's usable range
     let period = 1_000_000u32 / hz as u32; // µs
     let full = drive as f32 / u16::MAX as f32;
-    // Keep the duty off the rails (5%–95%) so every pulse actually toggles.
-    let duty = ((full * period as f32) as u32).clamp(period / 20, period - period / 20);
+    // Full drive → MAX_DUTY of the period; keep the µs precision so tiny drives stay tiny. A
+    // valid pulse still needs duration ≥ 1 and interval ≥ 1.
+    let duty = (full * RUMBLE_MAX_DUTY * period as f32) as u32;
+    let duty = duty.clamp(1, period - 1);
     let count = ((hz as u32 * 200) / 1000).max(1) as u16; // ~200 ms of pulses (covers the re-fire)
     HidRumble { duration: duty as u16, interval: (period - duty) as u16, count, gain: 0 }
 }
@@ -384,6 +395,21 @@ mod tests {
         // master 0% → silent.
         let cmd = rumble_cmd(full, 0, &s);
         assert_eq!((cmd.strong, cmd.weak), (0, 0));
+    }
+
+    #[test]
+    fn train_maps_full_drive_to_the_max_duty_band() {
+        let duty_frac = |t: HidRumble| {
+            let period = t.duration as f32 + t.interval as f32;
+            t.duration as f32 / period
+        };
+        // Full drive → RUMBLE_MAX_DUTY (25%), half → half of that, linearly.
+        assert!((duty_frac(train(u16::MAX, 80)) - RUMBLE_MAX_DUTY).abs() < 0.01);
+        assert!((duty_frac(train(u16::MAX / 2, 80)) - RUMBLE_MAX_DUTY / 2.0).abs() < 0.01);
+        // A fraction-of-a-percent effective drive still yields a distinct, small pulse (µs
+        // resolution) rather than being clamped up or to silence.
+        let tiny = train(327, 80); // ~0.5% strength
+        assert!(tiny.duration >= 1 && (tiny.duration as f32) < train(u16::MAX / 10, 80).duration as f32);
     }
 
     #[test]
