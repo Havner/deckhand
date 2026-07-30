@@ -11,29 +11,24 @@
 //! Run `cargo run -p config --example example_profiles [out_dir]` to write `game_profile.ron`,
 //! `desktop_profile.ron`, and `globals.ron` (defaults to the temp dir). The test builds each and
 //! checks it validates and round-trips.
+//!
+//! Deliberately **verbose**: every binding is spelled out in full so any single one can be
+//! retuned without touching a shared builder. Only the leaf action constructors (`pad`/`key`/
+//! `mouse`) are kept — they embed no settings, so editing one binding never affects another.
 
 use std::collections::BTreeMap;
 
 use config::{
     Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings,
-    Command, CommandSettings, ConfigDoc, Deadzone, DirectionalPadSettings, DpadLayout, GlobalAction,
-    GlobalChord, GlobalConfig, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings,
-    JoystickSettings, Layer, LayerRef, MouseOutput, RumbleSettings, Sensitivity, SourceBinding,
+    Command, CommandSettings, ConfigDoc, Deadzone, DirectionalPadSettings, DpadLayout,
+    GlobalAction, GlobalChord, GlobalConfig, GyroToMouseSettings, HapticEdge, HapticStrength,
+    Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef,
+    MouseOutput, OneEuroFilter, RumbleSettings, Sensitivity, SourceBinding, StartProfile,
     StickOutput, SwitchMode, TriggerOutput, TriggerSettings,
 };
 use vocab::{GamepadButton, Key, MouseButton};
 
-// --- small builders ---------------------------------------------------------------------
-
-/// A single Regular-press command firing one action.
-fn press(action: Action) -> Command {
-    Command { activator: Activator::Regular, actions: vec![action], settings: Default::default() }
-}
-
-/// A standalone button bound to one Regular action.
-fn button(action: Action) -> SourceBinding {
-    SourceBinding::Button { commands: vec![press(action)] }
-}
+// --- leaf action constructors (no embedded settings) ------------------------------------
 
 fn pad(b: GamepadButton) -> Action {
     Action::GamepadButton(b)
@@ -43,38 +38,6 @@ fn key(k: Key) -> Action {
 }
 fn mouse(b: MouseButton) -> Action {
     Action::MouseButton(b)
-}
-
-/// A pad → mouse behavior with **explicit** sensitivity/acceleration (both applied per-axis) so
-/// they're visible knobs to tune. `1.0 / 0.0` are the defaults — change per call to fine-tune.
-fn as_mouse(output: MouseOutput, sensitivity: f32, acceleration: f32) -> SourceBinding {
-    SourceBinding::AsMouse {
-        settings: AsMouseSettings {
-            output,
-            sensitivity: Sensitivity { x: sensitivity, y: sensitivity },
-            acceleration: Acceleration { factor: acceleration },
-            ..Default::default()
-        },
-    }
-}
-
-/// An **interruptible** Regular command firing an ordered key combo (modifiers wrap the key):
-/// suppressed when a sibling (e.g. a Long press) fires, so short-tap = combo, hold = the sibling.
-fn interruptible(keys: &[Key]) -> Command {
-    Command {
-        activator: Activator::Regular,
-        actions: keys.iter().cloned().map(Action::Key).collect(),
-        settings: CommandSettings { interruptible: true, ..Default::default() },
-    }
-}
-
-/// A Long-press command firing one key.
-fn long(k: Key) -> Command {
-    Command {
-        activator: Activator::Long { hold_ms: 250 },
-        actions: vec![Action::Key(k)],
-        settings: Default::default(),
-    }
 }
 
 // --- game profile (the bridge mapping) --------------------------------------------------
@@ -87,10 +50,26 @@ pub fn game_profile() -> ConfigDoc {
     base.insert(
         InputSource::FaceButtons,
         SourceBinding::ButtonPad {
-            up: vec![press(pad(GamepadButton::Y))],
-            down: vec![press(pad(GamepadButton::A))],
-            left: vec![press(pad(GamepadButton::X))],
-            right: vec![press(pad(GamepadButton::B))],
+            up: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::Y)],
+                settings: Default::default(),
+            }],
+            down: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::A)],
+                settings: Default::default(),
+            }],
+            left: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::X)],
+                settings: Default::default(),
+            }],
+            right: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::B)],
+                settings: Default::default(),
+            }],
         },
     );
 
@@ -98,35 +77,137 @@ pub fn game_profile() -> ConfigDoc {
     base.insert(
         InputSource::DPad,
         SourceBinding::ButtonPad {
-            up: vec![press(pad(GamepadButton::DpadUp))],
-            down: vec![press(pad(GamepadButton::DpadDown))],
-            left: vec![press(pad(GamepadButton::DpadLeft))],
-            right: vec![press(pad(GamepadButton::DpadRight))],
+            up: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::DpadUp)],
+                settings: Default::default(),
+            }],
+            down: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::DpadDown)],
+                settings: Default::default(),
+            }],
+            left: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::DpadLeft)],
+                settings: Default::default(),
+            }],
+            right: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::DpadRight)],
+                settings: Default::default(),
+            }],
         },
     );
 
-    // Bumpers, system buttons, grips → stick clicks, left-stick click → key L.
-    base.insert(InputSource::LeftBumper, button(pad(GamepadButton::LeftBumper)));
-    base.insert(InputSource::RightBumper, button(pad(GamepadButton::RightBumper)));
-    base.insert(InputSource::View, button(pad(GamepadButton::Back)));
-    base.insert(InputSource::Menu, button(pad(GamepadButton::Start)));
-    base.insert(InputSource::Steam, button(pad(GamepadButton::Guide)));
-    base.insert(InputSource::LeftGrip, button(pad(GamepadButton::LeftStick)));
-    base.insert(InputSource::RightGrip, button(pad(GamepadButton::RightStick)));
-    base.insert(InputSource::LeftStickClick, button(Action::Key(Key::L)));
+    // Left bumper → gamepad left bumper.
+    base.insert(
+        InputSource::LeftBumper,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::LeftBumper)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Right bumper → gamepad right bumper.
+    base.insert(
+        InputSource::RightBumper,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::RightBumper)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // View (left small top button) → gamepad Back.
+    base.insert(
+        InputSource::View,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::Back)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Menu (right small top button) → gamepad Start.
+    base.insert(
+        InputSource::Menu,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::Start)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Steam button → gamepad Guide.
+    base.insert(
+        InputSource::Steam,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::Guide)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Left grip → left stick click.
+    base.insert(
+        InputSource::LeftGrip,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::LeftStick)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Right grip → right stick click.
+    base.insert(
+        InputSource::RightGrip,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![pad(GamepadButton::RightStick)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Left-stick click → key L.
+    base.insert(
+        InputSource::LeftStickClick,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::L)],
+                settings: Default::default(),
+            }],
+        },
+    );
 
-    // Triggers → gamepad triggers.
+    // Left trigger → gamepad left trigger axis (no soft-pull button).
     base.insert(
         InputSource::LeftTrigger,
         SourceBinding::Trigger {
-            settings: TriggerSettings { output: TriggerOutput::Left, ..Default::default() },
+            settings: TriggerSettings {
+                output: TriggerOutput::Left,
+                ..Default::default()
+            },
             soft_pull: vec![],
         },
     );
+    // Right trigger → gamepad right trigger axis (no soft-pull button).
     base.insert(
         InputSource::RightTrigger,
         SourceBinding::Trigger {
-            settings: TriggerSettings { output: TriggerOutput::Right, ..Default::default() },
+            settings: TriggerSettings {
+                output: TriggerOutput::Right,
+                ..Default::default()
+            },
             soft_pull: vec![],
         },
     );
@@ -135,25 +216,56 @@ pub fn game_profile() -> ConfigDoc {
     base.insert(
         InputSource::LeftStick,
         SourceBinding::Joystick {
-            settings: JoystickSettings { output: StickOutput::Left, ..Default::default() },
+            settings: JoystickSettings {
+                output: StickOutput::Left,
+                ..Default::default()
+            },
             outer_ring: vec![],
         },
     );
 
-    // Right pad → mouse cursor; its click holds the mode-shift layer.
-    base.insert(InputSource::RightPad, as_mouse(MouseOutput::Cursor, 1.0, 0.0));
-    base.insert(InputSource::RightPadClick, button(Action::HoldLayer(LayerRef("aim_stick".into()))));
+    // Right pad → mouse cursor. Explicit sensitivity/acceleration/smoothing knobs.
+    base.insert(
+        InputSource::RightPad,
+        SourceBinding::AsMouse {
+            settings: AsMouseSettings {
+                output: MouseOutput::Cursor,
+                sensitivity: Sensitivity { x: 1.0, y: 1.0 },
+                acceleration: Acceleration { factor: 0.05 },
+                smoothing: Some(OneEuroFilter {
+                    min_cutoff: 3.0,
+                    beta: 0.5,
+                }),
+                ..Default::default()
+            },
+        },
+    );
+    // Right-pad click holds the mode-shift layer (left stick → right stick).
+    base.insert(
+        InputSource::RightPadClick,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![Action::HoldLayer(LayerRef("aim_stick".into()))],
+                settings: Default::default(),
+            }],
+        },
+    );
 
     // Gyro → mouse (vertical inverted, as in the bridge), gated by the left full-pull. Explicit
-    // sensitivity/acceleration/deadzone (defaults) as tuning knobs.
+    // sensitivity/acceleration/smoothing/deadzone knobs.
     base.insert(
         InputSource::Gyro,
         SourceBinding::GyroToMouse {
             settings: GyroToMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 1.0, y: 1.0 },
-                acceleration: Acceleration { factor: 0.0 },
-                deadzone: Deadzone { inner: 0.0 },
+                sensitivity: Sensitivity { x: 0.5, y: 0.5 },
+                acceleration: Acceleration { factor: 0.02 },
+                smoothing: Some(OneEuroFilter {
+                    min_cutoff: 1.0,
+                    beta: 0.5,
+                }),
+                deadzone: Deadzone { inner: 0.1 },
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
@@ -173,7 +285,10 @@ pub fn game_profile() -> ConfigDoc {
             (
                 InputSource::LeftStick,
                 SourceBinding::Joystick {
-                    settings: JoystickSettings { output: StickOutput::Right, ..Default::default() },
+                    settings: JoystickSettings {
+                        output: StickOutput::Right,
+                        ..Default::default()
+                    },
                     outer_ring: vec![],
                 },
             ),
@@ -184,9 +299,17 @@ pub fn game_profile() -> ConfigDoc {
     ConfigDoc {
         version: 0,
         name: "Game".into(),
-        action_sets: vec![ActionSet { name: "Game".into(), bindings: base, layers: vec![aim_stick] }],
+        action_sets: vec![ActionSet {
+            name: "Game".into(),
+            bindings: base,
+            layers: vec![aim_stick],
+        }],
         // 60 Hz feel; the global master % scales it (see `globals`).
-        rumble: RumbleSettings { hz: 60, strength: 100, ..Default::default() },
+        rumble: RumbleSettings {
+            hz: 60,
+            strength: 100,
+            ..Default::default()
+        },
     }
 }
 
@@ -196,23 +319,74 @@ pub fn game_profile() -> ConfigDoc {
 pub fn desktop_profile() -> ConfigDoc {
     let mut base: BTreeMap<InputSource, SourceBinding> = BTreeMap::new();
 
-    // Pads → mouse: right = cursor, left = scroll wheel (explicit sensitivity/acceleration knobs).
-    base.insert(InputSource::RightPad, as_mouse(MouseOutput::Cursor, 1.0, 0.0));
-    base.insert(InputSource::LeftPad, as_mouse(MouseOutput::Scroll, 1.0, 0.0));
+    // Right pad → mouse cursor. Explicit sensitivity/acceleration/smoothing knobs.
+    base.insert(
+        InputSource::RightPad,
+        SourceBinding::AsMouse {
+            settings: AsMouseSettings {
+                output: MouseOutput::Cursor,
+                sensitivity: Sensitivity { x: 1.0, y: 1.0 },
+                acceleration: Acceleration { factor: 0.02 },
+                smoothing: Some(OneEuroFilter {
+                    min_cutoff: 3.0,
+                    beta: 0.5,
+                }),
+                ..Default::default()
+            },
+        },
+    );
+    // Left pad → smooth scroll wheel. Explicit sensitivity/acceleration/smoothing knobs.
+    base.insert(
+        InputSource::LeftPad,
+        SourceBinding::AsMouse {
+            settings: AsMouseSettings {
+                output: MouseOutput::SmoothScroll,
+                sensitivity: Sensitivity { x: 1.0, y: 1.0 },
+                acceleration: Acceleration { factor: 0.05 },
+                smoothing: Some(OneEuroFilter {
+                    min_cutoff: 3.0,
+                    beta: 0.5,
+                }),
+                ..Default::default()
+            },
+        },
+    );
     // Right-pad click holds the stick_mouse layer (left stick → mouse instead of arrows).
     base.insert(
         InputSource::RightPadClick,
-        button(Action::HoldLayer(LayerRef("stick_mouse".into()))),
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![Action::HoldLayer(LayerRef("stick_mouse".into()))],
+                settings: Default::default(),
+            }],
+        },
     );
 
     // Face diamond → navigation keys (up = Y, down = A, left = X, right = B).
     base.insert(
         InputSource::FaceButtons,
         SourceBinding::ButtonPad {
-            up: vec![press(key(Key::PageUp))],     // Y
-            down: vec![press(key(Key::Enter))],    // A
-            left: vec![press(key(Key::PageDown))], // X
-            right: vec![press(key(Key::Esc))],     // B
+            up: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::PageUp)],
+                settings: Default::default(),
+            }],
+            down: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::Enter)],
+                settings: Default::default(),
+            }],
+            left: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::PageDown)],
+                settings: Default::default(),
+            }],
+            right: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::Esc)],
+                settings: Default::default(),
+            }],
         },
     );
 
@@ -220,43 +394,198 @@ pub fn desktop_profile() -> ConfigDoc {
     base.insert(
         InputSource::LeftStick,
         SourceBinding::DirectionalPad {
-            settings: DirectionalPadSettings { layout: DpadLayout::FourWay, ..Default::default() },
-            up: vec![press(key(Key::Up))],
-            down: vec![press(key(Key::Down))],
-            left: vec![press(key(Key::Left))],
-            right: vec![press(key(Key::Right))],
+            settings: DirectionalPadSettings {
+                layout: DpadLayout::FourWay,
+                ..Default::default()
+            },
+            up: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::Up)],
+                settings: Default::default(),
+            }],
+            down: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::Down)],
+                settings: Default::default(),
+            }],
+            left: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::Left)],
+                settings: Default::default(),
+            }],
+            right: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::Right)],
+                settings: Default::default(),
+            }],
             outer_ring: vec![],
         },
     );
 
-    // Trigger soft-pulls → mouse buttons (right → left click, left → right click). Output `None`
-    // so the trigger drives *no* gamepad axis on the desktop — just the soft-pull click.
-    let click_trigger = |b: MouseButton| SourceBinding::Trigger {
-        settings: TriggerSettings { output: TriggerOutput::None, ..Default::default() },
-        soft_pull: vec![press(mouse(b))],
-    };
-    base.insert(InputSource::RightTrigger, click_trigger(MouseButton::Left));
-    base.insert(InputSource::LeftTrigger, click_trigger(MouseButton::Right));
+    // Right trigger soft-pull → left mouse click (haptic tick on press and release). Output `None`
+    // so the trigger drives no gamepad axis on the desktop — just the soft-pull click.
+    base.insert(
+        InputSource::RightTrigger,
+        SourceBinding::Trigger {
+            settings: TriggerSettings {
+                output: TriggerOutput::None,
+                ..Default::default()
+            },
+            soft_pull: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![mouse(MouseButton::Left)],
+                settings: CommandSettings {
+                    haptics: Haptics {
+                        on: HapticEdge::Both,
+                        strength: HapticStrength::Low,
+                    },
+                    ..Default::default()
+                },
+            }],
+        },
+    );
+    // Left trigger soft-pull → right mouse click (same, right button).
+    base.insert(
+        InputSource::LeftTrigger,
+        SourceBinding::Trigger {
+            settings: TriggerSettings {
+                output: TriggerOutput::None,
+                ..Default::default()
+            },
+            soft_pull: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![mouse(MouseButton::Right)],
+                settings: CommandSettings {
+                    haptics: Haptics {
+                        on: HapticEdge::Both,
+                        strength: HapticStrength::Low,
+                    },
+                    ..Default::default()
+                },
+            }],
+        },
+    );
 
-    // Buttons.
-    base.insert(InputSource::LeftPadClick, button(mouse(MouseButton::Middle)));
-    base.insert(InputSource::LeftBumper, button(key(Key::Backspace)));
-    base.insert(InputSource::RightBumper, button(key(Key::Space)));
-    base.insert(InputSource::LeftStickClick, button(key(Key::LeftMeta)));
-    base.insert(InputSource::View, button(key(Key::LeftAlt)));
-    base.insert(InputSource::Menu, button(key(Key::Tab)));
+    // Left-pad click → middle mouse button.
+    base.insert(
+        InputSource::LeftPadClick,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![mouse(MouseButton::Middle)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Left bumper → Backspace.
+    base.insert(
+        InputSource::LeftBumper,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::Backspace)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Right bumper → Space.
+    base.insert(
+        InputSource::RightBumper,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::Space)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Left-stick click → Super/Meta.
+    base.insert(
+        InputSource::LeftStickClick,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::LeftMeta)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // View → Alt.
+    base.insert(
+        InputSource::View,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::LeftAlt)],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Menu → Tab.
+    base.insert(
+        InputSource::Menu,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![key(Key::Tab)],
+                settings: Default::default(),
+            }],
+        },
+    );
 
-    // Grips: an interruptible Regular combo (short tap) plus a Long modifier (hold).
+    // Left grip: interruptible short-tap Ctrl+C combo, plus a Long-press Shift modifier (with a
+    // press haptic so you feel the long trigger and know you can release).
     base.insert(
         InputSource::LeftGrip,
         SourceBinding::Button {
-            commands: vec![interruptible(&[Key::LeftCtrl, Key::C]), long(Key::LeftShift)],
+            commands: vec![
+                Command {
+                    activator: Activator::Regular,
+                    actions: vec![key(Key::LeftCtrl), key(Key::C)],
+                    settings: CommandSettings {
+                        interruptible: true,
+                        ..Default::default()
+                    },
+                },
+                Command {
+                    activator: Activator::Long { hold_ms: 250 },
+                    actions: vec![key(Key::LeftShift)],
+                    settings: CommandSettings {
+                        haptics: Haptics {
+                            on: HapticEdge::OnPress,
+                            strength: HapticStrength::Medium,
+                        },
+                        ..Default::default()
+                    },
+                },
+            ],
         },
     );
+    // Right grip: interruptible short-tap Ctrl+V combo, plus a Long-press Ctrl modifier.
     base.insert(
         InputSource::RightGrip,
         SourceBinding::Button {
-            commands: vec![interruptible(&[Key::LeftCtrl, Key::V]), long(Key::LeftCtrl)],
+            commands: vec![
+                Command {
+                    activator: Activator::Regular,
+                    actions: vec![key(Key::LeftCtrl), key(Key::V)],
+                    settings: CommandSettings {
+                        interruptible: true,
+                        ..Default::default()
+                    },
+                },
+                Command {
+                    activator: Activator::Long { hold_ms: 250 },
+                    actions: vec![key(Key::LeftCtrl)],
+                    settings: CommandSettings {
+                        haptics: Haptics {
+                            on: HapticEdge::OnPress,
+                            strength: HapticStrength::Medium,
+                        },
+                        ..Default::default()
+                    },
+                },
+            ],
         },
     );
 
@@ -272,7 +601,7 @@ pub fn desktop_profile() -> ConfigDoc {
                     settings: JoystickMouseSettings {
                         output: MouseOutput::Cursor,
                         sensitivity: Sensitivity { x: 1.0, y: 1.0 },
-                        acceleration: Acceleration { factor: 0.0 },
+                        acceleration: Acceleration { factor: 3.0 },
                         deadzone: Deadzone { inner: 0.0 },
                         ..Default::default()
                     },
@@ -296,27 +625,41 @@ pub fn desktop_profile() -> ConfigDoc {
 
 // --- globals ----------------------------------------------------------------------------
 
-/// The above-profile globals: 50% master rumble and a Steam + RightGrip fallback toggle.
+/// The above-profile globals: full master rumble and a Steam + RightGrip fallback toggle.
 pub fn globals() -> GlobalConfig {
     GlobalConfig {
-        master_rumble: 50,
+        start_profile: StartProfile::Active,
+        master_rumble: 100,
         chords: vec![GlobalChord {
             buttons: vec![InputSource::Steam, InputSource::RightGrip],
-            action: GlobalAction::SwitchFallback { mode: SwitchMode::Toggle },
+            action: GlobalAction::SwitchFallback {
+                mode: SwitchMode::Toggle,
+            },
         }],
         ..Default::default()
     }
 }
 
 fn main() -> std::io::Result<()> {
-    let dir =
-        std::env::args().nth(1).map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let dir = std::env::args()
+        .nth(1)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
     let pretty = ron::ser::PrettyConfig::default();
 
     for (name, doc_ron) in [
-        ("game_profile.ron", ron::ser::to_string_pretty(&game_profile(), pretty.clone()).unwrap()),
-        ("desktop_profile.ron", ron::ser::to_string_pretty(&desktop_profile(), pretty.clone()).unwrap()),
-        ("globals.ron", ron::ser::to_string_pretty(&globals(), pretty.clone()).unwrap()),
+        (
+            "game_profile.ron",
+            ron::ser::to_string_pretty(&game_profile(), pretty.clone()).unwrap(),
+        ),
+        (
+            "desktop_profile.ron",
+            ron::ser::to_string_pretty(&desktop_profile(), pretty.clone()).unwrap(),
+        ),
+        (
+            "globals.ron",
+            ron::ser::to_string_pretty(&globals(), pretty.clone()).unwrap(),
+        ),
     ] {
         let path = dir.join(name);
         std::fs::write(&path, doc_ron)?;
@@ -346,7 +689,14 @@ mod tests {
         assert_valid_and_round_trips(&desktop_profile());
 
         let g = globals();
-        assert!(g.validate().iter().all(|d| d.severity != config::Severity::Error));
-        assert_eq!(ron::from_str::<GlobalConfig>(&ron::to_string(&g).unwrap()).unwrap(), g);
+        assert!(
+            g.validate()
+                .iter()
+                .all(|d| d.severity != config::Severity::Error)
+        );
+        assert_eq!(
+            ron::from_str::<GlobalConfig>(&ron::to_string(&g).unwrap()).unwrap(),
+            g
+        );
     }
 }
