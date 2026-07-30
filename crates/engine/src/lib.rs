@@ -26,6 +26,7 @@ mod error;
 mod logical;
 mod mapper;
 mod program;
+mod runtime;
 
 pub use compile::compile;
 pub use error::{Error, Result};
