@@ -79,10 +79,10 @@ impl Sink {
             match ev {
                 OutputEvent::Key(k, down) => kb.push(*KeyEvent::new(key_code(k), *down as i32)),
                 OutputEvent::MouseButton(b, down) => match scroll_delta(b) {
-                    // Scroll pseudo-button: one wheel tick on press; release is a no-op.
-                    Some((axis, dir)) => {
+                    // Scroll pseudo-button: one wheel notch on press; release is a no-op.
+                    Some((horizontal, dir)) => {
                         if *down {
-                            mouse.push(*RelativeAxisEvent::new(axis, dir));
+                            push_wheel(&mut mouse, horizontal, dir);
                         }
                     }
                     None => mouse.push(*KeyEvent::new(mouse_code(b), *down as i32)),
@@ -92,12 +92,8 @@ impl Sink {
                     mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_Y, *dy));
                 }
                 OutputEvent::Scroll { dx, dy } => {
-                    if *dy != 0 {
-                        mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_WHEEL, *dy));
-                    }
-                    if *dx != 0 {
-                        mouse.push(*RelativeAxisEvent::new(RelativeAxisCode::REL_HWHEEL, *dx));
-                    }
+                    push_wheel(&mut mouse, false, *dy);
+                    push_wheel(&mut mouse, true, *dx);
                 }
                 OutputEvent::SmoothScroll { dx, dy } => {
                     // Emit the fine-grained hi-res value, and synthesize a legacy notch each time
@@ -478,25 +474,46 @@ fn mouse_code(b: &MouseButton) -> KeyCode {
     }
 }
 
-/// The wheel axis + tick direction for a scroll pseudo-button; `None` for real buttons.
-fn scroll_delta(b: &MouseButton) -> Option<(RelativeAxisCode, i32)> {
+/// The wheel direction for a scroll pseudo-button: `(horizontal, ±1 notch)`; `None` for real
+/// buttons. Signs: up/right = `+1` (`REL_WHEEL`/`REL_HWHEEL` convention).
+fn scroll_delta(b: &MouseButton) -> Option<(bool, i32)> {
     match b {
-        MouseButton::ScrollUp => Some((RelativeAxisCode::REL_WHEEL, 1)),
-        MouseButton::ScrollDown => Some((RelativeAxisCode::REL_WHEEL, -1)),
-        MouseButton::ScrollRight => Some((RelativeAxisCode::REL_HWHEEL, 1)),
-        MouseButton::ScrollLeft => Some((RelativeAxisCode::REL_HWHEEL, -1)),
+        MouseButton::ScrollUp => Some((false, 1)),
+        MouseButton::ScrollDown => Some((false, -1)),
+        MouseButton::ScrollRight => Some((true, 1)),
+        MouseButton::ScrollLeft => Some((true, -1)),
         _ => None,
     }
 }
+
+/// Emit `notches` discrete wheel notches as BOTH the hi-res value (120 per notch) and the legacy
+/// notch. A device that advertises `REL_WHEEL_HI_RES` (ours does, for smooth scroll) MUST send the
+/// hi-res event — libinput uses it and **ignores a lone legacy `REL_WHEEL`**, so discrete scroll is
+/// silent under Wayland without this. (Legacy stays for non-hi-res X consumers.)
+fn push_wheel(mouse: &mut Vec<InputEvent>, horizontal: bool, notches: i32) {
+    if notches == 0 {
+        return;
+    }
+    let (legacy, hi_res) = if horizontal {
+        (RelativeAxisCode::REL_HWHEEL, RelativeAxisCode::REL_HWHEEL_HI_RES)
+    } else {
+        (RelativeAxisCode::REL_WHEEL, RelativeAxisCode::REL_WHEEL_HI_RES)
+    };
+    mouse.push(*RelativeAxisEvent::new(hi_res, notches * SCROLL_HI_RES_PER_NOTCH));
+    mouse.push(*RelativeAxisEvent::new(legacy, notches));
+}
+
+/// Hi-res wheel units per detent (kernel/libinput convention; matches Windows `WHEEL_DELTA`).
+const SCROLL_HI_RES_PER_NOTCH: i32 = 120;
 
 /// Add a hi-res scroll `delta` (units of 1/120 detent) to `accum`, returning the number of full
 /// legacy wheel notches that accumulated (with sign), keeping the sub-notch remainder. `None` when
 /// no full notch crossed this event.
 fn accumulate_notch(accum: &mut i32, delta: i32) -> Option<i32> {
     *accum += delta;
-    let notches = *accum / 120; // truncates toward zero
+    let notches = *accum / SCROLL_HI_RES_PER_NOTCH; // truncates toward zero
     if notches != 0 {
-        *accum -= notches * 120;
+        *accum -= notches * SCROLL_HI_RES_PER_NOTCH;
         Some(notches)
     } else {
         None
