@@ -32,7 +32,7 @@ struct Names<'a> {
 }
 
 /// Compile a profile into the runtime [`Program`]. `Err` carries **all** diagnostics (so the
-/// caller/UI can show them) when any is an `Error`. The result is tagged [`Role::Active`];
+/// caller/UI can show them) when any is an `Error`. The result is tagged [`Role::Main`];
 /// `Engine::apply` re-tags it to the slot it lands in (PLAN §4.1).
 pub fn compile(doc: &ConfigDoc) -> Result<Program, Vec<Diagnostic>> {
     let diags = doc.validate();
@@ -50,7 +50,7 @@ pub fn compile(doc: &ConfigDoc) -> Result<Program, Vec<Diagnostic>> {
     let sets = doc.action_sets.iter().map(|a| compile_set(a, &set_ids)).collect();
 
     Ok(Program {
-        meta: ProgramMeta { name: doc.name.clone(), role: Role::Active },
+        meta: ProgramMeta { name: doc.name.clone(), role: Role::Main },
         sets,
         default_set: SetId::new(0),
         rumble: doc.rumble.clone(),
@@ -213,7 +213,7 @@ mod tests {
     fn resolves_names_to_ids() {
         let prog = compile(&sample()).expect("valid");
         assert_eq!(prog.meta.name, "Sample");
-        assert_eq!(prog.meta.role, Role::Active);
+        assert_eq!(prog.meta.role, Role::Main);
         assert_eq!(prog.default_set.index(), 0);
         assert_eq!(prog.sets.len(), 2);
 

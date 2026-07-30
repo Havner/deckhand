@@ -2,7 +2,7 @@
 //!
 //! Global chords are evaluated **before** any profile binding and **consume** their buttons
 //! (masked out of the frame the Mapper sees), so a desktop escape hatch works even with the UI
-//! down. A `SwitchFallback` chord flips the engine between its **Active** and **Fallback**
+//! down. A `SwitchFallback` chord flips the engine between its **Main** and **Fallback**
 //! programs — `Hold` while the chord is held, `Toggle` latched on each engage. A `CommandExecute`
 //! chord runs a headless external program on its **engage edge** (buttons still consumed).
 //!
@@ -99,7 +99,7 @@ impl Chords {
         }
 
         self.persistent_fallback = base;
-        let role = if base || hold_fallback { Role::Fallback } else { Role::Active };
+        let role = if base || hold_fallback { Role::Fallback } else { Role::Main };
         ChordOutcome { consumed, role, execute }
     }
 }
@@ -131,9 +131,9 @@ mod tests {
         assert_eq!(out.role, Role::Fallback);
         assert!(out.consumed.contains(&InputSource::Steam) && out.consumed.contains(&InputSource::RightGrip));
 
-        // Only one held → Active, nothing consumed.
+        // Only one held → Main, nothing consumed.
         let out = c.eval(&chords, &frame(Buttons::STEAM));
-        assert_eq!(out.role, Role::Active);
+        assert_eq!(out.role, Role::Main);
         assert!(out.consumed.is_empty());
     }
 
@@ -147,8 +147,8 @@ mod tests {
         assert_eq!(c.eval(&chords, &both()).role, Role::Fallback); // press → latch on
         assert_eq!(c.eval(&chords, &both()).role, Role::Fallback); // held → stays
         assert_eq!(c.eval(&chords, &none()).role, Role::Fallback); // release → stays latched
-        assert_eq!(c.eval(&chords, &both()).role, Role::Active); // press again → latch off
-        assert_eq!(c.eval(&chords, &none()).role, Role::Active);
+        assert_eq!(c.eval(&chords, &both()).role, Role::Main); // press again → latch off
+        assert_eq!(c.eval(&chords, &none()).role, Role::Main);
     }
 
     #[test]
@@ -160,12 +160,12 @@ mod tests {
         let mut c = Chords::new(&chords, false);
         let both = || frame(Buttons::STEAM | Buttons::R4);
 
-        // Engage → one exec req (command + args), buttons consumed, role untouched (stays Active).
+        // Engage → one exec req (command + args), buttons consumed, role untouched (stays Main).
         let out = c.eval(&chords, &both());
         assert_eq!(out.execute.len(), 1);
         assert_eq!((out.execute[0].command.as_str(), out.execute[0].args.as_slice()), ("true", &["x".to_string()][..]));
         assert!(out.consumed.contains(&InputSource::Steam));
-        assert_eq!(out.role, Role::Active);
+        assert_eq!(out.role, Role::Main);
 
         // Held → no repeat (edge only).
         assert!(c.eval(&chords, &both()).execute.is_empty());
@@ -179,19 +179,19 @@ mod tests {
         let chords: Vec<GlobalChord> = vec![];
         let mut c = Chords::new(&chords, false);
         let out = c.eval(&chords, &frame(Buttons::STEAM | Buttons::R4));
-        assert_eq!(out.role, Role::Active);
+        assert_eq!(out.role, Role::Main);
         assert!(out.consumed.is_empty());
     }
 
     #[test]
     fn start_in_fallback_persists_then_toggles() {
         // Seeded start-in-Fallback: the first (idle) frame is already Fallback, and a Toggle chord
-        // switches to Active — no spurious flip to Active on frame 1.
+        // switches to Main — no spurious flip to Main on frame 1.
         let chords = vec![toggle_chord(vec![InputSource::Steam, InputSource::RightGrip])];
         let mut c = Chords::new(&chords, true);
         assert_eq!(c.eval(&chords, &frame(Buttons::empty())).role, Role::Fallback); // idle → stays
         assert!(c.fallback_base());
-        assert_eq!(c.eval(&chords, &frame(Buttons::STEAM | Buttons::R4)).role, Role::Active); // toggle
+        assert_eq!(c.eval(&chords, &frame(Buttons::STEAM | Buttons::R4)).role, Role::Main); // toggle
         assert!(!c.fallback_base());
     }
 

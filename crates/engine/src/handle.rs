@@ -53,7 +53,7 @@ pub struct Engine {
     manager: Option<Manager>,
     input: Input,
     output: Output,
-    active: Option<Program>,
+    main: Option<Program>,
     fallback: Option<Program>,
     globals: GlobalConfig,
     runtime: Option<Runtime>,
@@ -72,7 +72,7 @@ impl Engine {
             manager: None,
             input: Input::Local(DeviceSelect::Auto),
             output: Output::Local,
-            active: None,
+            main: None,
             fallback: None,
             globals: GlobalConfig::default(),
             runtime: None,
@@ -106,7 +106,7 @@ impl Engine {
         let mode = if self.runtime.is_some() { "live hot-swap" } else { "staged" };
         log::info!("apply: program '{}' → {role:?} ({mode})", program.meta.name);
         match role {
-            Role::Active => self.active = Some(program.clone()),
+            Role::Main => self.main = Some(program.clone()),
             Role::Fallback => self.fallback = Some(program.clone()),
         }
         if let Some(rt) = &self.runtime {
@@ -130,13 +130,13 @@ impl Engine {
 
     // --- lifecycle ---------------------------------------------------------------------
 
-    /// Acquire hardware and start the mapping loop. Errors if no active program is applied, or
+    /// Acquire hardware and start the mapping loop. Errors if no main program is applied, or
     /// on any device/sink failure. A no-op if already running.
     pub fn start(&mut self) -> Result<()> {
         if self.runtime.is_some() {
             return Ok(());
         }
-        let active = self.active.clone().ok_or(Error::NotReady("no active program applied"))?;
+        let main = self.main.clone().ok_or(Error::NotReady("no main program applied"))?;
         let Output::Local = self.output; // Network output deferred.
         let device = self.open_device()?;
         {
@@ -147,10 +147,10 @@ impl Engine {
                 .map(|f| format!(", fallback '{}'", f.meta.name))
                 .unwrap_or_default();
             log::info!(
-                "starting: {:?} via {:?}, active '{}'{fb}",
+                "starting: {:?} via {:?}, main '{}'{fb}",
                 info.kind,
                 info.transport,
-                active.meta.name,
+                main.meta.name,
             );
         }
         let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
@@ -159,7 +159,7 @@ impl Engine {
             device,
             cfg,
             sink,
-            active,
+            main,
             self.fallback.clone(),
             self.globals.clone(),
         ));

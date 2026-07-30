@@ -112,7 +112,7 @@ impl Mapper {
         }
     }
 
-    /// Re-seed the mapper for a (possibly different) `program` — an active↔fallback switch or a
+    /// Re-seed the mapper for a (possibly different) `program` — an Main↔Fallback switch or a
     /// hot-apply of a new program to the current role. Resets the mapping state (active set,
     /// layers, activators) to the new program's defaults, since its `SetId`/`LayerId`s are its
     /// own, but **keeps** the applied output levels + relative remainders: the next tick's
@@ -305,7 +305,7 @@ mod tests {
     /// A program of one or more `(base, layers)` sets.
     fn program_of(sets: Vec<(SourceMap<CompiledBinding>, Vec<CompiledLayer>)>) -> Program {
         Program {
-            meta: ProgramMeta { name: "test".into(), role: Role::Active },
+            meta: ProgramMeta { name: "test".into(), role: Role::Main },
             default_set: SetId::new(0),
             rumble: Default::default(),
             sets: sets
@@ -323,7 +323,7 @@ mod tests {
     /// A single-set program from an iterator of `(source, binding)` base bindings.
     fn program_with(base: impl IntoIterator<Item = (InputSource, CompiledBinding)>) -> Program {
         Program {
-            meta: ProgramMeta { name: "test".into(), role: Role::Active },
+            meta: ProgramMeta { name: "test".into(), role: Role::Main },
             default_set: SetId::new(0),
             rumble: Default::default(),
             sets: vec![CompiledSet {
@@ -434,7 +434,7 @@ mod tests {
             }],
         };
         let program = Program {
-            meta: ProgramMeta { name: "test".into(), role: Role::Active },
+            meta: ProgramMeta { name: "test".into(), role: Role::Main },
             default_set: SetId::new(0),
             rumble: Default::default(),
             sets: vec![CompiledSet {
@@ -468,7 +468,7 @@ mod tests {
     fn layer_binding_wins_over_base() {
         // Base binds L1→A; a layer rebinds L1→B. With the layer active, B wins.
         let program = Program {
-            meta: ProgramMeta { name: "test".into(), role: Role::Active },
+            meta: ProgramMeta { name: "test".into(), role: Role::Main },
             default_set: SetId::new(0),
             rumble: Default::default(),
             sets: vec![CompiledSet {
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn switch_program_releases_old_outputs_and_applies_new() {
         // Program A: L1 → A. Program B: L1 → B. Holding L1 across a switch must release A and
-        // press B (no stuck key), which is how the loop hot-swaps active↔fallback (S9).
+        // press B (no stuck key), which is how the loop hot-swaps Main↔Fallback (S9).
         let prog_a = program_with([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::A)))]);
         let prog_b = program_with([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::B)))]);
         let mut m = Mapper::new(&prog_a);

@@ -9,7 +9,7 @@
 //!   cargo run -p engine --example deckhand-run -- --dongle <dir>/game_profile.ron \
 //!       --fallback <dir>/desktop_profile.ron --globals <dir>/globals.ron
 //!
-//! With the example globals, holding **Steam + RightGrip** toggles active↔fallback. Ctrl-C
+//! With the example globals, holding **Steam + RightGrip** toggles main↔fallback. Ctrl-C
 //! shuts down cleanly (device → lizard restored, virtual pad unplugged). `RUST_LOG=info` for logs.
 
 use std::error::Error;
@@ -27,7 +27,7 @@ use steam_hid::Transport;
 #[derive(Parser)]
 #[command(name = "deckhand-run", version, about)]
 struct Args {
-    /// Active profile (RON) — the mapping that runs on start.
+    /// Main profile (RON) — the mapping that runs on start.
     profile: PathBuf,
     /// Optional fallback profile (RON) — swapped to by a SwitchFallback chord.
     #[arg(long, value_name = "RON")]
@@ -62,9 +62,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut engine = Engine::new();
     engine.set_input(Input::Local(args.device_select()));
 
-    // Active profile (required).
-    engine.apply(load_program(&args.profile)?, Role::Active);
-    println!("active profile: {}", args.profile.display());
+    // Main profile (required).
+    engine.apply(load_program(&args.profile)?, Role::Main);
+    println!("main profile: {}", args.profile.display());
 
     // Optional fallback profile + globals (the SwitchFallback chord in globals swaps to it).
     if let Some(path) = &args.fallback {

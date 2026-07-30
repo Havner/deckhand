@@ -38,13 +38,13 @@ impl Default for GlobalConfig {
     }
 }
 
-/// Which of the engine's two profile slots is active on start (the active/main profile, or the
-/// fallback/desktop one). A start-in-`Fallback` boot persists until a `SwitchFallback` chord
-/// changes it — so pair it with a `Toggle` chord to switch to `Active` when ready.
+/// Which of the engine's two profile slots the engine boots into (the **main** profile, or the
+/// **fallback**/desktop one). A start-in-`Fallback` boot persists until a `SwitchFallback` chord
+/// changes it — so pair it with a `Toggle` chord to switch to `Main` when ready.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum StartProfile {
     #[default]
-    Active,
+    Main,
     Fallback,
 }
 
@@ -59,7 +59,7 @@ pub struct GlobalChord {
 /// What a global chord does — each variant carries its own params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GlobalAction {
-    /// Switch active ↔ fallback profile (`Hold` = while held; `Toggle` = latch).
+    /// Switch main ↔ fallback profile (`Hold` = while held; `Toggle` = latch).
     SwitchFallback { mode: SwitchMode },
     /// Run a headless external program — the escape hatch for system actions (on-screen
     /// keyboard, audio device, …) that keeps the engine free of X/Wayland/DE/audio deps.

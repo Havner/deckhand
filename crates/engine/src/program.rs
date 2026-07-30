@@ -19,10 +19,11 @@ use config::{
 use vocab::{GamepadButton, Key, MouseButton};
 
 /// Which of the engine's two live slots a [`Program`] occupies (PLAN §4.1). The engine
-/// self-switches `Active`↔`Fallback` via a global chord.
+/// self-switches `Main`↔`Fallback` via a global chord. (`Main` was `Active`, renamed since the
+/// fallback is what's "active" while it runs — the name was backwards.)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Role {
-    Active,
+    Main,
     Fallback,
 }
 
@@ -221,7 +222,7 @@ mod tests {
     #[test]
     fn program_set_and_layer_access() {
         let prog = Program {
-            meta: ProgramMeta { name: "p".into(), role: Role::Active },
+            meta: ProgramMeta { name: "p".into(), role: Role::Main },
             default_set: SetId::new(0),
             rumble: Default::default(),
             sets: vec![CompiledSet {

@@ -4,8 +4,8 @@
 //! is `Send`, not `Sync`) and is the *only* place that touches it — read loop, keep-alive,
 //! re-apply-config-on-`Connected`, and haptic writes. It forwards frames over a channel to the
 //! **central mapping loop**, which owns the `Sink` + `Mapper` + programs + globals, stamps the
-//! monotonic [`Tick`], evaluates global chords first, runs the active program, emits outputs, and
-//! polls the virtual pad's rumble back to the reader.
+//! monotonic [`Tick`], evaluates global chords first, runs the active (Main-or-Fallback) program,
+//! emits outputs, and polls the virtual pad's rumble back to the reader.
 //!
 //! The pieces here are wired to real hardware and are exercised end-to-end by the `Engine` handle
 //! and the `deckhand-run` binary (S10, which HW-validates against the bridge). The pure helpers
@@ -54,7 +54,7 @@ impl DeviceCfg {
 
 /// A control message from the `Engine` handle to the mapping loop (live hot-swap while running).
 pub(crate) enum Control {
-    /// Replace one role's program (active↔fallback), re-seeding the mapper if it's in use.
+    /// Replace one role's program (main↔fallback), re-seeding the mapper if it's in use.
     Apply { program: Box<Program>, role: Role },
     /// Replace the global config (master rumble + chords).
     SetGlobals(Box<GlobalConfig>),
@@ -78,7 +78,7 @@ impl Runtime {
         device: Device,
         cfg: DeviceCfg,
         sink: Sink,
-        active: Program,
+        main: Program,
         fallback: Option<Program>,
         globals: GlobalConfig,
     ) -> Runtime {
@@ -99,7 +99,7 @@ impl Runtime {
             .name("deckhand-mapper".into())
             .spawn(move || {
                 run_mapper(
-                    sink, active, fallback, globals, frame_rx, control_rx, rumble_tx, click_tx,
+                    sink, main, fallback, globals, frame_rx, control_rx, rumble_tx, click_tx,
                     r_mapper,
                 )
             })
@@ -203,7 +203,7 @@ fn run_reader(
 #[allow(clippy::too_many_arguments)]
 fn run_mapper(
     mut sink: Sink,
-    mut active: Program,
+    mut main: Program,
     mut fallback: Option<Program>,
     mut globals: GlobalConfig,
     frame_rx: Receiver<Report>,
@@ -216,7 +216,7 @@ fn run_mapper(
     // Boot into the role named by `start_profile` (read once here — it's a start-only setting).
     let mut role = start_role(&globals);
     let mut chords = Chords::new(&globals.chords, role == Role::Fallback);
-    let mut mapper = Mapper::new(program_for(&role, &active, &fallback));
+    let mut mapper = Mapper::new(program_for(&role, &main, &fallback));
     let mut out: Vec<virt_out::OutputEvent> = Vec::new();
     let mut haptics: Vec<HapticReq> = Vec::new();
     let mut last_rumble = RumbleCmd::default();
@@ -227,11 +227,11 @@ fn run_mapper(
             recv(frame_rx) -> msg => match msg {
                 Ok(Report::State(state)) => {
                     let frame = LogicalFrame::new(state);
-                    // Chords first: they may switch the active/fallback role and consume buttons.
+                    // Chords first: they may switch the main/fallback role and consume buttons.
                     let outcome = chords.eval(&globals.chords, &frame);
                     if outcome.role != role {
                         role = outcome.role;
-                        let prog = program_for(&role, &active, &fallback);
+                        let prog = program_for(&role, &main, &fallback);
                         log::info!("chord: switched to {role:?} — profile '{}' now active", prog.meta.name);
                         mapper.switch_program(prog);
                     }
@@ -243,7 +243,7 @@ fn run_mapper(
                     let now = Tick(start.elapsed().as_millis() as u64);
                     out.clear();
                     haptics.clear();
-                    mapper.tick(&masked, now, program_for(&role, &active, &fallback), &mut out, &mut haptics);
+                    mapper.tick(&masked, now, program_for(&role, &main, &fallback), &mut out, &mut haptics);
                     sink.emit(&out)?;
                     // Command-haptic pulses this tick → the reader (scaled by master rumble %).
                     for h in haptics.drain(..) {
@@ -258,16 +258,16 @@ fn run_mapper(
             },
             recv(control_rx) -> msg => match msg {
                 Ok(Control::Apply { program, role: target }) => match target {
-                    Role::Active => {
-                        active = *program;
-                        if role == Role::Active {
-                            mapper.switch_program(&active);
+                    Role::Main => {
+                        main = *program;
+                        if role == Role::Main {
+                            mapper.switch_program(&main);
                         }
                     }
                     Role::Fallback => {
                         fallback = Some(*program);
                         if role == Role::Fallback {
-                            mapper.switch_program(program_for(&role, &active, &fallback));
+                            mapper.switch_program(program_for(&role, &main, &fallback));
                         }
                     }
                 },
@@ -287,8 +287,8 @@ fn run_mapper(
         }
 
         // Rumble back-channel (game → virtual pad → real controller): scale by the global master %
-        // and the *active* profile's strength/curve, carrying its pulse Hz. Send only on change.
-        let prog = program_for(&role, &active, &fallback);
+        // and the *main* profile's strength/curve, carrying its pulse Hz. Send only on change.
+        let prog = program_for(&role, &main, &fallback);
         let cmd = rumble_cmd(sink.poll_rumble()?, globals.master_rumble, &prog.rumble);
         if cmd != last_rumble {
             let _ = rumble_tx.send(cmd.clone());
@@ -312,7 +312,7 @@ fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) -> Result<()> {
 }
 
 /// The effective rumble to realize on the controller: per-pad drive (already scaled by master ×
-/// profile strength × curve) plus the pulse frequency from the active profile.
+/// profile strength × curve) plus the pulse frequency from the main profile.
 #[derive(Debug, Clone, PartialEq, Default)]
 struct RumbleCmd {
     strong: u16,
@@ -404,7 +404,7 @@ const RUMBLE_TRAIN_MS: u32 = 250;
 /// contiguous (re-fire near the train's end, not mid-play) while never leaving a silent gap.
 const RUMBLE_REFIRE_MS: u64 = 220;
 
-/// Compute the effective per-pad drive from a raw game rumble, the global master %, and the active
+/// Compute the effective per-pad drive from a raw game rumble, the global master %, and the main
 /// profile's rumble settings (strength % + response curve); `hz` passes through from the profile.
 fn rumble_cmd(raw: Rumble, master: u8, s: &RumbleSettings) -> RumbleCmd {
     // `master` (0..=100) attenuates globally; per-profile `strength` MAY exceed 100 to *boost* a
@@ -426,11 +426,11 @@ fn apply_curve(v: f32, curve: &Curve) -> f32 {
     }
 }
 
-/// The program driving a given role (fallback falls back to active when unset).
-fn program_for<'a>(role: &Role, active: &'a Program, fallback: &'a Option<Program>) -> &'a Program {
+/// The program driving a given role (fallback falls back to main when unset).
+fn program_for<'a>(role: &Role, main: &'a Program, fallback: &'a Option<Program>) -> &'a Program {
     match role {
-        Role::Active => active,
-        Role::Fallback => fallback.as_ref().unwrap_or(active),
+        Role::Main => main,
+        Role::Fallback => fallback.as_ref().unwrap_or(main),
     }
 }
 
@@ -461,7 +461,7 @@ fn spawn_command(exec: ExecReq) {
 /// The role the engine boots into, from `GlobalConfig::start_profile` (read once at loop start).
 fn start_role(globals: &GlobalConfig) -> Role {
     match globals.start_profile {
-        StartProfile::Active => Role::Active,
+        StartProfile::Main => Role::Main,
         StartProfile::Fallback => Role::Fallback,
     }
 }
@@ -473,7 +473,7 @@ mod tests {
 
     fn prog(name: &str) -> Program {
         Program {
-            meta: ProgramMeta { name: name.into(), role: Role::Active },
+            meta: ProgramMeta { name: name.into(), role: Role::Main },
             default_set: SetId::new(0),
             rumble: Default::default(),
             sets: vec![crate::program::CompiledSet {
@@ -543,11 +543,11 @@ mod tests {
 
     #[test]
     fn program_for_falls_back_to_active_when_unset() {
-        let active = prog("active");
+        let main = prog("main");
         let none: Option<Program> = None;
-        assert_eq!(program_for(&Role::Fallback, &active, &none).meta.name, "active");
+        assert_eq!(program_for(&Role::Fallback, &main, &none).meta.name, "main");
         let fb = Some(prog("fallback"));
-        assert_eq!(program_for(&Role::Fallback, &active, &fb).meta.name, "fallback");
-        assert_eq!(program_for(&Role::Active, &active, &fb).meta.name, "active");
+        assert_eq!(program_for(&Role::Fallback, &main, &fb).meta.name, "fallback");
+        assert_eq!(program_for(&Role::Main, &main, &fb).meta.name, "main");
     }
 }
