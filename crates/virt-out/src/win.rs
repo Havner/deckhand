@@ -13,12 +13,15 @@ use std::thread::JoinHandle;
 
 use vigem_client::{Client, TargetId, XButtons, XGamepad, XTarget};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
+    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
     MAPVK_VK_TO_VSC, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
     MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
     MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT,
     MapVirtualKeyW, SendInput, VIRTUAL_KEY,
+    // Media / volume / browser keys — a VK but no keyboard scancode (injected by virtual key).
+    VK_BROWSER_BACK, VK_BROWSER_FORWARD, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE,
+    VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP, VK_VOLUME_DOWN, VK_VOLUME_MUTE, VK_VOLUME_UP,
     VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9,
     VK_A, VK_B, VK_C, VK_D, VK_E, VK_F, VK_G, VK_H, VK_I, VK_J, VK_K, VK_L, VK_M, VK_N, VK_O,
     VK_P, VK_Q, VK_R, VK_S, VK_T, VK_U, VK_V, VK_W, VK_X, VK_Y, VK_Z,
@@ -275,36 +278,38 @@ fn trigger(v: f32) -> u8 {
 
 // --- keyboard/mouse → SendInput ---
 
-/// Build a keyboard `INPUT` using scancode injection (games often read scancodes, not
-/// virtual keys). The scancode comes from the virtual key via `MapVirtualKeyW`; extended
-/// keys (arrows, right ctrl/alt, meta, nav, numpad slash/enter) get the extended-key flag
-/// so the E0 prefix is set. Returns `None` for keys we don't inject on Windows — those with
-/// no `key_vk` mapping (`Compose`, exotic keypad) or no keyboard scancode (media / volume /
-/// browser / brightness keys map to a VK but not a scancode). Linux maps all of them via
-/// evdev; Windows media-key injection can be added later (via VK injection).
+/// Build a keyboard `INPUT`. Normal keys use **scancode injection** (games often read
+/// scancodes, not virtual keys): the scancode comes from the VK via `MapVirtualKeyW`, and
+/// extended keys (arrows, right ctrl/alt, meta, nav, numpad slash/enter) get the extended-key
+/// flag so the E0 prefix is set. Keys that have a VK but **no keyboard scancode** — the
+/// media / volume / browser keys — fall back to **virtual-key injection** (`wVk` set, no
+/// scancode flag). Returns `None` only for keys with no VK at all (`Compose`, exotic keypad,
+/// and the brightness/keyboard-illumination keys Windows has no VK for). Linux maps everything
+/// via evdev.
 fn key_input(k: &Key, down: bool) -> Option<INPUT> {
     let vk = key_vk(k)?;
     let scan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
-    if scan == 0 {
-        return None;
-    }
-    let mut flags = KEYEVENTF_SCANCODE;
-    if is_extended(k) {
-        flags |= KEYEVENTF_EXTENDEDKEY;
-    }
+
+    let (wvk, wscan, mut flags) = if scan != 0 {
+        // Scancode injection (games read scancodes). Extended keys get the E0 flag.
+        let mut f = KEYEVENTF_SCANCODE;
+        if is_extended(k) {
+            f |= KEYEVENTF_EXTENDEDKEY;
+        }
+        (VIRTUAL_KEY(0), scan, f) // wVk ignored when KEYEVENTF_SCANCODE is set
+    } else {
+        // No scancode (media / volume / browser) → inject by virtual key directly. Plain VK
+        // injection (no extended flag) is the proven path for media VKs; if one doesn't register
+        // on some setup, adding `KEYEVENTF_EXTENDEDKEY` here is the first thing to try.
+        (vk, 0u16, KEYBD_EVENT_FLAGS(0))
+    };
     if !down {
         flags |= KEYEVENTF_KEYUP;
     }
     Some(INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(0), // ignored when KEYEVENTF_SCANCODE is set
-                wScan: scan,
-                dwFlags: flags,
-                time: 0,
-                dwExtraInfo: 0,
-            },
+            ki: KEYBDINPUT { wVk: wvk, wScan: wscan, dwFlags: flags, time: 0, dwExtraInfo: 0 },
         },
     })
 }
@@ -384,9 +389,10 @@ fn is_extended(k: &Key) -> bool {
     )
 }
 
-/// Map a key to a Windows virtual-key, or `None` if we don't inject it (no VK — `Compose`,
-/// exotic keypad keys — or a VK with no keyboard scancode: media/volume/browser/brightness,
-/// which `key_input` then skips). Numpad Enter maps to Return + the extended flag.
+/// Map a key to a Windows virtual-key, or `None` if Windows has no VK for it (`Compose`, exotic
+/// keypad keys, brightness / keyboard-illumination). The media/volume/browser keys map to a VK
+/// with no scancode; `key_input` injects those by virtual key. Numpad Enter maps to Return + the
+/// extended flag.
 fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
     Some(match k {
         Key::LeftShift => VK_LSHIFT,
@@ -494,31 +500,34 @@ fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
         Key::Kp3 => VK_NUMPAD3,
         Key::Kp0 => VK_NUMPAD0,
         Key::KpDot => VK_DECIMAL,
-        // No VK, or a VK with no keyboard scancode → not injected on Windows for now.
+        // Media / volume / browser: a VK but no scancode — `key_input` injects by virtual key.
+        Key::Mute => VK_VOLUME_MUTE,
+        Key::VolumeDown => VK_VOLUME_DOWN,
+        Key::VolumeUp => VK_VOLUME_UP,
+        Key::PlayPause => VK_MEDIA_PLAY_PAUSE,
+        Key::PreviousSong => VK_MEDIA_PREV_TRACK,
+        Key::NextSong => VK_MEDIA_NEXT_TRACK,
+        Key::StopCd => VK_MEDIA_STOP,
+        Key::Back => VK_BROWSER_BACK,
+        Key::Forward => VK_BROWSER_FORWARD,
+        // No Windows VK at all (or no exact match) → not injected. `Play`/`Rewind`/`FastForward`/
+        // the `*Cd` transport keys and `MicMute` have no distinct VK; brightness / keyboard
+        // illumination aren't virtual keys on Windows.
         Key::Compose
         | Key::KpComma
         | Key::KpEqual
         | Key::KpPlusMinus
         | Key::KpLeftParen
         | Key::KpRightParen
-        | Key::Mute
-        | Key::VolumeDown
-        | Key::VolumeUp
         | Key::MicMute
-        | Key::PlayPause
         | Key::Play
-        | Key::PreviousSong
-        | Key::NextSong
         | Key::Rewind
         | Key::FastForward
-        | Key::StopCd
         | Key::PlayCd
         | Key::PauseCd
         | Key::CloseCd
         | Key::EjectCd
         | Key::EjectCloseCd
-        | Key::Back
-        | Key::Forward
         | Key::BrightnessDown
         | Key::BrightnessUp
         | Key::BrightnessCycle
