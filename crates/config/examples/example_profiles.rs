@@ -21,10 +21,10 @@ use std::collections::BTreeMap;
 use config::{
     Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings,
     Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout,
-    GlobalAction, GlobalChord, GlobalConfig, GyroToMouseSettings, HapticEdge, HapticStrength,
-    Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef,
-    MouseOutput, OneEuroFilter, RumbleSettings, Sensitivity, SourceBinding, StartProfile,
-    StickOutput, SwitchMode, TriggerOutput, TriggerSettings,
+    GlobalAction, GlobalChord, GlobalConfig, GyroSpace, GyroToMouseSettings, HapticEdge,
+    HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer,
+    LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SourceBinding,
+    StartProfile, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo,
 };
 use vocab::{GamepadButton, Key, MouseButton};
 
@@ -236,6 +236,7 @@ pub fn game_profile() -> ConfigDoc {
                     min_cutoff: 3.0,
                     beta: 0.5,
                 }),
+                rotation: Rotation { degrees: 0.0 },
                 ..Default::default()
             },
         },
@@ -258,6 +259,7 @@ pub fn game_profile() -> ConfigDoc {
         InputSource::Gyro,
         SourceBinding::GyroToMouse {
             settings: GyroToMouseSettings {
+                space: GyroSpace::PlayerSpace,
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 0.5, y: 0.5 },
                 acceleration: Acceleration { factor: 0.02 },
@@ -331,10 +333,23 @@ pub fn desktop_profile() -> ConfigDoc {
                     min_cutoff: 3.0,
                     beta: 0.5,
                 }),
+                rotation: Rotation { degrees: 0.0 },
                 ..Default::default()
             },
         },
     );
+    // Right-pad click holds the stick_mouse layer (left stick → mouse instead of arrows).
+    base.insert(
+        InputSource::RightPadClick,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![Action::HoldLayer(LayerRef("alternative_mouse".into()))],
+                settings: Default::default(),
+            }],
+        },
+    );
+
     // Left pad → smooth scroll wheel. Explicit sensitivity/acceleration/smoothing knobs.
     base.insert(
         InputSource::LeftPad,
@@ -351,37 +366,104 @@ pub fn desktop_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-pad click holds the stick_mouse layer (left stick → mouse instead of arrows).
+    // Left-pad click → middle mouse button.
     base.insert(
-        InputSource::RightPadClick,
+        InputSource::LeftPadClick,
         SourceBinding::Button {
             commands: vec![Command {
                 activator: Activator::Regular,
-                actions: vec![Action::HoldLayer(LayerRef("stick_mouse".into()))],
+                actions: vec![mouse(MouseButton::Middle)],
                 settings: Default::default(),
             }],
         },
     );
 
+    // base.insert(
+    //     InputSource::LeftPad,
+    //     SourceBinding::DirectionalPad {
+    //         up: vec![Command {
+    //             activator: Activator::Regular,
+    //             actions: vec![key(Key::Up)],
+    //             settings: Default::default(),
+    //         }],
+    //         down: vec![Command {
+    //             activator: Activator::Regular,
+    //             actions: vec![key(Key::Down)],
+    //             settings: Default::default(),
+    //         }],
+    //         left: vec![Command {
+    //             activator: Activator::Regular,
+    //             actions: vec![key(Key::Left)],
+    //             settings: Default::default(),
+    //         }],
+    //         right: vec![Command {
+    //             activator: Activator::Regular,
+    //             actions: vec![key(Key::Right)],
+    //             settings: Default::default(),
+    //         }],
+    //         outer_ring: vec![Command {
+    //             activator: Activator::Regular,
+    //             actions: vec![key(Key::LeftShift)],
+    //             settings: Default::default(),
+    //         }],
+    //         settings: DirectionalPadSettings {
+    //             deadzone: Deadzone { inner: 0.0 },
+    //             layout: DpadLayout::FourWay,
+    //             outer_ring: OuterRing { radius: 0.9 },
+    //             rotation: Rotation { degrees: 0.0 },
+    //             activation: Activation {
+    //                 mode: ActivationMode::HoldToEnable,
+    //                 gaters: vec![InputSource::LeftPadClick],
+    //             },
+    //         },
+    //     },
+    // );
+
     // Face diamond → navigation keys (up = Y, down = A, left = X, right = B).
     base.insert(
         InputSource::FaceButtons,
         SourceBinding::ButtonPad {
-            up: vec![Command {
-                activator: Activator::Regular,
-                actions: vec![key(Key::PageUp)],
-                settings: Default::default(),
-            }],
+            up: vec![
+                Command {
+                    activator: Activator::Regular,
+                    actions: vec![key(Key::PageUp)],
+                    settings: CommandSettings {
+                        interruptible: true,
+                        ..Default::default()
+                    },
+                },
+                Command {
+                    activator: Activator::Long { hold_ms: 250 },
+                    actions: vec![mouse(MouseButton::ScrollUp)],
+                    settings: CommandSettings {
+                        turbo: Some(Turbo { interval_ms: 100 }),
+                        ..Default::default()
+                    },
+                },
+            ],
             down: vec![Command {
                 activator: Activator::Regular,
                 actions: vec![key(Key::Enter)],
                 settings: Default::default(),
             }],
-            left: vec![Command {
-                activator: Activator::Regular,
-                actions: vec![key(Key::PageDown)],
-                settings: Default::default(),
-            }],
+            left: vec![
+                Command {
+                    activator: Activator::Regular,
+                    actions: vec![key(Key::PageDown)],
+                    settings: CommandSettings {
+                        interruptible: true,
+                        ..Default::default()
+                    },
+                },
+                Command {
+                    activator: Activator::Long { hold_ms: 250 },
+                    actions: vec![mouse(MouseButton::ScrollDown)],
+                    settings: CommandSettings {
+                        turbo: Some(Turbo { interval_ms: 100 }),
+                        ..Default::default()
+                    },
+                },
+            ],
             right: vec![Command {
                 activator: Activator::Regular,
                 actions: vec![key(Key::Esc)],
@@ -422,6 +504,27 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
+    // Left trigger soft-pull → right mouse click (same, right button).
+    base.insert(
+        InputSource::LeftTrigger,
+        SourceBinding::Trigger {
+            settings: TriggerSettings {
+                output: TriggerOutput::None,
+                ..Default::default()
+            },
+            soft_pull: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![mouse(MouseButton::Right)],
+                settings: CommandSettings {
+                    haptics: Haptics {
+                        on: HapticEdge::Both,
+                        strength: HapticStrength::Low,
+                    },
+                    ..Default::default()
+                },
+            }],
+        },
+    );
     // Right trigger soft-pull → left mouse click (haptic tick on press and release). Output `None`
     // so the trigger drives no gamepad axis on the desktop — just the soft-pull click.
     base.insert(
@@ -444,39 +547,7 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Left trigger soft-pull → right mouse click (same, right button).
-    base.insert(
-        InputSource::LeftTrigger,
-        SourceBinding::Trigger {
-            settings: TriggerSettings {
-                output: TriggerOutput::None,
-                ..Default::default()
-            },
-            soft_pull: vec![Command {
-                activator: Activator::Regular,
-                actions: vec![mouse(MouseButton::Right)],
-                settings: CommandSettings {
-                    haptics: Haptics {
-                        on: HapticEdge::Both,
-                        strength: HapticStrength::Low,
-                    },
-                    ..Default::default()
-                },
-            }],
-        },
-    );
 
-    // Left-pad click → middle mouse button.
-    base.insert(
-        InputSource::LeftPadClick,
-        SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular,
-                actions: vec![mouse(MouseButton::Middle)],
-                settings: Default::default(),
-            }],
-        },
-    );
     // Left bumper → Backspace.
     base.insert(
         InputSource::LeftBumper,
@@ -533,7 +604,7 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
-    // Left grip: interruptible short-tap Ctrl+C combo, plus a Long-press Shift modifier (with a
+    // Left grip: interruptible short-tap Ctrl+C combo, plus a Long-press Ctrl modifier (with a
     // press haptic so you feel the long trigger and know you can release).
     base.insert(
         InputSource::LeftGrip,
@@ -542,33 +613,6 @@ pub fn desktop_profile() -> ConfigDoc {
                 Command {
                     activator: Activator::Regular,
                     actions: vec![key(Key::LeftCtrl), key(Key::C)],
-                    settings: CommandSettings {
-                        interruptible: true,
-                        ..Default::default()
-                    },
-                },
-                Command {
-                    activator: Activator::Long { hold_ms: 250 },
-                    actions: vec![key(Key::LeftShift)],
-                    settings: CommandSettings {
-                        haptics: Haptics {
-                            on: HapticEdge::OnPress,
-                            strength: HapticStrength::Medium,
-                        },
-                        ..Default::default()
-                    },
-                },
-            ],
-        },
-    );
-    // Right grip: interruptible short-tap Ctrl+V combo, plus a Long-press Ctrl modifier.
-    base.insert(
-        InputSource::RightGrip,
-        SourceBinding::Button {
-            commands: vec![
-                Command {
-                    activator: Activator::Regular,
-                    actions: vec![key(Key::LeftCtrl), key(Key::V)],
                     settings: CommandSettings {
                         interruptible: true,
                         ..Default::default()
@@ -588,12 +632,39 @@ pub fn desktop_profile() -> ConfigDoc {
             ],
         },
     );
+    // Right grip: interruptible short-tap Ctrl+V combo, plus a Long-press Shift modifier.
+    base.insert(
+        InputSource::RightGrip,
+        SourceBinding::Button {
+            commands: vec![
+                Command {
+                    activator: Activator::Regular,
+                    actions: vec![key(Key::LeftCtrl), key(Key::V)],
+                    settings: CommandSettings {
+                        interruptible: true,
+                        ..Default::default()
+                    },
+                },
+                Command {
+                    activator: Activator::Long { hold_ms: 250 },
+                    actions: vec![key(Key::LeftShift)],
+                    settings: CommandSettings {
+                        haptics: Haptics {
+                            on: HapticEdge::OnPress,
+                            strength: HapticStrength::Medium,
+                        },
+                        ..Default::default()
+                    },
+                },
+            ],
+        },
+    );
 
     // Hold layer: while the right pad is clicked, the left stick drives the mouse (deflection→
     // rate) instead of the arrow-key dpad, and the right pad is nullified so holding it doesn't
     // also jitter the cursor. Explicit sensitivity/acceleration/deadzone knobs.
     let stick_mouse = Layer {
-        name: "stick_mouse".into(),
+        name: "alternative_mouse".into(),
         bindings: BTreeMap::from([
             (
                 InputSource::LeftStick,
@@ -603,6 +674,21 @@ pub fn desktop_profile() -> ConfigDoc {
                         sensitivity: Sensitivity { x: 2.0, y: 2.0 },
                         curve: Curve::Power(2.0),
                         deadzone: Deadzone { inner: 0.0 },
+                        ..Default::default()
+                    },
+                },
+            ),
+            (
+                InputSource::LeftPad,
+                SourceBinding::AsMouse {
+                    settings: AsMouseSettings {
+                        output: MouseOutput::Scroll,
+                        sensitivity: Sensitivity { x: 1.0, y: 1.0 },
+                        acceleration: Acceleration { factor: 0.05 },
+                        smoothing: Some(OneEuroFilter {
+                            min_cutoff: 3.0,
+                            beta: 0.5,
+                        }),
                         ..Default::default()
                     },
                 },
@@ -628,14 +714,23 @@ pub fn desktop_profile() -> ConfigDoc {
 /// The above-profile globals: full master rumble and a Steam + RightGrip fallback toggle.
 pub fn globals() -> GlobalConfig {
     GlobalConfig {
-        start_profile: StartProfile::Active,
+        start_profile: StartProfile::Main,
         master_rumble: 100,
-        chords: vec![GlobalChord {
-            buttons: vec![InputSource::Steam, InputSource::RightGrip],
-            action: GlobalAction::SwitchFallback {
-                mode: SwitchMode::Toggle,
+        chords: vec![
+            GlobalChord {
+                buttons: vec![InputSource::Steam, InputSource::RightGrip],
+                action: GlobalAction::SwitchFallback {
+                    mode: SwitchMode::Toggle,
+                },
             },
-        }],
+            GlobalChord {
+                buttons: vec![InputSource::Steam, InputSource::LeftGrip],
+                action: GlobalAction::CommandExecute {
+                    command: "ls".into(),
+                    args: vec!["-l".into(), "/home/havner/Documents/Steam-Claude".into()],
+                },
+            },
+        ],
         ..Default::default()
     }
 }
