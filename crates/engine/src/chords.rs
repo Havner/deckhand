@@ -8,7 +8,6 @@
 //!
 //! Pure and golden-testable — the threaded loop (S9b) owns a [`Chords`] and calls [`Chords::eval`]
 //! each frame, then masks the frame and selects the program for the returned [`Role`].
-#![allow(dead_code)] // Wired by the runtime loop in S9b; this allow drops then.
 
 use config::{GlobalAction, GlobalChord, InputSource, SwitchMode};
 

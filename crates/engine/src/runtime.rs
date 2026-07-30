@@ -10,7 +10,6 @@
 //! The pieces here are wired to real hardware and are exercised end-to-end by the `Engine` handle
 //! and the `deckhand-run` binary (S10, which HW-validates against the bridge). The pure helpers
 //! ([`scale_rumble`], [`program_for`]) are unit-tested below.
-#![allow(dead_code)] // Driven by the Engine handle in S10; this allow drops then.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

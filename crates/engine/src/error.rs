@@ -22,4 +22,9 @@ pub enum Error {
     /// Output HAL failure (virtual device / sink).
     #[error("output sink: {0}")]
     Output(#[from] virt_out::Error),
+
+    /// The control API was used out of order (e.g. `start()` with no program applied, or no
+    /// matching input device found).
+    #[error("engine not ready: {0}")]
+    NotReady(&'static str),
 }

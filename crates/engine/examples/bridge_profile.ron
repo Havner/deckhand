@@ -1,0 +1,53 @@
+// A bridge-like profile for `deckhand-run` (PLAN §4.2 S10) — mirrors the virt-out `bridge`
+// example so the engine's feel can be compared 1:1 on hardware. Most settings are omitted and
+// fall back to their defaults; RON is forgiving that way.
+//
+//   cargo run -p engine --example deckhand-run -- --dongle crates/engine/examples/bridge_profile.ron
+//
+// Gyro → mouse is gated on holding the LEFT trigger's full-pull (like the bridge's trigger gate).
+(
+    name: "bridge-like",
+    action_sets: [
+        (
+            name: "Default",
+            bindings: {
+                // Face diamond → A/B/X/Y (up = Y, down = A, left = X, right = B).
+                FaceButtons: ButtonPad(
+                    up:    [(activator: Regular, actions: [GamepadButton(Y)])],
+                    down:  [(activator: Regular, actions: [GamepadButton(A)])],
+                    left:  [(activator: Regular, actions: [GamepadButton(X)])],
+                    right: [(activator: Regular, actions: [GamepadButton(B)])],
+                ),
+                // Left-pad quadrant classifiers → dpad.
+                DPad: ButtonPad(
+                    up:    [(activator: Regular, actions: [GamepadButton(DpadUp)])],
+                    down:  [(activator: Regular, actions: [GamepadButton(DpadDown)])],
+                    left:  [(activator: Regular, actions: [GamepadButton(DpadLeft)])],
+                    right: [(activator: Regular, actions: [GamepadButton(DpadRight)])],
+                ),
+                LeftBumper:  Button(commands: [(activator: Regular, actions: [GamepadButton(LeftBumper)])]),
+                RightBumper: Button(commands: [(activator: Regular, actions: [GamepadButton(RightBumper)])]),
+                View:  Button(commands: [(activator: Regular, actions: [GamepadButton(Back)])]),
+                Menu:  Button(commands: [(activator: Regular, actions: [GamepadButton(Start)])]),
+                Steam: Button(commands: [(activator: Regular, actions: [GamepadButton(Guide)])]),
+                // Back grips → stick clicks (like the bridge).
+                LeftGrip:  Button(commands: [(activator: Regular, actions: [GamepadButton(LeftStick)])]),
+                RightGrip: Button(commands: [(activator: Regular, actions: [GamepadButton(RightStick)])]),
+                // Left-stick click → keyboard L.
+                LeftStickClick: Button(commands: [(activator: Regular, actions: [Key(L)])]),
+                // Triggers → gamepad triggers.
+                LeftTrigger:  Trigger(settings: (output: Left)),
+                RightTrigger: Trigger(settings: (output: Right)),
+                // Left stick → gamepad left stick.
+                LeftStick: Joystick(settings: (output: Left)),
+                // Right pad → relative mouse cursor.
+                RightPad: AsMouse(settings: (output: Cursor)),
+                // Gyro → mouse, only while the left full-pull is held.
+                Gyro: GyroToMouse(settings: (
+                    output: Cursor,
+                    activation: (mode: HoldToEnable, gaters: [LeftFullPull]),
+                )),
+            },
+        ),
+    ],
+)

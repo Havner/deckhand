@@ -23,6 +23,7 @@
 mod chords;
 mod compile;
 mod error;
+mod handle;
 mod logical;
 mod mapper;
 mod program;
@@ -30,6 +31,7 @@ mod runtime;
 
 pub use compile::compile;
 pub use error::{Error, Result};
+pub use handle::{DeviceSelect, Engine, Input, Output, Status};
 pub use logical::{Dir, LogicalFrame};
 pub use mapper::{HapticReq, Mapper, Tick};
 pub use program::{

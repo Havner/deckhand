@@ -21,5 +21,10 @@ crossbeam-channel.workspace = true
 log.workspace = true
 thiserror.workspace = true
 
-# The `deckhand-run` test binary (PLAN §4.2 S10) and its `env_logger`/`ctrlc` deps land
-# with that step; the library (S0–S9) comes first.
+# Dev-deps for the `deckhand-run` example (PLAN §4.2 S10): load a profile from RON, log,
+# and shut down cleanly on Ctrl-C. `ctrlc`'s `termination` feature also traps SIGTERM/SIGHUP
+# so a future daemon gets clean `systemctl stop`.
+[dev-dependencies]
+ron.workspace = true
+env_logger.workspace = true
+ctrlc = { workspace = true, features = ["termination"] }
