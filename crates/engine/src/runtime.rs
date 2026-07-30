@@ -152,15 +152,23 @@ fn run_reader(
         // Short timeout so the loop laps to check `running`, keep-alive, and rumble regularly.
         match device.poll(Duration::from_millis(4)) {
             Ok(Some(report)) => {
-                if matches!(report, Report::Connected) {
-                    apply_device_cfg(&mut device, &cfg)?;
+                match &report {
+                    Report::Connected => {
+                        log::info!("controller connected — re-applying device config");
+                        apply_device_cfg(&mut device, &cfg)?;
+                    }
+                    Report::Disconnected => log::info!("controller disconnected (dongle alive)"),
+                    _ => {} // State: streamed every frame, too noisy to log; Battery: surfaced later
                 }
                 if frame_tx.send(report).is_err() {
                     break; // mapper gone
                 }
             }
             Ok(None) => {} // timeout — no frame this cycle
-            Err(_) => break, // transport gone → end (device drops → lizard restored)
+            Err(e) => {
+                log::warn!("controller read error ({e}) — stopping reader (device → lizard)");
+                break; // transport gone → end (device drops → lizard restored)
+            }
         }
 
         if cfg.keepalive && last_keepalive.elapsed() >= Duration::from_secs(2) {
@@ -438,14 +446,14 @@ fn spawn_command(exec: ExecReq) {
         };
         log::info!("chord: executing `{shown}`");
         match std::process::Command::new(&exec.command).args(&exec.args).output() {
-            Ok(o) => log::info!(
-                "chord: `{}` exited {} | stdout: {:?} | stderr: {:?}",
-                exec.command,
-                o.status,
-                String::from_utf8_lossy(&o.stdout).trim(),
-                String::from_utf8_lossy(&o.stderr).trim(),
-            ),
-            Err(e) => log::warn!("chord: `{}` failed to spawn: {e}", exec.command),
+            Ok(o) => {
+                // Three lines: status, then raw stdout/stderr (Display, not Debug, so newlines
+                // render and there are no wrapping quotes).
+                log::info!("chord: `{shown}` exited {}", o.status);
+                log::info!("chord: `{shown}` stdout:\n{}", String::from_utf8_lossy(&o.stdout).trim_end());
+                log::info!("chord: `{shown}` stderr:\n{}", String::from_utf8_lossy(&o.stderr).trim_end());
+            }
+            Err(e) => log::warn!("chord: `{shown}` failed to spawn: {e}"),
         }
     });
 }

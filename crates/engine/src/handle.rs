@@ -83,11 +83,19 @@ impl Engine {
 
     /// Stage the input source (Local only for now). Applied at the next `start()`.
     pub fn set_input(&mut self, input: Input) {
+        let Input::Local(select) = &input;
+        let which = match select {
+            DeviceSelect::Auto => "auto",
+            DeviceSelect::Transport(_) => "transport",
+            DeviceSelect::Explicit(_) => "explicit",
+        };
+        log::debug!("set_input: local/{which} (staged for next start)");
         self.input = input;
     }
 
     /// Stage the output target (Local only for now). Applied at the next `start()`.
     pub fn set_output(&mut self, output: Output) {
+        log::debug!("set_output: local (staged for next start)");
         self.output = output;
     }
 
@@ -95,6 +103,8 @@ impl Engine {
 
     /// Apply a program to a role. Retained (survives stop/start); hot-swapped live if running.
     pub fn apply(&mut self, program: Program, role: Role) {
+        let mode = if self.runtime.is_some() { "live hot-swap" } else { "staged" };
+        log::info!("apply: program '{}' → {role:?} ({mode})", program.meta.name);
         match role {
             Role::Active => self.active = Some(program.clone()),
             Role::Fallback => self.fallback = Some(program.clone()),
@@ -106,6 +116,12 @@ impl Engine {
 
     /// Set the global config (master rumble + chords). Retained; hot-swapped live if running.
     pub fn set_globals(&mut self, globals: GlobalConfig) {
+        let mode = if self.runtime.is_some() { "live" } else { "staged" };
+        log::info!(
+            "set_globals: master_rumble={}%, {} chord(s) ({mode})",
+            globals.master_rumble,
+            globals.chords.len(),
+        );
         self.globals = globals.clone();
         if let Some(rt) = &self.runtime {
             let _ = rt.control().send(Control::SetGlobals(Box::new(globals)));
@@ -123,6 +139,20 @@ impl Engine {
         let active = self.active.clone().ok_or(Error::NotReady("no active program applied"))?;
         let Output::Local = self.output; // Network output deferred.
         let device = self.open_device()?;
+        {
+            let info = device.info();
+            let fb = self
+                .fallback
+                .as_ref()
+                .map(|f| format!(", fallback '{}'", f.meta.name))
+                .unwrap_or_default();
+            log::info!(
+                "starting: {:?} via {:?}, active '{}'{fb}",
+                info.kind,
+                info.transport,
+                active.meta.name,
+            );
+        }
         let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
         let sink = Sink::new()?;
         self.runtime = Some(Runtime::start(
@@ -140,6 +170,7 @@ impl Engine {
     /// Config is retained; `start()` resumes. A no-op if idle.
     pub fn stop(&mut self) -> Result<()> {
         if let Some(mut rt) = self.runtime.take() {
+            log::info!("stopping: releasing device (→ lizard) and virtual pad");
             rt.stop()?;
         }
         Ok(())
