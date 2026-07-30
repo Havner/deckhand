@@ -8,9 +8,11 @@
 //! wire 0 = RIGHT, 1 = LEFT; **`pad=2` (BOTH) is NOT honored by Gordon — it no-ops**, so
 //! "both" is done by firing wire 0 + wire 1 separately. `0xeb`/`0xea` are Deck-only.
 //!
-//! No args → runs a **frequency sweep** then a **duty-cycle** sweep on both pads; `--freq` /
-//! `--duty` run just one (default both). `<dur_us> <interval_us> <count> [pad]` → fire one
-//! **custom** pulse (pad 0=R/1=L/2=both, default both).
+//! No args → runs a **frequency sweep** then a **duty-cycle** sweep on both pads, each fired the
+//! way the **engine** does (a short pulse train re-fired contiguously, so the actuator rings up the
+//! same as in-game — tuning here transfers). `--freq` / `--duty` run just one (default both).
+//! `<dur_us> <interval_us> <count> [pad]` → fire one **custom** pulse (pad 0=R/1=L/2=both, default
+//! both).
 //!
 //! Disables lizard first (so pad-touch doesn't fire lizard click-haptics; Drop restores).
 //! `--wired`/`--dongle` pick the transport.
@@ -19,9 +21,17 @@
 mod common;
 
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use steam_hid::{Device, Manager};
+
+// Mirror the engine's rumble cadence (`crates/engine/src/runtime.rs` RUMBLE_TRAIN_MS /
+// RUMBLE_REFIRE_MS — keep in sync) so what you feel in the sweeps matches the game: a *short*
+// pulse train re-fired contiguously (so the actuator rings up), not one long clean blast.
+const TRAIN_MS: u32 = 250;
+const REFIRE_MS: u64 = 220;
+/// How long to hold each sweep step (the engine sustains as long as the game commands rumble).
+const HOLD_MS: u64 = 1200;
 
 /// Fire one `0x8F` pulse (kernel 8-byte form). `wire_pad`: 0=RIGHT, 1=LEFT (Gordon
 /// no-ops any other value, so do NOT pass 2 here — use `both`).
@@ -37,6 +47,23 @@ fn pulse(dev: &mut Device, wire_pad: u8, dur: u16, interval: u16, count: u16) ->
 fn both(dev: &mut Device, dur: u16, interval: u16, count: u16) -> steam_hid::Result<()> {
     pulse(dev, 0, dur, interval, count)?;
     pulse(dev, 1, dur, interval, count)
+}
+
+/// Sustain a rumble the *engine's* way: re-fire the (short) `count`-cycle train on both pads every
+/// `REFIRE_MS` for `HOLD_MS`, so the actuator rings up exactly as it does in-game.
+fn sustain(
+    dev: &mut Device,
+    running: &common::Running,
+    dur: u16,
+    interval: u16,
+    count: u16,
+) -> steam_hid::Result<()> {
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(HOLD_MS) && running.alive() {
+        both(dev, dur, interval, count)?;
+        sleep(Duration::from_millis(REFIRE_MS));
+    }
+    Ok(())
 }
 
 fn main() -> steam_hid::Result<()> {
@@ -92,29 +119,30 @@ fn main() -> steam_hid::Result<()> {
     println!("\nGrip BOTH pads. Starting in 2s…");
     sleep(Duration::from_secs(2));
 
-    // --- Frequency sweep: same ~600 ms length each, low (rumble) → high (tone) ---
+    // --- Frequency sweep at 50% duty, engine cadence — low (rumble) → high (tone) ---
     if run_freq {
-        println!("\n=== FREQUENCY SWEEP (both pads, ~600ms each) — feel rumble turn into tone ===");
+        println!("\n=== FREQUENCY SWEEP (engine cadence, both pads, ~{HOLD_MS}ms each) — rumble → tone ===");
         for freq in [25u32, 40, 60, 90, 130, 200, 350, 600, 1000] {
             if !running.alive() {
                 break;
             }
             let period = 1_000_000 / freq; // µs
             let half = (period / 2) as u16;
-            let count = ((600 * 1000) / period) as u16;
+            let count = ((freq * TRAIN_MS) / 1000).max(1) as u16;
             println!("  {freq:>4} Hz  (dur={half}µs interval={half}µs count={count})");
-            both(&mut device, half, half, count)?;
+            sustain(&mut device, &running, half, half, count)?;
             sleep(pause);
         }
     }
 
-    // --- Duty-cycle sweep at ~80 Hz: dense at the LOW end (where the actuator is most
-    // responsive) so we can see where perceived strength saturates. The amplitude lever is the
-    // duty cycle only (`gain` is ignored), so this is what a strength knob has to map onto. ---
+    // --- Duty-cycle sweep at ~80 Hz, engine cadence — the amplitude lever is duty only (`gain`
+    // ignored), so this is what a strength knob maps onto. Firing exactly like the engine (short
+    // train re-fired) so the saturation point you feel here is the one the game will have. ---
     if run_duty {
-        println!("\n=== DUTY SWEEP at ~80 Hz (~600ms each) — find where strength saturates ===");
-        let period = 12_500u16;
-        let count = 48; // ~600 ms
+        println!("\n=== DUTY SWEEP at ~80 Hz (engine cadence, ~{HOLD_MS}ms each) — find where strength saturates ===");
+        let hz = 80u32;
+        let period = (1_000_000 / hz) as u16; // 12500 µs
+        let count = ((hz * TRAIN_MS) / 1000).max(1) as u16;
         for pct in [1u32, 2, 3, 5, 8, 12, 20, 30, 40, 50, 60, 70, 80, 90, 100] {
             if !running.alive() {
                 break;
@@ -122,16 +150,15 @@ fn main() -> steam_hid::Result<()> {
             let dur = ((period as u32 * pct) / 100).clamp(1, period as u32 - 1) as u16;
             let interval = period - dur;
             println!("  {pct:>3}% on  (dur={dur}µs interval={interval}µs count={count})");
-            both(&mut device, dur, interval, count)?;
+            sustain(&mut device, &running, dur, interval, count)?;
             sleep(pause);
         }
     }
 
     println!(
-        "\nDone. On the DUTY sweep: which %% still felt like it was changing, and roughly where \
-         did it stop getting stronger (saturate)? That low/useful band is what the engine's \
-         strength curve should map onto. Fire a custom duty with e.g.:  \
-         cargo run -q -p steam-hid --example haptic -- --dongle 1000 11500 48   (8%% at ~80 Hz)"
+        "\nDone — these fired the same way the engine does (short train re-fired every {REFIRE_MS}ms, \
+         both pads). On the DUTY sweep: which %% still changed, and roughly where did it stop getting \
+         stronger? That's the band `RUMBLE_MAX_DUTY` should map full strength onto."
     );
     Ok(())
 }
