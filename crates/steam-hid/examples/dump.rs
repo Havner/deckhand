@@ -35,10 +35,13 @@ fn main() -> steam_hid::Result<()> {
             None => {} // timeout — nothing this interval
             Some(report) => match report {
                 Report::State(s) => println!(
-                    "seq={:<6} L2={:.2} R2={:.2} \
+                    // Fixed-width fields (widths = each value's max: seq u32 = 10, accel/gyro
+                    // i16 = 6; the {:.2}/{:+.2} floats are already 4/5 for normalized ranges) so
+                    // columns don't flow — only the trailing `buttons` is variable.
+                    "seq={:<10} L2={:.2} R2={:.2} \
                      lstick=({:+.2},{:+.2}) rstick=({:+.2},{:+.2}) \
                      lpad=({:+.2},{:+.2}) rpad=({:+.2},{:+.2}) lpad_p={:.2} rpad_p={:.2} \
-                     accel=({},{},{}) gyro=({},{},{}) buttons={:?}",
+                     accel=({:>6},{:>6},{:>6}) gyro=({:>6},{:>6},{:>6}) buttons={:?}",
                     s.seq,
                     s.left_trigger,
                     s.right_trigger,
