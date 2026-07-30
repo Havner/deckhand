@@ -48,7 +48,10 @@ impl Default for Sensitivity {
     }
 }
 
-/// Simplest acceleration: output scaled by `1 + speed·factor` (`0` = off).
+/// Simplest acceleration: output scaled by `1 + speed·factor` (`0` = off). The engine keys this off
+/// each behavior's *instantaneous* speed, whose natural scale differs — so the useful `factor` range
+/// is per-behavior: **pad** (velocity, pad-units/s) and **gyro** (deg/s) want small values (~0.02–0.05),
+/// while **stick→mouse** (deflection, `0..1`) wants a larger one (~1–4). This is expected, not a bug.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Acceleration {
