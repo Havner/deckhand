@@ -9,7 +9,7 @@
 //!
 //! The pieces here are wired to real hardware and are exercised end-to-end by the `Engine` handle
 //! and the `deckhand-run` binary (S10, which HW-validates against the bridge). The pure helpers
-//! ([`scale_rumble`], [`program_for`]) are unit-tested below.
+//! ([`rumble_cmd`], [`program_for`]) are unit-tested below.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 
-use config::{GlobalConfig, StartProfile};
+use config::{Curve, GlobalConfig, RumbleSettings, StartProfile};
 use steam_hid::{Device, DeviceKind, Motor, Report, Rumble as HidRumble};
 use virt_out::{Rumble, Sink};
 
@@ -84,7 +84,7 @@ impl Runtime {
     ) -> Runtime {
         let running = Arc::new(AtomicBool::new(true));
         let (frame_tx, frame_rx) = unbounded::<Report>();
-        let (rumble_tx, rumble_rx) = unbounded::<Rumble>();
+        let (rumble_tx, rumble_rx) = unbounded::<RumbleCmd>();
         let (control_tx, control_rx) = unbounded::<Control>();
 
         let r_reader = running.clone();
@@ -135,13 +135,13 @@ fn run_reader(
     mut device: Device,
     cfg: DeviceCfg,
     frame_tx: Sender<Report>,
-    rumble_rx: Receiver<Rumble>,
+    rumble_rx: Receiver<RumbleCmd>,
     running: Arc<AtomicBool>,
 ) -> Result<()> {
     apply_device_cfg(&mut device, &cfg)?;
     let mut last_keepalive = Instant::now();
     let mut last_haptic = Instant::now();
-    let mut level = Rumble::default();
+    let mut level = RumbleCmd::default();
 
     while running.load(Ordering::Relaxed) {
         // Short timeout so the loop laps to check `running`, keep-alive, and rumble regularly.
@@ -168,7 +168,9 @@ fn run_reader(
         while let Ok(r) = rumble_rx.try_recv() {
             level = r;
         }
-        if !level.is_zero() && last_haptic.elapsed() >= Duration::from_millis(120) {
+        if (level.strong > 0 || level.weak > 0)
+            && last_haptic.elapsed() >= Duration::from_millis(120)
+        {
             apply_haptics(&mut device, &level)?;
             last_haptic = Instant::now();
         }
@@ -186,7 +188,7 @@ fn run_mapper(
     mut globals: GlobalConfig,
     frame_rx: Receiver<Report>,
     control_rx: Receiver<Control>,
-    rumble_tx: Sender<Rumble>,
+    rumble_tx: Sender<RumbleCmd>,
     running: Arc<AtomicBool>,
 ) -> Result<()> {
     let start = Instant::now();
@@ -196,7 +198,7 @@ fn run_mapper(
     let mut mapper = Mapper::new(program_for(&role, &active, &fallback));
     let mut out: Vec<virt_out::OutputEvent> = Vec::new();
     let mut haptics: Vec<HapticReq> = Vec::new();
-    let mut last_rumble = Rumble::default();
+    let mut last_rumble = RumbleCmd::default();
 
     while running.load(Ordering::Relaxed) {
         let mut stop = false;
@@ -252,12 +254,13 @@ fn run_mapper(
             break;
         }
 
-        // Rumble back-channel (game → virtual pad → real controller), scaled by master rumble.
-        // Send only on change so the reader's channel doesn't churn.
-        let rumble = scale_rumble(sink.poll_rumble()?, globals.master_rumble);
-        if rumble != last_rumble {
-            let _ = rumble_tx.send(rumble.clone());
-            last_rumble = rumble;
+        // Rumble back-channel (game → virtual pad → real controller): scale by the global master %
+        // and the *active* profile's strength/curve, carrying its pulse Hz. Send only on change.
+        let prog = program_for(&role, &active, &fallback);
+        let cmd = rumble_cmd(sink.poll_rumble()?, globals.master_rumble, &prog.rumble);
+        if cmd != last_rumble {
+            let _ = rumble_tx.send(cmd.clone());
+            last_rumble = cmd;
         }
     }
     Ok(())
@@ -276,31 +279,55 @@ fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) -> Result<()> {
     Ok(())
 }
 
-/// Route a rumble level to Gordon's trackpad actuators as pulse-trains (strong→left, weak→right;
+/// The effective rumble to realize on the controller: per-pad drive (already scaled by master ×
+/// profile strength × curve) plus the pulse frequency from the active profile.
+#[derive(Debug, Clone, PartialEq, Default)]
+struct RumbleCmd {
+    strong: u16,
+    weak: u16,
+    hz: u16,
+}
+
+/// Route a rumble command to Gordon's trackpad actuators as pulse-trains (strong→left, weak→right;
 /// PLAN §1.9). Re-fired by the reader while the level stays non-zero.
-fn apply_haptics(device: &mut Device, rumble: &Rumble) -> Result<()> {
-    if rumble.strong > 0 {
-        device.rumble(Motor::Left, train(rumble.strong))?;
+fn apply_haptics(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
+    if cmd.strong > 0 {
+        device.rumble(Motor::Left, train(cmd.strong, cmd.hz))?;
     }
-    if rumble.weak > 0 {
-        device.rumble(Motor::Right, train(rumble.weak))?;
+    if cmd.weak > 0 {
+        device.rumble(Motor::Right, train(cmd.weak, cmd.hz))?;
     }
     Ok(())
 }
 
-/// A ~60 Hz pulse train whose duty cycle encodes magnitude (crude amplitude; PLAN §1.9 / bridge).
-fn train(magnitude: u16) -> HidRumble {
-    const PERIOD_US: u32 = 16_667; // ~60 Hz, within Gordon's rumble range
-    const STRENGTH: f32 = 0.5; // scale duty (our amplitude lever) to 50 %
-    let full = magnitude as f32 / u16::MAX as f32;
-    let duty = ((full * STRENGTH * PERIOD_US as f32) as u32).clamp(600, PERIOD_US - 600);
-    HidRumble { duration: duty as u16, interval: (PERIOD_US - duty) as u16, count: 12, gain: 0 }
+/// A pulse train at the profile's `hz` whose duty cycle encodes the already-scaled `drive` (crude
+/// amplitude; PLAN §1.9 / bridge).
+fn train(drive: u16, hz: u16) -> HidRumble {
+    let hz = hz.clamp(16, 1000); // period must fit u16 (hz ≥ 16); Gordon's usable range
+    let period = 1_000_000u32 / hz as u32; // µs
+    let full = drive as f32 / u16::MAX as f32;
+    // Keep the duty off the rails (5%–95%) so every pulse actually toggles.
+    let duty = ((full * period as f32) as u32).clamp(period / 20, period - period / 20);
+    let count = ((hz as u32 * 200) / 1000).max(1) as u16; // ~200 ms of pulses (covers the re-fire)
+    HidRumble { duration: duty as u16, interval: (period - duty) as u16, count, gain: 0 }
 }
 
-/// Scale a rumble by the master percentage (`0..=100`), saturating.
-fn scale_rumble(r: Rumble, master: u8) -> Rumble {
-    let scaled = |v: u16| ((v as u32 * master.min(100) as u32) / 100) as u16;
-    Rumble { strong: scaled(r.strong), weak: scaled(r.weak) }
+/// Compute the effective per-pad drive from a raw game rumble, the global master %, and the active
+/// profile's rumble settings (strength % + response curve); `hz` passes through from the profile.
+fn rumble_cmd(raw: Rumble, master: u8, s: &RumbleSettings) -> RumbleCmd {
+    let scale = (master.min(100) as f32 / 100.0) * (s.strength.min(100) as f32 / 100.0);
+    let drive = |v: u16| {
+        let full = (v as f32 / u16::MAX as f32) * scale;
+        (apply_curve(full.clamp(0.0, 1.0), &s.curve).clamp(0.0, 1.0) * u16::MAX as f32) as u16
+    };
+    RumbleCmd { strong: drive(raw.strong), weak: drive(raw.weak), hz: s.hz }
+}
+
+fn apply_curve(v: f32, curve: &Curve) -> f32 {
+    match curve {
+        Curve::Linear => v,
+        Curve::Power(e) => v.powf(*e),
+    }
 }
 
 /// The program driving a given role (fallback falls back to active when unset).
@@ -328,6 +355,7 @@ mod tests {
         Program {
             meta: ProgramMeta { name: name.into(), role: Role::Active },
             default_set: SetId::new(0),
+            rumble: Default::default(),
             sets: vec![crate::program::CompiledSet {
                 name: "s".into(),
                 base: SourceMap::new(),
@@ -337,13 +365,25 @@ mod tests {
     }
 
     #[test]
-    fn scale_rumble_by_master_percent() {
-        let r = Rumble { strong: 1000, weak: 500 };
-        assert_eq!(scale_rumble(r.clone(), 100), r);
-        assert_eq!(scale_rumble(r.clone(), 50), Rumble { strong: 500, weak: 250 });
-        assert_eq!(scale_rumble(r.clone(), 0), Rumble::default());
-        // Master is clamped at 100 (no amplification).
-        assert_eq!(scale_rumble(r, 200), Rumble { strong: 1000, weak: 500 });
+    fn rumble_cmd_applies_master_strength_and_hz() {
+        let full = Rumble { strong: u16::MAX, weak: u16::MAX / 2 };
+
+        // master 50% × strength 100% (defaults) = half; hz carried from the profile.
+        let s = RumbleSettings { hz: 60, strength: 100, curve: Curve::Linear };
+        let cmd = rumble_cmd(full.clone(), 50, &s);
+        assert_eq!(cmd.hz, 60);
+        assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 1);
+        assert!((cmd.weak as i32 - (u16::MAX / 4) as i32).abs() <= 1);
+
+        // master 100% × strength 50% = half too; different hz passes through.
+        let s = RumbleSettings { hz: 200, strength: 50, curve: Curve::Linear };
+        let cmd = rumble_cmd(full.clone(), 100, &s);
+        assert_eq!(cmd.hz, 200);
+        assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 1);
+
+        // master 0% → silent.
+        let cmd = rumble_cmd(full, 0, &s);
+        assert_eq!((cmd.strong, cmd.weak), (0, 0));
     }
 
     #[test]

@@ -298,6 +298,7 @@ mod tests {
         Program {
             meta: ProgramMeta { name: "test".into(), role: Role::Active },
             default_set: SetId::new(0),
+            rumble: Default::default(),
             sets: sets
                 .into_iter()
                 .enumerate()
@@ -315,6 +316,7 @@ mod tests {
         Program {
             meta: ProgramMeta { name: "test".into(), role: Role::Active },
             default_set: SetId::new(0),
+            rumble: Default::default(),
             sets: vec![CompiledSet {
                 name: "Game".into(),
                 base: SourceMap::from_iter(base),
@@ -425,6 +427,7 @@ mod tests {
         let program = Program {
             meta: ProgramMeta { name: "test".into(), role: Role::Active },
             default_set: SetId::new(0),
+            rumble: Default::default(),
             sets: vec![CompiledSet {
                 name: "Game".into(),
                 base: SourceMap::from_iter([(InputSource::LeftBumper, long(Key::A))]),
@@ -458,6 +461,7 @@ mod tests {
         let program = Program {
             meta: ProgramMeta { name: "test".into(), role: Role::Active },
             default_set: SetId::new(0),
+            rumble: Default::default(),
             sets: vec![CompiledSet {
                 name: "Game".into(),
                 base: SourceMap::from_iter([(

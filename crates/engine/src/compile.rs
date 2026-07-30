@@ -53,6 +53,7 @@ pub fn compile(doc: &ConfigDoc) -> Result<Program, Vec<Diagnostic>> {
         meta: ProgramMeta { name: doc.name.clone(), role: Role::Active },
         sets,
         default_set: SetId::new(0),
+        rumble: doc.rumble.clone(),
     })
 }
 

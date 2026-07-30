@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 
 use config::{
     AsMouseSettings, Activator, CommandSettings, DirectionalPadSettings, GyroToMouseSettings,
-    InputSource, JoystickMouseSettings, JoystickSettings, TriggerSettings,
+    InputSource, JoystickMouseSettings, JoystickSettings, RumbleSettings, TriggerSettings,
 };
 use vocab::{GamepadButton, Key, MouseButton};
 
@@ -67,6 +67,9 @@ pub struct Program {
     pub sets: Vec<CompiledSet>,
     /// The set active on load (the profile's first action set).
     pub default_set: SetId,
+    /// Per-profile rumble feel (pulse Hz, strength %, curve) — the manager applies these to the
+    /// game→controller haptics for whichever program is the active role (PLAN §3 Round E).
+    pub rumble: RumbleSettings,
 }
 
 impl Program {
@@ -220,6 +223,7 @@ mod tests {
         let prog = Program {
             meta: ProgramMeta { name: "p".into(), role: Role::Active },
             default_set: SetId::new(0),
+            rumble: Default::default(),
             sets: vec![CompiledSet {
                 name: "Game".into(),
                 base: SourceMap::from_iter([(
