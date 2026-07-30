@@ -8,11 +8,12 @@
 //! wire 0 = RIGHT, 1 = LEFT; **`pad=2` (BOTH) is NOT honored by Gordon — it no-ops**, so
 //! "both" is done by firing wire 0 + wire 1 separately. `0xeb`/`0xea` are Deck-only.
 //!
-//! No args → runs a **frequency sweep** then a **duty-cycle** sweep on both pads, each fired the
-//! way the **engine** does (a short pulse train re-fired contiguously, so the actuator rings up the
-//! same as in-game — tuning here transfers). `--freq` / `--duty` run just one (default both).
-//! `<dur_us> <interval_us> <count> [pad]` → fire one **custom** pulse (pad 0=R/1=L/2=both, default
-//! both).
+//! No args → runs three groups: a **frequency sweep**, a **duty-cycle** sweep (both on both pads,
+//! fired the way the **engine** does — a short pulse train re-fired contiguously, so the actuator
+//! rings up the same as in-game, tuning transfers), and **command-haptic clicks** (the singular
+//! per-action Low/Med/High pulse, left pad then right). `--freq` / `--duty` / `--cmd` run a subset
+//! (default all). `<dur_us> <interval_us> <count> [pad]` → fire one **custom** pulse (pad 0=R/1=L/
+//! 2=both, default both).
 //!
 //! Disables lizard first (so pad-touch doesn't fire lizard click-haptics; Drop restores).
 //! `--wired`/`--dongle` pick the transport.
@@ -105,14 +106,12 @@ fn main() -> steam_hid::Result<()> {
         return Ok(());
     }
 
-    // Which sweeps to run — `--freq` / `--duty` pick one; neither = both.
+    // Which groups to run — `--freq` / `--duty` / `--cmd` pick a subset; none = all.
     let args: Vec<String> = std::env::args().collect();
-    let (run_freq, run_duty) = match (
-        args.iter().any(|a| a == "--freq"),
-        args.iter().any(|a| a == "--duty"),
-    ) {
-        (false, false) => (true, true),
-        (f, d) => (f, d),
+    let has = |name: &str| args.iter().any(|a| a == name);
+    let (run_freq, run_duty, run_cmd) = match (has("--freq"), has("--duty"), has("--cmd")) {
+        (false, false, false) => (true, true, true),
+        picks => picks,
     };
 
     let pause = Duration::from_millis(1800);
@@ -155,10 +154,37 @@ fn main() -> steam_hid::Result<()> {
         }
     }
 
+    // --- Command-haptic clicks: the singular per-action pulse a `Command`'s `Haptics` fires on
+    // press/release (NOT a sustained train — one short burst). Three strengths Low/Med/High, one
+    // side then the other, so we can feel and then tune what each maps to. Starting values only. ---
+    if run_cmd {
+        println!("\n=== COMMAND-HAPTIC CLICKS (singular Low/Med/High, left pad then right) ===");
+        // (dur_us, interval_us, count) — ~160 Hz clicks rising in duty *and* length.
+        let clicks = [
+            ("Low ", 400u16, 5850u16, 2u16),
+            ("Med ", 900, 5350, 3),
+            ("High", 1560, 4690, 5),
+        ];
+        for (side, wire) in [("LEFT", 1u8), ("RIGHT", 0u8)] {
+            if !running.alive() {
+                break;
+            }
+            println!("  {side} pad:");
+            for (name, dur, interval, count) in clicks {
+                if !running.alive() {
+                    break;
+                }
+                println!("    {name} (dur={dur}µs interval={interval}µs count={count})");
+                pulse(&mut device, wire, dur, interval, count)?;
+                sleep(pause);
+            }
+        }
+    }
+
     println!(
-        "\nDone — these fired the same way the engine does (short train re-fired every {REFIRE_MS}ms, \
-         both pads). On the DUTY sweep: which %% still changed, and roughly where did it stop getting \
-         stronger? That's the band `RUMBLE_MAX_DUTY` should map full strength onto."
+        "\nDone. DUTY sweep fired the engine's way (short train re-fired every {REFIRE_MS}ms, both \
+         pads) — note where strength stopped changing. COMMAND clicks are the singular per-action \
+         pulse; tell me how Low/Med/High felt (per side) and I'll tune the strengths."
     );
     Ok(())
 }
