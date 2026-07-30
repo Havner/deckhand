@@ -8,9 +8,9 @@
 //! wire 0 = RIGHT, 1 = LEFT; **`pad=2` (BOTH) is NOT honored by Gordon — it no-ops**, so
 //! "both" is done by firing wire 0 + wire 1 separately. `0xeb`/`0xea` are Deck-only.
 //!
-//! No args → runs a **frequency sweep** then a **duty-cycle** sweep on both pads.
-//! `<dur_us> <interval_us> <count> [pad]` → fire one **custom** pulse (pad 0=R/1=L/2=both,
-//! default both).
+//! No args → runs a **frequency sweep** then a **duty-cycle** sweep on both pads; `--freq` /
+//! `--duty` run just one (default both). `<dur_us> <interval_us> <count> [pad]` → fire one
+//! **custom** pulse (pad 0=R/1=L/2=both, default both).
 //!
 //! Disables lizard first (so pad-touch doesn't fire lizard click-haptics; Drop restores).
 //! `--wired`/`--dongle` pick the transport.
@@ -78,41 +78,60 @@ fn main() -> steam_hid::Result<()> {
         return Ok(());
     }
 
+    // Which sweeps to run — `--freq` / `--duty` pick one; neither = both.
+    let args: Vec<String> = std::env::args().collect();
+    let (run_freq, run_duty) = match (
+        args.iter().any(|a| a == "--freq"),
+        args.iter().any(|a| a == "--duty"),
+    ) {
+        (false, false) => (true, true),
+        (f, d) => (f, d),
+    };
+
     let pause = Duration::from_millis(1800);
     println!("\nGrip BOTH pads. Starting in 2s…");
     sleep(Duration::from_secs(2));
 
     // --- Frequency sweep: same ~600 ms length each, low (rumble) → high (tone) ---
-    println!("\n=== FREQUENCY SWEEP (both pads, ~600ms each) — feel rumble turn into tone ===");
-    for freq in [25u32, 40, 60, 90, 130, 200, 350, 600, 1000] {
-        if !running.alive() {
-            break;
+    if run_freq {
+        println!("\n=== FREQUENCY SWEEP (both pads, ~600ms each) — feel rumble turn into tone ===");
+        for freq in [25u32, 40, 60, 90, 130, 200, 350, 600, 1000] {
+            if !running.alive() {
+                break;
+            }
+            let period = 1_000_000 / freq; // µs
+            let half = (period / 2) as u16;
+            let count = ((600 * 1000) / period) as u16;
+            println!("  {freq:>4} Hz  (dur={half}µs interval={half}µs count={count})");
+            both(&mut device, half, half, count)?;
+            sleep(pause);
         }
-        let period = 1_000_000 / freq; // µs
-        let half = (period / 2) as u16;
-        let count = ((600 * 1000) / period) as u16;
-        println!("  {freq:>4} Hz  (dur={half}µs interval={half}µs count={count})");
-        both(&mut device, half, half, count)?;
-        sleep(pause);
     }
 
-    // --- Duty cycle at ~80 Hz: does more on-time = stronger rumble? ---
-    println!("\n=== DUTY CYCLE at ~80 Hz (period 12500µs, ~600ms) — does on-time change strength? ===");
-    let period = 12_500u16;
-    let count = 48; // ~600 ms
-    for (label, dur) in [("10% on", 1_250u16), ("50% on", 6_250), ("90% on", 11_250)] {
-        if !running.alive() {
-            break;
+    // --- Duty-cycle sweep at ~80 Hz: dense at the LOW end (where the actuator is most
+    // responsive) so we can see where perceived strength saturates. The amplitude lever is the
+    // duty cycle only (`gain` is ignored), so this is what a strength knob has to map onto. ---
+    if run_duty {
+        println!("\n=== DUTY SWEEP at ~80 Hz (~600ms each) — find where strength saturates ===");
+        let period = 12_500u16;
+        let count = 48; // ~600 ms
+        for pct in [1u32, 2, 3, 5, 8, 12, 20, 30, 40, 50, 60, 70, 80, 90, 100] {
+            if !running.alive() {
+                break;
+            }
+            let dur = ((period as u32 * pct) / 100).clamp(1, period as u32 - 1) as u16;
+            let interval = period - dur;
+            println!("  {pct:>3}% on  (dur={dur}µs interval={interval}µs count={count})");
+            both(&mut device, dur, interval, count)?;
+            sleep(pause);
         }
-        let interval = period - dur;
-        println!("  {label}  (dur={dur}µs interval={interval}µs count={count})");
-        both(&mut device, dur, interval, count)?;
-        sleep(pause);
     }
 
     println!(
-        "\nDone. Which frequencies felt like rumble vs tone? Did higher duty cycle feel \
-         stronger? Then try e.g.:  cargo run -q -p steam-hid --example haptic -- --dongle 6250 6250 48"
+        "\nDone. On the DUTY sweep: which %% still felt like it was changing, and roughly where \
+         did it stop getting stronger (saturate)? That low/useful band is what the engine's \
+         strength curve should map onto. Fire a custom duty with e.g.:  \
+         cargo run -q -p steam-hid --example haptic -- --dongle 1000 11500 48   (8%% at ~80 Hz)"
     );
     Ok(())
 }
