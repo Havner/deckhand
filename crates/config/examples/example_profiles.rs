@@ -15,11 +15,11 @@
 use std::collections::BTreeMap;
 
 use config::{
-    Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command,
-    CommandSettings, ConfigDoc, DirectionalPadSettings, DpadLayout, GlobalAction, GlobalChord,
-    GlobalConfig, GyroToMouseSettings, InputSource, Invert, JoystickSettings, Layer, LayerRef,
-    MouseOutput, RumbleSettings, SourceBinding, StickOutput, SwitchMode, TriggerOutput,
-    TriggerSettings,
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings,
+    Command, CommandSettings, ConfigDoc, Deadzone, DirectionalPadSettings, DpadLayout, GlobalAction,
+    GlobalChord, GlobalConfig, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings,
+    JoystickSettings, Layer, LayerRef, MouseOutput, RumbleSettings, Sensitivity, SourceBinding,
+    StickOutput, SwitchMode, TriggerOutput, TriggerSettings,
 };
 use vocab::{GamepadButton, Key, MouseButton};
 
@@ -43,6 +43,19 @@ fn key(k: Key) -> Action {
 }
 fn mouse(b: MouseButton) -> Action {
     Action::MouseButton(b)
+}
+
+/// A pad → mouse behavior with **explicit** sensitivity/acceleration (both applied per-axis) so
+/// they're visible knobs to tune. `1.0 / 0.0` are the defaults — change per call to fine-tune.
+fn as_mouse(output: MouseOutput, sensitivity: f32, acceleration: f32) -> SourceBinding {
+    SourceBinding::AsMouse {
+        settings: AsMouseSettings {
+            output,
+            sensitivity: Sensitivity { x: sensitivity, y: sensitivity },
+            acceleration: Acceleration { factor: acceleration },
+            ..Default::default()
+        },
+    }
 }
 
 /// An **interruptible** Regular command firing an ordered key combo (modifiers wrap the key):
@@ -128,20 +141,19 @@ pub fn game_profile() -> ConfigDoc {
     );
 
     // Right pad → mouse cursor; its click holds the mode-shift layer.
-    base.insert(
-        InputSource::RightPad,
-        SourceBinding::AsMouse {
-            settings: AsMouseSettings { output: MouseOutput::Cursor, ..Default::default() },
-        },
-    );
+    base.insert(InputSource::RightPad, as_mouse(MouseOutput::Cursor, 1.0, 0.0));
     base.insert(InputSource::RightPadClick, button(Action::HoldLayer(LayerRef("aim_stick".into()))));
 
-    // Gyro → mouse (vertical inverted, as in the bridge), gated by the left full-pull.
+    // Gyro → mouse (vertical inverted, as in the bridge), gated by the left full-pull. Explicit
+    // sensitivity/acceleration/deadzone (defaults) as tuning knobs.
     base.insert(
         InputSource::Gyro,
         SourceBinding::GyroToMouse {
             settings: GyroToMouseSettings {
                 output: MouseOutput::Cursor,
+                sensitivity: Sensitivity { x: 1.0, y: 1.0 },
+                acceleration: Acceleration { factor: 0.0 },
+                deadzone: Deadzone { inner: 0.0 },
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
@@ -184,18 +196,13 @@ pub fn game_profile() -> ConfigDoc {
 pub fn desktop_profile() -> ConfigDoc {
     let mut base: BTreeMap<InputSource, SourceBinding> = BTreeMap::new();
 
-    // Pads → mouse: right = cursor, left = scroll wheel.
+    // Pads → mouse: right = cursor, left = scroll wheel (explicit sensitivity/acceleration knobs).
+    base.insert(InputSource::RightPad, as_mouse(MouseOutput::Cursor, 1.0, 0.0));
+    base.insert(InputSource::LeftPad, as_mouse(MouseOutput::Scroll, 1.0, 0.0));
+    // Right-pad click holds the stick_mouse layer (left stick → mouse instead of arrows).
     base.insert(
-        InputSource::RightPad,
-        SourceBinding::AsMouse {
-            settings: AsMouseSettings { output: MouseOutput::Cursor, ..Default::default() },
-        },
-    );
-    base.insert(
-        InputSource::LeftPad,
-        SourceBinding::AsMouse {
-            settings: AsMouseSettings { output: MouseOutput::Scroll, ..Default::default() },
-        },
+        InputSource::RightPadClick,
+        button(Action::HoldLayer(LayerRef("stick_mouse".into()))),
     );
 
     // Face diamond → navigation keys (up = Y, down = A, left = X, right = B).
@@ -253,10 +260,36 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
+    // Hold layer: while the right pad is clicked, the left stick drives the mouse (deflection→
+    // rate) instead of the arrow-key dpad, and the right pad is nullified so holding it doesn't
+    // also jitter the cursor. Explicit sensitivity/acceleration/deadzone knobs.
+    let stick_mouse = Layer {
+        name: "stick_mouse".into(),
+        bindings: BTreeMap::from([
+            (
+                InputSource::LeftStick,
+                SourceBinding::JoystickMouse {
+                    settings: JoystickMouseSettings {
+                        output: MouseOutput::Cursor,
+                        sensitivity: Sensitivity { x: 1.0, y: 1.0 },
+                        acceleration: Acceleration { factor: 0.0 },
+                        deadzone: Deadzone { inner: 0.0 },
+                        ..Default::default()
+                    },
+                },
+            ),
+            (InputSource::RightPad, SourceBinding::None),
+        ]),
+    };
+
     ConfigDoc {
         version: 0,
         name: "Desktop".into(),
-        action_sets: vec![ActionSet { name: "Desktop".into(), bindings: base, layers: vec![] }],
+        action_sets: vec![ActionSet {
+            name: "Desktop".into(),
+            bindings: base,
+            layers: vec![stick_mouse],
+        }],
         rumble: RumbleSettings::default(),
     }
 }
