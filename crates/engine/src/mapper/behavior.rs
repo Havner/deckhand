@@ -13,8 +13,14 @@
 //! need `Tick` + prev state the level-based behaviors don't.
 //!
 //! Tuning math (deadzone rescale, curve, anti-deadzone, dpad sectoring) is straightforward and
-//! **golden-tested for logic**; absolute axis sign / up-vs-down parity is confirmed against the
-//! bridge at HW validation (S10).
+//! **golden-tested for logic**.
+//!
+//! **Vertical axis convention (HW-confirmed).** The controller reports stick/pad Y as **+up**
+//! (physical); evdev's cursor `REL_Y` and gamepad `ABS_Y` are both **+down**, and `virt-out`
+//! passes values through unchanged — so analog *vertical output* must be flipped at the emission
+//! boundary (`emit_relative` cursor path, `eval_joystick` stick Y). X already agrees. Scroll
+//! (`REL_WHEEL`) has its own convention (left as-is), and gyro yaw→X sign is a separate,
+//! still-unverified question.
 
 use config::{
     Activation, ActivationMode, AsMouseSettings, Curve, DirectionalPadSettings, DpadLayout,
@@ -119,7 +125,9 @@ fn eval_joystick(
             StickOutput::Right => (GamepadAxis::RightStickX, GamepadAxis::RightStickY),
         };
         desired.set_axis(ax, ox);
-        desired.set_axis(ay, oy);
+        // evdev stick Y is +down while the controller reports +up, so flip (same
+        // screen-orientation fix as the mouse cursor). Per-axis `invert` composes on top.
+        desired.set_axis(ay, -oy);
         // Outer ring fires on raw input deflection, not the processed output.
         magnitude(&pos) >= s.outer_ring.radius
     } else {
@@ -359,9 +367,14 @@ fn process_relative(
 }
 
 /// Route a relative delta to the chosen mouse output (cursor motion or scroll).
+///
+/// The controller reports stick/pad Y as **+up** (physical), but evdev's cursor `REL_Y` is
+/// **+down**, so the cursor path flips Y to keep "up on the controller" = "up on screen" (X
+/// already agrees). Scroll (`REL_WHEEL`) has its own convention and is left as-is — its
+/// direction is a per-behavior `invert` preference, not this screen-orientation fix.
 fn emit_relative(output: &MouseOutput, dx: f32, dy: f32, rel: &mut RelAccum) {
     match output {
-        MouseOutput::Cursor => rel.add_mouse(dx, dy),
+        MouseOutput::Cursor => rel.add_mouse(dx, -dy),
         MouseOutput::Scroll => rel.add_scroll(dx, dy),
     }
 }
@@ -467,6 +480,13 @@ mod tests {
         }).unwrap_or(0)
     }
 
+    fn mouse_dy(events: &[OutputEvent]) -> i32 {
+        events.iter().find_map(|e| match e {
+            OutputEvent::MouseMove { dy, .. } => Some(*dy),
+            _ => None,
+        }).unwrap_or(0)
+    }
+
     #[test]
     fn button_pad_members_fire_by_group_bit() {
         let binding = CompiledBinding::ButtonPad {
@@ -514,6 +534,21 @@ mod tests {
         );
         assert!(d.axis(&GamepadAxis::LeftStickX).unwrap() > 0.99);
         assert_eq!(d.axis(&GamepadAxis::LeftStickY), Some(0.0));
+    }
+
+    #[test]
+    fn joystick_up_is_negative_stick_y() {
+        // Controller up (+pos.y) must map to evdev "up" = negative ABS_Y (screen orientation).
+        let binding = CompiledBinding::Joystick {
+            settings: JoystickSettings::default(),
+            outer_ring: Vec::new(),
+        };
+        let d = desired_of(
+            &binding,
+            &InputSource::LeftStick,
+            ControllerState { left_stick: Vec2 { x: 0.0, y: 1.0 }, ..Default::default() },
+        );
+        assert!(d.axis(&GamepadAxis::LeftStickY).unwrap() < -0.99);
     }
 
     #[test]
@@ -688,6 +723,16 @@ mod tests {
         let cur = ControllerState { left_pad: touched(0.5, 0.0), ..Default::default() };
         let out = relative_of(&binding, &InputSource::LeftPad, Some(prev), cur, 0.016);
         assert!(mouse_dx(&out) > 0);
+    }
+
+    #[test]
+    fn as_mouse_pad_up_moves_cursor_up() {
+        // Pad up (+y delta, controller is +up) must move the cursor up = negative evdev REL_Y.
+        let binding = CompiledBinding::AsMouse { settings: AsMouseSettings::default() };
+        let prev = ControllerState { left_pad: touched(0.0, 0.0), ..Default::default() };
+        let cur = ControllerState { left_pad: touched(0.0, 0.5), ..Default::default() };
+        let out = relative_of(&binding, &InputSource::LeftPad, Some(prev), cur, 0.016);
+        assert!(mouse_dy(&out) < 0);
     }
 
     #[test]
