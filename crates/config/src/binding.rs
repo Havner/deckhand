@@ -81,6 +81,12 @@ pub enum SourceBinding {
         #[serde(default)]
         soft_pull: Vec<Command>,
     },
+    /// Explicitly **unbound** — the input does nothing. Valid on any source; used mainly in a
+    /// layer to *nullify* a base binding that would otherwise fall through (e.g. suppress a pad's
+    /// mouse while a mode-shift layer is held). In a base action set it is the same as omitting
+    /// the input. (To drop only a behavior's axis while keeping its virtual buttons, use the
+    /// output target `None` instead — see [`TriggerOutput`](crate::TriggerOutput) etc.)
+    None,
 }
 
 impl SourceBinding {
@@ -89,6 +95,10 @@ impl SourceBinding {
     pub fn is_valid_for(&self, kind: &SourceKind) -> bool {
         use SourceBinding as B;
         use SourceKind as K;
+        // Explicit unbind is valid on any source (nullify a fall-through, mainly in layers).
+        if matches!(self, B::None) {
+            return true;
+        }
         matches!(
             (self, kind),
             (B::Button { .. }, K::Button)
@@ -104,16 +114,16 @@ impl SourceBinding {
     /// All commands across this binding's button/virtual-button slots (for validation and
     /// later compilation).
     pub fn commands(&self) -> impl Iterator<Item = &Command> {
-        use SourceBinding::*;
+        use SourceBinding as B;
         let slots: Vec<&Vec<Command>> = match self {
-            Button { commands } => vec![commands],
-            ButtonPad { up, down, left, right } => vec![up, down, left, right],
-            Joystick { outer_ring, .. } => vec![outer_ring],
-            DirectionalPad { up, down, left, right, outer_ring, .. } => {
+            B::Button { commands } => vec![commands],
+            B::ButtonPad { up, down, left, right } => vec![up, down, left, right],
+            B::Joystick { outer_ring, .. } => vec![outer_ring],
+            B::DirectionalPad { up, down, left, right, outer_ring, .. } => {
                 vec![up, down, left, right, outer_ring]
             }
-            Trigger { soft_pull, .. } => vec![soft_pull],
-            AsMouse { .. } | JoystickMouse { .. } | GyroToMouse { .. } => vec![],
+            B::Trigger { soft_pull, .. } => vec![soft_pull],
+            B::AsMouse { .. } | B::JoystickMouse { .. } | B::GyroToMouse { .. } | B::None => vec![],
         };
         slots.into_iter().flatten()
     }
@@ -121,14 +131,14 @@ impl SourceBinding {
     /// This behavior's activation gate, if it has one (the continuous behaviors do; a plain
     /// button / button-pad / trigger doesn't).
     pub fn activation(&self) -> Option<&Activation> {
-        use SourceBinding::*;
+        use SourceBinding as B;
         match self {
-            Joystick { settings, .. } => Some(&settings.activation),
-            DirectionalPad { settings, .. } => Some(&settings.activation),
-            AsMouse { settings } => Some(&settings.activation),
-            JoystickMouse { settings } => Some(&settings.activation),
-            GyroToMouse { settings } => Some(&settings.activation),
-            Button { .. } | ButtonPad { .. } | Trigger { .. } => None,
+            B::Joystick { settings, .. } => Some(&settings.activation),
+            B::DirectionalPad { settings, .. } => Some(&settings.activation),
+            B::AsMouse { settings } => Some(&settings.activation),
+            B::JoystickMouse { settings } => Some(&settings.activation),
+            B::GyroToMouse { settings } => Some(&settings.activation),
+            B::Button { .. } | B::ButtonPad { .. } | B::Trigger { .. } | B::None => None,
         }
     }
 }
@@ -178,5 +188,18 @@ mod tests {
         // Omitted Vec fields default to empty (forgiving RON).
         let dpad: SourceBinding = ron::from_str("DirectionalPad()").unwrap();
         assert!(matches!(dpad, SourceBinding::DirectionalPad { up, .. } if up.is_empty()));
+    }
+
+    #[test]
+    fn none_is_valid_on_any_source_and_round_trips() {
+        // Explicit unbind is valid regardless of the source's kind.
+        assert!(SourceBinding::None.is_valid_for(&InputSource::RightPad.kind()));
+        assert!(SourceBinding::None.is_valid_for(&InputSource::LeftBumper.kind()));
+        assert!(SourceBinding::None.is_valid_for(&InputSource::Gyro.kind()));
+        // No commands, no activation.
+        assert_eq!(SourceBinding::None.commands().count(), 0);
+        assert!(SourceBinding::None.activation().is_none());
+        // Round-trips.
+        assert_eq!(ron::from_str::<SourceBinding>("None").unwrap(), SourceBinding::None);
     }
 }

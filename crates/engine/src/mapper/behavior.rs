@@ -99,6 +99,9 @@ pub(super) fn eval_binding(
             eval_joystick_mouse(source, settings, ctx, rel)
         }
         CompiledBinding::GyroToMouse { settings } => eval_gyro_to_mouse(settings, ctx, rel),
+        // Explicit unbind: no output. Overrides a base binding when resolved from a layer; the
+        // reconcile then releases whatever the base binding was holding (no stuck output).
+        CompiledBinding::None => {}
     }
 }
 
@@ -120,15 +123,19 @@ fn eval_joystick(
     // edge-based activators stay correct across the gap.
     let pos = is_active(&s.activation, frame).then(|| source_pos(source, frame)).flatten();
     let ring_held = if let Some(pos) = pos {
-        let (ox, oy) = process_joystick(&pos, s);
-        let (ax, ay) = match s.output {
-            StickOutput::Left => (GamepadAxis::LeftStickX, GamepadAxis::LeftStickY),
-            StickOutput::Right => (GamepadAxis::RightStickX, GamepadAxis::RightStickY),
+        // `None` output drives no stick axis (outer-ring button still fires).
+        let axes = match s.output {
+            StickOutput::Left => Some((GamepadAxis::LeftStickX, GamepadAxis::LeftStickY)),
+            StickOutput::Right => Some((GamepadAxis::RightStickX, GamepadAxis::RightStickY)),
+            StickOutput::None => None,
         };
-        desired.set_axis(ax, ox);
-        // evdev stick Y is +down while the controller reports +up, so flip (same
-        // screen-orientation fix as the mouse cursor). Per-axis `invert` composes on top.
-        desired.set_axis(ay, -oy);
+        if let Some((ax, ay)) = axes {
+            let (ox, oy) = process_joystick(&pos, s);
+            desired.set_axis(ax, ox);
+            // evdev stick Y is +down while the controller reports +up, so flip (same
+            // screen-orientation fix as the mouse cursor). Per-axis `invert` composes on top.
+            desired.set_axis(ay, -oy);
+        }
         // Outer ring fires on raw input deflection, not the processed output.
         magnitude(&pos) >= s.outer_ring.radius
     } else {
@@ -244,11 +251,15 @@ fn eval_trigger(
     ops: &mut LayerOps,
 ) {
     let pull = frame.trigger(source); // 0.0..=1.0
+    // `None` output drives no trigger axis (soft-pull button still fires).
     let axis = match s.output {
-        TriggerOutput::Left => GamepadAxis::LeftTrigger,
-        TriggerOutput::Right => GamepadAxis::RightTrigger,
+        TriggerOutput::Left => Some(GamepadAxis::LeftTrigger),
+        TriggerOutput::Right => Some(GamepadAxis::RightTrigger),
+        TriggerOutput::None => None,
     };
-    desired.set_axis(axis, process_trigger(pull, s));
+    if let Some(axis) = axis {
+        desired.set_axis(axis, process_trigger(pull, s));
+    }
     // Soft-pull virtual button fires on the raw analog pull vs its threshold — a frame-local
     // trigger, so a HoldLayer on it re-derives exactly (NodeHeld::SoftPull).
     let node = NodeHeld::SoftPull(source.clone(), s.soft_pull.threshold);
@@ -663,6 +674,47 @@ mod tests {
             ControllerState { left_trigger: 0.8, ..Default::default() },
         );
         assert!(d.has_key(&Key::F));
+    }
+
+    #[test]
+    fn trigger_output_none_drops_axis_keeps_soft_pull() {
+        let binding = CompiledBinding::Trigger {
+            settings: TriggerSettings {
+                output: config::TriggerOutput::None,
+                soft_pull: SoftPull { threshold: 0.5 },
+                ..Default::default()
+            },
+            soft_pull: regular(Key::F),
+        };
+        let d = desired_of(
+            &binding,
+            &InputSource::LeftTrigger,
+            ControllerState { left_trigger: 0.8, ..Default::default() },
+        );
+        // No trigger axis is set, but the soft-pull button still fires.
+        assert_eq!(d.axis(&GamepadAxis::LeftTrigger), None);
+        assert!(d.has_key(&Key::F));
+    }
+
+    #[test]
+    fn joystick_output_none_drops_axis_keeps_outer_ring() {
+        let binding = CompiledBinding::Joystick {
+            settings: JoystickSettings {
+                output: config::StickOutput::None,
+                outer_ring: OuterRing { radius: 0.9 },
+                ..Default::default()
+            },
+            outer_ring: regular(Key::Space),
+        };
+        let d = desired_of(
+            &binding,
+            &InputSource::LeftStick,
+            ControllerState { left_stick: Vec2 { x: 1.0, y: 0.0 }, ..Default::default() },
+        );
+        // No stick axis, but the outer-ring virtual button still fires past the radius.
+        assert_eq!(d.axis(&GamepadAxis::LeftStickX), None);
+        assert_eq!(d.axis(&GamepadAxis::LeftStickY), None);
+        assert!(d.has_key(&Key::Space));
     }
 
     #[test]

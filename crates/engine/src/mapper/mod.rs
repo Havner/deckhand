@@ -551,6 +551,26 @@ mod tests {
     }
 
     #[test]
+    fn layer_none_binding_nullifies_base() {
+        // Base binds L1 → A. A layer binds L1 → None. With the layer active, L1 does nothing and
+        // any held base output is released (the right-pad-in-mode-shift case).
+        let program = program_of(vec![(
+            SourceMap::from_iter([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::A)))]),
+            vec![layer("off", [(InputSource::LeftBumper, CompiledBinding::None)])],
+        )]);
+        let mut m = Mapper::new(&program);
+
+        // Base active: L1 → A.
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
+
+        // Activate the None layer while still holding L1 → A is released, nothing new.
+        m.force_layer(LayerId::new(0));
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 4);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
+    }
+
+    #[test]
     fn non_naming_layer_falls_through_to_base() {
         // aim binds only RightBumper; L1 is unbound in the layer → falls through to base's A.
         let program = program_of(vec![(

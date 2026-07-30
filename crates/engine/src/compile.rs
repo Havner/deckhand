@@ -120,6 +120,7 @@ fn compile_binding(binding: &SourceBinding, names: &Names) -> CompiledBinding {
             settings: settings.clone(),
             soft_pull: cc(soft_pull),
         },
+        SourceBinding::None => CompiledBinding::None,
     }
 }
 

@@ -152,16 +152,21 @@ pub fn game_profile() -> ConfigDoc {
         },
     );
 
-    // Mode-shift layer: while the right pad is clicked, the left stick drives the RIGHT stick.
+    // Mode-shift layer: while the right pad is clicked, the left stick drives the RIGHT stick,
+    // and the right pad itself is nullified (so holding it for the mode-shift doesn't jitter the
+    // mouse). `None` overrides the base AsMouse binding for the duration of the layer.
     let aim_stick = Layer {
         name: "aim_stick".into(),
-        bindings: BTreeMap::from([(
-            InputSource::LeftStick,
-            SourceBinding::Joystick {
-                settings: JoystickSettings { output: StickOutput::Right, ..Default::default() },
-                outer_ring: vec![],
-            },
-        )]),
+        bindings: BTreeMap::from([
+            (
+                InputSource::LeftStick,
+                SourceBinding::Joystick {
+                    settings: JoystickSettings { output: StickOutput::Right, ..Default::default() },
+                    outer_ring: vec![],
+                },
+            ),
+            (InputSource::RightPad, SourceBinding::None),
+        ]),
     };
 
     ConfigDoc {
@@ -217,21 +222,14 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
-    // Trigger soft-pulls → mouse buttons (right → left click, left → right click).
-    base.insert(
-        InputSource::RightTrigger,
-        SourceBinding::Trigger {
-            settings: Default::default(),
-            soft_pull: vec![press(mouse(MouseButton::Left))],
-        },
-    );
-    base.insert(
-        InputSource::LeftTrigger,
-        SourceBinding::Trigger {
-            settings: Default::default(),
-            soft_pull: vec![press(mouse(MouseButton::Right))],
-        },
-    );
+    // Trigger soft-pulls → mouse buttons (right → left click, left → right click). Output `None`
+    // so the trigger drives *no* gamepad axis on the desktop — just the soft-pull click.
+    let click_trigger = |b: MouseButton| SourceBinding::Trigger {
+        settings: TriggerSettings { output: TriggerOutput::None, ..Default::default() },
+        soft_pull: vec![press(mouse(b))],
+    };
+    base.insert(InputSource::RightTrigger, click_trigger(MouseButton::Left));
+    base.insert(InputSource::LeftTrigger, click_trigger(MouseButton::Right));
 
     // Buttons.
     base.insert(InputSource::LeftPadClick, button(mouse(MouseButton::Middle)));

@@ -50,12 +50,14 @@
                     activation: (mode: HoldToEnable, gaters: [LeftFullPull]),
                 )),
             },
-            // Mode-shift: while the right pad is clicked, the left stick drives the RIGHT stick.
+            // Mode-shift: while the right pad is clicked, the left stick drives the RIGHT stick,
+            // and the right pad is nullified (None) so holding it doesn't jitter the mouse.
             layers: [
                 (
                     name: "aim_stick",
                     bindings: {
                         LeftStick: Joystick(settings: (output: Right)),
+                        RightPad: None,
                     },
                 ),
             ],

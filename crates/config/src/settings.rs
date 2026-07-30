@@ -134,20 +134,26 @@ pub enum ActivationMode {
 
 // --- output-target choices --------------------------------------------------------------
 
-/// Which gamepad stick a `Joystick` drives.
+/// Which gamepad stick a `Joystick` drives — or `None` to drive no stick axis (keeping only the
+/// outer-ring virtual button).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum StickOutput {
     #[default]
     Left,
     Right,
+    /// No stick axis output (outer-ring button still fires).
+    None,
 }
 
-/// Which gamepad trigger a `Trigger` drives.
+/// Which gamepad trigger a `Trigger` drives — or `None` to drive no trigger axis (keeping only the
+/// soft-pull virtual button, e.g. a trigger bound purely to a mouse click on the desktop).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum TriggerOutput {
     #[default]
     Left,
     Right,
+    /// No trigger axis output (soft-pull button still fires).
+    None,
 }
 
 /// A mouse behavior's output — cursor or scroll (scroll is our extension over Steam).

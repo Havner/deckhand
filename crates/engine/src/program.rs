@@ -169,6 +169,8 @@ pub enum CompiledBinding {
     GyroToMouse { settings: GyroToMouseSettings },
     /// Trigger → gamepad trigger, plus a soft-pull virtual button.
     Trigger { settings: TriggerSettings, soft_pull: Vec<CompiledCommand> },
+    /// Explicitly unbound — produces no output (overrides a base binding when used in a layer).
+    None,
 }
 
 /// A command with its action refs resolved. `activator`/`settings` are reused from `config`.
