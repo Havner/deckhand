@@ -163,13 +163,14 @@ fn run_reader(
             last_keepalive = Instant::now();
         }
 
-        // Latest rumble level wins; re-issue the pulse train while non-zero (~60 Hz-ish, throttled
-        // like the bridge). Zero level → nothing (the train stops).
+        // Latest rumble level wins; re-issue the pulse train just before it ends so a sustained
+        // rumble is one contiguous drive (the actuator rings up), not a mid-train restart. Zero
+        // level → nothing (the train plays out and stops).
         while let Ok(r) = rumble_rx.try_recv() {
             level = r;
         }
         if (level.strong > 0 || level.weak > 0)
-            && last_haptic.elapsed() >= Duration::from_millis(120)
+            && last_haptic.elapsed() >= Duration::from_millis(RUMBLE_REFIRE_MS)
         {
             apply_haptics(&mut device, &level)?;
             last_haptic = Instant::now();
@@ -319,9 +320,18 @@ fn train(drive: u16, hz: u16) -> HidRumble {
     // valid pulse still needs duration ≥ 1 and interval ≥ 1.
     let duty = (full * RUMBLE_MAX_DUTY * period as f32) as u32;
     let duty = duty.clamp(1, period - 1);
-    let count = ((hz as u32 * 200) / 1000).max(1) as u16; // ~200 ms of pulses (covers the re-fire)
+    let count = ((hz as u32 * RUMBLE_TRAIN_MS) / 1000).max(1) as u16;
     HidRumble { duration: duty as u16, interval: (period - duty) as u16, count, gain: 0 }
 }
+
+/// Pulse-train length (ms). The pad actuator **rings up** over many cycles, so a train must be
+/// long enough to reach full amplitude — a too-short one feels weak regardless of duty. The reader
+/// re-fires just *before* this elapses ([`RUMBLE_REFIRE_MS`]) so a sustained rumble is one
+/// near-continuous drive, not a train restarted mid-swing (which never rings up). HW-tuned.
+const RUMBLE_TRAIN_MS: u32 = 250;
+/// How often the reader re-issues the train — a hair under [`RUMBLE_TRAIN_MS`] so trains are
+/// contiguous (re-fire near the train's end, not mid-play) while never leaving a silent gap.
+const RUMBLE_REFIRE_MS: u64 = 220;
 
 /// Compute the effective per-pad drive from a raw game rumble, the global master %, and the active
 /// profile's rumble settings (strength % + response curve); `hz` passes through from the profile.
