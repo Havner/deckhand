@@ -15,7 +15,8 @@ pub struct GlobalConfig {
     /// Which profile slot the engine boots into. **Read once at `start()`** — changing it via a
     /// live `set_globals` has no effect (by then the role is driven by the chords).
     pub start_profile: StartProfile,
-    /// `0..=100 %` — scales **all** haptic output (activator haptics + rumble back-channel).
+    /// `0..=100 %` — scales **all** haptic output (activator haptics + rumble back-channel). A
+    /// global attenuator only; per-profile `strength` (which may exceed 100) does per-game gain.
     pub master_rumble: u8,
     /// LED brightness `0..=100 %` (applied on connect); `None` = leave default.
     pub led_brightness: Option<u8>,
@@ -29,7 +30,7 @@ impl Default for GlobalConfig {
     fn default() -> Self {
         GlobalConfig {
             start_profile: StartProfile::default(),
-            master_rumble: 50,
+            master_rumble: 100,
             led_brightness: None,
             idle_timeout: None,
             chords: vec![],
@@ -82,8 +83,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_master_rumble_is_50() {
-        assert_eq!(GlobalConfig::default().master_rumble, 50);
+    fn default_master_rumble_is_full() {
+        assert_eq!(GlobalConfig::default().master_rumble, 100);
     }
 
     #[test]

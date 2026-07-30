@@ -336,7 +336,11 @@ const RUMBLE_REFIRE_MS: u64 = 220;
 /// Compute the effective per-pad drive from a raw game rumble, the global master %, and the active
 /// profile's rumble settings (strength % + response curve); `hz` passes through from the profile.
 fn rumble_cmd(raw: Rumble, master: u8, s: &RumbleSettings) -> RumbleCmd {
-    let scale = (master.min(100) as f32 / 100.0) * (s.strength.min(100) as f32 / 100.0);
+    // `master` (0..=100) attenuates globally; per-profile `strength` MAY exceed 100 to *boost* a
+    // game that under-drives its FF — many cap well below full range (observed: 25%), so at
+    // `MAX_DUTY` they'd never reach the actuator's saturation. The boost normalizes such a game
+    // back up; the drive still clamps at `u16::MAX` (→ RUMBLE_MAX_DUTY), so it can't overshoot.
+    let scale = (master.min(100) as f32 / 100.0) * (s.strength as f32 / 100.0);
     let drive = |v: u16| {
         let full = (v as f32 / u16::MAX as f32) * scale;
         (apply_curve(full.clamp(0.0, 1.0), &s.curve).clamp(0.0, 1.0) * u16::MAX as f32) as u16
@@ -405,6 +409,15 @@ mod tests {
         // master 0% → silent.
         let cmd = rumble_cmd(full, 0, &s);
         assert_eq!((cmd.strong, cmd.weak), (0, 0));
+
+        // strength > 100 boosts a game that under-drives its FF: a quarter-range input at 200%
+        // reaches half drive, and the boost clamps at the packet max instead of overflowing.
+        let boost = RumbleSettings { hz: 80, strength: 200, curve: Curve::Linear };
+        let quarter = Rumble { strong: u16::MAX / 4, weak: 0 };
+        let cmd = rumble_cmd(quarter, 100, &boost);
+        assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 2);
+        let cmd = rumble_cmd(Rumble { strong: u16::MAX, weak: 0 }, 100, &boost);
+        assert_eq!(cmd.strong, u16::MAX);
     }
 
     #[test]

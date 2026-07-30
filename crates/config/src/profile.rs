@@ -54,7 +54,10 @@ pub struct Layer {
 pub struct RumbleSettings {
     /// Pulse frequency, Hz.
     pub hz: u16,
-    /// Strength, percent (before the global master %).
+    /// Strength, percent (before the global master %). **May exceed 100 to boost** (a `u8`, so up
+    /// to 255): many games under-drive their FF — some cap at ~25% of range — so a value like ~200
+    /// lifts such a game back toward the controller's saturation. The engine clamps the final drive
+    /// at the actuator's max, so an over-large value simply saturates rather than overflowing.
     pub strength: u8,
     /// Strength → drive response curve (the non-linear Xbox-strength map is a future tweak).
     pub curve: Curve,
