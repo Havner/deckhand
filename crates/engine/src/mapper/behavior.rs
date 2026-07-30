@@ -46,6 +46,10 @@ const GYRO_RES_PER_DPS: f32 = 16.0;
 const PAD_MOUSE_GAIN: f32 = 400.0;
 const JOY_MOUSE_RATE: f32 = 800.0;
 const GYRO_MOUSE_GAIN: f32 = 20.0;
+/// Scroll reuses a behavior's pixel-scaled motion but a wheel is far coarser than the cursor
+/// (`REL_WHEEL` counts notches, not pixels), so scroll divides the pixel motion down by this many
+/// pixels per wheel notch. Starting point, HW-tuned; per-behavior `sensitivity` tunes on top.
+const PIXELS_PER_SCROLL_TICK: f32 = 50.0;
 
 /// Per-tick context for behaviors: the current frame, the previous frame (the pad-delta source
 /// for `AsMouse`), `dt` in seconds (for the rate-based stick/gyro behaviors), and the injected
@@ -384,12 +388,15 @@ fn process_relative(
 ///
 /// The controller reports stick/pad Y as **+up** (physical), but evdev's cursor `REL_Y` is
 /// **+down**, so the cursor path flips Y to keep "up on the controller" = "up on screen" (X
-/// already agrees). Scroll (`REL_WHEEL`) has its own convention and is left as-is — its
-/// direction is a per-behavior `invert` preference, not this screen-orientation fix.
+/// already agrees). Scroll (`REL_WHEEL`) has the opposite polarity (+ = up), so *not* flipping Y
+/// there likewise means "controller up = scroll up"; but a wheel is far coarser than the cursor,
+/// so scroll divides the pixel-scaled motion down to notches ([`PIXELS_PER_SCROLL_TICK`]).
 fn emit_relative(output: &MouseOutput, dx: f32, dy: f32, rel: &mut RelAccum) {
     match output {
         MouseOutput::Cursor => rel.add_mouse(dx, -dy),
-        MouseOutput::Scroll => rel.add_scroll(dx, dy),
+        MouseOutput::Scroll => {
+            rel.add_scroll(dx / PIXELS_PER_SCROLL_TICK, dy / PIXELS_PER_SCROLL_TICK)
+        }
     }
 }
 
@@ -778,6 +785,33 @@ mod tests {
         let cur = ControllerState { left_pad: touched(0.5, 0.0), ..Default::default() };
         let out = relative_of(&binding, &InputSource::LeftPad, Some(prev), cur, 0.016);
         assert!(mouse_dx(&out) > 0);
+    }
+
+    #[test]
+    fn as_mouse_scroll_is_far_coarser_than_cursor() {
+        // The same pad delta yields many cursor pixels but only a few scroll notches (REL_WHEEL
+        // counts notches, not pixels), so scroll doesn't fly.
+        let prev = ControllerState { left_pad: touched(0.0, 0.0), ..Default::default() };
+        let cur = ControllerState { left_pad: touched(0.0, 0.5), ..Default::default() };
+
+        let cursor = CompiledBinding::AsMouse { settings: AsMouseSettings::default() };
+        let out = relative_of(&cursor, &InputSource::LeftPad, Some(prev.clone()), cur.clone(), 0.016);
+        let cursor_dy = mouse_dy(&out).abs();
+
+        let scroll = CompiledBinding::AsMouse {
+            settings: AsMouseSettings { output: MouseOutput::Scroll, ..Default::default() },
+        };
+        let out = relative_of(&scroll, &InputSource::LeftPad, Some(prev), cur, 0.016);
+        let scroll_dy = out
+            .iter()
+            .find_map(|e| match e {
+                OutputEvent::Scroll { dy, .. } => Some(dy.abs()),
+                _ => None,
+            })
+            .unwrap_or(0);
+
+        assert!(cursor_dy > 100, "cursor should move ~200 px, got {cursor_dy}");
+        assert!(scroll_dy > 0 && scroll_dy < 10, "scroll should be a few notches, got {scroll_dy}");
     }
 
     #[test]
