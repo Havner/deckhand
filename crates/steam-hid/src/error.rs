@@ -36,4 +36,8 @@ pub enum Error {
     /// No matching Steam device was found during enumeration/open.
     #[error("no matching Steam device found")]
     NoDevice,
+
+    /// A device-id string that could not be parsed (see [`DeviceId`](crate::DeviceId)).
+    #[error("invalid device id: {0:?}")]
+    ParseDeviceId(String),
 }

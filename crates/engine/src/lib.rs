@@ -32,6 +32,7 @@ mod runtime;
 pub use compile::compile;
 pub use error::{Error, Result};
 pub use handle::{DeviceSelect, Engine, Input, Output, Status};
+pub use steam_hid::{DeviceId, DeviceInfo, Transport};
 pub use logical::{Dir, LogicalFrame};
 pub use mapper::{HapticReq, Mapper, Tick};
 pub use program::{

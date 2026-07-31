@@ -16,9 +16,11 @@ fn main() -> steam_hid::Result<()> {
 
     println!("Found {} gamepad interface(s):", devices.len());
     for d in &devices {
+        // `id` is the stable DeviceId string (PLAN §4.3) — usable as `--input <id>`; a `serial`
+        // of `None` (empty last field) means single-dongle stays unique via transport+slot.
         println!(
-            "  {:?} / {:?}  {:04x}:{:04x} iface={} serial={:?}",
-            d.kind, d.transport, d.vid, d.pid, d.interface, d.serial
+            "  {:?} / {:?}  {:04x}:{:04x} iface={} serial={:?}  id={}",
+            d.kind, d.transport, d.vid, d.pid, d.interface, d.serial, d.id()
         );
     }
     Ok(())

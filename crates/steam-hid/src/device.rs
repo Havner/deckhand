@@ -28,12 +28,99 @@ pub enum DeviceKind {
     Neptune,
 }
 
+impl DeviceKind {
+    /// Canonical lowercase token (used in [`DeviceId`] strings).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DeviceKind::Gordon => "gordon",
+            DeviceKind::Neptune => "neptune",
+        }
+    }
+
+    /// Parse a canonical token (see [`DeviceKind::as_str`]).
+    pub fn from_token(s: &str) -> Option<DeviceKind> {
+        match s {
+            "gordon" => Some(DeviceKind::Gordon),
+            "neptune" => Some(DeviceKind::Neptune),
+            _ => None,
+        }
+    }
+}
+
 /// How the device is attached.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Transport {
     UsbWired,
     UsbDongle,
+}
+
+impl Transport {
+    /// Canonical lowercase token (used in [`DeviceId`] strings).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Transport::UsbWired => "wired",
+            Transport::UsbDongle => "dongle",
+        }
+    }
+
+    /// Parse a canonical token (see [`Transport::as_str`]).
+    pub fn from_token(s: &str) -> Option<Transport> {
+        match s {
+            "wired" => Some(Transport::UsbWired),
+            "dongle" => Some(Transport::UsbDongle),
+            _ => None,
+        }
+    }
+}
+
+/// A stable, path-independent identity for a device (PLAN §4.3). Built from the fields that
+/// survive a replug — `kind`, `transport`, slot (`interface`), and `serial` — **not** the
+/// ephemeral OS path (Linux `/dev/hidrawN` is reassigned on replug). Used to pin a selection so
+/// it reconnects to the *same* physical device, and to name a device on the CLI / control socket.
+///
+/// String form (`Display`/`FromStr`): `kind:transport:interface:serial`, e.g.
+/// `gordon:dongle:1:ABCDEF`; an empty trailing field means no serial (`gordon:wired:2:`). The
+/// serial is taken verbatim as the remainder, so it may itself contain `:`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceId {
+    pub kind: DeviceKind,
+    pub transport: Transport,
+    pub interface: i32,
+    pub serial: Option<String>,
+}
+
+impl std::fmt::Display for DeviceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}:{}",
+            self.kind.as_str(),
+            self.transport.as_str(),
+            self.interface,
+            self.serial.as_deref().unwrap_or(""),
+        )
+    }
+}
+
+impl std::str::FromStr for DeviceId {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let bad = || Error::ParseDeviceId(s.to_owned());
+        let mut it = s.splitn(4, ':');
+        let (Some(kind), Some(transport), Some(iface), Some(serial)) =
+            (it.next(), it.next(), it.next(), it.next())
+        else {
+            return Err(bad());
+        };
+        Ok(DeviceId {
+            kind: DeviceKind::from_token(kind).ok_or_else(bad)?,
+            transport: Transport::from_token(transport).ok_or_else(bad)?,
+            interface: iface.parse().map_err(|_| bad())?,
+            serial: (!serial.is_empty()).then(|| serial.to_owned()),
+        })
+    }
 }
 
 /// A discovered device (one gamepad HID interface / dongle slot).
@@ -48,6 +135,18 @@ pub struct DeviceInfo {
     pub interface: i32,
     /// Opaque OS path used to open the device.
     pub(crate) path: CString,
+}
+
+impl DeviceInfo {
+    /// This device's stable, path-independent [`DeviceId`] (PLAN §4.3).
+    pub fn id(&self) -> DeviceId {
+        DeviceId {
+            kind: self.kind.clone(),
+            transport: self.transport.clone(),
+            interface: self.interface,
+            serial: self.serial.clone(),
+        }
+    }
 }
 
 fn classify(pid: u16) -> Option<(DeviceKind, Transport)> {
@@ -351,6 +450,56 @@ fn clamp_timeout(timeout: Duration) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_id_round_trips() {
+        for id in [
+            DeviceId {
+                kind: DeviceKind::Gordon,
+                transport: Transport::UsbDongle,
+                interface: 1,
+                serial: Some("ABCDEF".into()),
+            },
+            DeviceId {
+                kind: DeviceKind::Neptune,
+                transport: Transport::UsbWired,
+                interface: 2,
+                serial: None,
+            },
+            // A serial containing ':' survives (it's the verbatim remainder).
+            DeviceId {
+                kind: DeviceKind::Gordon,
+                transport: Transport::UsbWired,
+                interface: 2,
+                serial: Some("aa:bb".into()),
+            },
+        ] {
+            let s = id.to_string();
+            assert_eq!(s.parse::<DeviceId>().unwrap(), id, "round-trip for {s:?}");
+        }
+    }
+
+    #[test]
+    fn device_id_display_form() {
+        let id = DeviceId {
+            kind: DeviceKind::Gordon,
+            transport: Transport::UsbDongle,
+            interface: 1,
+            serial: Some("ABCDEF".into()),
+        };
+        assert_eq!(id.to_string(), "gordon:dongle:1:ABCDEF");
+        assert_eq!(
+            DeviceId { serial: None, ..id }.to_string(),
+            "gordon:dongle:1:"
+        );
+    }
+
+    #[test]
+    fn device_id_rejects_garbage() {
+        for bad in ["", "gordon", "gordon:dongle", "gordon:dongle:x:s", "bogus:dongle:1:s"] {
+            assert!(bad.parse::<DeviceId>().is_err(), "{bad:?} should not parse");
+        }
+    }
 
     #[test]
     fn frame_prepends_report_id_and_pads_to_64() {

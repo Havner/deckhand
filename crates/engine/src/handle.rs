@@ -12,7 +12,7 @@
 //! (Local-only built; the seam is kept — PLAN §4.1/§6).
 
 use config::GlobalConfig;
-use steam_hid::{Device, DeviceInfo, Manager, RawReport, Transport};
+use steam_hid::{Device, DeviceId, DeviceInfo, Manager, RawReport, Transport};
 use std::time::Duration;
 use virt_out::Sink;
 
@@ -31,8 +31,9 @@ pub enum DeviceSelect {
     Auto,
     /// Restrict to a transport (wired vs dongle).
     Transport(Transport),
-    /// A specific enumerated device.
-    Explicit(DeviceInfo),
+    /// A specific device, pinned by its stable [`DeviceId`] (resolved to a fresh path at each
+    /// `start()`, so it survives the OS path changing across replug — PLAN §4.3).
+    Explicit(DeviceId),
 }
 
 /// Where output goes. `Network` (a UDP sender to a remote sink) is deferred; the seam is kept.
@@ -209,7 +210,15 @@ impl Engine {
         let manager = self.manager.as_ref().unwrap();
         let Input::Local(select) = &self.input;
 
-        if let DeviceSelect::Explicit(info) = select {
+        if let DeviceSelect::Explicit(id) = select {
+            // Resolve the pinned DeviceId against the *current* enumeration (the OS path may
+            // have changed since it was chosen — PLAN §4.3), then open it directly (a specific
+            // device is idle until moved, so no frame gate).
+            let infos = manager.enumerate()?;
+            let info = infos
+                .iter()
+                .find(|i| &i.id() == id)
+                .ok_or(Error::NotReady("selected device not present"))?;
             return Ok(manager.open(info)?);
         }
         let want: Option<&Transport> = match select {
