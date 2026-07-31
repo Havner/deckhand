@@ -138,13 +138,15 @@ pub struct DeviceInfo {
 }
 
 impl DeviceInfo {
-    /// This device's stable, path-independent [`DeviceId`] (PLAN §4.3).
+    /// This device's stable, path-independent [`DeviceId`] (PLAN §4.3). An empty serial is
+    /// normalized to `None` (the Gordon dongle reports `Some("")`) so the id is canonical and
+    /// round-trips through its string form.
     pub fn id(&self) -> DeviceId {
         DeviceId {
             kind: self.kind.clone(),
             transport: self.transport.clone(),
             interface: self.interface,
-            serial: self.serial.clone(),
+            serial: self.serial.clone().filter(|s| !s.is_empty()),
         }
     }
 }
@@ -192,7 +194,8 @@ impl Manager {
             out.push(DeviceInfo {
                 kind,
                 transport,
-                serial: info.serial_number().map(str::to_owned),
+                // Normalize an empty serial to None (the Gordon dongle reports `Some("")`).
+                serial: info.serial_number().filter(|s| !s.is_empty()).map(str::to_owned),
                 vid: info.vendor_id(),
                 pid: info.product_id(),
                 interface: info.interface_number(),
@@ -492,6 +495,25 @@ mod tests {
             DeviceId { serial: None, ..id }.to_string(),
             "gordon:dongle:1:"
         );
+    }
+
+    #[test]
+    fn device_info_id_normalizes_empty_serial() {
+        // The Gordon dongle reports serial = Some("") — id() must canonicalize it to None so the
+        // id round-trips through its string form (and a CLI `--input gordon:dongle:1:` matches).
+        let info = DeviceInfo {
+            kind: DeviceKind::Gordon,
+            transport: Transport::UsbDongle,
+            serial: Some(String::new()),
+            vid: protocol::VALVE_VID,
+            pid: protocol::PID_GORDON_DONGLE,
+            interface: 1,
+            path: CString::new("dummy").unwrap(),
+        };
+        let id = info.id();
+        assert_eq!(id.serial, None);
+        assert_eq!(id.to_string(), "gordon:dongle:1:");
+        assert_eq!(id.to_string().parse::<DeviceId>().unwrap(), id);
     }
 
     #[test]
