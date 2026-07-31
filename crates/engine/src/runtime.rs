@@ -253,7 +253,7 @@ fn read_session(
     click_rx: &Receiver<Click>,
     running: &AtomicBool,
 ) -> Result<SessionEnd> {
-    ensure_device_cfg(device, cfg);
+    apply_device_cfg(device, cfg);
     let mut last_keepalive = Instant::now();
     let mut last_haptic = Instant::now();
     let mut level = RumbleCmd::default();
@@ -266,7 +266,7 @@ fn read_session(
                 match &report {
                     Report::Connected => {
                         EngineEvent::ControllerConnected.emit();
-                        ensure_device_cfg(device, cfg);
+                        apply_device_cfg(device, cfg);
                     }
                     Report::Disconnected => EngineEvent::ControllerDisconnected.emit(),
                     // Edge-triggered: the 0x04 report streams ~1 Hz, so only surface a change.
@@ -558,38 +558,23 @@ fn run_waiting(
     Ok(WaitOutcome::Stopped)
 }
 
-/// Apply lizard-off + gyro + optional LED/idle. Called on start and every `Connected`.
-fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) -> Result<()> {
-    device.set_lizard_mode(false)?;
-    device.set_gyro(cfg.gyro)?;
-    if let Some(b) = cfg.led_brightness {
-        device.set_led_intensity(b)?;
-    }
-    if let Some(t) = cfg.idle_timeout {
-        device.set_idle_timeout(t)?;
-    }
-    Ok(())
-}
-
-/// How many times to (re)try applying device config, and the gap between tries.
-const CFG_RETRIES: u32 = 5;
-const CFG_RETRY_MS: u64 = 40;
-
-/// Apply device config, **non-fatally**, retrying a few times. Right after a (re)connect the
-/// controller commonly NAKs a feature write for a moment; a single failure here must not kill the
-/// reader thread (which would leave the controller in lizard mode with no mapping — the exact D6
-/// reattach symptom). If every attempt fails, log and carry on — the next `Connected` retries, and
-/// a genuinely-gone device surfaces as a read error → reacquire.
-fn ensure_device_cfg(device: &mut Device, cfg: &DeviceCfg) {
-    for attempt in 1..=CFG_RETRIES {
-        match apply_device_cfg(device, cfg) {
-            Ok(()) => return,
-            Err(e) if attempt < CFG_RETRIES => {
-                log::debug!("device cfg attempt {attempt} failed ({e}) — retrying");
-                thread::sleep(Duration::from_millis(CFG_RETRY_MS));
-            }
-            Err(e) => log::warn!("device cfg failed after {CFG_RETRIES} attempts: {e}"),
+/// Apply lizard-off + gyro + optional LED/idle (on start and every `Connected`). **Non-fatal:** a
+/// transient feature-write hiccup is logged and ignored — it must not tear down the reader thread; a
+/// genuinely-gone device surfaces as a read error → reacquire.
+fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) {
+    let result: Result<()> = (|| {
+        device.set_lizard_mode(false)?;
+        device.set_gyro(cfg.gyro)?;
+        if let Some(b) = cfg.led_brightness {
+            device.set_led_intensity(b)?;
         }
+        if let Some(t) = cfg.idle_timeout {
+            device.set_idle_timeout(t)?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = result {
+        log::warn!("device cfg: {e}");
     }
 }
 
