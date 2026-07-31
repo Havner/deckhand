@@ -13,13 +13,14 @@
 //!      no DLL, no FFI. So this file compiles and links anywhere Windows does; it only *works*
 //!      at runtime once the driver is installed and the server is running.
 //!
-//! Config: we connect to `127.0.0.1:3242` by default (override with `DECKHAND_VIIPER_ADDR`).
-//! The server auto-generates an API password; we read `DECKHAND_VIIPER_PASSWORD` if set, else
-//! auto-read the server's key file (`%APPDATA%\VIIPER\viiper.key.txt`), else connect
-//! unauthenticated (works when the server doesn't require localhost auth).
+//! Config: we connect to `127.0.0.1:3242` by default (override `DECKHAND_VIIPER_ADDR`) and, by
+//! default, **unauthenticated (plain TCP)**. Localhost needs no auth unless the server is run with
+//! `--api.require-local-host-auth`, and `viiper-client` 0.7's *encrypted* path **deadlocks on
+//! teardown** (see `resolve_password` / `Drop`), so plain is both sufficient and the only path that
+//! shuts down cleanly. Set `DECKHAND_VIIPER_PASSWORD` to force the encrypted path if your server
+//! requires auth (accepting that Ctrl-C will then hang until the crate bug is fixed upstream).
 
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -167,10 +168,13 @@ impl ControllerBackend for ViiperController {
 
 impl Drop for ViiperController {
     fn drop(&mut self) {
-        // Close the device stream first (shuts the socket, joins the output thread) so the
-        // server sees the handler disconnect, then remove the bus — which cascades to its
-        // device — best-effort. (The server would auto-clean on its own timeout regardless, but
-        // removing the bus avoids leaking one per run.)
+        // Drop the stream first — its `Drop` shuts the socket (unblocking the rumble reader thread)
+        // and joins it — then remove the bus (cascades to the device) so we don't leak one per run.
+        // Clean teardown relies on the **plain-TCP** path: `viiper-client` 0.7's `EncryptedStream`
+        // deadlocks here (its `read` holds the mutex `shutdown` needs), so we default to an
+        // unauthenticated connection (see `resolve_password`). Note `bus_remove` does *not* close
+        // our API device-stream socket — only the server's URB stream — so it cannot rescue the
+        // encrypted path; avoiding encryption is the actual fix.
         drop(self.stream.take());
         let _ = self.client.bus_remove(Some(self.bus_id));
     }
@@ -186,18 +190,20 @@ fn resolve_addr() -> SocketAddr {
         .unwrap_or_else(|| DEFAULT_ADDR.parse().expect("valid default addr"))
 }
 
-/// The API password: `DECKHAND_VIIPER_PASSWORD` if non-empty, else the server's generated key
-/// file (`%APPDATA%\VIIPER\viiper.key.txt`), else `None` (connect unauthenticated).
+/// The API password, or `None` to connect **unauthenticated (plain TCP)** — the default. Only
+/// `DECKHAND_VIIPER_PASSWORD` (if non-empty) opts into the encrypted path.
+///
+/// We do **not** auto-read the server's key file (`%APPDATA%\VIIPER\viiper.key.txt`) because that
+/// would force the encrypted path, which **deadlocks on shutdown** in `viiper-client` 0.7: its
+/// `EncryptedStream::read` holds the shared read mutex across the blocking `recv`, while
+/// `DeviceStream::drop` → `shutdown` needs that same mutex — so with a concurrent rumble reader
+/// (`on_output`) any clean teardown hangs until the socket is closed by the server (which
+/// `bus_remove` does *not* do for the API stream). Plain TCP has no such lock, so it shuts down
+/// cleanly, and localhost needs no auth by default. Set the env var only if the server enforces
+/// `--api.require-local-host-auth` (and expect the shutdown hang until the crate is fixed).
 fn resolve_password() -> Option<String> {
-    if let Ok(pw) = std::env::var("DECKHAND_VIIPER_PASSWORD") {
-        let pw = pw.trim().to_string();
-        if !pw.is_empty() {
-            return Some(pw);
-        }
-    }
-    let appdata = std::env::var_os("APPDATA")?;
-    let path = Path::new(&appdata).join("VIIPER").join("viiper.key.txt");
-    let pw = std::fs::read_to_string(path).ok()?.trim().to_string();
+    let pw = std::env::var("DECKHAND_VIIPER_PASSWORD").ok()?;
+    let pw = pw.trim().to_string();
     if pw.is_empty() { None } else { Some(pw) }
 }
 
