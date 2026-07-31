@@ -34,8 +34,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
 
     /// A ViGEmBus error (Windows virtual-gamepad backend) — e.g. the driver isn't
-    /// installed, or the target couldn't be plugged in.
-    #[cfg(target_os = "windows")]
+    /// installed, or the target couldn't be plugged in. Only present with the `vigem` feature.
+    #[cfg(all(target_os = "windows", feature = "vigem"))]
     #[error("ViGEm error: {0}")]
     Vigem(#[from] vigem_client::Error),
 }

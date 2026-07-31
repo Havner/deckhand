@@ -22,9 +22,20 @@ libc.workspace = true
 [target.'cfg(target_os = "windows")'.dependencies]
 # Virtual Xbox 360 pad via the ViGEmBus driver. `unstable_xtarget_notification` is
 # required to receive game rumble back from the virtual pad (PLAN §2.1 FF back-channel).
-vigem-client = { version = "0.1", features = ["unstable_xtarget_notification"] }
-# SendInput for virtual keyboard/mouse (no driver needed).
+# Optional: pulled in only by the `vigem` feature so the controller backend can be swapped
+# out (a future `viiper`) or dropped entirely (kb/mouse-only build).
+vigem-client = { version = "0.1", features = ["unstable_xtarget_notification"], optional = true }
+# SendInput for virtual keyboard/mouse (no driver needed). Always present — the kb/mouse path
+# is independent of which controller backend (if any) is compiled in.
 windows = { version = "0.60", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+
+[features]
+# The controller (virtual-gamepad) backend is compile-time selectable and Windows-only; on
+# other platforms these features are inert. Backends are mutually exclusive; with none enabled
+# (the default — no `default` feature for now) the build is kb/mouse-only and controller output
+# is dropped with a warning. Opt in explicitly with `--features vigem`.
+# Virtual Xbox 360 pad via the ViGEmBus driver (needs ViGEmBus installed). See `win/vigem.rs`.
+vigem = ["dep:vigem-client"]
 
 [dev-dependencies]
 # The `bridge` example wires a real Steam controller into the virtual pad (PLAN §2.1

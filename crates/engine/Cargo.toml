@@ -13,13 +13,22 @@ config = { path = "../config" }
 # Shared output vocabulary (Key / MouseButton / GamepadButton / GamepadAxis).
 vocab = { path = "../vocab" }
 # Input HAL (devices, ControllerState) and output HAL (Sink, OutputEvent, Rumble). The
-# engine owns and drives both directly (PLAN §4).
+# engine owns and drives both directly (PLAN §4). virt-out's controller (virtual-gamepad)
+# backend is compile-time selectable and off by default; forward the choice via the engine's
+# own `vigem` feature below. A plain engine build is controller-less (kb/mouse only).
 steam-hid = { path = "../steam-hid" }
-virt-out = { path = "../virt-out" }
+virt-out = { path = "../virt-out", default-features = false }
 # Sync concurrency: `select!` in the central loop over frame/control/tick channels.
 crossbeam-channel.workspace = true
 log.workspace = true
 thiserror.workspace = true
+
+[features]
+# Forward virt-out's controller-backend selection so `cargo run -p engine --features vigem`
+# (and the daemon later) can pick it. Off by default for now — a plain build has no virtual
+# controller. Mutually exclusive backends (a future `viiper`) get their own forwarding
+# feature here.
+vigem = ["virt-out/vigem"]
 
 # Dev-deps for the `deckhand-run` example (PLAN §4.2 S10): load a profile from RON, log,
 # and shut down cleanly on Ctrl-C. `ctrlc`'s `termination` feature also traps SIGTERM/SIGHUP

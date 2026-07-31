@@ -1,17 +1,17 @@
-//! Windows backend: keyboard/mouse via `SendInput`, a virtual Xbox 360 pad via ViGEm
-//! (the ViGEmBus driver, through the `vigem-client` crate). The gamepad advertises the
-//! standard X360 identity so games see a normal Xbox pad, and we receive game rumble
-//! back over ViGEm's notification channel (PLAN §2.1 FF back-channel).
+//! Windows backend: keyboard/mouse via `SendInput`, and a virtual gamepad via a
+//! compile-time-selected **controller backend** ([`vigem`] — a virtual Xbox 360 pad through
+//! the ViGEmBus driver / the `vigem-client` crate; later `viiper`; or [`none`] when neither
+//! feature is enabled). The gamepad advertises a standard Xbox 360 identity so games see a
+//! normal pad, and game rumble flows back over the backend's notification channel
+//! (PLAN §2.1 FF back-channel).
 //!
-//! Mirrors the Linux backend's [`Sink`] API exactly (`new` / `emit` / `poll_rumble`) so
-//! the engine and the `bridge` example are platform-agnostic.
+//! Mirrors the Linux backend's [`Sink`] API exactly (`new` / `emit` / `poll_rumble`) so the
+//! engine and the `bridge` example stay platform-agnostic. Only the gamepad path is
+//! backend-specific; keyboard/mouse is always `SendInput` regardless of the controller
+//! backend (so a `--no-default-features` build still maps kb/mouse fully).
 
 use std::mem::size_of;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::thread::JoinHandle;
 
-use vigem_client::{Client, TargetId, XButtons, XGamepad, XTarget};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
@@ -36,76 +36,68 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_SCROLL, VK_SNAPSHOT, VK_SPACE, VK_SUBTRACT, VK_TAB, VK_UP,
 };
 
-use crate::event::{Dpad, OutputEvent, Rumble};
+use crate::event::{OutputEvent, Rumble};
 use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
 
-/// `mouseData` values for the extra mouse buttons (X1 = back, X2 = forward).
-const XBUTTON1: u32 = 0x0001;
-const XBUTTON2: u32 = 0x0002;
-/// One wheel notch (`WHEEL_DELTA`).
-const WHEEL_DELTA: i32 = 120;
+// --- controller backend selection (compile-time, mutually exclusive) ---
+//
+// Exactly one backend type is compiled in, aliased to `Backend`. The `vigem` feature (on by
+// default) selects the ViGEm pad; with it off — and no other backend feature — the `none`
+// stub stands in and drops gamepad output with a warning. A future `viiper` backend adds a
+// third arm here (and a `compile_error!` guard against enabling two at once).
 
-/// Latest rumble from the virtual pad, written by the ViGEm notification thread and read
-/// by [`Sink::poll_rumble`]. ViGEm reports motor speeds as `u8` (the high byte of the
-/// XInput `u16`); we widen back on read.
-struct RumbleState {
-    strong: AtomicU8, // large / low-frequency motor
-    weak: AtomicU8,   // small / high-frequency motor
+#[cfg(feature = "vigem")]
+mod vigem;
+#[cfg(feature = "vigem")]
+use vigem::VigemController as Backend;
+
+#[cfg(not(feature = "vigem"))]
+mod none;
+#[cfg(not(feature = "vigem"))]
+use none::NoController as Backend;
+
+/// A virtual-controller backend, selected at compile time by feature. The keyboard/mouse
+/// path in [`Sink`] is backend-independent — only gamepad output routes through here.
+/// Gamepad state is accumulated by `set_button`/`set_axis` and pushed to the OS by `flush`
+/// (once per `emit`, only if something changed). When no backend feature is enabled,
+/// [`none::NoController`] implements this by dropping everything with a warn-once.
+pub(crate) trait ControllerBackend: Sized {
+    /// Create / plug in the virtual controller. Fails if the backend's driver is
+    /// unavailable (e.g. ViGEmBus not installed).
+    fn new() -> crate::Result<Self>;
+    /// Update the pending report for a gamepad button (dpad directions fold into the hat).
+    fn set_button(&mut self, b: &GamepadButton, down: bool);
+    /// Update the pending report for a gamepad axis (`-1.0..=1.0` sticks, `0.0..=1.0` triggers).
+    fn set_axis(&mut self, a: &GamepadAxis, v: f32);
+    /// Submit the pending report to the OS iff anything changed since the last flush.
+    fn flush(&mut self) -> crate::Result<()>;
+    /// The controller's current rumble (game → pad), zero if nothing is playing.
+    fn poll_rumble(&mut self) -> crate::Result<Rumble>;
 }
 
-/// The output sink: owns the virtual Xbox 360 pad and realizes [`OutputEvent`]s
-/// (keyboard/mouse via `SendInput`, gamepad via ViGEm). Sync — call [`Sink::emit`] from
-/// the engine's mapping loop; [`Sink::poll_rumble`] returns the pad's current rumble.
-/// Dropping the `Sink` unplugs the virtual pad and stops the notification thread.
+/// The output sink: realizes [`OutputEvent`]s — keyboard/mouse via `SendInput`, gamepad via
+/// the compile-time [`ControllerBackend`]. Sync — call [`Sink::emit`] from the engine's
+/// mapping loop; [`Sink::poll_rumble`] returns the pad's current rumble. Dropping the `Sink`
+/// drops the backend (unplugging the virtual pad, if any).
 pub struct Sink {
-    target: XTarget,
-    // The full gamepad report we resubmit whenever any gamepad input changes. `buttons`
-    // holds only the non-dpad bits; the dpad hat is kept separately and OR'd in at submit
-    // (both live in the same XInput button word).
-    gamepad: XGamepad,
-    // Dpad direction state, folded into the XInput hat bits at submit.
-    dpad: Dpad,
-    // Rumble back-channel: a notification thread stores the latest motor speeds here.
-    rumble: Arc<RumbleState>,
-    notif: Option<JoinHandle<()>>,
+    controller: Backend,
 }
 
 impl Sink {
-    /// Connect to ViGEmBus, plug in a virtual Xbox 360 pad, and start the rumble
-    /// notification thread. Fails if the ViGEmBus driver isn't installed/running.
+    /// Create the sink: initialize the controller backend (plug in the virtual pad, if the
+    /// selected backend has one) and prepare the kb/mouse path. Fails if the backend's driver
+    /// isn't available.
     pub fn new() -> crate::Result<Self> {
-        let client = Client::connect()?;
-        let mut target = XTarget::new(client, TargetId::XBOX360_WIRED);
-        target.plugin()?;
-        target.wait_ready()?;
-
-        let rumble = Arc::new(RumbleState {
-            strong: AtomicU8::new(0),
-            weak: AtomicU8::new(0),
-        });
-        // The notification thread blocks on ViGEm and stores each rumble update. It
-        // exits when the target is unplugged (drop), which aborts its pending request.
-        let sink_rumble = Arc::clone(&rumble);
-        let notif = target.request_notification()?.spawn_thread(move |_, data| {
-            sink_rumble.strong.store(data.large_motor, Ordering::Relaxed);
-            sink_rumble.weak.store(data.small_motor, Ordering::Relaxed);
-        });
-
         Ok(Self {
-            target,
-            gamepad: XGamepad::default(),
-            dpad: Dpad::default(),
-            rumble,
-            notif: Some(notif),
+            controller: Backend::new()?,
         })
     }
 
-    /// Realize a batch of output events. Keyboard/mouse events are injected together via
-    /// one `SendInput` call; gamepad changes are accumulated into the pad report and
-    /// submitted once (a full XInput report) if anything changed.
+    /// Realize a batch of output events. Keyboard/mouse events are injected together via one
+    /// `SendInput` call; gamepad changes are accumulated in the backend and flushed once (a
+    /// full report) if anything changed.
     pub fn emit(&mut self, events: &[OutputEvent]) -> crate::Result<()> {
         let mut inputs: Vec<INPUT> = Vec::new();
-        let mut gp_dirty = false;
 
         for ev in events {
             match ev {
@@ -150,16 +142,8 @@ impl Sink {
                         inputs.push(wheel_hires_input(*dx, true));
                     }
                 }
-                OutputEvent::GamepadButton(b, down) => {
-                    if !self.dpad.set(b, *down) {
-                        set_button(&mut self.gamepad.buttons, b, *down);
-                    }
-                    gp_dirty = true;
-                }
-                OutputEvent::GamepadAxis(a, v) => {
-                    self.set_axis(a, *v);
-                    gp_dirty = true;
-                }
+                OutputEvent::GamepadButton(b, down) => self.controller.set_button(b, *down),
+                OutputEvent::GamepadAxis(a, v) => self.controller.set_axis(a, *v),
             }
         }
 
@@ -186,154 +170,19 @@ impl Sink {
                 }
             }
         }
-        if gp_dirty {
-            // Fold the dpad hat into the button word alongside the face/shoulder bits.
-            let raw =
-                (self.gamepad.buttons.raw & !DPAD_MASK) | dpad_bits((self.dpad.x(), self.dpad.y()));
-            self.gamepad.buttons = XButtons { raw };
-            self.target.update(&self.gamepad)?;
-        }
-        Ok(())
+
+        self.controller.flush()
     }
 
-    /// Return the virtual pad's current rumble (zero if nothing is playing). Non-blocking
-    /// — reads the latest motor speeds captured by the notification thread. Route the
-    /// result onward to real-controller haptics (PLAN §2.1 / §6).
+    /// Return the virtual pad's current rumble (zero if nothing is playing, or if no
+    /// controller backend is compiled in). Non-blocking. Route the result onward to
+    /// real-controller haptics (PLAN §2.1 / §6).
     pub fn poll_rumble(&mut self) -> crate::Result<Rumble> {
-        // ViGEm delivers each motor as the high byte of the XInput u16; widen by ×257 so
-        // 0xFF maps to 0xFFFF (full scale) rather than 0xFF00.
-        let widen = |v: u8| (v as u16) * 257;
-        Ok(Rumble {
-            strong: widen(self.rumble.strong.load(Ordering::Relaxed)),
-            weak: widen(self.rumble.weak.load(Ordering::Relaxed)),
-        })
+        self.controller.poll_rumble()
     }
-
-    fn set_axis(&mut self, a: &GamepadAxis, v: f32) {
-        match a {
-            GamepadAxis::LeftStickX => self.gamepad.thumb_lx = stick(v),
-            // XInput sticks are +up; the shared vocabulary uses the evdev sign (+down, see
-            // the Linux backend / the bridge's `-s.left_stick.y`), so negate Y here.
-            GamepadAxis::LeftStickY => self.gamepad.thumb_ly = stick(-v),
-            GamepadAxis::RightStickX => self.gamepad.thumb_rx = stick(v),
-            GamepadAxis::RightStickY => self.gamepad.thumb_ry = stick(-v),
-            GamepadAxis::LeftTrigger => self.gamepad.left_trigger = trigger(v),
-            GamepadAxis::RightTrigger => self.gamepad.right_trigger = trigger(v),
-        }
-    }
-}
-
-impl Drop for Sink {
-    fn drop(&mut self) {
-        // Unplug first: this aborts the notification thread's pending request so its
-        // blocking poll returns and the thread exits; then join it. (The target's own
-        // Drop would unplug too, but we need the unplug *before* the join.)
-        let _ = self.target.unplug();
-        if let Some(handle) = self.notif.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-// --- gamepad vocabulary → XInput mapping ---
-
-/// The four dpad-hat bits within the XInput button word.
-const DPAD_MASK: u16 = XButtons::UP | XButtons::DOWN | XButtons::LEFT | XButtons::RIGHT;
-
-fn set_button(buttons: &mut XButtons, b: &GamepadButton, down: bool) {
-    let bit = match b {
-        GamepadButton::A => XButtons::A,
-        GamepadButton::B => XButtons::B,
-        GamepadButton::X => XButtons::X,
-        GamepadButton::Y => XButtons::Y,
-        GamepadButton::LeftBumper => XButtons::LB,
-        GamepadButton::RightBumper => XButtons::RB,
-        GamepadButton::Back => XButtons::BACK,
-        GamepadButton::Start => XButtons::START,
-        GamepadButton::Guide => XButtons::GUIDE,
-        GamepadButton::LeftStick => XButtons::LTHUMB,
-        GamepadButton::RightStick => XButtons::RTHUMB,
-        GamepadButton::DpadUp
-        | GamepadButton::DpadDown
-        | GamepadButton::DpadLeft
-        | GamepadButton::DpadRight => {
-            unreachable!("dpad directions fold into the hat — see Dpad / emit")
-        }
-    };
-    if down {
-        buttons.raw |= bit;
-    } else {
-        buttons.raw &= !bit;
-    }
-}
-
-/// Dpad hat state (`+1`/`-1` per axis) → XInput dpad bits. `DpadX +1 = right`,
-/// `DpadY +1 = down` (matches the vocabulary / evdev hat convention).
-fn dpad_bits((x, y): (i32, i32)) -> u16 {
-    let mut bits = 0;
-    if x > 0 {
-        bits |= XButtons::RIGHT;
-    } else if x < 0 {
-        bits |= XButtons::LEFT;
-    }
-    if y > 0 {
-        bits |= XButtons::DOWN;
-    } else if y < 0 {
-        bits |= XButtons::UP;
-    }
-    bits
-}
-
-/// Normalized stick `-1.0..=1.0` → XInput `i16`.
-fn stick(v: f32) -> i16 {
-    (v.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
-}
-
-/// Normalized trigger `0.0..=1.0` → XInput `u8`.
-fn trigger(v: f32) -> u8 {
-    (v.clamp(0.0, 1.0) * u8::MAX as f32) as u8
 }
 
 // --- keyboard/mouse → SendInput ---
-
-/// Build a keyboard `INPUT`. Normal keys use **scancode injection** (games often read
-/// scancodes, not virtual keys): the scancode comes from the VK via `MapVirtualKeyW`, and
-/// extended keys (arrows, right ctrl/alt, meta, nav, numpad slash/enter) get the extended-key
-/// flag so the E0 prefix is set. The media / volume / browser keys are instead injected by
-/// **virtual key** (`is_vk_only`): they *do* have scancodes, but only the **E0-extended** ones —
-/// injecting that scancode without the E0 prefix collides with an ordinary letter (volume-up's
-/// scancode `0x30` is `B`, volume-down's `0x2E` is `C`), so we bypass the scancode path entirely
-/// and let the shell consume the consumer-control VK. Returns `None` only for keys with no VK at
-/// all (`Compose`, exotic keypad, and the brightness/keyboard-illumination keys Windows has no VK
-/// for). Linux maps everything via evdev.
-fn key_input(k: &Key, down: bool) -> Option<INPUT> {
-    let vk = key_vk(k)?;
-    let scan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
-
-    let (wvk, wscan, mut flags) = if scan != 0 && !is_vk_only(k) {
-        // Scancode injection (games read scancodes). Extended keys get the E0 flag.
-        let mut f = KEYEVENTF_SCANCODE;
-        if is_extended(k) {
-            f |= KEYEVENTF_EXTENDEDKEY;
-        }
-        (VIRTUAL_KEY(0), scan, f) // wVk ignored when KEYEVENTF_SCANCODE is set
-    } else {
-        // Media / volume / browser (or a key Windows gives no scancode) → inject by virtual key
-        // directly. Plain VK injection (no extended flag) is the proven path for consumer-control
-        // VKs; if one doesn't register on some setup, adding `KEYEVENTF_EXTENDEDKEY` here is the
-        // first thing to try.
-        (vk, 0u16, KEYBD_EVENT_FLAGS(0))
-    };
-    if !down {
-        flags |= KEYEVENTF_KEYUP;
-    }
-    Some(INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT { wVk: wvk, wScan: wscan, dwFlags: flags, time: 0, dwExtraInfo: 0 },
-        },
-    })
-}
 
 fn mouse_move_input(dx: i32, dy: i32) -> INPUT {
     mouse_input(dx, dy, 0, MOUSEEVENTF_MOVE)
@@ -406,6 +255,51 @@ fn mouse_input(dx: i32, dy: i32, data: u32, flags: windows::Win32::UI::Input::Ke
             },
         },
     }
+}
+
+/// `mouseData` values for the extra mouse buttons (X1 = back, X2 = forward).
+const XBUTTON1: u32 = 0x0001;
+const XBUTTON2: u32 = 0x0002;
+/// One wheel notch (`WHEEL_DELTA`).
+const WHEEL_DELTA: i32 = 120;
+
+/// Build a keyboard `INPUT`. Normal keys use **scancode injection** (games often read
+/// scancodes, not virtual keys): the scancode comes from the VK via `MapVirtualKeyW`, and
+/// extended keys (arrows, right ctrl/alt, meta, nav, numpad slash/enter) get the extended-key
+/// flag so the E0 prefix is set. The media / volume / browser keys are instead injected by
+/// **virtual key** (`is_vk_only`): they *do* have scancodes, but only the **E0-extended** ones —
+/// injecting that scancode without the E0 prefix collides with an ordinary letter (volume-up's
+/// scancode `0x30` is `B`, volume-down's `0x2E` is `C`), so we bypass the scancode path entirely
+/// and let the shell consume the consumer-control VK. Returns `None` only for keys with no VK at
+/// all (`Compose`, exotic keypad, and the brightness/keyboard-illumination keys Windows has no VK
+/// for). Linux maps everything via evdev.
+fn key_input(k: &Key, down: bool) -> Option<INPUT> {
+    let vk = key_vk(k)?;
+    let scan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
+
+    let (wvk, wscan, mut flags) = if scan != 0 && !is_vk_only(k) {
+        // Scancode injection (games read scancodes). Extended keys get the E0 flag.
+        let mut f = KEYEVENTF_SCANCODE;
+        if is_extended(k) {
+            f |= KEYEVENTF_EXTENDEDKEY;
+        }
+        (VIRTUAL_KEY(0), scan, f) // wVk ignored when KEYEVENTF_SCANCODE is set
+    } else {
+        // Media / volume / browser (or a key Windows gives no scancode) → inject by virtual key
+        // directly. Plain VK injection (no extended flag) is the proven path for consumer-control
+        // VKs; if one doesn't register on some setup, adding `KEYEVENTF_EXTENDEDKEY` here is the
+        // first thing to try.
+        (vk, 0u16, KEYBD_EVENT_FLAGS(0))
+    };
+    if !down {
+        flags |= KEYEVENTF_KEYUP;
+    }
+    Some(INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT { wVk: wvk, wScan: wscan, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+        },
+    })
 }
 
 /// Keys needing the extended-key flag (E0-prefixed scancodes): arrows, the navigation

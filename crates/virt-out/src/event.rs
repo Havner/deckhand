@@ -49,6 +49,11 @@ impl Rumble {
 /// but the XInput/evdev virtual pad models it as a **hat**; each backend tracks the four
 /// directions here and folds them to a hat value (`-1/0/+1` per axis), **cancelling
 /// opposing directions to neutral**.
+///
+/// Compiled only when a hat-based gamepad backend is present: the Linux backend (always) or,
+/// on Windows, the ViGEm backend (`vigem` feature). A kb/mouse-only Windows build has no
+/// gamepad output and wouldn't use it. (Add future hat backends — e.g. `viiper` — here.)
+#[cfg(any(target_os = "linux", all(target_os = "windows", feature = "vigem")))]
 #[derive(Default)]
 pub(crate) struct Dpad {
     up: bool,
@@ -57,6 +62,7 @@ pub(crate) struct Dpad {
     right: bool,
 }
 
+#[cfg(any(target_os = "linux", all(target_os = "windows", feature = "vigem")))]
 impl Dpad {
     /// Apply a button event; returns `true` if `b` was a dpad direction (so the caller
     /// folds to the hat instead of emitting a normal button).
