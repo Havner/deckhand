@@ -9,8 +9,6 @@
 //! Relative outputs are the exception ([`RelAccum`]) — they're deltas, not levels, so they
 //! **accumulate** a sub-pixel remainder and emit only the integer part, carrying the fraction
 //! forward (PLAN §4; a real feel improvement validated in the Phase B bridge).
-#![allow(dead_code)] // Wired by Mapper::tick in S5; this allow drops then.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use virt_out::OutputEvent;
