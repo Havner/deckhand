@@ -231,7 +231,6 @@ version = "0.0.0"
 dependencies = [
  "ron",
  "serde",
- "thiserror",
  "vocab",
 ]
 
