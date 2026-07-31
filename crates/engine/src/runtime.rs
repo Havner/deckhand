@@ -206,11 +206,18 @@ fn run_reader(
             SessionEnd::TransportGone => {}
         }
 
-        // Transport gone: mapper keeps the pad plugged + enters WaitingForDevice (D5). Drop the
-        // dead device (→ lizard restored), then wait for the *same* device to return.
+        // Transport gone. Flag it, then **drop the mapper-facing channels** so the mapper's
+        // `frame_rx` disconnects and it enters the waiting phase (release_all + WaitingForDevice).
+        // This ordering is essential: if the reader held `frame_tx` across reacquire, the mapper
+        // would stay in the *connected* phase, where the later `Reattach` is ignored — leaving the
+        // channels un-swapped (no mapping) and outputs stuck. `waiting` is set first so the mapper
+        // reads it as transport-lost (not a clean stop) when it sees the disconnect.
         waiting.store(true, Ordering::SeqCst);
         EngineEvent::BindingLost.emit();
         drop(device);
+        drop(frame_tx);
+        drop(rumble_rx);
+        drop(click_rx);
 
         let mgr = manager.get_or_insert_with(|| Manager::new().expect("hidapi context for reacquire"));
         let Some(new_device) = reacquire(mgr, &pinned_id, &running) else {
