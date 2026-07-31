@@ -164,9 +164,13 @@ impl Engine {
             );
         }
         let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
+        // Pin the resolved device's stable id so the reader reacquires *this* device if its
+        // transport drops (D6), regardless of how the selection policy chose it.
+        let pinned_id = device.info().id();
         let sink = Sink::new()?;
         self.runtime = Some(Runtime::start(
             device,
+            pinned_id,
             cfg,
             sink,
             main,
@@ -201,7 +205,7 @@ impl Engine {
     /// Enumerate the attached controllers (any time — no HW is retained).
     pub fn devices(&mut self) -> Result<Vec<DeviceInfo>> {
         self.ensure_manager()?;
-        Ok(self.manager.as_ref().unwrap().enumerate()?)
+        Ok(self.manager.as_mut().unwrap().enumerate()?)
     }
 
     /// Full teardown: stop if running, then consume the handle.
@@ -223,7 +227,7 @@ impl Engine {
     /// to find the one that streams.
     fn open_device(&mut self) -> Result<Device> {
         self.ensure_manager()?;
-        let manager = self.manager.as_ref().unwrap();
+        let manager = self.manager.as_mut().unwrap();
         let Input::Local(select) = &self.input;
 
         if let DeviceSelect::Explicit(id) = select {

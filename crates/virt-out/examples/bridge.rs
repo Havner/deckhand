@@ -44,9 +44,9 @@ const GYRO_TRIGGER: f32 = 0.90;
 const GYRO_DEADZONE_PX: f32 = 0.1;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let manager = Manager::new()?;
+    let mut manager = Manager::new()?;
     let mut device =
-        open_active(&manager)?.ok_or("no Steam controller found — connected and powered on?")?;
+        open_active(&mut manager)?.ok_or("no Steam controller found — connected and powered on?")?;
     println!("controller: {:?} / {:?}", device.info().kind, device.info().transport);
     if let Err(e) = device.set_lizard_mode(false) {
         eprintln!("warning: couldn't disable lizard mode: {e}");
@@ -244,7 +244,7 @@ fn train(magnitude: u16) -> HidRumble {
 
 /// Open the first controller slot that actually streams (single/wired → open directly;
 /// multiple dongle slots → poll each for a frame). Mirrors the examples' selection.
-fn open_active(manager: &Manager) -> steam_hid::Result<Option<Device>> {
+fn open_active(manager: &mut Manager) -> steam_hid::Result<Option<Device>> {
     let infos = manager.enumerate()?;
     if infos.len() == 1 {
         return Ok(Some(manager.open(&infos[0])?));

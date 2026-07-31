@@ -6,7 +6,7 @@
 use steam_hid::Manager;
 
 fn main() -> steam_hid::Result<()> {
-    let manager = Manager::new()?;
+    let mut manager = Manager::new()?;
     let devices = manager.enumerate()?;
 
     if devices.is_empty() {

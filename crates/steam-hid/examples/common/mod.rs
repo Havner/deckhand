@@ -44,7 +44,7 @@ pub fn install_ctrlc() -> Running {
 /// works on the dongle only because the receiver sends periodic connect/battery
 /// frames). With multiple candidates (dongle slots) it polls to pick the one that
 /// actually streams. Returns the device and a human description, or `None`.
-pub fn select_device(manager: &Manager) -> Result<Option<(String, Device)>> {
+pub fn select_device(manager: &mut Manager) -> Result<Option<(String, Device)>> {
     let args: Vec<String> = std::env::args().collect();
     let want = if args.iter().any(|a| a == "--wired") {
         Some(Transport::UsbWired)

@@ -14,8 +14,8 @@ use std::io::{BufWriter, Write};
 use steam_hid::Manager;
 
 fn main() -> steam_hid::Result<()> {
-    let manager = Manager::new()?;
-    let Some((desc, mut device)) = common::select_device(&manager)? else {
+    let mut manager = Manager::new()?;
+    let Some((desc, mut device)) = common::select_device(&mut manager)? else {
         println!("No matching controller found — connected/on?");
         return Ok(());
     };

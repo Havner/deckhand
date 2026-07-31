@@ -178,7 +178,11 @@ impl Manager {
     /// Filters to the Valve vendor gamepad interface (usage page in the
     /// `0xFF00` range), dropping the emulated mouse/keyboard interfaces
     /// (PLAN §1.6). Interface filtering is provisional — verify on hardware.
-    pub fn enumerate(&self) -> Result<Vec<DeviceInfo>> {
+    pub fn enumerate(&mut self) -> Result<Vec<DeviceInfo>> {
+        // Re-scan the bus: hidapi caches the device list at context creation, so without this a
+        // long-lived `Manager` never sees hotplug changes (breaks `devices()` freshness and the
+        // engine's reacquire poll, which waits for a device to *reappear*).
+        self.api.refresh_devices()?;
         let mut out = Vec::new();
         for info in self.api.device_list() {
             if info.vendor_id() != protocol::VALVE_VID {
@@ -212,7 +216,7 @@ impl Manager {
     }
 
     /// Open the first enumerated device (convenience).
-    pub fn open_first(&self) -> Result<Device> {
+    pub fn open_first(&mut self) -> Result<Device> {
         let infos = self.enumerate()?;
         let first = infos.first().ok_or(Error::NoDevice)?;
         self.open(first)
