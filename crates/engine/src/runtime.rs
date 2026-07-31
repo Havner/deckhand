@@ -23,6 +23,7 @@ use steam_hid::{Device, DeviceKind, Motor, Report, Rumble as HidRumble};
 use virt_out::{Rumble, Sink};
 
 use crate::chords::{Chords, ExecReq};
+use crate::event::EngineEvent;
 use crate::logical::LogicalFrame;
 use crate::program::{Program, Role};
 use crate::{HapticReq, Mapper, Result, Tick};
@@ -147,6 +148,7 @@ fn run_reader(
     let mut last_keepalive = Instant::now();
     let mut last_haptic = Instant::now();
     let mut level = RumbleCmd::default();
+    let mut last_battery: Option<u8> = None;
 
     while running.load(Ordering::Relaxed) {
         // Short timeout so the loop laps to check `running`, keep-alive, and rumble regularly.
@@ -154,11 +156,16 @@ fn run_reader(
             Ok(Some(report)) => {
                 match &report {
                     Report::Connected => {
-                        log::info!("controller connected — re-applying device config");
+                        EngineEvent::ControllerConnected.emit();
                         apply_device_cfg(&mut device, &cfg)?;
                     }
-                    Report::Disconnected => log::info!("controller disconnected (dongle alive)"),
-                    _ => {} // State: streamed every frame, too noisy to log; Battery: surfaced later
+                    Report::Disconnected => EngineEvent::ControllerDisconnected.emit(),
+                    // Edge-triggered: the 0x04 report streams ~1 Hz, so only surface a change.
+                    Report::Battery(b) if last_battery != Some(b.charge_percent) => {
+                        EngineEvent::BatteryChanged { percent: b.charge_percent }.emit();
+                        last_battery = Some(b.charge_percent);
+                    }
+                    _ => {} // State (per-frame, too noisy); unchanged Battery.
                 }
                 if frame_tx.send(report).is_err() {
                     break; // mapper gone

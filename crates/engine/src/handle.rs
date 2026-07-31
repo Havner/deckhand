@@ -16,6 +16,7 @@ use steam_hid::{Device, DeviceId, DeviceInfo, Manager, RawReport, Transport};
 use std::time::Duration;
 use virt_out::Sink;
 
+use crate::event::EngineEvent;
 use crate::program::{Program, Role};
 use crate::runtime::{Control, DeviceCfg, Runtime};
 use crate::{Error, Result};
@@ -44,11 +45,16 @@ pub enum Output {
     Local,
 }
 
-/// Whether the engine is currently running its loop.
+/// The engine's run state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
+    /// No loop running (freshly constructed, or stopped). No hardware held.
     Idle,
+    /// Running the mapping loop with a bound device.
     Running,
+    /// Running, but the bound device's transport went away — waiting to reacquire it. The
+    /// transition is wired in D5 (PLAN §4.3); the variant is defined here (D4).
+    WaitingForDevice,
 }
 
 /// The engine handle. Holds the staged input/output, the program(s) + globals (retained across
@@ -167,6 +173,7 @@ impl Engine {
             self.fallback.clone(),
             self.globals.clone(),
         ));
+        EngineEvent::State(Status::Running).emit();
         Ok(())
     }
 
@@ -176,6 +183,7 @@ impl Engine {
         if let Some(mut rt) = self.runtime.take() {
             log::info!("stopping: releasing device (→ lizard) and virtual pad");
             rt.stop()?;
+            EngineEvent::State(Status::Idle).emit();
         }
         Ok(())
     }

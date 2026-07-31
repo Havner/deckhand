@@ -129,6 +129,7 @@ impl Daemon {
             state: match self.engine.status() {
                 Status::Idle => RunState::Idle,
                 Status::Running => RunState::Running,
+                Status::WaitingForDevice => RunState::WaitingForDevice,
             },
             input: self.input_spec.clone(),
             output: self.output_spec.clone(),

@@ -23,6 +23,7 @@
 mod chords;
 mod compile;
 mod error;
+mod event;
 mod handle;
 mod logical;
 mod mapper;
@@ -31,6 +32,7 @@ mod runtime;
 
 pub use compile::compile;
 pub use error::{Error, Result};
+pub use event::EngineEvent;
 pub use handle::{DeviceSelect, Engine, Input, Output, Status};
 pub use steam_hid::{DeviceId, DeviceInfo, Transport};
 pub use logical::{Dir, LogicalFrame};
