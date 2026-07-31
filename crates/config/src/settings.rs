@@ -34,6 +34,16 @@ pub enum Curve {
     Power(f32),
 }
 
+impl Curve {
+    /// Remap a normalized magnitude `v` (`0..=1`, endpoints pinned) through the curve.
+    pub fn apply(&self, v: f32) -> f32 {
+        match self {
+            Curve::Linear => v,
+            Curve::Power(e) => v.powf(*e),
+        }
+    }
+}
+
 /// Per-axis sensitivity multiplier (for gyro, `x` = yaw, `y` = pitch).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

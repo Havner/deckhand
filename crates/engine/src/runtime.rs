@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 
-use config::{Curve, GlobalConfig, HapticStrength, RumbleSettings, Side, StartProfile};
+use config::{GlobalConfig, HapticStrength, RumbleSettings, Side, StartProfile};
 use steam_hid::{Device, DeviceKind, Motor, Report, Rumble as HidRumble};
 use virt_out::{Rumble, Sink};
 
@@ -414,16 +414,9 @@ fn rumble_cmd(raw: Rumble, master: u8, s: &RumbleSettings) -> RumbleCmd {
     let scale = (master.min(100) as f32 / 100.0) * (s.strength as f32 / 100.0);
     let drive = |v: u16| {
         let full = (v as f32 / u16::MAX as f32) * scale;
-        (apply_curve(full.clamp(0.0, 1.0), &s.curve).clamp(0.0, 1.0) * u16::MAX as f32) as u16
+        (s.curve.apply(full.clamp(0.0, 1.0)).clamp(0.0, 1.0) * u16::MAX as f32) as u16
     };
     RumbleCmd { strong: drive(raw.strong), weak: drive(raw.weak), hz: s.hz }
-}
-
-fn apply_curve(v: f32, curve: &Curve) -> f32 {
-    match curve {
-        Curve::Linear => v,
-        Curve::Power(e) => v.powf(*e),
-    }
 }
 
 /// The program driving a given role (fallback falls back to main when unset).
@@ -469,6 +462,7 @@ fn start_role(globals: &GlobalConfig) -> Role {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use config::Curve;
     use crate::program::{ProgramMeta, SetId, SourceMap};
 
     fn prog(name: &str) -> Program {

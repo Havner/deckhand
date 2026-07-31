@@ -24,7 +24,7 @@
 //! HW-confirmed, distinct from the evdev vertical flip above.
 
 use config::{
-    Activation, ActivationMode, AsMouseSettings, Curve, DirectionalPadSettings, DpadLayout,
+    Activation, ActivationMode, AsMouseSettings, DirectionalPadSettings, DpadLayout,
     GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings,
     MouseOutput, Sensitivity, StickOutput, TriggerOutput, TriggerSettings,
 };
@@ -167,7 +167,7 @@ fn process_joystick(pos: &Vec2, s: &JoystickSettings) -> (f32, f32) {
         return (0.0, 0.0);
     }
     let scaled = ((mag - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
-    let curved = apply_curve(scaled, &s.curve);
+    let curved = s.curve.apply(scaled);
     let ad = s.anti_deadzone.amount;
     let out_mag = if curved > 0.0 { ad + (1.0 - ad) * curved } else { 0.0 };
     let (ux, uy) = (rx / mag, ry / mag);
@@ -289,7 +289,7 @@ fn process_trigger(pull: f32, s: &TriggerSettings) -> f32 {
         return 0.0;
     }
     let scaled = ((pull - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
-    apply_curve(scaled, &s.curve)
+    s.curve.apply(scaled)
 }
 
 // --- AsMouse (Pad → cursor/scroll via frame-to-frame delta) -----------------------------
@@ -348,7 +348,7 @@ fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ct
     // shapes the deflection→rate response (precision near center, fast at the edge) — a stick is a
     // held deflection, not a velocity, so it takes a curve, not acceleration (matches Steam).
     let scaled = ((mag - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
-    let speed = apply_curve(scaled, &s.curve) * JOY_MOUSE_RATE * ctx.dt;
+    let speed = s.curve.apply(scaled) * JOY_MOUSE_RATE * ctx.dt;
     let (ux, uy) = (rx / mag, ry / mag);
     let mut mx = ux * speed * s.sensitivity.x;
     let mut my = uy * speed * s.sensitivity.y;
@@ -493,13 +493,6 @@ fn rotate(x: f32, y: f32, degrees: f32) -> (f32, f32) {
     }
     let (s, c) = degrees.to_radians().sin_cos();
     (x * c - y * s, x * s + y * c)
-}
-
-fn apply_curve(v: f32, curve: &Curve) -> f32 {
-    match curve {
-        Curve::Linear => v,
-        Curve::Power(e) => v.powf(*e),
-    }
 }
 
 /// Whether a behavior is live given its activation gaters (physical buttons, OR-combined).
