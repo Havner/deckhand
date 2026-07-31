@@ -8,7 +8,7 @@
 //! emits outputs, and polls the virtual pad's rumble back to the reader.
 //!
 //! The pieces here are wired to real hardware and are exercised end-to-end by the `Engine` handle
-//! and the `deckhand-run` binary (S10, which HW-validates against the bridge). The pure helpers
+//! and the `deckhandd` daemon (which HW-validates against the bridge). The pure helpers
 //! ([`rumble_cmd`], [`program_for`]) are unit-tested below.
 
 use std::sync::Arc;

@@ -255,9 +255,9 @@ impl Engine {
 
 #[cfg(test)]
 mod tests {
-    /// The shipped `deckhand-run` example profile must parse and compile (keeps the sample
-    /// `.ron` valid as the config model evolves — exercises a layer, a HoldLayer action, gyro
-    /// invert, and every behavior kind).
+    /// The sample profile (`examples/test_profile.ron`) must parse and compile — keeps it valid
+    /// as the config model evolves (exercises a layer, a HoldLayer action, gyro invert, and every
+    /// behavior kind).
     #[test]
     fn test_profile_compiles() {
         let ron = include_str!("../examples/test_profile.ron");

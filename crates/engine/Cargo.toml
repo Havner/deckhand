@@ -35,11 +35,7 @@ vigem = ["virt-out/vigem"]
 # Alternative controller backend: VIIPER (USB/IP), experimental. See virt-out `win/viiper.rs`.
 viiper = ["virt-out/viiper"]
 
-# Dev-deps for the `deckhand-run` example (PLAN §4.2 S10): load a profile from RON, log,
-# and shut down cleanly on Ctrl-C. `ctrlc`'s `termination` feature also traps SIGTERM/SIGHUP
-# so a future daemon gets clean `systemctl stop`.
+# RON parsing for the profile-compile test (the runnable harness now lives in the `deckhandd`
+# binary crate; PLAN §4.4).
 [dev-dependencies]
 ron.workspace = true
-env_logger.workspace = true
-ctrlc = { workspace = true, features = ["termination"] }
-clap.workspace = true
