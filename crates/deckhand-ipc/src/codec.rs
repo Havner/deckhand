@@ -72,8 +72,8 @@ mod tests {
             &mut buf,
             &Response::Status(StatusInfo {
                 state: RunState::Idle,
-                input: Some("dongle".into()),
-                output: None,
+                input: "dongle".into(),
+                output: "local".into(),
                 has_main: false,
                 has_fallback: false,
             }),
@@ -86,7 +86,7 @@ mod tests {
             assert_eq!(format!("{got:?}"), format!("{expected:?}"));
         }
         let reply: Response = read_msg(&mut cur).unwrap().unwrap();
-        assert!(matches!(reply, Response::Status(s) if s.input.as_deref() == Some("dongle")));
+        assert!(matches!(reply, Response::Status(s) if s.input == "dongle"));
         // Clean EOF at a frame boundary → None.
         assert!(read_msg::<Request>(&mut cur).unwrap().is_none());
     }

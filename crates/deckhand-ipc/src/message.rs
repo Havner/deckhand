@@ -86,10 +86,10 @@ pub enum RunState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusInfo {
     pub state: RunState,
-    /// The staged input spec, if one was set.
-    pub input: Option<String>,
-    /// The staged output spec, if one was set.
-    pub output: Option<String>,
+    /// The staged input spec — always set (defaults to `auto`, matching the engine's own default).
+    pub input: String,
+    /// The staged output spec — always set (defaults to `local`).
+    pub output: String,
     pub has_main: bool,
     pub has_fallback: bool,
 }

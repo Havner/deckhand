@@ -22,8 +22,8 @@ fn client_server_round_trip() {
                     Request::Start => Response::Ok,
                     Request::Status => Response::Status(StatusInfo {
                         state: RunState::Running,
-                        input: Some("dongle".into()),
-                        output: Some("local".into()),
+                        input: "dongle".into(),
+                        output: "local".into(),
                         has_main: true,
                         has_fallback: false,
                     }),
@@ -51,7 +51,7 @@ fn client_server_round_trip() {
     match client.call(&Request::Status).expect("status") {
         Response::Status(s) => {
             assert_eq!(s.state, RunState::Running);
-            assert_eq!(s.input.as_deref(), Some("dongle"));
+            assert_eq!(s.input, "dongle");
             assert!(s.has_main && !s.has_fallback);
         }
         other => panic!("expected Status, got {other:?}"),

@@ -128,8 +128,8 @@ fn print_response(resp: Response) -> ExitCode {
 
 fn print_status(s: &StatusInfo) {
     println!("state:    {:?}", s.state);
-    println!("input:    {}", s.input.as_deref().unwrap_or("(unset)"));
-    println!("output:   {}", s.output.as_deref().unwrap_or("(unset)"));
+    println!("input:    {}", s.input);
+    println!("output:   {}", s.output);
     println!("main:     {}", if s.has_main { "loaded" } else { "(none)" });
     println!("fallback: {}", if s.has_fallback { "loaded" } else { "(none)" });
 }

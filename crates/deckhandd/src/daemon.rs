@@ -10,11 +10,18 @@ use engine::{
     compile,
 };
 
+/// The daemon's view of the engine's *default* selection. `Engine::new` stages `Local(Auto)` /
+/// `Local`, so these are the specs it starts with — we report them rather than call `set_input`/
+/// `set_output` with values that would be a no-op. (If the engine's default ever changes, this is
+/// the spot that goes stale.)
+const DEFAULT_INPUT: &str = "auto";
+const DEFAULT_OUTPUT: &str = "local";
+
 /// The running daemon state around the engine.
 pub struct Daemon {
     engine: Engine,
-    input_spec: Option<String>,
-    output_spec: Option<String>,
+    input_spec: String,
+    output_spec: String,
     has_main: bool,
     has_fallback: bool,
 }
@@ -23,8 +30,8 @@ impl Daemon {
     pub fn new() -> Self {
         Daemon {
             engine: Engine::new(),
-            input_spec: None,
-            output_spec: None,
+            input_spec: DEFAULT_INPUT.to_owned(),
+            output_spec: DEFAULT_OUTPUT.to_owned(),
             has_main: false,
             has_fallback: false,
         }
@@ -44,7 +51,7 @@ impl Daemon {
     pub fn set_input(&mut self, spec: &str) -> Result<(), String> {
         let input = parse_input_spec(spec)?;
         self.engine.set_input(input);
-        self.input_spec = Some(spec.to_owned());
+        self.input_spec = spec.to_owned();
         Ok(())
     }
 
@@ -52,7 +59,7 @@ impl Daemon {
     pub fn set_output(&mut self, spec: &str) -> Result<(), String> {
         let output = parse_output_spec(spec)?;
         self.engine.set_output(output);
-        self.output_spec = Some(spec.to_owned());
+        self.output_spec = spec.to_owned();
         Ok(())
     }
 

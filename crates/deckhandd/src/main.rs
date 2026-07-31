@@ -87,15 +87,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         daemon.set_output(spec).map_err(cli_err)?;
     }
 
-    // --- The one convenience: --start defaults a missing -i/-o, then starts. -----------------
+    // --- --start: acquire hardware and run. The engine already defaults its input/output to
+    // Local(Auto)/Local, so a missing -i/-o needs no set_* call (the daemon just reports those
+    // defaults in status). Starting under-configured (no main, no device) is not fatal. ---------
     if args.start {
-        if args.input.is_none() {
-            daemon.set_input("auto").map_err(cli_err)?;
-        }
-        if args.output.is_none() {
-            daemon.set_output("local").map_err(cli_err)?;
-        }
-        // Starting under-configured (no main, no device) is not fatal — log and keep serving.
         match daemon.start() {
             Ok(()) => log::info!("engine started"),
             Err(e) => log::error!("--start: {e}; serving socket, waiting for a client"),

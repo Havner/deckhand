@@ -24,8 +24,8 @@ fn ctl_drives_a_fake_daemon() {
                 let resp = match req {
                     Request::Status => Response::Status(StatusInfo {
                         state: RunState::Running,
-                        input: Some("dongle".into()),
-                        output: Some("local".into()),
+                        input: "dongle".into(),
+                        output: "local".into(),
                         has_main: true,
                         has_fallback: false,
                     }),
