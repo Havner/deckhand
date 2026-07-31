@@ -188,9 +188,14 @@ impl Engine {
         Ok(())
     }
 
-    /// Whether the engine is running.
+    /// The engine's run state: `Idle` when no loop is up, `WaitingForDevice` while the loop runs
+    /// but the bound device's transport is gone (D5), else `Running`.
     pub fn status(&self) -> Status {
-        if self.runtime.is_some() { Status::Running } else { Status::Idle }
+        match &self.runtime {
+            None => Status::Idle,
+            Some(rt) if rt.is_waiting() => Status::WaitingForDevice,
+            Some(_) => Status::Running,
+        }
     }
 
     /// Enumerate the attached controllers (any time — no HW is retained).

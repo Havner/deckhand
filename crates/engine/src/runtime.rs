@@ -16,14 +16,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, Sender, select, unbounded};
+use crossbeam_channel::{Receiver, RecvError, Sender, select, unbounded};
 
 use config::{GlobalConfig, HapticStrength, RumbleSettings, Side, StartProfile};
 use steam_hid::{Device, DeviceKind, Motor, Report, Rumble as HidRumble};
-use virt_out::{Rumble, Sink};
+use virt_out::{OutputEvent, Rumble, Sink};
 
 use crate::chords::{Chords, ExecReq};
 use crate::event::EngineEvent;
+use crate::handle::Status;
 use crate::logical::LogicalFrame;
 use crate::program::{Program, Role};
 use crate::{HapticReq, Mapper, Result, Tick};
@@ -67,6 +68,9 @@ pub(crate) enum Control {
 /// `Engine::start`, torn down by [`Runtime::stop`] on `Engine::stop` (config lives in the handle).
 pub(crate) struct Runtime {
     running: Arc<AtomicBool>,
+    /// Set by the reader when the bound device's transport goes away — the loop stays up (pad
+    /// plugged, outputs neutral) but is `WaitingForDevice` (PLAN §4.3, D5).
+    waiting: Arc<AtomicBool>,
     control_tx: Sender<Control>,
     reader: Option<JoinHandle<Result<()>>>,
     mapper: Option<JoinHandle<Result<()>>>,
@@ -84,29 +88,37 @@ impl Runtime {
         globals: GlobalConfig,
     ) -> Runtime {
         let running = Arc::new(AtomicBool::new(true));
+        let waiting = Arc::new(AtomicBool::new(false));
         let (frame_tx, frame_rx) = unbounded::<Report>();
         let (rumble_tx, rumble_rx) = unbounded::<RumbleCmd>();
         let (click_tx, click_rx) = unbounded::<Click>();
         let (control_tx, control_rx) = unbounded::<Control>();
 
         let r_reader = running.clone();
+        let w_reader = waiting.clone();
         let reader = thread::Builder::new()
             .name("deckhand-reader".into())
-            .spawn(move || run_reader(device, cfg, frame_tx, rumble_rx, click_rx, r_reader))
+            .spawn(move || run_reader(device, cfg, frame_tx, rumble_rx, click_rx, r_reader, w_reader))
             .expect("spawn reader thread");
 
         let r_mapper = running.clone();
+        let w_mapper = waiting.clone();
         let mapper = thread::Builder::new()
             .name("deckhand-mapper".into())
             .spawn(move || {
                 run_mapper(
                     sink, main, fallback, globals, frame_rx, control_rx, rumble_tx, click_tx,
-                    r_mapper,
+                    r_mapper, w_mapper,
                 )
             })
             .expect("spawn mapper thread");
 
-        Runtime { running, control_tx, reader: Some(reader), mapper: Some(mapper) }
+        Runtime { running, waiting, control_tx, reader: Some(reader), mapper: Some(mapper) }
+    }
+
+    /// True when the loop is up but the bound device's transport is gone (`WaitingForDevice`).
+    pub(crate) fn is_waiting(&self) -> bool {
+        self.waiting.load(Ordering::SeqCst)
     }
 
     /// The control channel, for live `apply`/`set_globals` while running.
@@ -136,6 +148,7 @@ impl Runtime {
 
 /// The reader thread: owns the `Device`, forwards frames, keeps the controller alive, re-applies
 /// config on reconnect, and writes rumble pulse-trains. It is the only writer of the device.
+#[allow(clippy::too_many_arguments)] // the reader thread owns the device + all its channels.
 fn run_reader(
     mut device: Device,
     cfg: DeviceCfg,
@@ -143,6 +156,7 @@ fn run_reader(
     rumble_rx: Receiver<RumbleCmd>,
     click_rx: Receiver<Click>,
     running: Arc<AtomicBool>,
+    waiting: Arc<AtomicBool>,
 ) -> Result<()> {
     apply_device_cfg(&mut device, &cfg)?;
     let mut last_keepalive = Instant::now();
@@ -173,8 +187,13 @@ fn run_reader(
             }
             Ok(None) => {} // timeout — no frame this cycle
             Err(e) => {
-                log::warn!("controller read error ({e}) — stopping reader (device → lizard)");
-                break; // transport gone → end (device drops → lizard restored)
+                // Transport gone (unplug / dongle removed). Flag it so the mapper keeps the pad
+                // plugged and enters WaitingForDevice rather than tearing down (PLAN §4.3, D5);
+                // the device drops here → lizard restored. Reacquire is D6.
+                log::warn!("controller read error ({e}) — binding lost, waiting for device");
+                waiting.store(true, Ordering::SeqCst);
+                EngineEvent::BindingLost.emit();
+                break;
             }
         }
 
@@ -218,6 +237,7 @@ fn run_mapper(
     rumble_tx: Sender<RumbleCmd>,
     click_tx: Sender<Click>,
     running: Arc<AtomicBool>,
+    waiting: Arc<AtomicBool>,
 ) -> Result<()> {
     let start = Instant::now();
     // Boot into the role named by `start_profile` (read once here — it's a start-only setting).
@@ -230,6 +250,7 @@ fn run_mapper(
 
     while running.load(Ordering::Relaxed) {
         let mut stop = false;
+        let mut lost = false;
         select! {
             recv(frame_rx) -> msg => match msg {
                 Ok(Report::State(state)) => {
@@ -258,39 +279,32 @@ fn run_mapper(
                         let _ = click_tx.send(Click { side: h.side, duration });
                     }
                 }
-                // Lifecycle/battery: the reader owns device re-apply; nothing to map here yet
-                // (status surfacing is the Engine's job, S10). `Report` is non_exhaustive.
+                // Battery/lifecycle are surfaced by the reader (D4); nothing to map here.
+                // `Report` is non_exhaustive.
                 Ok(_) => {}
-                Err(_) => stop = true, // reader gone
-            },
-            recv(control_rx) -> msg => match msg {
-                Ok(Control::Apply { program, role: target }) => match target {
-                    Role::Main => {
-                        main = *program;
-                        if role == Role::Main {
-                            mapper.switch_program(&main);
-                        }
+                // Reader gone: transport-lost (it flagged `waiting`) → break to the waiting phase;
+                // otherwise a clean stop.
+                Err(_) => {
+                    if waiting.load(Ordering::SeqCst) {
+                        lost = true;
+                    } else {
+                        stop = true;
                     }
-                    Role::Fallback => {
-                        fallback = Some(*program);
-                        if role == Role::Fallback {
-                            mapper.switch_program(program_for(&role, &main, &fallback));
-                        }
-                    }
-                },
-                Ok(Control::SetGlobals(g)) => {
-                    globals = *g;
-                    // Preserve the current role base across the swap — `start_profile` is
-                    // start-only, so a live change to it must not retroactively yank the role.
-                    chords = Chords::new(&globals.chords, chords.fallback_base());
                 }
-                Ok(Control::Stop) | Err(_) => stop = true,
             },
+            recv(control_rx) -> msg => {
+                stop = apply_control(
+                    msg, &mut main, &mut fallback, &mut globals, &mut mapper, &role, &mut chords,
+                );
+            }
             // Insurance: devices stream ~250 Hz, but tick anyway so rumble is polled when idle.
             default(Duration::from_millis(8)) => {}
         }
         if stop {
-            break;
+            return Ok(());
+        }
+        if lost {
+            break; // → the waiting phase below (pad stays plugged).
         }
 
         // Rumble back-channel (game → virtual pad → real controller): scale by the global master %
@@ -301,6 +315,90 @@ fn run_mapper(
             let _ = rumble_tx.send(cmd.clone());
             last_rumble = cmd;
         }
+    }
+
+    // The bound device's transport went away: release outputs, keep the pad plugged, and idle in
+    // WaitingForDevice until stop (D6 adds auto-reacquire). A plain `running`-cleared exit (clean
+    // stop mid-connected) leaves `waiting` false and skips this.
+    if waiting.load(Ordering::SeqCst) {
+        run_waiting(
+            &mut sink, &mut main, &mut fallback, &mut globals, &mut mapper, &role, &mut chords,
+            &control_rx, &running,
+        )?;
+    }
+    Ok(())
+}
+
+/// Handle one control message (shared by the connected and waiting phases). Returns true to stop.
+fn apply_control(
+    msg: std::result::Result<Control, RecvError>,
+    main: &mut Program,
+    fallback: &mut Option<Program>,
+    globals: &mut GlobalConfig,
+    mapper: &mut Mapper,
+    role: &Role,
+    chords: &mut Chords,
+) -> bool {
+    match msg {
+        Ok(Control::Apply { program, role: target }) => {
+            match target {
+                Role::Main => {
+                    *main = *program;
+                    if *role == Role::Main {
+                        mapper.switch_program(main);
+                    }
+                }
+                Role::Fallback => {
+                    *fallback = Some(*program);
+                    if *role == Role::Fallback {
+                        mapper.switch_program(program_for(role, main, fallback));
+                    }
+                }
+            }
+            false
+        }
+        Ok(Control::SetGlobals(g)) => {
+            *globals = *g;
+            // Preserve the current role base across the swap — `start_profile` is start-only.
+            *chords = Chords::new(&globals.chords, chords.fallback_base());
+            false
+        }
+        Ok(Control::Stop) | Err(_) => true,
+    }
+}
+
+/// Transport-lost phase: release every applied output so nothing sticks, keep the virtual pad
+/// plugged, and idle until stop. Config hot-swaps are still accepted so a future reattach (D6) uses
+/// the latest programs; the pad's rumble uploads are drained so a game's force-feedback thread
+/// doesn't block on the still-present pad.
+#[allow(clippy::too_many_arguments)]
+fn run_waiting(
+    sink: &mut Sink,
+    main: &mut Program,
+    fallback: &mut Option<Program>,
+    globals: &mut GlobalConfig,
+    mapper: &mut Mapper,
+    role: &Role,
+    chords: &mut Chords,
+    control_rx: &Receiver<Control>,
+    running: &AtomicBool,
+) -> Result<()> {
+    let mut out: Vec<OutputEvent> = Vec::new();
+    mapper.release_all(&mut out);
+    sink.emit(&out)?;
+    EngineEvent::State(Status::WaitingForDevice).emit();
+
+    while running.load(Ordering::Relaxed) {
+        select! {
+            recv(control_rx) -> msg => {
+                if apply_control(msg, main, fallback, globals, mapper, role, chords) {
+                    break;
+                }
+            }
+            default(Duration::from_millis(50)) => {}
+        }
+        // Discard rumble (no controller to feed) — but drain it so the game's FF thread isn't stuck.
+        let _ = sink.poll_rumble();
     }
     Ok(())
 }

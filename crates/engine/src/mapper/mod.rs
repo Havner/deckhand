@@ -177,6 +177,14 @@ impl Mapper {
         self.last_tick = Some(tick);
     }
 
+    /// Release every currently-applied output (the bound device went away → nothing must stick).
+    /// Reconciles the applied levels against an empty desired set, so it drops *all* held keys/
+    /// buttons/axes regardless of what held them (toggles, latches, layers) — unlike feeding a
+    /// neutral input frame, which wouldn't undo a toggle. Relative accumulators hold no output.
+    pub(super) fn release_all(&mut self, out: &mut Vec<OutputEvent>) {
+        self.applied.reconcile(&DesiredLevels::default(), out);
+    }
+
     /// Fold a tick's collected [`LayerOps`] into the layer stack for the **next** tick. A set
     /// change is a full swap (layers are per-set) that clears the stack; otherwise adds/removes
     /// update the persistent set and hold-layers persist while their trigger node stays held.
@@ -365,6 +373,30 @@ mod tests {
         // Release → key up.
         let out = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 2);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
+    }
+
+    #[test]
+    fn release_all_drops_held_outputs() {
+        // The transport-lost path (D5): release everything so nothing sticks when the device dies.
+        let program = program_with([(
+            InputSource::LeftBumper,
+            CompiledBinding::Button { commands: vec![regular(vec![CompiledAction::Key(Key::A)])] },
+        )]);
+        let mut m = Mapper::new(&program);
+
+        // Hold L1 → key A is applied (down).
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
+
+        // Device gone → release_all emits the release without any input change.
+        let mut out = Vec::new();
+        m.release_all(&mut out);
+        assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
+
+        // Applied state is now clean: a second release_all emits nothing.
+        let mut out2 = Vec::new();
+        m.release_all(&mut out2);
+        assert!(out2.is_empty());
     }
 
     #[test]
