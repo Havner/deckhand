@@ -21,11 +21,13 @@ use crate::runtime::{Control, DeviceCfg, Runtime};
 use crate::{Error, Result};
 
 /// Where input comes from. `Network` (a bound UDP receiver) is deferred; the seam is kept.
+#[derive(Debug, Clone)]
 pub enum Input {
     Local(DeviceSelect),
 }
 
 /// How to pick the local controller.
+#[derive(Debug, Clone)]
 pub enum DeviceSelect {
     /// The first controller that streams frames (mirrors the examples/bridge).
     Auto,
@@ -37,6 +39,7 @@ pub enum DeviceSelect {
 }
 
 /// Where output goes. `Network` (a UDP sender to a remote sink) is deferred; the seam is kept.
+#[derive(Debug, Clone)]
 pub enum Output {
     Local,
 }

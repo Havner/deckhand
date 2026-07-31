@@ -1,0 +1,25 @@
+[package]
+name = "deckhandd"
+description = "The deckhand daemon: runs the headless engine, seeded from the CLI, and serves a control socket for clients (deckhandctl, the daemon-mode UI). PLAN §4.4."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The headless runtime. default-features off so this binary chooses the controller backend
+# (mirrors the engine's own forwarding); on Linux the backend features are inert (uinput).
+engine = { path = "../engine", default-features = false }
+deckhand-ipc = { path = "../deckhand-ipc" }
+config = { path = "../config" }
+ron.workspace = true
+clap.workspace = true
+log.workspace = true
+env_logger.workspace = true
+# `termination` also traps SIGTERM/SIGHUP → clean `systemctl stop` (PLAN §4.4).
+ctrlc = { workspace = true, features = ["termination"] }
+
+[features]
+default = ["vigem"]
+vigem = ["engine/vigem"]
+viiper = ["engine/viiper"]

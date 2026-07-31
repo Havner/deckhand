@@ -1,0 +1,238 @@
+//! `deckhandd` — the deckhand control daemon (PLAN §4.4).
+//!
+//! One binary, two uses: a **standalone runner** (pass everything on the CLI, Ctrl-C to quit) and
+//! a **controllable daemon** (a client drives it over the control socket). It always opens the
+//! socket; the CLI just *seeds* the engine, then clients mutate it live.
+//!
+//! Seeding is pass-through — only options actually given are applied — with one convenience:
+//! `--start` defaults a missing `-i`/`-o` to `auto`/`local` so the engine has a source/sink.
+//! Profiles are never defaulted, so `--start` with no `-m` logs a `NotReady` and keeps serving.
+
+mod daemon;
+
+use std::error::Error;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use clap::Parser;
+use config::{ConfigDoc, GlobalConfig};
+use deckhand_ipc::{Client, Request, Response, Server};
+use engine::{Program, Role, compile};
+
+use daemon::{Daemon, format_diags};
+
+/// The deckhand control daemon: runs the headless engine and serves a control socket.
+#[derive(Parser)]
+#[command(name = "deckhandd", version, about)]
+struct Args {
+    /// Main profile (RON) → applied to the Main role.
+    #[arg(short, long, value_name = "RON")]
+    main: Option<PathBuf>,
+    /// Fallback profile (RON) → applied to the Fallback role.
+    #[arg(short, long, value_name = "RON")]
+    fallback: Option<PathBuf>,
+    /// Global config (RON): master rumble, boot role, switch chords.
+    #[arg(short, long, value_name = "RON")]
+    globals: Option<PathBuf>,
+    /// Input source: auto | dongle | wired | <device-id> | host:port.
+    #[arg(short, long, value_name = "SPEC")]
+    input: Option<String>,
+    /// Output sink: local (host:port deferred).
+    #[arg(short, long, value_name = "SPEC")]
+    output: Option<String>,
+    /// Acquire hardware and start immediately (defaults a missing -i/-o to auto/local).
+    #[arg(short, long)]
+    start: bool,
+    /// Increase log verbosity: -v info, -vv debug, -vvv trace (default warn). RUST_LOG overrides.
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+}
+
+impl Args {
+    fn log_level(&self) -> &'static str {
+        match self.verbose {
+            0 => "warn",
+            1 => "info",
+            2 => "debug",
+            _ => "trace",
+        }
+    }
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(args.log_level()))
+        .init();
+
+    let mut daemon = Daemon::new();
+
+    // --- CLI seeding: pass-through — apply only what was given (PLAN §4.4). ------------------
+    if let Some(p) = &args.main {
+        daemon.apply(Role::Main, load_program(p)?);
+        log::info!("main profile: {}", p.display());
+    }
+    if let Some(p) = &args.fallback {
+        daemon.apply(Role::Fallback, load_program(p)?);
+        log::info!("fallback profile: {}", p.display());
+    }
+    if let Some(p) = &args.globals {
+        daemon.set_globals(load_globals(p)?);
+        log::info!("globals: {}", p.display());
+    }
+    if let Some(spec) = &args.input {
+        daemon.set_input(spec).map_err(cli_err)?;
+    }
+    if let Some(spec) = &args.output {
+        daemon.set_output(spec).map_err(cli_err)?;
+    }
+
+    // --- The one convenience: --start defaults a missing -i/-o, then starts. -----------------
+    if args.start {
+        if args.input.is_none() {
+            daemon.set_input("auto").map_err(cli_err)?;
+        }
+        if args.output.is_none() {
+            daemon.set_output("local").map_err(cli_err)?;
+        }
+        // Starting under-configured (no main, no device) is not fatal — log and keep serving.
+        match daemon.start() {
+            Ok(()) => log::info!("engine started"),
+            Err(e) => log::error!("--start: {e}; serving socket, waiting for a client"),
+        }
+    }
+
+    serve(daemon)
+}
+
+/// Bind the control socket and run the accept/serve loop until Shutdown or Ctrl-C/SIGTERM.
+fn serve(mut daemon: Daemon) -> Result<(), Box<dyn Error>> {
+    let (server, path) = bind_socket()?;
+    match &path {
+        Some(p) => log::info!("listening on {}", p.display()),
+        None => log::info!("listening on the default control socket"),
+    }
+
+    let running = Arc::new(AtomicBool::new(true));
+    {
+        let running = running.clone();
+        // Ctrl-C / SIGTERM: flip the flag and unblock the blocking accept by self-connecting.
+        ctrlc::set_handler(move || {
+            running.store(false, Ordering::Relaxed);
+            wake();
+        })?;
+    }
+
+    for conn in server.incoming() {
+        if !running.load(Ordering::Relaxed) {
+            break;
+        }
+        let mut conn = match conn {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("accept: {e}");
+                continue;
+            }
+        };
+        // One connection at a time (fine for the request/reply control plane; the long-lived
+        // monitor stream lands with per-connection threading in D7).
+        let mut shutdown = false;
+        loop {
+            match conn.recv() {
+                Ok(Some(Request::Shutdown)) => {
+                    let _ = conn.reply(&Response::Ok);
+                    log::info!("shutdown requested by client");
+                    shutdown = true;
+                    break;
+                }
+                Ok(Some(req)) => {
+                    let resp = daemon.handle(req);
+                    if let Err(e) = conn.reply(&resp) {
+                        log::warn!("reply: {e}");
+                        break;
+                    }
+                }
+                Ok(None) => break, // client closed the connection
+                Err(e) => {
+                    log::warn!("recv: {e}");
+                    break;
+                }
+            }
+        }
+        if shutdown || !running.load(Ordering::Relaxed) {
+            break;
+        }
+    }
+
+    log::info!("shutting down — releasing controller and unplugging virtual pad");
+    if let Some(p) = &path {
+        let _ = std::fs::remove_file(p);
+    }
+    if let Err(e) = daemon.shutdown() {
+        log::warn!("shutdown: {e}");
+    }
+    Ok(())
+}
+
+/// The Unix control-socket path: `$DECKHAND_SOCKET` if set (handy for tests / non-default layouts),
+/// else `$XDG_RUNTIME_DIR/deckhand.sock`.
+#[cfg(unix)]
+fn socket_path() -> PathBuf {
+    std::env::var_os("DECKHAND_SOCKET")
+        .map(PathBuf::from)
+        .unwrap_or_else(deckhand_ipc::default_socket_path)
+}
+
+/// Wake the blocking accept loop by opening (and dropping) a throwaway connection to our socket.
+fn wake() {
+    #[cfg(unix)]
+    let _ = Client::connect_path(&socket_path());
+    #[cfg(windows)]
+    let _ = Client::connect_default();
+}
+
+/// Bind the control socket. On Unix this is [`socket_path`] with a stale-socket / single-instance
+/// dance; the returned path is removed on exit. On Windows a named pipe (no path).
+#[cfg(unix)]
+fn bind_socket() -> Result<(Server, Option<PathBuf>), Box<dyn Error>> {
+    let path = socket_path();
+    let server = match Server::bind_path(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            // Bind failed because the socket file exists. If a daemon is actually listening, this
+            // is a genuine second instance; otherwise the file is stale — remove it and rebind.
+            if Client::connect_path(&path).is_ok() {
+                return Err(
+                    format!("another deckhandd is already running on {}", path.display()).into()
+                );
+            }
+            log::warn!("removing stale control socket {}", path.display());
+            std::fs::remove_file(&path)?;
+            Server::bind_path(&path)?
+        }
+        Err(e) => return Err(e.into()),
+    };
+    Ok((server, Some(path)))
+}
+
+#[cfg(windows)]
+fn bind_socket() -> Result<(Server, Option<PathBuf>), Box<dyn Error>> {
+    Ok((Server::bind_default()?, None))
+}
+
+/// Read a RON profile and compile it to a `Program`, formatting any diagnostics.
+fn load_program(path: &Path) -> Result<Program, Box<dyn Error>> {
+    let doc: ConfigDoc = ron::from_str(&std::fs::read_to_string(path)?)?;
+    compile(&doc).map_err(|diags| {
+        let msg = format_diags(&diags).join("\n  ");
+        Box::<dyn Error>::from(format!("{}: did not compile:\n  {msg}", path.display()))
+    })
+}
+
+fn load_globals(path: &Path) -> Result<GlobalConfig, Box<dyn Error>> {
+    Ok(ron::from_str(&std::fs::read_to_string(path)?)?)
+}
+
+fn cli_err(e: String) -> Box<dyn Error> {
+    e.into()
+}
