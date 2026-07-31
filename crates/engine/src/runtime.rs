@@ -111,10 +111,15 @@ impl Runtime {
         let reader = thread::Builder::new()
             .name("deckhand-reader".into())
             .spawn(move || {
-                run_reader(
+                let result = run_reader(
                     device, pinned_id, cfg, reader_ctl, frame_tx, rumble_rx, click_rx, r_reader,
                     w_reader,
-                )
+                );
+                // A reader error would otherwise be invisible until stop() joins it — log it now.
+                if let Err(ref e) = result {
+                    log::error!("reader thread exited with error: {e}");
+                }
+                result
             })
             .expect("spawn reader thread");
 
@@ -241,7 +246,7 @@ fn read_session(
     click_rx: &Receiver<Click>,
     running: &AtomicBool,
 ) -> Result<SessionEnd> {
-    apply_device_cfg(device, cfg)?;
+    ensure_device_cfg(device, cfg);
     let mut last_keepalive = Instant::now();
     let mut last_haptic = Instant::now();
     let mut level = RumbleCmd::default();
@@ -254,7 +259,7 @@ fn read_session(
                 match &report {
                     Report::Connected => {
                         EngineEvent::ControllerConnected.emit();
-                        apply_device_cfg(device, cfg)?;
+                        ensure_device_cfg(device, cfg);
                     }
                     Report::Disconnected => EngineEvent::ControllerDisconnected.emit(),
                     // Edge-triggered: the 0x04 report streams ~1 Hz, so only surface a change.
@@ -289,14 +294,20 @@ fn read_session(
         if (level.strong > 0 || level.weak > 0)
             && last_haptic.elapsed() >= Duration::from_millis(RUMBLE_REFIRE_MS)
         {
-            apply_haptics(device, &level)?;
+            // Non-fatal: a transient write hiccup must not kill the reader (a real disconnect is
+            // caught by the read above → TransportGone). Same for clicks below.
+            if let Err(e) = apply_haptics(device, &level) {
+                log::warn!("rumble write failed: {e}");
+            }
             last_haptic = Instant::now();
         }
 
         // One-shot command-haptic clicks fire immediately (no arbitration — a click may briefly
         // interrupt the rumble train on its pad, which the re-fire above resumes).
         while let Ok(click) = click_rx.try_recv() {
-            fire_click(device, &click)?;
+            if let Err(e) = fire_click(device, &click) {
+                log::warn!("click write failed: {e}");
+            }
         }
     }
     Ok(SessionEnd::Stop)
@@ -551,6 +562,28 @@ fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) -> Result<()> {
         device.set_idle_timeout(t)?;
     }
     Ok(())
+}
+
+/// How many times to (re)try applying device config, and the gap between tries.
+const CFG_RETRIES: u32 = 5;
+const CFG_RETRY_MS: u64 = 40;
+
+/// Apply device config, **non-fatally**, retrying a few times. Right after a (re)connect the
+/// controller commonly NAKs a feature write for a moment; a single failure here must not kill the
+/// reader thread (which would leave the controller in lizard mode with no mapping — the exact D6
+/// reattach symptom). If every attempt fails, log and carry on — the next `Connected` retries, and
+/// a genuinely-gone device surfaces as a read error → reacquire.
+fn ensure_device_cfg(device: &mut Device, cfg: &DeviceCfg) {
+    for attempt in 1..=CFG_RETRIES {
+        match apply_device_cfg(device, cfg) {
+            Ok(()) => return,
+            Err(e) if attempt < CFG_RETRIES => {
+                log::debug!("device cfg attempt {attempt} failed ({e}) — retrying");
+                thread::sleep(Duration::from_millis(CFG_RETRY_MS));
+            }
+            Err(e) => log::warn!("device cfg failed after {CFG_RETRIES} attempts: {e}"),
+        }
+    }
 }
 
 /// The effective rumble to realize on the controller: per-pad drive (already scaled by master ×
