@@ -51,9 +51,9 @@ impl Rumble {
 /// opposing directions to neutral**.
 ///
 /// Compiled only when a hat-based gamepad backend is present: the Linux backend (always) or,
-/// on Windows, the ViGEm backend (`vigem` feature). A kb/mouse-only Windows build has no
-/// gamepad output and wouldn't use it. (Add future hat backends — e.g. `viiper` — here.)
-#[cfg(any(target_os = "linux", all(target_os = "windows", feature = "vigem")))]
+/// on Windows, the ViGEm or VIIPER backend (`vigem` / `viiper` features). A kb/mouse-only
+/// Windows build has no gamepad output and wouldn't use it. (Add future hat backends here.)
+#[cfg(any(target_os = "linux", all(target_os = "windows", any(feature = "vigem", feature = "viiper"))))]
 #[derive(Default)]
 pub(crate) struct Dpad {
     up: bool,
@@ -62,7 +62,7 @@ pub(crate) struct Dpad {
     right: bool,
 }
 
-#[cfg(any(target_os = "linux", all(target_os = "windows", feature = "vigem")))]
+#[cfg(any(target_os = "linux", all(target_os = "windows", any(feature = "vigem", feature = "viiper"))))]
 impl Dpad {
     /// Apply a button event; returns `true` if `b` was a dpad direction (so the caller
     /// folds to the hat instead of emitting a normal button).

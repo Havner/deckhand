@@ -41,19 +41,31 @@ use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 // --- controller backend selection (compile-time, mutually exclusive) ---
 //
-// Exactly one backend type is compiled in, aliased to `Backend`. The `vigem` feature (on by
-// default) selects the ViGEm pad; with it off — and no other backend feature — the `none`
-// stub stands in and drops gamepad output with a warning. A future `viiper` backend adds a
-// third arm here (and a `compile_error!` guard against enabling two at once).
+// Exactly one backend type is compiled in, aliased to `Backend`: `vigem` (ViGEmBus pad),
+// `viiper` (VIIPER USB/IP pad), or — with neither feature — the `none` stub, which drops
+// gamepad output with a warning while kb/mouse keep working. The two real backends are
+// mutually exclusive; enabling both is a build error rather than a silent pick.
+
+#[cfg(all(feature = "vigem", feature = "viiper"))]
+compile_error!(
+    "features `vigem` and `viiper` are mutually exclusive — enable at most one controller backend"
+);
 
 #[cfg(feature = "vigem")]
 mod vigem;
 #[cfg(feature = "vigem")]
 use vigem::VigemController as Backend;
 
-#[cfg(not(feature = "vigem"))]
+// `not(vigem)` so that if both features are (mistakenly) on, only one `Backend` is defined and
+// the `compile_error!` above is the sole error rather than being buried under a name clash.
+#[cfg(all(feature = "viiper", not(feature = "vigem")))]
+mod viiper;
+#[cfg(all(feature = "viiper", not(feature = "vigem")))]
+use viiper::ViiperController as Backend;
+
+#[cfg(not(any(feature = "vigem", feature = "viiper")))]
 mod none;
-#[cfg(not(feature = "vigem"))]
+#[cfg(not(any(feature = "vigem", feature = "viiper")))]
 use none::NoController as Backend;
 
 /// A virtual-controller backend, selected at compile time by feature. The keyboard/mouse

@@ -38,4 +38,11 @@ pub enum Error {
     #[cfg(all(target_os = "windows", feature = "vigem"))]
     #[error("ViGEm error: {0}")]
     Vigem(#[from] vigem_client::Error),
+
+    /// A VIIPER error (Windows virtual-gamepad backend over USB/IP) — e.g. the server isn't
+    /// reachable, auth failed, or the device couldn't be created. Only present with the
+    /// `viiper` feature.
+    #[cfg(all(target_os = "windows", feature = "viiper"))]
+    #[error("VIIPER error: {0}")]
+    Viiper(#[from] viiper_client::ViiperError),
 }

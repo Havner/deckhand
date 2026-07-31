@@ -28,14 +28,19 @@ vigem-client = { version = "0.1", features = ["unstable_xtarget_notification"], 
 # SendInput for virtual keyboard/mouse (no driver needed). Always present — the kb/mouse path
 # is independent of which controller backend (if any) is compiled in.
 windows = { version = "0.60", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+# Alternative virtual-gamepad backend via VIIPER (USB/IP-based). Optional: pulled in only by
+# the `viiper` feature. Experimental — see `win/viiper.rs`.
+viiper-client = { version = "0.7", optional = true }
 
 [features]
 # The controller (virtual-gamepad) backend is compile-time selectable and Windows-only; on
 # other platforms these features are inert. Backends are mutually exclusive; with none enabled
 # (the default — no `default` feature for now) the build is kb/mouse-only and controller output
-# is dropped with a warning. Opt in explicitly with `--features vigem`.
+# is dropped with a warning. Opt in explicitly with `--features vigem` (or `--features viiper`).
 # Virtual Xbox 360 pad via the ViGEmBus driver (needs ViGEmBus installed). See `win/vigem.rs`.
 vigem = ["dep:vigem-client"]
+# Virtual Xbox 360 pad via VIIPER (USB/IP). See `win/viiper.rs`. Experimental.
+viiper = ["dep:viiper-client"]
 
 [dev-dependencies]
 # The `bridge` example wires a real Steam controller into the virtual pad (PLAN §2.1
