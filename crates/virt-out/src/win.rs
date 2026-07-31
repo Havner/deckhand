@@ -110,6 +110,13 @@ impl Sink {
         for ev in events {
             match ev {
                 OutputEvent::Key(k, down) => {
+                    // Warn once per press for keys this backend can't realize (no Windows VK), so
+                    // a mis-bound key isn't silently dropped. Release edge stays quiet.
+                    if *down && is_unsupported(k) {
+                        log::warn!(
+                            "virt-out(win): key {k:?} has no Windows key mapping; output dropped"
+                        );
+                    }
                     if let Some(inp) = key_input(k, *down) {
                         inputs.push(inp);
                     }
@@ -431,6 +438,15 @@ fn is_vk_only(k: &Key) -> bool {
             | Key::Back
             | Key::Forward
     )
+}
+
+/// True for keys this backend can't realize: Windows has no virtual key for them at all
+/// (`Compose`, the exotic keypad keys, brightness / keyboard-illumination, `MicMute`, and the
+/// media-transport keys with no distinct VK — `Play`/`Rewind`/`FastForward`/the `*Cd` keys).
+/// Defined as "`key_vk` has no mapping", so it can never drift from the actual `None` cases.
+/// `key_input` drops these; `emit` logs a warning so a mis-bound key isn't silently swallowed.
+fn is_unsupported(k: &Key) -> bool {
+    key_vk(k).is_none()
 }
 
 /// Map a key to a Windows virtual-key, or `None` if Windows has no VK for it (`Compose`, exotic

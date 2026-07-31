@@ -661,6 +661,7 @@ dependencies = [
  "ctrlc",
  "evdev",
  "libc",
+ "log",
  "steam-hid",
  "thiserror",
  "vigem-client",
