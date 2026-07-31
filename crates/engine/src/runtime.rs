@@ -279,7 +279,17 @@ fn run_mapper(
                         let _ = click_tx.send(Click { side: h.side, duration });
                     }
                 }
-                // Battery/lifecycle are surfaced by the reader (D4); nothing to map here.
+                // Controller gone but the transport (dongle) is alive → release outputs so nothing
+                // sticks (e.g. a held stick keeping the character running). The reader stays up; a
+                // `Connected` report resumes mapping on the next frame. DEFERRED (to-decide): this
+                // drops *outputs* but keeps latches (toggles, active layers), so a toggle re-asserts
+                // on reconnect — revisit whether a disconnect should also reset transient state.
+                Ok(Report::Disconnected) => {
+                    out.clear();
+                    mapper.release_all(&mut out);
+                    sink.emit(&out)?;
+                }
+                // Connected / Battery: surfaced by the reader (D4); nothing to map here.
                 // `Report` is non_exhaustive.
                 Ok(_) => {}
                 // Reader gone: transport-lost (it flagged `waiting`) → break to the waiting phase;
