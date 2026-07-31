@@ -15,11 +15,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::{Duration, Instant};
 
-use steam_hid::{Manager, Report};
-
-// PLAN §1.4 scale constants (provisional — this is what we're checking).
-const ACCEL_RES_PER_G: f32 = 16384.0;
-const GYRO_RES_PER_DPS: f32 = 16.0;
+use steam_hid::{ACCEL_RES_PER_G, GYRO_RES_PER_DPS, Manager, Report};
 
 /// Which of the three channels dominates, with its sign — e.g. `+Z`. Returns `~0`
 /// when the largest channel is below `noise` (nothing meaningfully happening).
