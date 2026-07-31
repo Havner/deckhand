@@ -174,28 +174,17 @@ fn serve(mut daemon: Daemon) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// The Unix control-socket path: `$DECKHAND_SOCKET` if set (handy for tests / non-default layouts),
-/// else `$XDG_RUNTIME_DIR/deckhand.sock`.
-#[cfg(unix)]
-fn socket_path() -> PathBuf {
-    std::env::var_os("DECKHAND_SOCKET")
-        .map(PathBuf::from)
-        .unwrap_or_else(deckhand_ipc::default_socket_path)
-}
-
 /// Wake the blocking accept loop by opening (and dropping) a throwaway connection to our socket.
 fn wake() {
-    #[cfg(unix)]
-    let _ = Client::connect_path(&socket_path());
-    #[cfg(windows)]
     let _ = Client::connect_default();
 }
 
-/// Bind the control socket. On Unix this is [`socket_path`] with a stale-socket / single-instance
-/// dance; the returned path is removed on exit. On Windows a named pipe (no path).
+/// Bind the control socket. On Unix this is [`deckhand_ipc::default_socket_path`] (honoring
+/// `$DECKHAND_SOCKET`) with a stale-socket / single-instance dance; the returned path is removed on
+/// exit. On Windows a named pipe (no path).
 #[cfg(unix)]
 fn bind_socket() -> Result<(Server, Option<PathBuf>), Box<dyn Error>> {
-    let path = socket_path();
+    let path = deckhand_ipc::default_socket_path();
     let server = match Server::bind_path(&path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {

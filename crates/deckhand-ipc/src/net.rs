@@ -14,10 +14,15 @@ use interprocess::local_socket::GenericNamespaced;
 use crate::codec::{read_msg, write_msg};
 use crate::{Event, Request, Response};
 
-/// Default control-socket path on Unix: `$XDG_RUNTIME_DIR/deckhand.sock` (fallback `/tmp` when the
-/// runtime dir is unset — e.g. outside a login session).
+/// Default control-socket path on Unix. `$DECKHAND_SOCKET` overrides it outright (handy for tests
+/// / non-default layouts); otherwise `$XDG_RUNTIME_DIR/deckhand.sock` (fallback `/tmp` when the
+/// runtime dir is unset — e.g. outside a login session). Shared by the daemon (bind) and clients
+/// (connect) so they always agree.
 #[cfg(unix)]
 pub fn default_socket_path() -> PathBuf {
+    if let Some(p) = std::env::var_os("DECKHAND_SOCKET") {
+        return PathBuf::from(p);
+    }
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"))
