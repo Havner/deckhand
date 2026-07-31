@@ -36,9 +36,12 @@ struct Args {
     #[arg(short, long, value_name = "RON")]
     globals: Option<PathBuf>,
     /// Input source: auto | dongle | wired | <device-id> | host:port.
+    ///
+    /// A <device-id> is `kind:transport:interface:serial` — e.g. `gordon:dongle:1:` (see
+    /// `deckhandctl list-devices`).
     #[arg(short, long, value_name = "SPEC")]
     input: Option<String>,
-    /// Output sink: local (host:port deferred).
+    /// Output sink: local | host:port.
     #[arg(short, long, value_name = "SPEC")]
     output: Option<String>,
     /// Acquire hardware and start immediately (defaults a missing -i/-o to auto/local).

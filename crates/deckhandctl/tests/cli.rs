@@ -49,13 +49,13 @@ fn ctl_drives_a_fake_daemon() {
     assert!(stdout.contains("Running"), "status stdout: {stdout}");
     assert!(stdout.contains("dongle"), "status stdout: {stdout}");
 
-    // `select-device <id>` → SetInput → ok.
-    let out = run_ctl(&sock, &["select-device", "gordon:dongle:1:"]);
+    // `input <id>` → SetInput → ok.
+    let out = run_ctl(&sock, &["input", "gordon:dongle:1:"]);
     assert!(out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("ok"));
 
     // A rejected spec → non-zero exit, error on stderr.
-    let out = run_ctl(&sock, &["select-device", "nope"]);
+    let out = run_ctl(&sock, &["input", "nope"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("bad spec"));
 

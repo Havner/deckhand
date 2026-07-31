@@ -25,11 +25,12 @@ enum Command {
     Status,
     /// List the currently-enumerated devices (id, kind, transport, slot).
     ListDevices,
-    /// Select the input device by id (`gordon:dongle:1:`) or `auto|dongle|wired`.
-    SelectDevice { spec: String },
-    /// Stage the input source: `auto|dongle|wired|<device-id>|host:port`.
+    /// Stage the input source: auto | dongle | wired | <device-id> | host:port.
+    ///
+    /// A <device-id> is `kind:transport:interface:serial` — e.g. `gordon:dongle:1:` (see
+    /// `deckhandctl list-devices`).
     Input { spec: String },
-    /// Stage the output sink: `local` (host:port deferred).
+    /// Stage the output sink: local | host:port.
     Output { spec: String },
     /// Load a RON profile and apply it as the Main program.
     Main { path: PathBuf },
@@ -78,7 +79,7 @@ fn build_request(cmd: &Command) -> Result<Request, String> {
     Ok(match cmd {
         Command::Status => Request::Status,
         Command::ListDevices => Request::ListDevices,
-        Command::SelectDevice { spec } | Command::Input { spec } => Request::SetInput(spec.clone()),
+        Command::Input { spec } => Request::SetInput(spec.clone()),
         Command::Output { spec } => Request::SetOutput(spec.clone()),
         Command::Main { path } => {
             Request::Apply { role: ProfileRole::Main, config: Box::new(load_doc(path)?) }
