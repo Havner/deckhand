@@ -292,16 +292,18 @@ fn trigger(v: f32) -> u8 {
 /// Build a keyboard `INPUT`. Normal keys use **scancode injection** (games often read
 /// scancodes, not virtual keys): the scancode comes from the VK via `MapVirtualKeyW`, and
 /// extended keys (arrows, right ctrl/alt, meta, nav, numpad slash/enter) get the extended-key
-/// flag so the E0 prefix is set. Keys that have a VK but **no keyboard scancode** — the
-/// media / volume / browser keys — fall back to **virtual-key injection** (`wVk` set, no
-/// scancode flag). Returns `None` only for keys with no VK at all (`Compose`, exotic keypad,
-/// and the brightness/keyboard-illumination keys Windows has no VK for). Linux maps everything
-/// via evdev.
+/// flag so the E0 prefix is set. The media / volume / browser keys are instead injected by
+/// **virtual key** (`is_vk_only`): they *do* have scancodes, but only the **E0-extended** ones —
+/// injecting that scancode without the E0 prefix collides with an ordinary letter (volume-up's
+/// scancode `0x30` is `B`, volume-down's `0x2E` is `C`), so we bypass the scancode path entirely
+/// and let the shell consume the consumer-control VK. Returns `None` only for keys with no VK at
+/// all (`Compose`, exotic keypad, and the brightness/keyboard-illumination keys Windows has no VK
+/// for). Linux maps everything via evdev.
 fn key_input(k: &Key, down: bool) -> Option<INPUT> {
     let vk = key_vk(k)?;
     let scan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
 
-    let (wvk, wscan, mut flags) = if scan != 0 {
+    let (wvk, wscan, mut flags) = if scan != 0 && !is_vk_only(k) {
         // Scancode injection (games read scancodes). Extended keys get the E0 flag.
         let mut f = KEYEVENTF_SCANCODE;
         if is_extended(k) {
@@ -309,9 +311,10 @@ fn key_input(k: &Key, down: bool) -> Option<INPUT> {
         }
         (VIRTUAL_KEY(0), scan, f) // wVk ignored when KEYEVENTF_SCANCODE is set
     } else {
-        // No scancode (media / volume / browser) → inject by virtual key directly. Plain VK
-        // injection (no extended flag) is the proven path for media VKs; if one doesn't register
-        // on some setup, adding `KEYEVENTF_EXTENDEDKEY` here is the first thing to try.
+        // Media / volume / browser (or a key Windows gives no scancode) → inject by virtual key
+        // directly. Plain VK injection (no extended flag) is the proven path for consumer-control
+        // VKs; if one doesn't register on some setup, adding `KEYEVENTF_EXTENDEDKEY` here is the
+        // first thing to try.
         (vk, 0u16, KEYBD_EVENT_FLAGS(0))
     };
     if !down {
@@ -411,10 +414,29 @@ fn is_extended(k: &Key) -> bool {
     )
 }
 
+/// Keys that must be injected by **virtual key**, never by scancode. The consumer-control keys
+/// (volume, media transport, browser navigation) have only E0-extended scancodes, so the plain
+/// scancode `MapVirtualKeyW` returns would land on an ordinary letter (volume-up `0x30` → `B`,
+/// volume-down `0x2E` → `C`). Injecting the VK lets the shell dispatch the real consumer action.
+fn is_vk_only(k: &Key) -> bool {
+    matches!(
+        k,
+        Key::Mute
+            | Key::VolumeDown
+            | Key::VolumeUp
+            | Key::PlayPause
+            | Key::PreviousSong
+            | Key::NextSong
+            | Key::StopCd
+            | Key::Back
+            | Key::Forward
+    )
+}
+
 /// Map a key to a Windows virtual-key, or `None` if Windows has no VK for it (`Compose`, exotic
-/// keypad keys, brightness / keyboard-illumination). The media/volume/browser keys map to a VK
-/// with no scancode; `key_input` injects those by virtual key. Numpad Enter maps to Return + the
-/// extended flag.
+/// keypad keys, brightness / keyboard-illumination). The media/volume/browser keys map to a
+/// consumer-control VK; `key_input` injects those by virtual key (`is_vk_only`) rather than by
+/// their E0-extended scancode. Numpad Enter maps to Return + the extended flag.
 fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
     Some(match k {
         Key::LeftShift => VK_LSHIFT,
@@ -522,7 +544,8 @@ fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
         Key::Kp3 => VK_NUMPAD3,
         Key::Kp0 => VK_NUMPAD0,
         Key::KpDot => VK_DECIMAL,
-        // Media / volume / browser: a VK but no scancode — `key_input` injects by virtual key.
+        // Media / volume / browser: `key_input` injects these by virtual key (`is_vk_only`) — their
+        // only scancodes are E0-extended and would otherwise collide with letter scancodes.
         Key::Mute => VK_VOLUME_MUTE,
         Key::VolumeDown => VK_VOLUME_DOWN,
         Key::VolumeUp => VK_VOLUME_UP,
