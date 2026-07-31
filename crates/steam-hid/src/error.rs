@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 /// Crate result alias.
-pub type Result<T> = core::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors surfaced by `steam-hid`.
 ///
