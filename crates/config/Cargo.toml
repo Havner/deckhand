@@ -10,7 +10,6 @@ publish.workspace = true
 # serde is a hard dep — (de)serialization is the crate's purpose (PLAN §3).
 serde.workspace = true
 ron.workspace = true
-thiserror.workspace = true
 # The shared output vocabulary (Key / MouseButton / GamepadButton), with serde on so it
 # round-trips in RON.
 vocab = { path = "../vocab", features = ["serde"] }
