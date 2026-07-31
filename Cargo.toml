@@ -2,7 +2,7 @@
 # See PLAN.md for the full design; build order is steam-hid first.
 [workspace]
 resolver = "3"
-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine"]
+members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/deckhand-ipc"]
 
 [workspace.package]
 edition = "2024"
@@ -38,3 +38,8 @@ log = "0.4"
 env_logger = "0.11"
 # CLI parsing for the `deckhand-run` test binary (derive mode).
 clap = { version = "4", features = ["derive"] }
+# Control-plane wire codec (compact, serde-native) for the daemon/client (PLAN §4.4).
+postcard = { version = "1", features = ["use-std"] }
+# Cross-platform local sockets (Unix domain sockets / Windows named pipes) for the
+# daemon control socket — one sync API, no async/tokio (PLAN §4.4).
+interprocess = "2"
