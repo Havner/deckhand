@@ -24,10 +24,13 @@ log.workspace = true
 thiserror.workspace = true
 
 [features]
-# Forward virt-out's controller-backend selection so `cargo run -p engine --features vigem`
-# (and the daemon later) can pick it. Off by default for now — a plain build has no virtual
-# controller. The two backends are mutually exclusive (virt-out enforces this with a compile
-# error if both are enabled).
+# Forward virt-out's controller-backend selection. `vigem` is the engine default (the proven
+# backend), so a plain `cargo run -p engine` gets the ViGEm pad. Build `--no-default-features` for a
+# controller-less (kb/mouse-only) engine, or `--no-default-features --features viiper` for the
+# experimental VIIPER backend. The two backends are mutually exclusive (virt-out enforces this with
+# a compile error), so bare `--features viiper` would clash with the default `vigem` — drop the
+# default. (virt-out itself keeps NO default feature; only the engine, as the app, picks one.)
+default = ["vigem"]
 vigem = ["virt-out/vigem"]
 # Alternative controller backend: VIIPER (USB/IP), experimental. See virt-out `win/viiper.rs`.
 viiper = ["virt-out/viiper"]
