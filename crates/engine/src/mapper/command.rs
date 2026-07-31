@@ -14,6 +14,7 @@
 use config::{Activator, HapticEdge, Haptics, Side, Turbo};
 
 use super::activator::{CmdState, SlotState};
+use super::behavior::Sinks;
 use super::layers::{LayerOps, NodeHeld};
 use super::reconcile::DesiredLevels;
 use super::{HapticReq, Tick};
@@ -24,11 +25,11 @@ use crate::program::{CompiledAction, CompiledCommand};
 const TAP_MS: u64 = 40;
 
 /// Advance a node's commands one tick and apply the firing ones' actions — output leaves into
-/// `desired`, layer/set actions into `ops` (for the next tick).
+/// `sinks.desired`, layer/set actions into `sinks.ops` (for the next tick), command-haptic
+/// pulses into `sinks.haptics`.
 ///
 /// `held` is the node's digital level this tick; `node` describes how to re-derive that held
 /// state later (for `HoldLayer` latching); `slot` carries its retained timing/latches.
-#[allow(clippy::too_many_arguments)] // a node evaluation genuinely needs all of these.
 pub(super) fn eval_commands(
     commands: &[CompiledCommand],
     held: bool,
@@ -36,9 +37,7 @@ pub(super) fn eval_commands(
     side: &Side,
     slot: &mut SlotState,
     now: &Tick,
-    desired: &mut DesiredLevels,
-    ops: &mut LayerOps,
-    haptics: &mut Vec<HapticReq>,
+    sinks: &mut Sinks,
 ) {
     let pressed = held && !slot.prev_held;
     let released = !held && slot.prev_held;
@@ -78,12 +77,12 @@ pub(super) fn eval_commands(
         // = press, falling = release), gated by its `Haptics` setting. Follows the *output* level so
         // it's uniform across activator types (a Toggle clicks on activate/deactivate; a Turbo would
         // click per pulse — the user disables haptics on turbo if that's unwanted).
-        emit_haptic(&settings.haptics, cs, out, side, haptics);
+        emit_haptic(&settings.haptics, cs, out, side, sinks.haptics);
 
         if out {
             // The whole ordered combo fires while the command fires (subcommands = modifiers).
             for action in &cmd.actions {
-                apply_action(action, node, desired, ops);
+                apply_action(action, node, sinks.desired, sinks.ops);
             }
         }
     }
@@ -253,11 +252,9 @@ mod tests {
         let mut d = DesiredLevels::default();
         let mut ops = LayerOps::default();
         let mut haptics = Vec::new();
+        let mut sinks = Sinks { desired: &mut d, ops: &mut ops, haptics: &mut haptics };
         let node = NodeHeld::Button(config::InputSource::LeftBumper);
-        eval_commands(
-            std::slice::from_ref(command), held, &node, &Side::Left, slot, &Tick(now), &mut d,
-            &mut ops, &mut haptics,
-        );
+        eval_commands(std::slice::from_ref(command), held, &node, &Side::Left, slot, &Tick(now), &mut sinks);
         d.has_key(&Key::A)
     }
 
@@ -266,8 +263,9 @@ mod tests {
         let mut d = DesiredLevels::default();
         let mut ops = LayerOps::default();
         let mut haptics = Vec::new();
+        let mut sinks = Sinks { desired: &mut d, ops: &mut ops, haptics: &mut haptics };
         let node = NodeHeld::Button(config::InputSource::LeftBumper);
-        eval_commands(commands, held, &node, &Side::Left, slot, &Tick(now), &mut d, &mut ops, &mut haptics);
+        eval_commands(commands, held, &node, &Side::Left, slot, &Tick(now), &mut sinks);
         d
     }
 
@@ -276,11 +274,9 @@ mod tests {
         let mut d = DesiredLevels::default();
         let mut ops = LayerOps::default();
         let mut haptics = Vec::new();
+        let mut sinks = Sinks { desired: &mut d, ops: &mut ops, haptics: &mut haptics };
         let node = NodeHeld::Button(config::InputSource::LeftBumper);
-        eval_commands(
-            std::slice::from_ref(command), held, &node, &Side::Right, slot, &Tick(now), &mut d,
-            &mut ops, &mut haptics,
-        );
+        eval_commands(std::slice::from_ref(command), held, &node, &Side::Right, slot, &Tick(now), &mut sinks);
         haptics
     }
 

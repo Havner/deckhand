@@ -152,6 +152,7 @@ impl Mapper {
         let ctx =
             behavior::Ctx { cur: frame, prev: self.prev.as_ref(), dt: self.dt(&tick), now: tick.clone() };
         let mut ops = LayerOps::default();
+        let mut sinks = behavior::Sinks { desired: &mut desired, ops: &mut ops, haptics };
         for (source, binding, key) in resolved {
             let slots = self.activators.for_binding(source, key);
             // Only the smoothed relative behaviors (pad/gyro → mouse) carry a One-Euro filter.
@@ -164,8 +165,7 @@ impl Mapper {
             let gravity = matches!(binding, CompiledBinding::GyroToMouse { .. })
                 .then(|| self.gravity.entry(source.clone()).or_default());
             behavior::eval_binding(
-                binding, source, &ctx, slots, &mut desired, &mut self.rel, &mut ops, haptics,
-                smoother, gravity,
+                binding, source, &ctx, slots, &mut sinks, &mut self.rel, smoother, gravity,
             );
         }
 
