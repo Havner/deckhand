@@ -273,7 +273,7 @@ fn mouse_input(dx: i32, dy: i32, data: u32, flags: windows::Win32::UI::Input::Ke
 const XBUTTON1: u32 = 0x0001;
 const XBUTTON2: u32 = 0x0002;
 /// One wheel notch (`WHEEL_DELTA`).
-const WHEEL_DELTA: i32 = 120;
+const WHEEL_DELTA: i32 = vocab::SCROLL_HI_RES_PER_DETENT;
 
 /// Build a keyboard `INPUT`. Normal keys use **scancode injection** (games often read
 /// scancodes, not virtual keys): the scancode comes from the VK via `MapVirtualKeyW`, and

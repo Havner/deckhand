@@ -133,6 +133,12 @@ impl MouseButton {
     }
 }
 
+/// High-resolution scroll units per wheel detent — the shared kernel/libinput/Windows
+/// convention (evdev `REL_WHEEL_HI_RES` and Windows `WHEEL_DELTA` both use 120). One
+/// source of truth for the engine (which scales motion into these units) and every
+/// `virt-out` backend (which emits them, synthesizing a legacy notch every 120).
+pub const SCROLL_HI_RES_PER_DETENT: i32 = 120;
+
 /// A virtual-gamepad button (Xbox 360 layout). The four `Dpad*` are the **logical** dpad
 /// directions — bindable as discrete actions like any button. The XInput/evdev virtual
 /// pad models the dpad as a hat, so the backend folds these four into that hat (opposing

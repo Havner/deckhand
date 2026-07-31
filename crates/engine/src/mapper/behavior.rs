@@ -52,7 +52,7 @@ const GYRO_MOUSE_GAIN: f32 = 20.0;
 const PIXELS_PER_SCROLL_TICK: f32 = 50.0;
 /// High-resolution scroll units per wheel detent (evdev `REL_WHEEL_HI_RES` / Windows `WHEEL_DELTA`).
 /// `SmoothScroll` covers the same distance as `Scroll` but in these finer units → ~120× smoother.
-const SCROLL_HI_RES_PER_TICK: f32 = 120.0;
+const SCROLL_HI_RES_PER_TICK: f32 = vocab::SCROLL_HI_RES_PER_DETENT as f32;
 
 /// Per-tick context for behaviors: the current frame, the previous frame (the pad-delta source
 /// for `AsMouse`), `dt` in seconds (for the rate-based stick/gyro behaviors), and the injected
