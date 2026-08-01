@@ -5,7 +5,7 @@
 
 use config::{ConfigDoc, Diagnostic, Severity};
 use engine::{Engine, EngineEvent, EventStream, Input, Output, Program, Role, Status, compile};
-use ipc::{Event, ProfileRole, Request, Response, RunState, StatusInfo};
+use ipc::{Event, ProfileRole, Request, Response, RunState, StatusSnapshot};
 
 /// The running daemon state around the engine — just the engine, no shadow copies.
 pub struct Daemon {
@@ -104,13 +104,14 @@ impl Daemon {
         }
     }
 
-    fn status_info(&self) -> StatusInfo {
-        StatusInfo {
-            state: run_state(self.engine.status()),
-            input: self.engine.input().to_string(),
-            output: self.engine.output().to_string(),
-            main: self.engine.main_name().map(str::to_owned),
-            fallback: self.engine.fallback_name().map(str::to_owned),
+    fn status_info(&self) -> StatusSnapshot {
+        let s = self.engine.status();
+        StatusSnapshot {
+            state: run_state(s.state),
+            input: s.input.to_string(),
+            output: s.output.to_string(),
+            main: s.main,
+            fallback: s.fallback,
         }
     }
 

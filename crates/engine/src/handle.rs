@@ -142,6 +142,24 @@ pub enum Status {
     WaitingForDevice,
 }
 
+/// A point-in-time snapshot of the engine: run state, the staged input/output (**typed** — each
+/// round-trips through its `Display`/`FromStr`), and the loaded program names. This is the engine's
+/// side of the status contract; the transport-agnostic wire mirror is `ipc::StatusSnapshot` (the
+/// daemon maps one to the other, stringifying `input`/`output`). Read atomically via
+/// [`Engine::status`] rather than field-by-field so the two APIs stay in lock-step.
+#[derive(Debug, Clone)]
+pub struct StatusInfo {
+    pub state: Status,
+    /// The staged input source (always set; defaults to `auto`).
+    pub input: Input,
+    /// The staged output target (always set; defaults to `local`).
+    pub output: Output,
+    /// Name of the loaded **Main** program, or `None` if none is applied.
+    pub main: Option<String>,
+    /// Name of the loaded **Fallback** program, or `None`.
+    pub fallback: Option<String>,
+}
+
 /// The engine handle. Holds the staged input/output, the program(s) + globals (retained across
 /// start/stop), and the live [`Runtime`] while running.
 pub struct Engine {
@@ -281,35 +299,24 @@ impl Engine {
         Ok(())
     }
 
-    /// The engine's run state: `Idle` when no loop is up, `WaitingForDevice` while the loop runs
-    /// but the bound device's transport is gone (D5), else `Running`.
-    pub fn status(&self) -> Status {
-        match &self.runtime {
+    /// A point-in-time [`StatusInfo`] snapshot: run state, staged input/output, and the loaded
+    /// program names, read together. Run state is `Idle` when no loop is up, `WaitingForDevice`
+    /// while the loop runs but the bound device's transport is gone (D5), else `Running`. The
+    /// staged input/output are typed and round-trip through their `Display`/`FromStr` form, so a
+    /// caller can render them and pass the same string back to `set_input`/`set_output`.
+    pub fn status(&self) -> StatusInfo {
+        let state = match &self.runtime {
             None => Status::Idle,
             Some(rt) if rt.is_waiting() => Status::WaitingForDevice,
             Some(_) => Status::Running,
+        };
+        StatusInfo {
+            state,
+            input: self.input.clone(),
+            output: self.output.clone(),
+            main: self.main.as_ref().map(|p| p.meta.name.clone()),
+            fallback: self.fallback.as_ref().map(|p| p.meta.name.clone()),
         }
-    }
-
-    /// The staged input source. Round-trips through its `Display`/`FromStr` form, so a caller can
-    /// render it (e.g. in status) and pass the same string back to `set_input`.
-    pub fn input(&self) -> &Input {
-        &self.input
-    }
-
-    /// The staged output target (see [`Engine::input`] for the round-trip contract).
-    pub fn output(&self) -> &Output {
-        &self.output
-    }
-
-    /// The name of the applied **Main** program, or `None` if none is applied.
-    pub fn main_name(&self) -> Option<&str> {
-        self.main.as_ref().map(|p| p.meta.name.as_str())
-    }
-
-    /// The name of the applied **Fallback** program, or `None`.
-    pub fn fallback_name(&self) -> Option<&str> {
-        self.fallback.as_ref().map(|p| p.meta.name.as_str())
     }
 
     /// Enumerate the attached controllers (any time — no HW is retained).

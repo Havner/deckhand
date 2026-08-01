@@ -53,7 +53,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ProfileRole, Request, Response, RunState, StatusInfo};
+    use crate::{ProfileRole, Request, Response, RunState, StatusSnapshot};
 
     #[test]
     fn round_trips_over_a_buffer() {
@@ -70,7 +70,7 @@ mod tests {
         // A trailing status reply, to prove mixed types frame independently.
         write_msg(
             &mut buf,
-            &Response::Status(StatusInfo {
+            &Response::Status(StatusSnapshot {
                 state: RunState::Idle,
                 input: "dongle".into(),
                 output: "local".into(),

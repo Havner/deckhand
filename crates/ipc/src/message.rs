@@ -62,7 +62,7 @@ pub enum Response {
     /// self-describing) and the token to pass back as `SetInput`/select-device (PLAN §4.3).
     Devices(Vec<String>),
     /// Engine status (reply to [`Request::Status`]).
-    Status(StatusInfo),
+    Status(StatusSnapshot),
 }
 
 /// The engine's run state (wire mirror; `WaitingForDevice` lands with D4/D5).
@@ -74,9 +74,11 @@ pub enum RunState {
     WaitingForDevice,
 }
 
-/// A snapshot of the daemon's engine (reply to [`Request::Status`]).
+/// A snapshot of the daemon's engine (reply to [`Request::Status`]). The transport-agnostic wire
+/// mirror of `engine::StatusInfo`: `input`/`output` are the round-tripped **spec strings** (the
+/// daemon stringifies the engine's typed values), everything else maps across one-to-one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StatusInfo {
+pub struct StatusSnapshot {
     pub state: RunState,
     /// The staged input spec — always set (defaults to `auto`). Round-trips: pass it back verbatim
     /// as `SetInput` to reselect the same source.

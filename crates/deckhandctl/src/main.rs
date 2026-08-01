@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use config::{ConfigDoc, GlobalConfig};
-use ipc::{Client, Event, ProfileRole, Request, Response, StatusInfo};
+use ipc::{Client, Event, ProfileRole, Request, Response, StatusSnapshot};
 
 /// Control the deckhand daemon.
 #[derive(Parser)]
@@ -179,7 +179,7 @@ fn print_response(resp: Response) -> ExitCode {
     }
 }
 
-fn print_status(s: &StatusInfo) {
+fn print_status(s: &StatusSnapshot) {
     println!("state:    {:?}", s.state);
     println!("input:    {}", s.input);
     println!("output:   {}", s.output);
