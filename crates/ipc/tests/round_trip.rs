@@ -5,7 +5,7 @@
 
 use std::thread;
 
-use ipc::{Client, DeviceEntry, Request, Response, RunState, Server, StatusInfo};
+use ipc::{Client, Request, Response, RunState, Server, StatusInfo};
 
 #[test]
 fn client_server_round_trip() {
@@ -27,12 +27,7 @@ fn client_server_round_trip() {
                         has_main: true,
                         has_fallback: false,
                     }),
-                    Request::ListDevices => Response::Devices(vec![DeviceEntry {
-                        id: "gordon:dongle:1:".into(),
-                        kind: "Gordon".into(),
-                        transport: "UsbDongle".into(),
-                        interface: 1,
-                    }]),
+                    Request::ListDevices => Response::Devices(vec!["gordon:dongle:1:".into()]),
                     Request::Shutdown => {
                         conn.reply(&Response::Ok).expect("reply");
                         return; // end the server thread
@@ -60,7 +55,7 @@ fn client_server_round_trip() {
     match client.call(&Request::ListDevices).expect("list") {
         Response::Devices(d) => {
             assert_eq!(d.len(), 1);
-            assert_eq!(d[0].id, "gordon:dongle:1:");
+            assert_eq!(d[0], "gordon:dongle:1:");
         }
         other => panic!("expected Devices, got {other:?}"),
     }

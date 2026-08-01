@@ -57,20 +57,12 @@ pub enum Response {
     /// Compile diagnostics for an [`Request::Apply`] that was **rejected** (errors present, not
     /// applied); each string is severity-prefixed (`error: …` / `warning: …`).
     Diagnostics(Vec<String>),
-    /// The enumerated devices (reply to [`Request::ListDevices`]).
-    Devices(Vec<DeviceEntry>),
+    /// The enumerated devices as their stable **`DeviceId` strings** (reply to
+    /// [`Request::ListDevices`]) — each is both the display label (`gordon:dongle:1:` is
+    /// self-describing) and the token to pass back as `SetInput`/select-device (PLAN §4.3).
+    Devices(Vec<String>),
     /// Engine status (reply to [`Request::Status`]).
     Status(StatusInfo),
-}
-
-/// One enumerated device, named by its stable [`id`](DeviceEntry::id) (usable as an input spec).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeviceEntry {
-    /// The stable `DeviceId` string (PLAN §4.3) — pass it back as `SetInput`/select-device.
-    pub id: String,
-    pub kind: String,
-    pub transport: String,
-    pub interface: i32,
 }
 
 /// The engine's run state (wire mirror; `WaitingForDevice` lands with D4/D5).

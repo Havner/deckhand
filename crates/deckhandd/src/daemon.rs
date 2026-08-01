@@ -5,10 +5,10 @@
 
 use config::{ConfigDoc, Diagnostic, Severity};
 use engine::{
-    DeviceId, DeviceInfo, DeviceSelect, Engine, EngineEvent, EventStream, Input, Output, Program,
-    Role, Status, Transport, compile,
+    DeviceId, DeviceSelect, Engine, EngineEvent, EventStream, Input, Output, Program, Role, Status,
+    Transport, compile,
 };
-use ipc::{DeviceEntry, Event, ProfileRole, Request, Response, RunState, StatusInfo};
+use ipc::{Event, ProfileRole, Request, Response, RunState, StatusInfo};
 
 /// The daemon's view of the engine's *default* selection. `Engine::new` stages `Local(Auto)` /
 /// `Local`, so these are the specs it starts with — we report them rather than call `set_input`/
@@ -99,7 +99,7 @@ impl Daemon {
                 Err(e) => Response::Error(e.to_string()),
             },
             Request::ListDevices => match self.engine.devices() {
-                Ok(list) => Response::Devices(list.iter().map(device_entry).collect()),
+                Ok(list) => Response::Devices(list.iter().map(|i| i.id().to_string()).collect()),
                 Err(e) => Response::Error(e.to_string()),
             },
             Request::Status => Response::Status(self.status_info()),
@@ -198,15 +198,6 @@ pub fn format_diags(diags: &[Diagnostic]) -> Vec<String> {
             format!("{sev}: {}", d.message)
         })
         .collect()
-}
-
-fn device_entry(info: &DeviceInfo) -> DeviceEntry {
-    DeviceEntry {
-        id: info.id().to_string(),
-        kind: format!("{:?}", info.kind),
-        transport: format!("{:?}", info.transport),
-        interface: info.interface,
-    }
 }
 
 /// Map an engine `Status` to the wire `RunState`.

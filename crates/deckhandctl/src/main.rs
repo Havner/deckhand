@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use config::{ConfigDoc, GlobalConfig};
-use ipc::{Client, DeviceEntry, Event, ProfileRole, Request, Response, StatusInfo};
+use ipc::{Client, Event, ProfileRole, Request, Response, StatusInfo};
 
 /// Control the deckhand daemon.
 #[derive(Parser)]
@@ -187,13 +187,13 @@ fn print_status(s: &StatusInfo) {
     println!("fallback: {}", if s.has_fallback { "loaded" } else { "(none)" });
 }
 
-fn print_devices(list: &[DeviceEntry]) {
-    if list.is_empty() {
+fn print_devices(ids: &[String]) {
+    if ids.is_empty() {
         println!("no devices");
         return;
     }
-    for d in list {
-        println!("{}  ({} / {}, iface {})", d.id, d.kind, d.transport, d.interface);
+    for id in ids {
+        println!("{id}");
     }
 }
 

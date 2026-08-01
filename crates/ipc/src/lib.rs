@@ -11,7 +11,7 @@ mod message;
 mod net;
 
 pub use codec::{read_msg, write_msg};
-pub use message::{DeviceEntry, Event, ProfileRole, Request, Response, RunState, StatusInfo};
+pub use message::{Event, ProfileRole, Request, Response, RunState, StatusInfo};
 pub use net::{Client, Conn, Server};
 #[cfg(unix)]
 pub use net::default_socket_path;
