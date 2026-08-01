@@ -4,10 +4,10 @@
 //! socket handler (PLAN §4.4).
 
 use config::{ConfigDoc, Diagnostic, Severity};
-use deckhand_ipc::{DeviceEntry, ProfileRole, Request, Response, RunState, StatusInfo};
+use deckhand_ipc::{DeviceEntry, Event, ProfileRole, Request, Response, RunState, StatusInfo};
 use engine::{
-    DeviceId, DeviceInfo, DeviceSelect, Engine, Input, Output, Program, Role, Status, Transport,
-    compile,
+    DeviceId, DeviceInfo, DeviceSelect, Engine, EngineEvent, EventStream, Input, Output, Program,
+    Role, Status, Transport, compile,
 };
 
 /// The daemon's view of the engine's *default* selection. `Engine::new` stages `Local(Auto)` /
@@ -103,13 +103,19 @@ impl Daemon {
                 Err(e) => Response::Error(e.to_string()),
             },
             Request::Status => Response::Status(self.status_info()),
-            // Acknowledged here; the serve loop watches for it and shuts down.
+            // Shutdown + Subscribe are intercepted by the serve loop (they change how the connection
+            // is served); if one reaches here it's a no-op ack / a `_` catch below.
             Request::Shutdown => Response::Ok,
-            // Event streaming lands in D7; until then, say so rather than silently hang.
-            Request::Subscribe => Response::Error("event streaming not available yet (D7)".into()),
-            // `Request` is #[non_exhaustive]; a future variant this daemon predates.
+            // `Request` is #[non_exhaustive]; a future variant this daemon predates (Subscribe is
+            // handled by the serve loop, so it never lands here).
             _ => Response::Error("unsupported request".into()),
         }
+    }
+
+    /// Subscribe to the engine's event stream (D7) — the serve loop hands the resulting stream to a
+    /// per-connection monitor thread.
+    pub fn subscribe(&self) -> EventStream {
+        self.engine.subscribe()
     }
 
     /// Compile a shipped `ConfigDoc` and, iff it has no errors, apply it — else reject with the
@@ -126,11 +132,7 @@ impl Daemon {
 
     fn status_info(&self) -> StatusInfo {
         StatusInfo {
-            state: match self.engine.status() {
-                Status::Idle => RunState::Idle,
-                Status::Running => RunState::Running,
-                Status::WaitingForDevice => RunState::WaitingForDevice,
-            },
+            state: run_state(self.engine.status()),
             input: self.input_spec.clone(),
             output: self.output_spec.clone(),
             has_main: self.has_main,
@@ -204,6 +206,39 @@ fn device_entry(info: &DeviceInfo) -> DeviceEntry {
         kind: format!("{:?}", info.kind),
         transport: format!("{:?}", info.transport),
         interface: info.interface,
+    }
+}
+
+fn device_entry_from_id(id: &DeviceId) -> DeviceEntry {
+    DeviceEntry {
+        id: id.to_string(),
+        kind: format!("{:?}", id.kind),
+        transport: format!("{:?}", id.transport),
+        interface: id.interface,
+    }
+}
+
+/// Map an engine `Status` to the wire `RunState`.
+pub fn run_state(status: Status) -> RunState {
+    match status {
+        Status::Idle => RunState::Idle,
+        Status::Running => RunState::Running,
+        Status::WaitingForDevice => RunState::WaitingForDevice,
+    }
+}
+
+/// Map an engine [`EngineEvent`] to its wire [`Event`] (D7). Exhaustive on purpose — `EngineEvent`
+/// is not `#[non_exhaustive]`, so a new variant is a compile error here until it's mapped.
+pub fn to_wire_event(ev: EngineEvent) -> Event {
+    match ev {
+        EngineEvent::ControllerConnected => Event::ControllerConnected,
+        EngineEvent::ControllerDisconnected => Event::ControllerDisconnected,
+        EngineEvent::BatteryChanged { percent } => Event::Battery { percent: Some(percent) },
+        EngineEvent::DeviceAdded(id) => Event::DeviceAdded(device_entry_from_id(&id)),
+        EngineEvent::DeviceRemoved(id) => Event::DeviceRemoved(id.to_string()),
+        EngineEvent::BindingLost => Event::BindingLost,
+        EngineEvent::BindingAcquired(id) => Event::BindingAcquired(id.to_string()),
+        EngineEvent::State(s) => Event::State(run_state(s)),
     }
 }
 

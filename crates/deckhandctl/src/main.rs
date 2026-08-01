@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use config::{ConfigDoc, GlobalConfig};
-use deckhand_ipc::{Client, DeviceEntry, ProfileRole, Request, Response, StatusInfo};
+use deckhand_ipc::{Client, DeviceEntry, Event, ProfileRole, Request, Response, StatusInfo};
 
 /// Control the deckhand daemon.
 #[derive(Parser)]
@@ -44,10 +44,17 @@ enum Command {
     Stop,
     /// Shut the daemon down.
     Shutdown,
+    /// Follow the engine's event stream, printing events as they happen (Ctrl-C to stop).
+    Monitor,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+
+    // `monitor` is a long-lived stream, not a one-shot request/reply.
+    if matches!(cli.cmd, Command::Monitor) {
+        return run_monitor();
+    }
 
     // Build the request first — file reads (Main/Fallback/Globals) can fail before we connect.
     let req = match build_request(&cli.cmd) {
@@ -58,12 +65,9 @@ fn main() -> ExitCode {
         }
     };
 
-    let mut client = match Client::connect_default() {
+    let mut client = match connect() {
         Ok(c) => c,
-        Err(e) => {
-            eprintln!("cannot reach deckhandd ({e}) — is it running?");
-            return ExitCode::FAILURE;
-        }
+        Err(code) => return code,
     };
 
     match client.call(&req) {
@@ -71,6 +75,38 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+fn connect() -> Result<Client, ExitCode> {
+    Client::connect_default().map_err(|e| {
+        eprintln!("cannot reach deckhandd ({e}) — is it running?");
+        ExitCode::FAILURE
+    })
+}
+
+/// Subscribe and print events until the daemon closes the stream or the user Ctrl-Cs.
+fn run_monitor() -> ExitCode {
+    let mut client = match connect() {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    if let Err(e) = client.subscribe() {
+        eprintln!("error: {e}");
+        return ExitCode::FAILURE;
+    }
+    loop {
+        match client.next_event() {
+            Ok(Some(ev)) => println!("{}", fmt_event(&ev)),
+            Ok(None) => {
+                eprintln!("daemon closed the event stream");
+                return ExitCode::SUCCESS;
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::FAILURE;
+            }
         }
     }
 }
@@ -91,7 +127,25 @@ fn build_request(cmd: &Command) -> Result<Request, String> {
         Command::Start => Request::Start,
         Command::Stop => Request::Stop,
         Command::Shutdown => Request::Shutdown,
+        Command::Monitor => unreachable!("monitor is handled before build_request"),
     })
+}
+
+/// A one-line human rendering of a pushed event.
+fn fmt_event(ev: &Event) -> String {
+    match ev {
+        Event::ControllerConnected => "controller connected".into(),
+        Event::ControllerDisconnected => "controller disconnected".into(),
+        Event::Battery { percent: Some(p) } => format!("battery: {p}%"),
+        Event::Battery { percent: None } => "battery: unknown".into(),
+        Event::DeviceAdded(d) => format!("device added: {} ({} / {})", d.id, d.kind, d.transport),
+        Event::DeviceRemoved(id) => format!("device removed: {id}"),
+        Event::BindingLost => "binding lost (waiting for device)".into(),
+        Event::BindingAcquired(id) => format!("binding acquired: {id}"),
+        Event::State(s) => format!("state: {s:?}"),
+        // `Event` is #[non_exhaustive] — a newer daemon sent something we don't render yet.
+        other => format!("{other:?}"),
+    }
 }
 
 fn print_response(resp: Response) -> ExitCode {

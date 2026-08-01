@@ -67,7 +67,14 @@ impl Client {
         })
     }
 
-    /// Read the next pushed event (after a [`Request::Subscribe`]); `Ok(None)` on a clean close.
+    /// Send a [`Request::Subscribe`] and switch this connection to the event stream: the daemon
+    /// then pushes [`Event`]s, read with [`next_event`](Client::next_event). No reply is sent.
+    pub fn subscribe(&mut self) -> io::Result<()> {
+        write_msg(&mut self.stream, &Request::Subscribe)
+    }
+
+    /// Read the next pushed event (after [`subscribe`](Client::subscribe)); `Ok(None)` on a clean
+    /// close.
     pub fn next_event(&mut self) -> io::Result<Option<Event>> {
         read_msg(&mut self.stream)
     }

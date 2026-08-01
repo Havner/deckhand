@@ -16,7 +16,7 @@ use steam_hid::{Device, DeviceId, DeviceInfo, Manager, RawReport, Transport};
 use std::time::Duration;
 use virt_out::Sink;
 
-use crate::event::EngineEvent;
+use crate::event::{EngineEvent, EventSink, EventStream};
 use crate::program::{Program, Role};
 use crate::runtime::{Control, DeviceCfg, Runtime};
 use crate::{Error, Result};
@@ -67,6 +67,8 @@ pub struct Engine {
     fallback: Option<Program>,
     globals: GlobalConfig,
     runtime: Option<Runtime>,
+    /// Broadcasts engine events to subscribers; shared with the reader/mapping threads (D7).
+    events: EventSink,
 }
 
 impl Default for Engine {
@@ -86,7 +88,14 @@ impl Engine {
             fallback: None,
             globals: GlobalConfig::default(),
             runtime: None,
+            events: EventSink::default(),
         }
+    }
+
+    /// Subscribe to the engine's event stream (D7). Each call returns an independent [`EventStream`]
+    /// that receives every *subsequent* [`EngineEvent`] until it is dropped.
+    pub fn subscribe(&self) -> EventStream {
+        self.events.subscribe()
     }
 
     // --- staging (take effect at the next start) ---------------------------------------
@@ -176,8 +185,9 @@ impl Engine {
             main,
             self.fallback.clone(),
             self.globals.clone(),
+            self.events.clone(),
         ));
-        EngineEvent::State(Status::Running).emit();
+        self.events.emit(EngineEvent::State(Status::Running));
         Ok(())
     }
 
@@ -187,7 +197,7 @@ impl Engine {
         if let Some(mut rt) = self.runtime.take() {
             log::info!("stopping: releasing device (→ lizard) and virtual pad");
             rt.stop()?;
-            EngineEvent::State(Status::Idle).emit();
+            self.events.emit(EngineEvent::State(Status::Idle));
         }
         Ok(())
     }

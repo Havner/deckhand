@@ -15,7 +15,7 @@ use steam_hid::Report;
 use virt_out::{OutputEvent, Rumble, Sink};
 
 use crate::chords::{Chords, ExecReq};
-use crate::event::EngineEvent;
+use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
 use crate::logical::LogicalFrame;
 use crate::program::{Program, Role};
@@ -38,6 +38,7 @@ pub(super) fn run_mapper(
     mut click_tx: Sender<Click>,
     running: Arc<AtomicBool>,
     waiting: Arc<AtomicBool>,
+    events: EventSink,
 ) -> Result<()> {
     let start = Instant::now();
     // Boot into the role named by `start_profile` (read once here — it's a start-only setting).
@@ -134,7 +135,7 @@ pub(super) fn run_mapper(
         // ---- waiting phase: release outputs, keep the pad plugged, await reattach / stop ----
         match run_waiting(
             &mut sink, &mut main, &mut fallback, &mut globals, &mut mapper, &role, &mut chords,
-            &control_rx, &mut frame_rx, &mut rumble_tx, &mut click_tx, &running,
+            &control_rx, &mut frame_rx, &mut rumble_tx, &mut click_tx, &running, &events,
         )? {
             WaitOutcome::Stopped => return Ok(()),
             // Reattached (channels swapped) → resume the connected phase on the new device.
@@ -210,11 +211,12 @@ fn run_waiting(
     rumble_tx: &mut Sender<RumbleCmd>,
     click_tx: &mut Sender<Click>,
     running: &AtomicBool,
+    events: &EventSink,
 ) -> Result<WaitOutcome> {
     let mut out: Vec<OutputEvent> = Vec::new();
     mapper.release_all(&mut out);
     sink.emit(&out)?;
-    EngineEvent::State(Status::WaitingForDevice).emit();
+    events.emit(EngineEvent::State(Status::WaitingForDevice));
 
     while running.load(Ordering::Relaxed) {
         select! {

@@ -14,7 +14,7 @@ use config::Side;
 use steam_hid::{Device, DeviceId, Manager, Motor, Report, Rumble as HidRumble};
 
 use crate::Result;
-use crate::event::EngineEvent;
+use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
 
 use super::{Click, Control, DeviceCfg, RumbleCmd};
@@ -44,13 +44,14 @@ pub(super) fn run_reader(
     mut click_rx: Receiver<Click>,
     running: Arc<AtomicBool>,
     waiting: Arc<AtomicBool>,
+    events: EventSink,
 ) -> Result<()> {
     // A separate `Manager` (own hidapi context) used only for reacquire enumeration/open — created
     // lazily so a session that never disconnects pays nothing.
     let mut manager: Option<Manager> = None;
 
     loop {
-        match read_session(&mut device, &cfg, &frame_tx, &rumble_rx, &click_rx, &running)? {
+        match read_session(&mut device, &cfg, &frame_tx, &rumble_rx, &click_rx, &running, &events)? {
             SessionEnd::Stop => return Ok(()),
             SessionEnd::TransportGone => {}
         }
@@ -62,7 +63,7 @@ pub(super) fn run_reader(
         // channels un-swapped (no mapping) and outputs stuck. `waiting` is set first so the mapper
         // reads it as transport-lost (not a clean stop) when it sees the disconnect.
         waiting.store(true, Ordering::SeqCst);
-        EngineEvent::BindingLost.emit();
+        events.emit(EngineEvent::BindingLost);
         drop(device);
         drop(frame_tx);
         drop(rumble_rx);
@@ -79,8 +80,8 @@ pub(super) fn run_reader(
         let (rtx, rrx) = unbounded::<RumbleCmd>();
         let (ctx, crx) = unbounded::<Click>();
         waiting.store(false, Ordering::SeqCst);
-        EngineEvent::BindingAcquired(pinned_id.clone()).emit();
-        EngineEvent::State(Status::Running).emit();
+        events.emit(EngineEvent::BindingAcquired(pinned_id.clone()));
+        events.emit(EngineEvent::State(Status::Running));
         if control_tx.send(Control::Reattach { frame_rx: frx, rumble_tx: rtx, click_tx: ctx }).is_err()
         {
             return Ok(()); // mapper gone
@@ -94,6 +95,7 @@ pub(super) fn run_reader(
 
 /// Read one device session: forward frames, surface connect/disconnect/battery events, keep the
 /// controller alive, and write rumble/click. Returns when the session ends (stop or transport-gone).
+#[allow(clippy::too_many_arguments)]
 fn read_session(
     device: &mut Device,
     cfg: &DeviceCfg,
@@ -101,6 +103,7 @@ fn read_session(
     rumble_rx: &Receiver<RumbleCmd>,
     click_rx: &Receiver<Click>,
     running: &AtomicBool,
+    events: &EventSink,
 ) -> Result<SessionEnd> {
     apply_device_cfg(device, cfg);
     let mut last_keepalive = Instant::now();
@@ -114,13 +117,13 @@ fn read_session(
             Ok(Some(report)) => {
                 match &report {
                     Report::Connected => {
-                        EngineEvent::ControllerConnected.emit();
+                        events.emit(EngineEvent::ControllerConnected);
                         apply_device_cfg(device, cfg);
                     }
-                    Report::Disconnected => EngineEvent::ControllerDisconnected.emit(),
+                    Report::Disconnected => events.emit(EngineEvent::ControllerDisconnected),
                     // Edge-triggered: the 0x04 report streams ~1 Hz, so only surface a change.
                     Report::Battery(b) if last_battery != Some(b.charge_percent) => {
-                        EngineEvent::BatteryChanged { percent: b.charge_percent }.emit();
+                        events.emit(EngineEvent::BatteryChanged { percent: b.charge_percent });
                         last_battery = Some(b.charge_percent);
                     }
                     _ => {} // State (per-frame, too noisy); unchanged Battery.

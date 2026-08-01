@@ -25,6 +25,7 @@ use steam_hid::{Device, DeviceId, DeviceKind, Report};
 use virt_out::Sink;
 
 use crate::Result;
+use crate::event::EventSink;
 use crate::program::{Program, Role};
 
 use mapping::run_mapper;
@@ -116,6 +117,7 @@ impl Runtime {
         main: Program,
         fallback: Option<Program>,
         globals: GlobalConfig,
+        events: EventSink,
     ) -> Runtime {
         let running = Arc::new(AtomicBool::new(true));
         let waiting = Arc::new(AtomicBool::new(false));
@@ -126,6 +128,7 @@ impl Runtime {
 
         let r_reader = running.clone();
         let w_reader = waiting.clone();
+        let ev_reader = events.clone();
         // The reader also sends `Reattach` after reacquiring a device (D6), so it holds a control tx.
         let reader_ctl = control_tx.clone();
         let reader = thread::Builder::new()
@@ -133,7 +136,7 @@ impl Runtime {
             .spawn(move || {
                 let result = run_reader(
                     device, pinned_id, cfg, reader_ctl, frame_tx, rumble_rx, click_rx, r_reader,
-                    w_reader,
+                    w_reader, ev_reader,
                 );
                 // A reader error would otherwise be invisible until stop() joins it — log it now.
                 if let Err(ref e) = result {
@@ -150,7 +153,7 @@ impl Runtime {
             .spawn(move || {
                 run_mapper(
                     sink, main, fallback, globals, frame_rx, control_rx, rumble_tx, click_tx,
-                    r_mapper, w_mapper,
+                    r_mapper, w_mapper, events,
                 )
             })
             .expect("spawn mapper thread");

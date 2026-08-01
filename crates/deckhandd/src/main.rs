@@ -17,10 +17,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::Parser;
 use config::{ConfigDoc, GlobalConfig};
-use deckhand_ipc::{Client, Request, Response, Server};
-use engine::{Program, Role, compile};
+use deckhand_ipc::{Client, Conn, Request, Response, Server};
+use engine::{EventStream, Program, Role, compile};
 
-use daemon::{Daemon, format_diags};
+use daemon::{Daemon, format_diags, to_wire_event};
 
 /// The deckhand control daemon: runs the headless engine and serves a control socket.
 #[derive(Parser)]
@@ -132,8 +132,9 @@ fn serve(mut daemon: Daemon) -> Result<(), Box<dyn Error>> {
                 continue;
             }
         };
-        // One connection at a time (fine for the request/reply control plane; the long-lived
-        // monitor stream lands with per-connection threading in D7).
+        // Request/reply is served one connection at a time (each is short: connect → request →
+        // reply → close). A `Subscribe` is the exception — a long-lived event stream — so it's
+        // handed to its own thread and the accept loop moves on (D7).
         let mut shutdown = false;
         loop {
             match conn.recv() {
@@ -141,6 +142,11 @@ fn serve(mut daemon: Daemon) -> Result<(), Box<dyn Error>> {
                     let _ = conn.reply(&Response::Ok);
                     log::info!("shutdown requested by client");
                     shutdown = true;
+                    break;
+                }
+                Ok(Some(Request::Subscribe)) => {
+                    log::info!("client subscribed to the event stream");
+                    spawn_monitor(conn, daemon.subscribe()); // moves conn onto its own thread
                     break;
                 }
                 Ok(Some(req)) => {
@@ -175,6 +181,19 @@ fn serve(mut daemon: Daemon) -> Result<(), Box<dyn Error>> {
 /// Wake the blocking accept loop by opening (and dropping) a throwaway connection to our socket.
 fn wake() {
     let _ = Client::connect_default();
+}
+
+/// Stream engine events to a subscribed client on its own thread (D7) until the engine goes away
+/// (all senders dropped → `recv` returns `None`) or the client disconnects (a send fails). Detached:
+/// on daemon shutdown the engine drops, the stream ends, and the thread exits with the process.
+fn spawn_monitor(mut conn: Conn, stream: EventStream) {
+    std::thread::spawn(move || {
+        while let Some(ev) = stream.recv() {
+            if conn.send_event(&to_wire_event(ev)).is_err() {
+                break; // client gone
+            }
+        }
+    });
 }
 
 /// Bind the control socket. On Unix this is [`deckhand_ipc::default_socket_path`] (honoring
