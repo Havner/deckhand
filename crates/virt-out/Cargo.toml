@@ -27,7 +27,7 @@ libc.workspace = true
 vigem-client = { version = "0.1", features = ["unstable_xtarget_notification"], optional = true }
 # SendInput for virtual keyboard/mouse (no driver needed). Always present — the kb/mouse path
 # is independent of which controller backend (if any) is compiled in.
-windows = { version = "0.60", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse"] }
 # Alternative virtual-gamepad backend via VIIPER (USB/IP-based). Optional: pulled in only by
 # the `viiper` feature. Experimental — see `win/viiper.rs`.
 viiper-client = { version = "0.7", optional = true }

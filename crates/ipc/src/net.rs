@@ -7,7 +7,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use interprocess::local_socket::prelude::*;
-use interprocess::local_socket::{GenericFilePath, Listener, ListenerOptions, Stream};
+use interprocess::local_socket::{Listener, ListenerOptions, Stream};
+#[cfg(unix)]
+use interprocess::local_socket::GenericFilePath;
 #[cfg(windows)]
 use interprocess::local_socket::GenericNamespaced;
 
