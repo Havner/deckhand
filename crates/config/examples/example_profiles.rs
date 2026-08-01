@@ -211,6 +211,7 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::Trigger {
             settings: TriggerSettings {
                 output: TriggerOutput::None,
+                soft_pull: SoftPull { threshold: 0.3 },
                 ..Default::default()
             },
             soft_pull: vec![Command {
@@ -238,6 +239,7 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::Trigger {
             settings: TriggerSettings {
                 output: TriggerOutput::None,
+                soft_pull: SoftPull { threshold: 0.3 },
                 ..Default::default()
             },
             soft_pull: vec![Command {
@@ -312,8 +314,8 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 1.0, y: 1.0 },
-                acceleration: Acceleration { factor: 0.02 },
+                sensitivity: Sensitivity { x: 0.75, y: 0.75 },
+                acceleration: Acceleration { factor: 0.03 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
                     beta: 0.5,
@@ -651,8 +653,8 @@ pub fn cp2077_profile() -> ConfigDoc {
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 1.0, y: 1.0 },
-                acceleration: Acceleration { factor: 0.05 },
+                sensitivity: Sensitivity { x: 0.75, y: 0.75 },
+                acceleration: Acceleration { factor: 0.06 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
                     beta: 0.5,
@@ -1300,8 +1302,8 @@ pub fn system_shock_profile() -> ConfigDoc {
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 0.75, y: 0.75 },
-                acceleration: Acceleration { factor: 0.05 },
+                sensitivity: Sensitivity { x: 0.5, y: 0.5 },
+                acceleration: Acceleration { factor: 0.06 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
                     beta: 0.5,
