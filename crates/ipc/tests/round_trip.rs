@@ -24,8 +24,8 @@ fn client_server_round_trip() {
                         state: RunState::Running,
                         input: "dongle".into(),
                         output: "local".into(),
-                        has_main: true,
-                        has_fallback: false,
+                        main: Some("game".into()),
+                        fallback: None,
                     }),
                     Request::ListDevices => Response::Devices(vec!["gordon:dongle:1:".into()]),
                     Request::Shutdown => {
@@ -47,7 +47,8 @@ fn client_server_round_trip() {
         Response::Status(s) => {
             assert_eq!(s.state, RunState::Running);
             assert_eq!(s.input, "dongle");
-            assert!(s.has_main && !s.has_fallback);
+            assert_eq!(s.main.as_deref(), Some("game"));
+            assert!(s.fallback.is_none());
         }
         other => panic!("expected Status, got {other:?}"),
     }

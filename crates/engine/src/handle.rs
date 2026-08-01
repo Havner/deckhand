@@ -13,6 +13,8 @@
 
 use config::GlobalConfig;
 use steam_hid::{Device, DeviceId, DeviceInfo, Manager, RawReport, Transport};
+use std::fmt;
+use std::str::FromStr;
 use std::time::Duration;
 use virt_out::Sink;
 
@@ -43,6 +45,89 @@ pub enum DeviceSelect {
 #[derive(Debug, Clone)]
 pub enum Output {
     Local,
+}
+
+// --- string conversions -------------------------------------------------------------------
+//
+// `Display` and `FromStr` round-trip: `Display` emits exactly what `FromStr` accepts, so a
+// staged selection can be reported (e.g. over the control socket) and passed straight back to
+// `set_input`/`set_output`. `Transport`/`DeviceId` already round-trip; this extends the same
+// contract up to the whole `Input`/`Output`, ready for the `Network` variants (PLAN §6).
+
+impl fmt::Display for DeviceSelect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DeviceSelect::Auto => f.write_str("auto"),
+            DeviceSelect::Transport(t) => f.write_str(t.as_str()),
+            DeviceSelect::Explicit(id) => write!(f, "{id}"),
+        }
+    }
+}
+
+impl FromStr for DeviceSelect {
+    type Err = String;
+
+    /// Most specific first: a full [`DeviceId`], then a transport token, then `auto`. The short
+    /// aliases `a`/`d`/`w` are accepted as a convenience; `Display` emits the canonical token.
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        if let Ok(id) = s.parse::<DeviceId>() {
+            return Ok(DeviceSelect::Explicit(id));
+        }
+        match s {
+            "auto" | "a" => Ok(DeviceSelect::Auto),
+            "dongle" | "d" => Ok(DeviceSelect::Transport(Transport::UsbDongle)),
+            "wired" | "w" => Ok(DeviceSelect::Transport(Transport::UsbWired)),
+            _ => Err(format!("unrecognized input '{s}' (want auto|dongle|wired|<id>)")),
+        }
+    }
+}
+
+impl fmt::Display for Input {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Input::Local(sel) => write!(f, "{sel}"),
+        }
+    }
+}
+
+impl FromStr for Input {
+    type Err = String;
+
+    /// A local selection (see [`DeviceSelect`]). A `host:port` shape is recognized but rejected —
+    /// the `Network` input is a stubbed seam (PLAN §6).
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        match s.parse::<DeviceSelect>() {
+            Ok(sel) => Ok(Input::Local(sel)),
+            Err(_) if s.contains(':') => {
+                Err(format!("network input '{s}' not supported yet (PLAN §6)"))
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+impl fmt::Display for Output {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Output::Local => f.write_str("local"),
+        }
+    }
+}
+
+impl FromStr for Output {
+    type Err = String;
+
+    /// Only `local` for now. A `host:port` shape is recognized but rejected — the `Network` sender
+    /// is a stubbed seam (PLAN §6).
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        match s {
+            "local" | "l" => Ok(Output::Local),
+            other if other.contains(':') => {
+                Err(format!("network output '{other}' not supported yet (PLAN §6)"))
+            }
+            other => Err(format!("unrecognized output '{other}' (want local|host:port)")),
+        }
+    }
 }
 
 /// The engine's run state.
@@ -102,19 +187,13 @@ impl Engine {
 
     /// Stage the input source (Local only for now). Applied at the next `start()`.
     pub fn set_input(&mut self, input: Input) {
-        let Input::Local(select) = &input;
-        let which = match select {
-            DeviceSelect::Auto => "auto",
-            DeviceSelect::Transport(_) => "transport",
-            DeviceSelect::Explicit(_) => "explicit",
-        };
-        log::debug!("set_input: local/{which} (staged for next start)");
+        log::debug!("set_input: {input} (staged for next start)");
         self.input = input;
     }
 
     /// Stage the output target (Local only for now). Applied at the next `start()`.
     pub fn set_output(&mut self, output: Output) {
-        log::debug!("set_output: local (staged for next start)");
+        log::debug!("set_output: {output} (staged for next start)");
         self.output = output;
     }
 
@@ -212,6 +291,27 @@ impl Engine {
         }
     }
 
+    /// The staged input source. Round-trips through its `Display`/`FromStr` form, so a caller can
+    /// render it (e.g. in status) and pass the same string back to `set_input`.
+    pub fn input(&self) -> &Input {
+        &self.input
+    }
+
+    /// The staged output target (see [`Engine::input`] for the round-trip contract).
+    pub fn output(&self) -> &Output {
+        &self.output
+    }
+
+    /// The name of the applied **Main** program, or `None` if none is applied.
+    pub fn main_name(&self) -> Option<&str> {
+        self.main.as_ref().map(|p| p.meta.name.as_str())
+    }
+
+    /// The name of the applied **Fallback** program, or `None`.
+    pub fn fallback_name(&self) -> Option<&str> {
+        self.fallback.as_ref().map(|p| p.meta.name.as_str())
+    }
+
     /// Enumerate the attached controllers (any time — no HW is retained).
     pub fn devices(&mut self) -> Result<Vec<DeviceInfo>> {
         self.ensure_manager()?;
@@ -282,6 +382,8 @@ impl Engine {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// The sample profile (`examples/test_profile.ron`) must parse and compile — keeps it valid
     /// as the config model evolves (exercises a layer, a HoldLayer action, gyro invert, and every
     /// behavior kind).
@@ -290,5 +392,44 @@ mod tests {
         let ron = include_str!("../examples/test_profile.ron");
         let doc: config::ConfigDoc = ron::from_str(ron).expect("parse test_profile.ron");
         crate::compile(&doc).expect("compile test_profile.ron");
+    }
+
+    #[test]
+    fn input_parses_transports_and_ids() {
+        assert!(matches!(
+            "dongle".parse::<Input>(),
+            Ok(Input::Local(DeviceSelect::Transport(Transport::UsbDongle)))
+        ));
+        assert!(matches!("a".parse::<Input>(), Ok(Input::Local(DeviceSelect::Auto))));
+        assert!(matches!(
+            "gordon:dongle:1:".parse::<Input>(),
+            Ok(Input::Local(DeviceSelect::Explicit(_)))
+        ));
+    }
+
+    #[test]
+    fn input_rejects_network_and_garbage() {
+        assert!("192.168.0.5:9000".parse::<Input>().unwrap_err().contains("network"));
+        assert!("wat".parse::<Input>().unwrap_err().contains("unrecognized"));
+    }
+
+    #[test]
+    fn output_only_local() {
+        assert!(matches!("local".parse::<Output>(), Ok(Output::Local)));
+        assert!("host:1".parse::<Output>().unwrap_err().contains("network"));
+        assert!("wat".parse::<Output>().unwrap_err().contains("unrecognized"));
+    }
+
+    /// `Display` emits what `FromStr` accepts, for every `Input`/`Output` the daemon reports.
+    #[test]
+    fn input_output_round_trip() {
+        for spec in ["auto", "dongle", "wired", "gordon:dongle:1:", "gordon:wired:2:ABC"] {
+            let parsed: Input = spec.parse().unwrap();
+            assert_eq!(parsed.to_string().parse::<Input>().unwrap().to_string(), parsed.to_string());
+            assert_eq!(parsed.to_string(), spec);
+        }
+        let out: Output = "local".parse().unwrap();
+        assert_eq!(out.to_string(), "local");
+        assert!(matches!(out.to_string().parse::<Output>(), Ok(Output::Local)));
     }
 }

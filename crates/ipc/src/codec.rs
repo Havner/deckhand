@@ -74,8 +74,8 @@ mod tests {
                 state: RunState::Idle,
                 input: "dongle".into(),
                 output: "local".into(),
-                has_main: false,
-                has_fallback: false,
+                main: None,
+                fallback: None,
             }),
         )
         .unwrap();

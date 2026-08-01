@@ -78,12 +78,15 @@ pub enum RunState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusInfo {
     pub state: RunState,
-    /// The staged input spec — always set (defaults to `auto`, matching the engine's own default).
+    /// The staged input spec — always set (defaults to `auto`). Round-trips: pass it back verbatim
+    /// as `SetInput` to reselect the same source.
     pub input: String,
     /// The staged output spec — always set (defaults to `local`).
     pub output: String,
-    pub has_main: bool,
-    pub has_fallback: bool,
+    /// Name of the loaded **Main** program, or `None` if none is applied.
+    pub main: Option<String>,
+    /// Name of the loaded **Fallback** program, or `None`.
+    pub fallback: Option<String>,
 }
 
 /// An asynchronous event pushed to a subscribed connection (PLAN §4.3, D7). `#[non_exhaustive]` so

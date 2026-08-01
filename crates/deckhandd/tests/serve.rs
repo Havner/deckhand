@@ -28,7 +28,7 @@ fn daemon_serves_control_requests() {
     match client.call(&Request::Status).expect("status") {
         Response::Status(s) => {
             assert_eq!(s.state, RunState::Idle);
-            assert!(!s.has_main && !s.has_fallback);
+            assert!(s.main.is_none() && s.fallback.is_none());
             assert_eq!(s.input, "auto");
             assert_eq!(s.output, "local");
         }
