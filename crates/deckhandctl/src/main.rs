@@ -138,8 +138,6 @@ fn fmt_event(ev: &Event) -> String {
         Event::ControllerDisconnected => "controller disconnected".into(),
         Event::Battery { percent: Some(p) } => format!("battery: {p}%"),
         Event::Battery { percent: None } => "battery: unknown".into(),
-        Event::DeviceAdded(d) => format!("device added: {} ({} / {})", d.id, d.kind, d.transport),
-        Event::DeviceRemoved(id) => format!("device removed: {id}"),
         Event::BindingLost => "binding lost (waiting for device)".into(),
         Event::BindingAcquired(id) => format!("binding acquired: {id}"),
         Event::State(s) => format!("state: {s:?}"),

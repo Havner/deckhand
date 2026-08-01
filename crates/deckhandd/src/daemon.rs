@@ -209,15 +209,6 @@ fn device_entry(info: &DeviceInfo) -> DeviceEntry {
     }
 }
 
-fn device_entry_from_id(id: &DeviceId) -> DeviceEntry {
-    DeviceEntry {
-        id: id.to_string(),
-        kind: format!("{:?}", id.kind),
-        transport: format!("{:?}", id.transport),
-        interface: id.interface,
-    }
-}
-
 /// Map an engine `Status` to the wire `RunState`.
 pub fn run_state(status: Status) -> RunState {
     match status {
@@ -234,8 +225,6 @@ pub fn to_wire_event(ev: EngineEvent) -> Event {
         EngineEvent::ControllerConnected => Event::ControllerConnected,
         EngineEvent::ControllerDisconnected => Event::ControllerDisconnected,
         EngineEvent::BatteryChanged { percent } => Event::Battery { percent: Some(percent) },
-        EngineEvent::DeviceAdded(id) => Event::DeviceAdded(device_entry_from_id(&id)),
-        EngineEvent::DeviceRemoved(id) => Event::DeviceRemoved(id.to_string()),
         EngineEvent::BindingLost => Event::BindingLost,
         EngineEvent::BindingAcquired(id) => Event::BindingAcquired(id.to_string()),
         EngineEvent::State(s) => Event::State(run_state(s)),

@@ -94,8 +94,10 @@ pub struct StatusInfo {
     pub has_fallback: bool,
 }
 
-/// An asynchronous event pushed to a subscribed connection (PLAN §4.3). Wired for real in D7; the
-/// vocabulary is fixed here.
+/// An asynchronous event pushed to a subscribed connection (PLAN §4.3, D7). `#[non_exhaustive]` so
+/// a future native device-hotplug push (udev / `WM_DEVICECHANGE`) can add `DeviceAdded`/`Removed`
+/// without breaking clients — those were dropped as YAGNI (on-demand `list-devices` + a UI refresh
+/// cover topology; see §4.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Event {
@@ -103,9 +105,6 @@ pub enum Event {
     ControllerDisconnected,
     /// Battery percentage (wireless only; `None` when unknown).
     Battery { percent: Option<u8> },
-    DeviceAdded(DeviceEntry),
-    /// A device left the bus, by id.
-    DeviceRemoved(String),
     /// The bound device's transport went away (engine now `WaitingForDevice`).
     BindingLost,
     /// A device was (re)acquired, by id.

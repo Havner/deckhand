@@ -24,10 +24,6 @@ pub enum EngineEvent {
     ControllerDisconnected,
     /// The bound controller's battery charge changed, in percent.
     BatteryChanged { percent: u8 },
-    /// A device appeared on the bus (emitted by the hotplug monitor — D6/later).
-    DeviceAdded(DeviceId),
-    /// A device left the bus.
-    DeviceRemoved(DeviceId),
     /// The bound device's transport went away; the engine is now waiting to reacquire it (D5).
     BindingLost,
     /// A device was (re)acquired as the bound input (D5/D6).
