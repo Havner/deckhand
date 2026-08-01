@@ -10,7 +10,7 @@ publish.workspace = true
 # The headless runtime. default-features off so this binary chooses the controller backend
 # (mirrors the engine's own forwarding); on Linux the backend features are inert (uinput).
 engine = { path = "../engine", default-features = false }
-deckhand-ipc = { path = "../deckhand-ipc" }
+ipc = { path = "../ipc" }
 config = { path = "../config" }
 ron.workspace = true
 clap.workspace = true

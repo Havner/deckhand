@@ -1,7 +1,7 @@
 //! `deckhandctl` — the thin CLI client for the deckhand daemon (PLAN §4.4).
 //!
 //! One-shot: parse a subcommand → one [`Request`] → connect to `deckhandd`'s control socket → print
-//! the reply → exit. Depends only on `deckhand-ipc` (+ `config` to read RON profiles), never on
+//! the reply → exit. Depends only on `ipc` (+ `config` to read RON profiles), never on
 //! `engine`. The `monitor` follow mode lands with the real event stream (D7).
 
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use config::{ConfigDoc, GlobalConfig};
-use deckhand_ipc::{Client, DeviceEntry, Event, ProfileRole, Request, Response, StatusInfo};
+use ipc::{Client, DeviceEntry, Event, ProfileRole, Request, Response, StatusInfo};
 
 /// Control the deckhand daemon.
 #[derive(Parser)]

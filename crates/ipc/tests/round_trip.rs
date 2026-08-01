@@ -5,11 +5,11 @@
 
 use std::thread;
 
-use deckhand_ipc::{Client, DeviceEntry, Request, Response, RunState, Server, StatusInfo};
+use ipc::{Client, DeviceEntry, Request, Response, RunState, Server, StatusInfo};
 
 #[test]
 fn client_server_round_trip() {
-    let path = std::env::temp_dir().join(format!("deckhand-ipc-test-{}.sock", std::process::id()));
+    let path = std::env::temp_dir().join(format!("ipc-test-{}.sock", std::process::id()));
     let _ = std::fs::remove_file(&path); // clear any stale socket from a crashed prior run
 
     // Bind before spawning so the client can't connect before the listener exists.

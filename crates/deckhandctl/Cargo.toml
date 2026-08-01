@@ -1,13 +1,13 @@
 [package]
 name = "deckhandctl"
-description = "Thin CLI client for the deckhand daemon (deckhandd): one-shot control commands over the local socket. Depends on deckhand-ipc + config, never engine. PLAN §4.4."
+description = "Thin CLI client for the deckhand daemon (deckhandd): one-shot control commands over the local socket. Depends on ipc + config, never engine. PLAN §4.4."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-deckhand-ipc = { path = "../deckhand-ipc" }
+ipc = { path = "../ipc" }
 # Read RON profiles/globals to ship as ConfigDoc/GlobalConfig (client ships config, daemon compiles).
 config = { path = "../config" }
 ron.workspace = true

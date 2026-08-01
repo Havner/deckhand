@@ -4,11 +4,11 @@
 //! socket handler (PLAN §4.4).
 
 use config::{ConfigDoc, Diagnostic, Severity};
-use deckhand_ipc::{DeviceEntry, Event, ProfileRole, Request, Response, RunState, StatusInfo};
 use engine::{
     DeviceId, DeviceInfo, DeviceSelect, Engine, EngineEvent, EventStream, Input, Output, Program,
     Role, Status, Transport, compile,
 };
+use ipc::{DeviceEntry, Event, ProfileRole, Request, Response, RunState, StatusInfo};
 
 /// The daemon's view of the engine's *default* selection. `Engine::new` stages `Local(Auto)` /
 /// `Local`, so these are the specs it starts with — we report them rather than call `set_input`/

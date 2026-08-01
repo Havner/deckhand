@@ -311,22 +311,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "deckhand-ipc"
-version = "0.0.0"
-dependencies = [
- "config",
- "interprocess",
- "postcard",
- "serde",
-]
-
-[[package]]
 name = "deckhandctl"
 version = "0.0.0"
 dependencies = [
  "clap",
  "config",
- "deckhand-ipc",
+ "ipc",
  "ron",
 ]
 
@@ -337,9 +327,9 @@ dependencies = [
  "clap",
  "config",
  "ctrlc",
- "deckhand-ipc",
  "engine",
  "env_logger",
+ "ipc",
  "log",
  "ron",
 ]
@@ -569,6 +559,16 @@ dependencies = [
  "recvmsg",
  "widestring",
  "windows-sys",
+]
+
+[[package]]
+name = "ipc"
+version = "0.0.0"
+dependencies = [
+ "config",
+ "interprocess",
+ "postcard",
+ "serde",
 ]
 
 [[package]]

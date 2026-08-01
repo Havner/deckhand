@@ -1,4 +1,4 @@
-//! `deckhand-ipc` — the control-plane wire protocol + local-socket client/server shared by the
+//! `ipc` — the control-plane wire protocol + local-socket client/server shared by the
 //! daemon (`deckhandd`) and its clients (`deckhandctl`, the daemon-mode UI). PLAN §4.4.
 //!
 //! Depends on `config` (messages carry `ConfigDoc`), **never** on `engine` — the daemon owns the

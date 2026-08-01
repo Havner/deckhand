@@ -1,5 +1,5 @@
 [package]
-name = "deckhand-ipc"
+name = "ipc"
 description = "Control-plane wire protocol + local-socket client/server for the deckhand daemon (deckhandd) and its clients (deckhandctl, the daemon-mode UI). Depends on config, never engine."
 version.workspace = true
 edition.workspace = true

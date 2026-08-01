@@ -1,5 +1,5 @@
 //! End-to-end: spawn the real `deckhandd` binary on a temp control socket and drive it with the
-//! `deckhand-ipc` client. No hardware needed — exercises the socket serving, request/reply
+//! `ipc` client. No hardware needed — exercises the socket serving, request/reply
 //! dispatch, spec validation, and clean shutdown (Unix).
 
 #![cfg(unix)]
@@ -7,7 +7,7 @@
 use std::process::{Child, Command, ExitStatus};
 use std::time::{Duration, Instant};
 
-use deckhand_ipc::{Client, Request, Response, RunState};
+use ipc::{Client, Request, Response, RunState};
 
 #[test]
 fn daemon_serves_control_requests() {

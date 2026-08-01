@@ -1,7 +1,7 @@
 //! Engine events (PLAN §4.3) — the out-of-band signals the engine surfaces: device lifecycle,
 //! battery, binding, and run-state changes. Produced by the reader/mapping threads and the handle,
 //! delivered to subscribers via an [`EventSink`] broadcast → [`EventStream`] receivers (D7). The
-//! wire mirror the daemon serializes onto its socket is `deckhand_ipc::Event`.
+//! wire mirror the daemon serializes onto its socket is `ipc::Event`.
 
 use std::sync::{Arc, Mutex};
 

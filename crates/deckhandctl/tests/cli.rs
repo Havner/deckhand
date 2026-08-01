@@ -1,5 +1,5 @@
 //! End-to-end: run the real `deckhandctl` binary against an in-process fake daemon (a
-//! `deckhand-ipc::Server`), checking that each subcommand sends the right request and renders the
+//! `ipc::Server`), checking that each subcommand sends the right request and renders the
 //! reply. No real daemon / hardware needed (Unix).
 
 #![cfg(unix)]
@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 use std::thread;
 
-use deckhand_ipc::{Event, Request, Response, RunState, Server, StatusInfo};
+use ipc::{Event, Request, Response, RunState, Server, StatusInfo};
 
 #[test]
 fn ctl_drives_a_fake_daemon() {

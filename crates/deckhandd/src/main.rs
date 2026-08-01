@@ -17,8 +17,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::Parser;
 use config::{ConfigDoc, GlobalConfig};
-use deckhand_ipc::{Client, Conn, Request, Response, Server};
 use engine::{EventStream, Program, Role, compile};
+use ipc::{Client, Conn, Request, Response, Server};
 
 use daemon::{Daemon, format_diags, to_wire_event};
 
@@ -196,12 +196,12 @@ fn spawn_monitor(mut conn: Conn, stream: EventStream) {
     });
 }
 
-/// Bind the control socket. On Unix this is [`deckhand_ipc::default_socket_path`] (honoring
+/// Bind the control socket. On Unix this is [`ipc::default_socket_path`] (honoring
 /// `$DECKHAND_SOCKET`) with a stale-socket / single-instance dance; the returned path is removed on
 /// exit. On Windows a named pipe (no path).
 #[cfg(unix)]
 fn bind_socket() -> Result<(Server, Option<PathBuf>), Box<dyn Error>> {
-    let path = deckhand_ipc::default_socket_path();
+    let path = ipc::default_socket_path();
     let server = match Server::bind_path(&path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
