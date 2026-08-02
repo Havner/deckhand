@@ -35,6 +35,48 @@ fn mouse(b: MouseButton) -> Action {
     Action::MouseButton(b)
 }
 
+// --- system layer (used by all profiles) ------------------------------------------------
+pub fn system_keys_layer() -> Layer {
+    Layer {
+        name: "system_keys".into(),
+        bindings: BTreeMap::from([
+            (
+                InputSource::DPad,
+                SourceBinding::ButtonPad {
+                    up: vec![Command {
+                        activator: Activator::Regular,
+                        actions: vec![key(Key::VolumeUp)],
+                        settings: Default::default(),
+                    }],
+                    down: vec![Command {
+                        activator: Activator::Regular,
+                        actions: vec![key(Key::VolumeDown)],
+                        settings: Default::default(),
+                    }],
+                    left: vec![Command {
+                        activator: Activator::Regular,
+                        actions: vec![key(Key::PlayPause)],
+                        settings: Default::default(),
+                    }],
+                    right: vec![Command {
+                        activator: Activator::Regular,
+                        actions: vec![key(Key::NextSong)],
+                        settings: Default::default(),
+                    }],
+                },
+            ),
+            (
+                InputSource::LeftPad,
+                SourceBinding::None,
+            ),
+            (
+                InputSource::LeftPadClick,
+                SourceBinding::None,
+            ),
+        ]),
+    }
+}
+
 // --- desktop profile (the fallback role) ------------------------------------------------
 
 /// A keyboard/mouse desktop mapping — the fallback role you drop to for navigating the desktop.
@@ -197,9 +239,16 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
+    // Steam button → system_keys layer
     base.insert(
         InputSource::Steam,
-        SourceBinding::None,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
+                settings: Default::default(),
+            }],
+        },
     );
 
     // ----- TRIGGERS -----
@@ -325,7 +374,7 @@ pub fn desktop_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-pad click holds the stick_mouse layer (left stick → mouse instead of arrows).
+    // Right-pad click holds the alternative_mouse layer (left stick → mouse instead of arrows).
     base.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
@@ -424,7 +473,7 @@ pub fn desktop_profile() -> ConfigDoc {
     // Hold layer: while the right pad is clicked, the left stick drives the mouse (deflection→
     // rate) instead of the arrow-key dpad, and the right pad is nullified so holding it doesn't
     // also jitter the cursor. Explicit sensitivity/acceleration/deadzone knobs.
-    let stick_mouse = Layer {
+    let alternative_mouse = Layer {
         name: "alternative_mouse".into(),
         bindings: BTreeMap::from([
             (
@@ -466,7 +515,7 @@ pub fn desktop_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![stick_mouse],
+            layers: vec![alternative_mouse, system_keys_layer()],
         }],
         rumble: RumbleSettings::default(),
     }
@@ -575,13 +624,13 @@ pub fn cp2077_profile() -> ConfigDoc {
             }],
         },
     );
-    // Steam button → gamepad Guide.
+    // Steam button → system_keys layer
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
             commands: vec![Command {
                 activator: Activator::Regular,
-                actions: vec![pad(GamepadButton::Guide)],
+                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
         },
@@ -771,7 +820,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![aim_stick],
+            layers: vec![aim_stick, system_keys_layer()],
         }],
         // 60 Hz feel; the global master % scales it (see `globals`).
         rumble: RumbleSettings {
@@ -884,9 +933,16 @@ pub fn control_profile() -> ConfigDoc {
             }],
         },
     );
+    // Steam button → system_keys layer
     base.insert(
         InputSource::Steam,
-        SourceBinding::None,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
+                settings: Default::default(),
+            }],
+        },
     );
 
     // ----- TRIGGERS -----
@@ -1118,7 +1174,7 @@ pub fn control_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![],
+            layers: vec![system_keys_layer()],
         }],
         rumble: RumbleSettings::default(),
     }
@@ -1224,13 +1280,13 @@ pub fn system_shock_profile() -> ConfigDoc {
             }],
         },
     );
-    // Steam button → gamepad Guide.
+    // Steam button → system_keys layer
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
             commands: vec![Command {
                 activator: Activator::Regular,
-                actions: vec![pad(GamepadButton::Guide)],
+                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
         },
@@ -1419,7 +1475,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![aim_stick],
+            layers: vec![aim_stick, system_keys_layer()],
         }],
         // 60 Hz feel; the global master % scales it (see `globals`).
         rumble: RumbleSettings {
