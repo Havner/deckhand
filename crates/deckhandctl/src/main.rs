@@ -185,6 +185,7 @@ fn print_status(s: &StatusSnapshot) {
     println!("output:   {}", s.output);
     println!("main:     {}", s.main.as_deref().unwrap_or("(none)"));
     println!("fallback: {}", s.fallback.as_deref().unwrap_or("(none)"));
+    println!("bound:    {}", s.bound.as_deref().unwrap_or("(none)"));
 }
 
 fn print_devices(ids: &[String]) {

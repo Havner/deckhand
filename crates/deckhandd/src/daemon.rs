@@ -112,6 +112,7 @@ impl Daemon {
             output: s.output.to_string(),
             main: s.main,
             fallback: s.fallback,
+            bound: s.bound.map(|id| id.to_string()),
         }
     }
 

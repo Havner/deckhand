@@ -158,6 +158,12 @@ pub struct StatusInfo {
     pub main: Option<String>,
     /// Name of the loaded **Fallback** program, or `None`.
     pub fallback: Option<String>,
+    /// The **bound** device — the id the reader resolved at `start()` and (across an outage) keeps
+    /// reacquiring — or `None` when idle. Unlike `input` (the *staged* selection, which may be a
+    /// policy like `auto`/`dongle`), this is the concrete device actually in use, so a UI that
+    /// connects to an already-running daemon learns what's bound. Stays set through
+    /// `WaitingForDevice` (the device it's waiting to reacquire); cleared on `stop()`.
+    pub bound: Option<DeviceId>,
 }
 
 /// The engine handle. Holds the staged input/output, the program(s) + globals (retained across
@@ -170,6 +176,11 @@ pub struct Engine {
     fallback: Option<Program>,
     globals: GlobalConfig,
     runtime: Option<Runtime>,
+    /// The concrete device the running loop is bound to (the reader's pinned id), or `None` when
+    /// idle. Captured at `start()` and cleared at `stop()` — see [`StatusInfo::bound`]. Held here
+    /// because the id itself lives across the thread boundary in the reader; the handle keeps a copy
+    /// so `status()` can report it without a round-trip.
+    bound: Option<DeviceId>,
     /// Broadcasts engine events to subscribers; shared with the reader/mapping threads (D7).
     events: EventSink,
 }
@@ -191,6 +202,7 @@ impl Engine {
             fallback: None,
             globals: GlobalConfig::default(),
             runtime: None,
+            bound: None,
             events: EventSink::default(),
         }
     }
@@ -273,10 +285,15 @@ impl Engine {
         // Pin the resolved device's stable id so the reader reacquires *this* device if its
         // transport drops (D6), regardless of how the selection policy chose it.
         let pinned_id = device.info().id();
+        // Remember the concrete bound device so `status()` can report it (the id itself moves into
+        // the reader below), and announce the bind. `BindingAcquired` fires on *every* bind — here
+        // for the initial one and in the reader for a reacquire (D6) — so a subscriber never has to
+        // special-case the first; `bound` seeds the same fact for a client that connects afterwards.
+        self.bound = Some(pinned_id.clone());
         let sink = Sink::new()?;
         self.runtime = Some(Runtime::start(
             device,
-            pinned_id,
+            pinned_id.clone(),
             cfg,
             sink,
             main,
@@ -284,6 +301,7 @@ impl Engine {
             self.globals.clone(),
             self.events.clone(),
         ));
+        self.events.emit(EngineEvent::BindingAcquired(pinned_id));
         self.events.emit(EngineEvent::State(Status::Running));
         Ok(())
     }
@@ -294,6 +312,7 @@ impl Engine {
         if let Some(mut rt) = self.runtime.take() {
             log::info!("stopping: releasing device (→ lizard) and virtual pad");
             rt.stop()?;
+            self.bound = None;
             self.events.emit(EngineEvent::State(Status::Idle));
         }
         Ok(())
@@ -316,6 +335,7 @@ impl Engine {
             output: self.output.clone(),
             main: self.main.as_ref().map(|p| p.meta.name.clone()),
             fallback: self.fallback.as_ref().map(|p| p.meta.name.clone()),
+            bound: self.bound.clone(),
         }
     }
 

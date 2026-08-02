@@ -89,6 +89,11 @@ pub struct StatusSnapshot {
     pub main: Option<String>,
     /// Name of the loaded **Fallback** program, or `None`.
     pub fallback: Option<String>,
+    /// The **bound** device id — the concrete device the running loop resolved and is using (or
+    /// reacquiring while `WaitingForDevice`) — or `None` when idle. Distinct from `input`, which is
+    /// the staged *selection* (possibly a policy like `auto`); this is what's actually in use, so a
+    /// client connecting to a running daemon learns the current device.
+    pub bound: Option<String>,
 }
 
 /// An asynchronous event pushed to a subscribed connection (PLAN §4.3, D7). `#[non_exhaustive]` so

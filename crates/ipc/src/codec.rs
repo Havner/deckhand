@@ -76,6 +76,7 @@ mod tests {
                 output: "local".into(),
                 main: None,
                 fallback: None,
+                bound: None,
             }),
         )
         .unwrap();
