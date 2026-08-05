@@ -15,6 +15,9 @@ use ipc::{Client, Event, ProfileRole, Request, Response, StatusSnapshot};
 #[derive(Parser)]
 #[command(name = "deckhandctl", version, about)]
 struct Cli {
+    /// Control socket path (Unix) / pipe name (Windows). Overrides $DECKHAND_SOCKET and the default.
+    #[arg(short = 'k', long, value_name = "PATH", global = true)]
+    socket: Option<String>,
     #[command(subcommand)]
     cmd: Command,
 }
@@ -53,7 +56,7 @@ fn main() -> ExitCode {
 
     // `monitor` is a long-lived stream, not a one-shot request/reply.
     if matches!(cli.cmd, Command::Monitor) {
-        return run_monitor();
+        return run_monitor(cli.socket.as_deref());
     }
 
     // Build the request first — file reads (Main/Fallback/Globals) can fail before we connect.
@@ -65,7 +68,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let mut client = match connect() {
+    let mut client = match connect(cli.socket.as_deref()) {
         Ok(c) => c,
         Err(code) => return code,
     };
@@ -79,16 +82,29 @@ fn main() -> ExitCode {
     }
 }
 
-fn connect() -> Result<Client, ExitCode> {
-    Client::connect_default().map_err(|e| {
+/// Connect to the daemon, resolving the `--socket` override: `None` → the env/default
+/// ([`ipc::default_socket_path`], honoring `$DECKHAND_SOCKET`); otherwise the given path (Unix) /
+/// pipe name (Windows). Mirrors `deckhandd`'s own resolution so client and daemon agree.
+fn connect(socket: Option<&str>) -> Result<Client, ExitCode> {
+    open(socket).map_err(|e| {
         eprintln!("cannot reach deckhandd ({e}) — is it running?");
         ExitCode::FAILURE
     })
 }
 
+#[cfg(unix)]
+fn open(socket: Option<&str>) -> std::io::Result<Client> {
+    let path = socket.map(PathBuf::from).unwrap_or_else(ipc::default_socket_path);
+    Client::connect_path(&path)
+}
+#[cfg(windows)]
+fn open(socket: Option<&str>) -> std::io::Result<Client> {
+    Client::connect_name(socket.unwrap_or(ipc::DEFAULT_PIPE_NAME))
+}
+
 /// Subscribe and print events until the daemon closes the stream or the user Ctrl-Cs.
-fn run_monitor() -> ExitCode {
-    let mut client = match connect() {
+fn run_monitor(socket: Option<&str>) -> ExitCode {
+    let mut client = match connect(socket) {
         Ok(c) => c,
         Err(code) => return code,
     };

@@ -41,23 +41,17 @@ pub struct Client {
 }
 
 impl Client {
-    /// Connect to the daemon at the platform-default control socket.
-    pub fn connect_default() -> io::Result<Self> {
-        #[cfg(unix)]
-        {
-            Self::connect_path(&default_socket_path())
-        }
-        #[cfg(windows)]
-        {
-            let name = DEFAULT_PIPE_NAME.to_ns_name::<GenericNamespaced>()?;
-            Ok(Client { stream: Stream::connect(name)? })
-        }
-    }
-
     /// Connect to a control socket at an explicit filesystem path (Unix).
     #[cfg(unix)]
     pub fn connect_path(path: &Path) -> io::Result<Self> {
         let name = path.to_fs_name::<GenericFilePath>()?;
+        Ok(Client { stream: Stream::connect(name)? })
+    }
+
+    /// Connect to a control socket at an explicit namespaced pipe name (Windows).
+    #[cfg(windows)]
+    pub fn connect_name(name: &str) -> io::Result<Self> {
+        let name = name.to_ns_name::<GenericNamespaced>()?;
         Ok(Client { stream: Stream::connect(name)? })
     }
 
@@ -88,24 +82,18 @@ pub struct Server {
 }
 
 impl Server {
-    /// Bind the platform-default control socket.
-    pub fn bind_default() -> io::Result<Self> {
-        #[cfg(unix)]
-        {
-            Self::bind_path(&default_socket_path())
-        }
-        #[cfg(windows)]
-        {
-            let name = DEFAULT_PIPE_NAME.to_ns_name::<GenericNamespaced>()?;
-            Ok(Server { listener: ListenerOptions::new().name(name).create_sync()? })
-        }
-    }
-
     /// Bind a control socket at an explicit filesystem path (Unix). The caller owns the
     /// stale-socket / single-instance policy (PLAN §4.4 — that dance lives in the daemon).
     #[cfg(unix)]
     pub fn bind_path(path: &Path) -> io::Result<Self> {
         let name = path.to_fs_name::<GenericFilePath>()?;
+        Ok(Server { listener: ListenerOptions::new().name(name).create_sync()? })
+    }
+
+    /// Bind a control socket at an explicit namespaced pipe name (Windows).
+    #[cfg(windows)]
+    pub fn bind_name(name: &str) -> io::Result<Self> {
+        let name = name.to_ns_name::<GenericNamespaced>()?;
         Ok(Server { listener: ListenerOptions::new().name(name).create_sync()? })
     }
 

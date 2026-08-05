@@ -47,6 +47,9 @@ struct Args {
     /// Acquire hardware and start immediately (defaults a missing -i/-o to auto/local).
     #[arg(short, long)]
     start: bool,
+    /// Control socket path (Unix) / pipe name (Windows). Overrides $DECKHAND_SOCKET and the default.
+    #[arg(short = 'k', long, value_name = "PATH")]
+    socket: Option<String>,
     /// Increase log verbosity: -v info, -vv debug, -vvv trace (default warn). RUST_LOG overrides.
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -100,24 +103,41 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    serve(daemon)
+    serve(daemon, resolve_socket(args.socket.as_deref()))
 }
 
-/// Bind the control socket and run the accept/serve loop until Shutdown or Ctrl-C/SIGTERM.
-fn serve(mut daemon: Daemon) -> Result<(), Box<dyn Error>> {
-    let (server, path) = bind_socket()?;
-    match &path {
-        Some(p) => log::info!("listening on {}", p.display()),
-        None => log::info!("listening on the default control socket"),
-    }
+/// The socket the daemon serves, resolved from `--socket` (`SocketTarget` is a filesystem path on
+/// Unix, a pipe name on Windows).
+#[cfg(unix)]
+type SocketTarget = PathBuf;
+#[cfg(windows)]
+type SocketTarget = String;
+
+/// Resolve the `--socket` override: `None` (unset) → the env/default ([`ipc::default_socket_path`],
+/// honoring `$DECKHAND_SOCKET`); otherwise the given path / pipe name.
+#[cfg(unix)]
+fn resolve_socket(over: Option<&str>) -> SocketTarget {
+    over.map(PathBuf::from).unwrap_or_else(ipc::default_socket_path)
+}
+#[cfg(windows)]
+fn resolve_socket(over: Option<&str>) -> SocketTarget {
+    over.map(str::to_string).unwrap_or_else(|| ipc::DEFAULT_PIPE_NAME.to_string())
+}
+
+/// Bind the control socket and run the accept/serve loop until Shutdown or Ctrl-C/SIGTERM. A bind
+/// failure is **fatal** (propagated).
+fn serve(mut daemon: Daemon, target: SocketTarget) -> Result<(), Box<dyn Error>> {
+    let server = bind_socket(&target)?;
+    log::info!("listening on {}", display_target(&target));
 
     let running = Arc::new(AtomicBool::new(true));
     {
         let running = running.clone();
+        let target = target.clone();
         // Ctrl-C / SIGTERM: flip the flag and unblock the blocking accept by self-connecting.
         ctrlc::set_handler(move || {
             running.store(false, Ordering::Relaxed);
-            wake();
+            wake(&target);
         })?;
     }
 
@@ -168,10 +188,8 @@ fn serve(mut daemon: Daemon) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    cleanup_socket(&target);
     log::info!("shutting down — releasing controller and unplugging virtual pad");
-    if let Some(p) = &path {
-        let _ = std::fs::remove_file(p);
-    }
     if let Err(e) = daemon.shutdown() {
         log::warn!("shutdown: {e}");
     }
@@ -179,9 +197,32 @@ fn serve(mut daemon: Daemon) -> Result<(), Box<dyn Error>> {
 }
 
 /// Wake the blocking accept loop by opening (and dropping) a throwaway connection to our socket.
-fn wake() {
-    let _ = Client::connect_default();
+#[cfg(unix)]
+fn wake(target: &Path) {
+    let _ = Client::connect_path(target);
 }
+#[cfg(windows)]
+fn wake(target: &str) {
+    let _ = Client::connect_name(target);
+}
+
+/// A human-readable form of the socket target for logging.
+#[cfg(unix)]
+fn display_target(target: &Path) -> String {
+    target.display().to_string()
+}
+#[cfg(windows)]
+fn display_target(target: &str) -> String {
+    target.to_string()
+}
+
+/// Remove the socket file on exit (Unix only; Windows named pipes need no cleanup).
+#[cfg(unix)]
+fn cleanup_socket(target: &Path) {
+    let _ = std::fs::remove_file(target);
+}
+#[cfg(windows)]
+fn cleanup_socket(_target: &str) {}
 
 /// Stream engine events to a subscribed client on its own thread (D7) until the engine goes away
 /// (all senders dropped → `recv` returns `None`) or the client disconnects (a send fails). Detached:
@@ -196,34 +237,32 @@ fn spawn_monitor(mut conn: Conn, stream: EventStream) {
     });
 }
 
-/// Bind the control socket. On Unix this is [`ipc::default_socket_path`] (honoring
-/// `$DECKHAND_SOCKET`) with a stale-socket / single-instance dance; the returned path is removed on
-/// exit. On Windows a named pipe (no path).
+/// Bind the control socket at `path`, with a stale-socket / single-instance dance: if the file
+/// exists but nothing is listening, it's removed and rebound; a live listener is a genuine second
+/// instance (fatal). The path is removed on exit ([`cleanup_socket`]).
 #[cfg(unix)]
-fn bind_socket() -> Result<(Server, Option<PathBuf>), Box<dyn Error>> {
-    let path = ipc::default_socket_path();
-    let server = match Server::bind_path(&path) {
-        Ok(s) => s,
+fn bind_socket(path: &Path) -> Result<Server, Box<dyn Error>> {
+    match Server::bind_path(path) {
+        Ok(s) => Ok(s),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
             // Bind failed because the socket file exists. If a daemon is actually listening, this
             // is a genuine second instance; otherwise the file is stale — remove it and rebind.
-            if Client::connect_path(&path).is_ok() {
+            if Client::connect_path(path).is_ok() {
                 return Err(
                     format!("another deckhandd is already running on {}", path.display()).into()
                 );
             }
             log::warn!("removing stale control socket {}", path.display());
-            std::fs::remove_file(&path)?;
-            Server::bind_path(&path)?
+            std::fs::remove_file(path)?;
+            Ok(Server::bind_path(path)?)
         }
-        Err(e) => return Err(e.into()),
-    };
-    Ok((server, Some(path)))
+        Err(e) => Err(e.into()),
+    }
 }
 
 #[cfg(windows)]
-fn bind_socket() -> Result<(Server, Option<PathBuf>), Box<dyn Error>> {
-    Ok((Server::bind_default()?, None))
+fn bind_socket(name: &str) -> Result<Server, Box<dyn Error>> {
+    Ok(Server::bind_name(name)?)
 }
 
 /// Read a RON profile and compile it to a `Program`, formatting any diagnostics.
