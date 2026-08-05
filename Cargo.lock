@@ -414,6 +414,7 @@ dependencies = [
  "crossbeam-channel",
  "log",
  "ron",
+ "serde",
  "steam-hid",
  "thiserror",
  "virt-out",

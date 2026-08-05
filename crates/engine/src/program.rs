@@ -8,7 +8,11 @@
 //! the ref-carrying [`config::Action`] → id-carrying [`CompiledAction`].
 //!
 //! Layers are **per-set**, and a layer's index in [`CompiledSet::layers`] *is* its
-//! declared-order precedence (PLAN §4). Not serde — this is runtime state, never persisted.
+//! declared-order precedence (PLAN §4).
+//!
+//! **Serde:** the IR derives `Serialize`/`Deserialize` so it can cross the §6 network wire
+//! (client compiles `ConfigDoc→Program`, ships the `Program`; PLAN §6.1 decision B). It is still
+//! **never persisted to disk** — `ConfigDoc` remains the sole on-disk form.
 
 use std::collections::BTreeMap;
 
@@ -16,19 +20,20 @@ use config::{
     AsMouseSettings, Activator, CommandSettings, DirectionalPadSettings, GyroToMouseSettings,
     InputSource, JoystickMouseSettings, JoystickSettings, RumbleSettings, TriggerSettings,
 };
+use serde::{Deserialize, Serialize};
 use vocab::{GamepadButton, Key, MouseButton};
 
 /// Which of the engine's two live slots a [`Program`] occupies (PLAN §4.1). The engine
 /// self-switches `Main`↔`Fallback` via a global chord. (`Main` was `Active`, renamed since the
 /// fallback is what's "active" while it runs — the name was backwards.)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Role {
     Main,
     Fallback,
 }
 
 /// Index of an action set within a [`Program`].
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SetId(u16);
 
 impl SetId {
@@ -42,7 +47,7 @@ impl SetId {
 
 /// Index of a layer within its [`CompiledSet`]. Layers are per-set, and this index **is**
 /// the layer's declared-order precedence (PLAN §4: higher index = higher precedence).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct LayerId(u16);
 
 impl LayerId {
@@ -55,14 +60,14 @@ impl LayerId {
 }
 
 /// Metadata carried alongside a compiled program (name for UI/status, slot role).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProgramMeta {
     pub name: String,
     pub role: Role,
 }
 
 /// A compiled, name-resolved mapping — the engine's runtime input contract (PLAN §4.1).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Program {
     pub meta: ProgramMeta,
     pub sets: Vec<CompiledSet>,
@@ -81,7 +86,7 @@ impl Program {
 }
 
 /// One action set: base bindings + its layers (index = declared-order precedence).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompiledSet {
     pub name: String,
     pub base: SourceMap<CompiledBinding>,
@@ -96,7 +101,7 @@ impl CompiledSet {
 }
 
 /// A layer: the subset of inputs it overrides (PLAN §4 — silent inputs fall through).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompiledLayer {
     pub name: String,
     pub bindings: SourceMap<CompiledBinding>,
@@ -105,7 +110,7 @@ pub struct CompiledLayer {
 /// A per-[`InputSource`] lookup. **Opaque** so the representation (a `BTreeMap` now, a dense
 /// array later) can change without touching the mapper. Iteration is deterministic
 /// (`InputSource` order).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceMap<T>(BTreeMap<InputSource, T>);
 
 impl<T> SourceMap<T> {
@@ -143,7 +148,7 @@ impl<T> FromIterator<(InputSource, T)> for SourceMap<T> {
 
 /// Runtime form of a [`config::SourceBinding`]: settings reused from `config` (already
 /// runtime `f32`s), commands with their action refs resolved to ids (PLAN §4.1).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CompiledBinding {
     /// A standalone button: its multi-activator commands.
     Button { commands: Vec<CompiledCommand> },
@@ -178,7 +183,7 @@ pub enum CompiledBinding {
 }
 
 /// A command with its action refs resolved. `activator`/`settings` are reused from `config`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledCommand {
     pub activator: Activator,
     pub actions: Vec<CompiledAction>,
@@ -187,7 +192,7 @@ pub struct CompiledCommand {
 
 /// Runtime form of a [`config::Action`]: output leaves unchanged (they name `vocab`
 /// targets `virt-out` realizes), mode refs resolved to ids (PLAN §4.1 / Round D).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CompiledAction {
     None,
     Key(Key),
