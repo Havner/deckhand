@@ -27,6 +27,8 @@ thiserror.workspace = true
 # (De)serialization of the Program IR + wire messages for the §6 network transport. Always
 # compiled — the network role is a *runtime* choice (set_input/set_output), not a cargo feature.
 serde.workspace = true
+# Compact serde-native codec for the §6 network wire (datagrams + length-prefixed TCP frames).
+postcard.workspace = true
 
 [features]
 # Forward virt-out's controller-backend selection. `vigem` is the engine default (the proven

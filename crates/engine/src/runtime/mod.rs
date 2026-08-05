@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 
 use crossbeam_channel::Sender;
+use serde::{Deserialize, Serialize};
 
 use config::{GlobalConfig, Side};
 use steam_hid::{Device, DeviceId, DeviceKind};
@@ -72,7 +73,7 @@ pub(crate) enum Control {
 /// The effective rumble to realize on the controller: per-pad drive (already scaled by master ×
 /// profile strength × curve) plus the pulse frequency from the main profile. Produced by the
 /// mapping loop's `rumble_cmd`, realized by the reader's `apply_haptics`.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub(crate) struct RumbleCmd {
     pub(crate) strong: u16,
     pub(crate) weak: u16,
@@ -83,6 +84,7 @@ pub(crate) struct RumbleCmd {
 /// (`count=1`) of `duration` µs on `side`'s pad — distinct from the sustained rumble train, and
 /// with **no arbitration** (it briefly interrupts a rumble on the shared pad, which resumes next
 /// re-fire; the opposite pad is untouched — PLAN §1.9 haptics v1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Click {
     pub(crate) side: Side,
     pub(crate) duration: u16,

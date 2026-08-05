@@ -413,6 +413,7 @@ dependencies = [
  "config",
  "crossbeam-channel",
  "log",
+ "postcard",
  "ron",
  "serde",
  "steam-hid",
