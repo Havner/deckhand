@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, RecvError, Sender, select};
+use crossbeam_channel::{RecvError, select};
 
 use config::{GlobalConfig, HapticStrength, RumbleSettings, StartProfile};
 use steam_hid::Report;
@@ -21,6 +21,7 @@ use crate::logical::LogicalFrame;
 use crate::program::{Program, Role};
 use crate::{HapticReq, Mapper, Result, Tick};
 
+use super::link::LinkServer;
 use super::{Click, Control, RumbleCmd};
 
 /// The central mapping loop. Owns the `Sink` + `Mapper` + programs + globals; alternates a connected
@@ -32,12 +33,8 @@ pub(super) fn run_mapper(
     mut main: Program,
     mut fallback: Option<Program>,
     mut globals: GlobalConfig,
-    mut frame_rx: Receiver<Report>,
-    control_rx: Receiver<Control>,
-    mut rumble_tx: Sender<RumbleCmd>,
-    mut click_tx: Sender<Click>,
+    mut link: LinkServer,
     running: Arc<AtomicBool>,
-    waiting: Arc<AtomicBool>,
     events: EventSink,
 ) -> Result<()> {
     let start = Instant::now();
@@ -55,7 +52,7 @@ pub(super) fn run_mapper(
         while running.load(Ordering::Relaxed) {
             let mut stop = false;
             select! {
-                recv(frame_rx) -> msg => match msg {
+                recv(link.frame_rx()) -> msg => match msg {
                     Ok(Report::State(state)) => {
                         let frame = LogicalFrame::new(state);
                         // Chords first: they may switch the main/fallback role and consume buttons.
@@ -79,7 +76,7 @@ pub(super) fn run_mapper(
                         // Command-haptic pulses this tick → the reader (scaled by master rumble %).
                         for h in haptics.drain(..) {
                             let duration = click_duration(&h.strength, globals.master_rumble);
-                            let _ = click_tx.send(Click { side: h.side, duration });
+                            let _ = link.click_tx().send(Click { side: h.side, duration });
                         }
                     }
                     // Controller gone but the transport (dongle) is alive → release outputs so
@@ -95,16 +92,16 @@ pub(super) fn run_mapper(
                     // Connected / Battery: surfaced by the reader (D4); nothing to map here.
                     // `Report` is non_exhaustive.
                     Ok(_) => {}
-                    // Reader gone: transport-lost (it flagged `waiting`) → waiting phase; else stop.
+                    // Frames gone: transport-lost (link detached) → waiting phase; else stop.
                     Err(_) => {
-                        if waiting.load(Ordering::SeqCst) {
+                        if link.is_detached() {
                             lost = true;
                         } else {
                             stop = true;
                         }
                     }
                 },
-                recv(control_rx) -> msg => {
+                recv(link.control_rx()) -> msg => {
                     stop = apply_control(
                         msg, &mut main, &mut fallback, &mut globals, &mut mapper, &role, &mut chords,
                     );
@@ -124,7 +121,7 @@ pub(super) fn run_mapper(
             let prog = program_for(&role, &main, &fallback);
             let cmd = rumble_cmd(sink.poll_rumble()?, globals.master_rumble, &prog.rumble);
             if cmd != last_rumble {
-                let _ = rumble_tx.send(cmd.clone());
+                let _ = link.rumble_tx().send(cmd.clone());
                 last_rumble = cmd;
             }
         }
@@ -135,7 +132,7 @@ pub(super) fn run_mapper(
         // ---- waiting phase: release outputs, keep the pad plugged, await reattach / stop ----
         match run_waiting(
             &mut sink, &mut main, &mut fallback, &mut globals, &mut mapper, &role, &mut chords,
-            &control_rx, &mut frame_rx, &mut rumble_tx, &mut click_tx, &running, &events,
+            &mut link, &running, &events,
         )? {
             WaitOutcome::Stopped => return Ok(()),
             // Reattached (channels swapped) → resume the connected phase on the new device.
@@ -178,9 +175,6 @@ fn apply_control(
             *chords = Chords::new(&globals.chords, chords.fallback_base());
             false
         }
-        // Reattach is handled directly in the waiting phase; it only reaches here if it somehow
-        // arrives while connected (it can't) — ignore rather than reject.
-        Ok(Control::Reattach { .. }) => false,
         Ok(Control::Stop) | Err(_) => true,
     }
 }
@@ -206,10 +200,7 @@ fn run_waiting(
     mapper: &mut Mapper,
     role: &Role,
     chords: &mut Chords,
-    control_rx: &Receiver<Control>,
-    frame_rx: &mut Receiver<Report>,
-    rumble_tx: &mut Sender<RumbleCmd>,
-    click_tx: &mut Sender<Click>,
+    link: &mut LinkServer,
     running: &AtomicBool,
     events: &EventSink,
 ) -> Result<WaitOutcome> {
@@ -218,20 +209,20 @@ fn run_waiting(
     sink.emit(&out)?;
     events.emit(EngineEvent::State(Status::WaitingForDevice));
 
+    // Owned clones so the `select!` doesn't borrow `link` — the reattach arm needs `&mut link`.
+    let control = link.control_rx().clone();
+    let reattach = link.reattach_rx().clone();
     while running.load(Ordering::Relaxed) {
         select! {
-            recv(control_rx) -> msg => match msg {
-                Ok(Control::Reattach { frame_rx: frx, rumble_tx: rtx, click_tx: ctx }) => {
-                    *frame_rx = frx;
-                    *rumble_tx = rtx;
-                    *click_tx = ctx;
-                    return Ok(WaitOutcome::Reattached);
+            recv(control) -> msg => {
+                if apply_control(msg, main, fallback, globals, mapper, role, chords) {
+                    return Ok(WaitOutcome::Stopped);
                 }
-                other => {
-                    if apply_control(other, main, fallback, globals, mapper, role, chords) {
-                        return Ok(WaitOutcome::Stopped);
-                    }
-                }
+            }
+            // The reader reacquired the device and minted a fresh session → swap it in and resume.
+            recv(reattach) -> msg => if let Ok(session) = msg {
+                link.reattach(session);
+                return Ok(WaitOutcome::Reattached);
             },
             default(Duration::from_millis(50)) => {}
         }

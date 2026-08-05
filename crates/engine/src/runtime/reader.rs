@@ -1,14 +1,12 @@
 //! The reader thread (PLAN §4.2 S9, D6): a persistent **device-session loop** that owns the current
 //! `Device`, is its **only writer** (read loop + keep-alive + config-on-`Connected` + rumble/click),
-//! and survives a transport outage by **reacquiring** the same pinned device — minting fresh channels
-//! and telling the mapping loop to [`Control::Reattach`], so the virtual pad never leaves.
+//! and survives a transport outage by **reacquiring** the same pinned device — [`LinkClient::detach`]
+//! then [`LinkClient::reattach`] re-mint the session behind the link, so the virtual pad never leaves.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
-
-use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use config::Side;
 use steam_hid::{Device, DeviceId, Manager, Motor, Report, Rumble as HidRumble};
@@ -17,7 +15,8 @@ use crate::Result;
 use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
 
-use super::{Click, Control, DeviceCfg, RumbleCmd};
+use super::link::LinkClient;
+use super::{Click, DeviceCfg, RumbleCmd};
 
 /// How often the reader re-enumerates while waiting for the pinned device to return (D6).
 const REACQUIRE_POLL_MS: u64 = 1000;
@@ -30,20 +29,16 @@ enum SessionEnd {
     TransportGone,
 }
 
-/// The reader thread. Reads until the session ends; on transport-gone it flags `waiting` + emits
-/// `BindingLost`, waits for the pinned `DeviceId` to reappear (its own `Manager`), reopens it, mints
-/// fresh channels, and tells the mapper to [`Control::Reattach`].
-#[allow(clippy::too_many_arguments)] // the reader owns the device + all its channels + reacquire.
+/// The reader thread. Reads until the session ends; on transport-gone it [`LinkClient::detach`]es
+/// (which flags `WaitingForDevice` and disconnects the mapper's frames) + emits `BindingLost`, waits
+/// for the pinned `DeviceId` to reappear (its own `Manager`), reopens it, and [`LinkClient::reattach`]es
+/// (mint a fresh session behind the link) so the mapper resumes on the same virtual pad.
 pub(super) fn run_reader(
     mut device: Device,
     pinned_id: DeviceId,
     cfg: DeviceCfg,
-    control_tx: Sender<Control>,
-    mut frame_tx: Sender<Report>,
-    mut rumble_rx: Receiver<RumbleCmd>,
-    mut click_rx: Receiver<Click>,
+    mut link: LinkClient,
     running: Arc<AtomicBool>,
-    waiting: Arc<AtomicBool>,
     events: EventSink,
 ) -> Result<()> {
     // A separate `Manager` (own hidapi context) used only for reacquire enumeration/open — created
@@ -51,57 +46,39 @@ pub(super) fn run_reader(
     let mut manager: Option<Manager> = None;
 
     loop {
-        match read_session(&mut device, &cfg, &frame_tx, &rumble_rx, &click_rx, &running, &events)? {
+        match read_session(&mut device, &cfg, &link, &running, &events)? {
             SessionEnd::Stop => return Ok(()),
             SessionEnd::TransportGone => {}
         }
 
-        // Transport gone. Flag it, then **drop the mapper-facing channels** so the mapper's
+        // Transport gone. `detach` flags it and drops the session's device-side ends so the mapper's
         // `frame_rx` disconnects and it enters the waiting phase (release_all + WaitingForDevice).
-        // This ordering is essential: if the reader held `frame_tx` across reacquire, the mapper
-        // would stay in the *connected* phase, where the later `Reattach` is ignored — leaving the
-        // channels un-swapped (no mapping) and outputs stuck. `waiting` is set first so the mapper
-        // reads it as transport-lost (not a clean stop) when it sees the disconnect.
-        waiting.store(true, Ordering::SeqCst);
+        link.detach();
         events.emit(EngineEvent::BindingLost);
         drop(device);
-        drop(frame_tx);
-        drop(rumble_rx);
-        drop(click_rx);
 
         let mgr = manager.get_or_insert_with(|| Manager::new().expect("hidapi context for reacquire"));
         let Some(new_device) = reacquire(mgr, &pinned_id, &running) else {
             return Ok(()); // stopped while waiting
         };
 
-        // Reacquired: mint fresh channels, hand the mapper's ends over, and resume this loop with
-        // the reader's ends. The mapper swaps and returns to the connected phase (pad never left).
-        let (ftx, frx) = unbounded::<Report>();
-        let (rtx, rrx) = unbounded::<RumbleCmd>();
-        let (ctx, crx) = unbounded::<Click>();
-        waiting.store(false, Ordering::SeqCst);
+        // Reacquired: `reattach` mints a fresh session, hands the mapper its ends, and clears the
+        // flag; the mapper swaps and returns to the connected phase (pad never left).
         events.emit(EngineEvent::BindingAcquired(pinned_id.clone()));
         events.emit(EngineEvent::State(Status::Running));
-        if control_tx.send(Control::Reattach { frame_rx: frx, rumble_tx: rtx, click_tx: ctx }).is_err()
-        {
+        if !link.reattach() {
             return Ok(()); // mapper gone
         }
         device = new_device;
-        frame_tx = ftx;
-        rumble_rx = rrx;
-        click_rx = crx;
     }
 }
 
 /// Read one device session: forward frames, surface connect/disconnect/battery events, keep the
 /// controller alive, and write rumble/click. Returns when the session ends (stop or transport-gone).
-#[allow(clippy::too_many_arguments)]
 fn read_session(
     device: &mut Device,
     cfg: &DeviceCfg,
-    frame_tx: &Sender<Report>,
-    rumble_rx: &Receiver<RumbleCmd>,
-    click_rx: &Receiver<Click>,
+    link: &LinkClient,
     running: &AtomicBool,
     events: &EventSink,
 ) -> Result<SessionEnd> {
@@ -128,7 +105,7 @@ fn read_session(
                     }
                     _ => {} // State (per-frame, too noisy); unchanged Battery.
                 }
-                if frame_tx.send(report).is_err() {
+                if link.frame_tx().send(report).is_err() {
                     return Ok(SessionEnd::Stop); // mapper gone
                 }
             }
@@ -147,7 +124,7 @@ fn read_session(
         // Latest rumble level wins; re-issue the pulse train just before it ends so a sustained
         // rumble is one contiguous drive (the actuator rings up), not a mid-train restart. Zero
         // level → nothing (the train plays out and stops).
-        while let Ok(r) = rumble_rx.try_recv() {
+        while let Ok(r) = link.rumble_rx().try_recv() {
             level = r;
         }
         if (level.strong > 0 || level.weak > 0)
@@ -163,7 +140,7 @@ fn read_session(
 
         // One-shot command-haptic clicks fire immediately (no arbitration — a click may briefly
         // interrupt the rumble train on its pad, which the re-fire above resumes).
-        while let Ok(click) = click_rx.try_recv() {
+        while let Ok(click) = link.click_rx().try_recv() {
             if let Err(e) = fire_click(device, &click) {
                 log::warn!("click write failed: {e}");
             }

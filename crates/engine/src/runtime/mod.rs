@@ -11,6 +11,7 @@
 //! `Sync` `Device`) forwards frames over a channel to the mapping loop; commands/rumble flow back
 //! over channels. The pure helpers are unit-tested in `reader`/`mapping`.
 
+mod link;
 mod mapping;
 mod reader;
 
@@ -18,16 +19,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::Sender;
 
 use config::{GlobalConfig, Side};
-use steam_hid::{Device, DeviceId, DeviceKind, Report};
+use steam_hid::{Device, DeviceId, DeviceKind};
 use virt_out::Sink;
 
 use crate::Result;
 use crate::event::EventSink;
 use crate::program::{Program, Role};
 
+use link::LocalLink;
 use mapping::run_mapper;
 use reader::run_reader;
 
@@ -56,8 +58,8 @@ impl DeviceCfg {
     }
 }
 
-/// A control message to the mapping loop. Most come from the `Engine` handle (live hot-swap);
-/// `Reattach` comes from the reader after it reacquires a device (D6).
+/// A control message to the mapping loop, from the `Engine` handle (live hot-swap). Device
+/// reattach after an outage (D6) is **not** here — it goes through the [`link`] seam.
 pub(crate) enum Control {
     /// Replace one role's program (main↔fallback), re-seeding the mapper if it's in use.
     Apply { program: Box<Program>, role: Role },
@@ -65,13 +67,6 @@ pub(crate) enum Control {
     SetGlobals(Box<GlobalConfig>),
     /// Stop the loop (the running flag also gates it; this just wakes the `select!`).
     Stop,
-    /// The reader reacquired the pinned device (D6): swap to these fresh channels and resume
-    /// mapping — the pad stayed plugged throughout, so the game never saw a disconnect.
-    Reattach {
-        frame_rx: Receiver<Report>,
-        rumble_tx: Sender<RumbleCmd>,
-        click_tx: Sender<Click>,
-    },
 }
 
 /// The effective rumble to realize on the controller: per-pad drive (already scaled by master ×
@@ -97,9 +92,10 @@ pub(crate) struct Click {
 /// `Engine::start`, torn down by [`Runtime::stop`] on `Engine::stop` (config lives in the handle).
 pub(crate) struct Runtime {
     running: Arc<AtomicBool>,
-    /// Set by the reader when the bound device's transport goes away — the loop stays up (pad
-    /// plugged, outputs neutral) but is `WaitingForDevice` (PLAN §4.3, D5).
-    waiting: Arc<AtomicBool>,
+    /// Set by the link when the bound device's transport goes away — the loop stays up (pad
+    /// plugged, outputs neutral) but is `WaitingForDevice` (PLAN §4.3, D5). Shared with both
+    /// `Link*` ends (the client sets it, the mapper reads it).
+    detached: Arc<AtomicBool>,
     control_tx: Sender<Control>,
     reader: Option<JoinHandle<Result<()>>>,
     mapper: Option<JoinHandle<Result<()>>>,
@@ -120,24 +116,17 @@ impl Runtime {
         events: EventSink,
     ) -> Runtime {
         let running = Arc::new(AtomicBool::new(true));
-        let waiting = Arc::new(AtomicBool::new(false));
-        let (frame_tx, frame_rx) = unbounded::<Report>();
-        let (rumble_tx, rumble_rx) = unbounded::<RumbleCmd>();
-        let (click_tx, click_rx) = unbounded::<Click>();
-        let (control_tx, control_rx) = unbounded::<Control>();
+        // Wire the reader↔mapper seam behind the link (loopback for now). The reader gets the
+        // client end, the mapper the server end; the handle keeps `control_tx`, and `detached` is
+        // the shared `WaitingForDevice` flag (PLAN §6.1).
+        let LocalLink { client, server, control_tx, detached } = link::local_link();
 
         let r_reader = running.clone();
-        let w_reader = waiting.clone();
         let ev_reader = events.clone();
-        // The reader also sends `Reattach` after reacquiring a device (D6), so it holds a control tx.
-        let reader_ctl = control_tx.clone();
         let reader = thread::Builder::new()
             .name("deckhand-reader".into())
             .spawn(move || {
-                let result = run_reader(
-                    device, pinned_id, cfg, reader_ctl, frame_tx, rumble_rx, click_rx, r_reader,
-                    w_reader, ev_reader,
-                );
+                let result = run_reader(device, pinned_id, cfg, client, r_reader, ev_reader);
                 // A reader error would otherwise be invisible until stop() joins it — log it now.
                 if let Err(ref e) = result {
                     log::error!("reader thread exited with error: {e}");
@@ -147,23 +136,17 @@ impl Runtime {
             .expect("spawn reader thread");
 
         let r_mapper = running.clone();
-        let w_mapper = waiting.clone();
         let mapper = thread::Builder::new()
             .name("deckhand-mapper".into())
-            .spawn(move || {
-                run_mapper(
-                    sink, main, fallback, globals, frame_rx, control_rx, rumble_tx, click_tx,
-                    r_mapper, w_mapper, events,
-                )
-            })
+            .spawn(move || run_mapper(sink, main, fallback, globals, server, r_mapper, events))
             .expect("spawn mapper thread");
 
-        Runtime { running, waiting, control_tx, reader: Some(reader), mapper: Some(mapper) }
+        Runtime { running, detached, control_tx, reader: Some(reader), mapper: Some(mapper) }
     }
 
     /// True when the loop is up but the bound device's transport is gone (`WaitingForDevice`).
     pub(crate) fn is_waiting(&self) -> bool {
-        self.waiting.load(Ordering::SeqCst)
+        self.detached.load(Ordering::SeqCst)
     }
 
     /// The control channel, for live `apply`/`set_globals` while running.
@@ -175,7 +158,7 @@ impl Runtime {
     /// virtual pad unplugged). Returns the first thread error, if any.
     pub fn stop(&mut self) -> Result<()> {
         self.running.store(false, Ordering::Relaxed);
-        let _ = self.control_tx.send(Control::Stop); // wake the mapper's select immediately
+        let _ = self.control().send(Control::Stop); // wake the mapper's select immediately
         let mut result = Ok(());
         if let Some(h) = self.mapper.take()
             && let Ok(r) = h.join()
