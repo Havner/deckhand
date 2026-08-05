@@ -7,9 +7,11 @@ use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
+use config::GlobalConfig;
 use steam_hid::DeviceId;
 
-use crate::handle::Status;
+use crate::handle::{Input, Output, Status};
+use crate::program::Role;
 
 /// An out-of-band signal from the engine.
 ///
@@ -30,6 +32,18 @@ pub enum EngineEvent {
     BindingAcquired(DeviceId),
     /// The engine run-state changed.
     State(Status),
+    /// The **staged** input selection changed (takes effect at the next `start()`). Lets a client
+    /// that connects to a running daemon stay in sync when another controls it on the side. Carries
+    /// the absolute new value (not a delta), so it's safe to seed-then-subscribe race-free.
+    InputStaged(Input),
+    /// The **staged** output selection changed (takes effect at the next `start()`). Absolute value.
+    OutputStaged(Output),
+    /// A program was applied to a role (live hot-swap if running, else staged). Carries the role and
+    /// the program's name (`None` reserved for a future clear). Absolute value.
+    ProfileSet { role: Role, name: Option<String> },
+    /// The global config was set (live if running, else staged). Carries the whole config so a client
+    /// can mirror it without a round-trip. Absolute value.
+    GlobalConfigSet(GlobalConfig),
 }
 
 /// Broadcasts [`EngineEvent`]s to any subscribers (D7). Cloned into every thread that produces

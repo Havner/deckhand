@@ -5,7 +5,7 @@
 
 use std::thread;
 
-use ipc::{Client, Request, Response, RunState, Server, StatusInfo};
+use ipc::{Client, Request, Response, RunState, Server, StatusSnapshot};
 
 #[test]
 fn client_server_round_trip() {
@@ -20,12 +20,14 @@ fn client_server_round_trip() {
             while let Some(req) = conn.recv().expect("recv") {
                 let resp = match req {
                     Request::Start => Response::Ok,
-                    Request::Status => Response::Status(StatusInfo {
+                    Request::Status => Response::Status(StatusSnapshot {
                         state: RunState::Running,
                         input: "dongle".into(),
                         output: "local".into(),
                         main: Some("game".into()),
                         fallback: None,
+                        bound: None,
+                        globals: Default::default(),
                     }),
                     Request::ListDevices => Response::Devices(vec!["gordon:dongle:1:".into()]),
                     Request::Shutdown => {

@@ -141,6 +141,17 @@ fn fmt_event(ev: &Event) -> String {
         Event::BindingLost => "binding lost (waiting for device)".into(),
         Event::BindingAcquired(id) => format!("binding acquired: {id}"),
         Event::State(s) => format!("state: {s:?}"),
+        Event::InputStaged(i) => format!("input staged: {i}"),
+        Event::OutputStaged(o) => format!("output staged: {o}"),
+        Event::ProfileSet { role, name } => {
+            format!("profile set: {role:?} = {}", name.as_deref().unwrap_or("(none)"))
+        }
+        Event::GlobalConfigSet(g) => format!(
+            "globals set: start={:?}, master_rumble={}%, {} chord(s)",
+            g.start_profile,
+            g.master_rumble,
+            g.chords.len(),
+        ),
         // `Event` is #[non_exhaustive] — a newer daemon sent something we don't render yet.
         other => format!("{other:?}"),
     }
@@ -186,6 +197,12 @@ fn print_status(s: &StatusSnapshot) {
     println!("main:     {}", s.main.as_deref().unwrap_or("(none)"));
     println!("fallback: {}", s.fallback.as_deref().unwrap_or("(none)"));
     println!("bound:    {}", s.bound.as_deref().unwrap_or("(none)"));
+    println!(
+        "globals:  start={:?}, master_rumble={}%, {} chord(s)",
+        s.globals.start_profile,
+        s.globals.master_rumble,
+        s.globals.chords.len(),
+    );
 }
 
 fn print_devices(ids: &[String]) {

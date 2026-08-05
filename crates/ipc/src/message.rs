@@ -94,6 +94,10 @@ pub struct StatusSnapshot {
     /// the staged *selection* (possibly a policy like `auto`); this is what's actually in use, so a
     /// client connecting to a running daemon learns the current device.
     pub bound: Option<String>,
+    /// The full global config (master rumble, chords, device toggles, `start_profile`). Sent whole
+    /// so a connecting client seeds its complete view in one `Status` call; later changes arrive as
+    /// [`Event::GlobalConfigSet`].
+    pub globals: GlobalConfig,
 }
 
 /// An asynchronous event pushed to a subscribed connection (PLAN §4.3, D7). `#[non_exhaustive]` so
@@ -113,4 +117,12 @@ pub enum Event {
     BindingAcquired(String),
     /// The run state changed.
     State(RunState),
+    /// The staged input selection changed (spec string; takes effect at the next start).
+    InputStaged(String),
+    /// The staged output selection changed (spec string; takes effect at the next start).
+    OutputStaged(String),
+    /// A program was applied to a role — the role plus the program's name (`None` if cleared).
+    ProfileSet { role: ProfileRole, name: Option<String> },
+    /// The global config was set — the whole new config (mirrors [`StatusSnapshot::globals`]).
+    GlobalConfigSet(GlobalConfig),
 }

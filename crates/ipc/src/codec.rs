@@ -77,6 +77,7 @@ mod tests {
                 main: None,
                 fallback: None,
                 bound: None,
+                globals: Default::default(),
             }),
         )
         .unwrap();

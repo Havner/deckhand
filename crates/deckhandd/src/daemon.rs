@@ -113,6 +113,7 @@ impl Daemon {
             main: s.main,
             fallback: s.fallback,
             bound: s.bound.map(|id| id.to_string()),
+            globals: s.globals,
         }
     }
 
@@ -127,6 +128,14 @@ fn role_of(r: ProfileRole) -> Role {
     match r {
         ProfileRole::Main => Role::Main,
         ProfileRole::Fallback => Role::Fallback,
+    }
+}
+
+/// Map the engine's `Role` to a wire [`ProfileRole`] (the reverse of [`role_of`]).
+fn profile_role(r: Role) -> ProfileRole {
+    match r {
+        Role::Main => ProfileRole::Main,
+        Role::Fallback => ProfileRole::Fallback,
     }
 }
 
@@ -163,6 +172,10 @@ pub fn to_wire_event(ev: EngineEvent) -> Event {
         EngineEvent::BindingLost => Event::BindingLost,
         EngineEvent::BindingAcquired(id) => Event::BindingAcquired(id.to_string()),
         EngineEvent::State(s) => Event::State(run_state(s)),
+        EngineEvent::InputStaged(i) => Event::InputStaged(i.to_string()),
+        EngineEvent::OutputStaged(o) => Event::OutputStaged(o.to_string()),
+        EngineEvent::ProfileSet { role, name } => Event::ProfileSet { role: profile_role(role), name },
+        EngineEvent::GlobalConfigSet(g) => Event::GlobalConfigSet(g),
     }
 }
 

@@ -164,6 +164,11 @@ pub struct StatusInfo {
     /// connects to an already-running daemon learns what's bound. Stays set through
     /// `WaitingForDevice` (the device it's waiting to reacquire); cleared on `stop()`.
     pub bound: Option<DeviceId>,
+    /// The full global config (master rumble, chords, device toggles, `start_profile`). Included
+    /// whole so a client connecting to a running daemon can seed its complete view in one call;
+    /// subsequent changes arrive as `GlobalConfigSet` events. (`start_profile` here is the boot
+    /// setting, read once at `start()` — not the currently-live role.)
+    pub globals: GlobalConfig,
 }
 
 /// The engine handle. Holds the staged input/output, the program(s) + globals (retained across
@@ -219,12 +224,14 @@ impl Engine {
     pub fn set_input(&mut self, input: Input) {
         log::debug!("set_input: {input} (staged for next start)");
         self.input = input;
+        self.events.emit(EngineEvent::InputStaged(self.input.clone()));
     }
 
     /// Stage the output target (Local only for now). Applied at the next `start()`.
     pub fn set_output(&mut self, output: Output) {
         log::debug!("set_output: {output} (staged for next start)");
         self.output = output;
+        self.events.emit(EngineEvent::OutputStaged(self.output.clone()));
     }
 
     // --- live-or-staged config ---------------------------------------------------------
@@ -233,13 +240,15 @@ impl Engine {
     pub fn apply(&mut self, program: Program, role: Role) {
         let mode = if self.runtime.is_some() { "live hot-swap" } else { "staged" };
         log::info!("apply: program '{}' → {role:?} ({mode})", program.meta.name);
+        let name = program.meta.name.clone();
         match role {
             Role::Main => self.main = Some(program.clone()),
             Role::Fallback => self.fallback = Some(program.clone()),
         }
         if let Some(rt) = &self.runtime {
-            let _ = rt.control().send(Control::Apply { program: Box::new(program), role });
+            let _ = rt.control().send(Control::Apply { program: Box::new(program), role: role.clone() });
         }
+        self.events.emit(EngineEvent::ProfileSet { role, name: Some(name) });
     }
 
     /// Set the global config (master rumble + chords). Retained; hot-swapped live if running.
@@ -254,6 +263,7 @@ impl Engine {
         if let Some(rt) = &self.runtime {
             let _ = rt.control().send(Control::SetGlobals(Box::new(globals)));
         }
+        self.events.emit(EngineEvent::GlobalConfigSet(self.globals.clone()));
     }
 
     // --- lifecycle ---------------------------------------------------------------------
@@ -336,6 +346,7 @@ impl Engine {
             main: self.main.as_ref().map(|p| p.meta.name.clone()),
             fallback: self.fallback.as_ref().map(|p| p.meta.name.clone()),
             bound: self.bound.clone(),
+            globals: self.globals.clone(),
         }
     }
 
