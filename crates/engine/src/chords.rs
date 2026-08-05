@@ -2,8 +2,8 @@
 //!
 //! Global chords are evaluated **before** any profile binding and **consume** their buttons
 //! (masked out of the frame the Mapper sees), so a desktop escape hatch works even with the UI
-//! down. A `SwitchFallback` chord flips the engine between its **Main** and **Fallback**
-//! programs — `Hold` while the chord is held, `Toggle` latched on each engage. A `CommandExecute`
+//! down. A `SwitchProfile` chord flips the engine between its **Main** and **Fallback**
+//! programs — `HoldFallback` while the chord is held, `Toggle` latched on each engage. A `CommandExecute`
 //! chord runs a headless external program on its **engage edge** (buttons still consumed).
 //!
 //! Pure and golden-testable — the threaded loop (S9b) owns a [`Chords`] and calls [`Chords::eval`]
@@ -19,8 +19,8 @@ use crate::program::Role;
 #[derive(Default)]
 pub(crate) struct Chords {
     /// The persistent base "fallback engaged?" state — seeded from `GlobalConfig::start_profile`
-    /// and flipped by each `SwitchFallback` **Toggle**. Survives releases (unlike a hold), so a
-    /// start-in-Fallback boot sticks until toggled. A **Hold** chord forces Fallback *on top* of
+    /// and flipped by each `SwitchProfile` **Toggle**. Survives releases (unlike a hold), so a
+    /// start-in-Fallback boot sticks until toggled. A **HoldFallback** chord forces Fallback *on top* of
     /// this while held.
     persistent_fallback: bool,
     states: Vec<ChordState>,
@@ -62,7 +62,7 @@ impl Chords {
     }
 
     /// Evaluate every chord against `frame`: an all-buttons-held chord is *active* (consumes its
-    /// buttons); a `SwitchFallback` Toggle flips the persistent base on its rising edge, a Hold
+    /// buttons); a `SwitchProfile` Toggle flips the persistent base on its rising edge, a HoldFallback
     /// forces Fallback while held. Role = base OR any hold.
     pub fn eval(&mut self, chords: &[GlobalChord], frame: &LogicalFrame) -> ChordOutcome {
         if self.states.len() != chords.len() {
@@ -80,11 +80,21 @@ impl Chords {
                 consumed.extend(chord.buttons.iter().cloned());
             }
             match &chord.action {
-                GlobalAction::SwitchFallback { mode } => match mode {
-                    SwitchMode::Hold => hold_fallback |= active,
+                GlobalAction::SwitchProfile { mode } => match mode {
+                    SwitchMode::HoldFallback => hold_fallback |= active,
                     SwitchMode::Toggle => {
                         if active && !st.prev_active {
                             base = !base;
+                        }
+                    }
+                    SwitchMode::SetMain => {
+                        if active && !st.prev_active {
+                            base = false;
+                        }
+                    }
+                    SwitchMode::SetFallback => {
+                        if active && !st.prev_active {
+                            base = true;
                         }
                     }
                 },
@@ -114,11 +124,15 @@ mod tests {
     }
 
     fn hold_chord(buttons: Vec<InputSource>) -> GlobalChord {
-        GlobalChord { buttons, action: GlobalAction::SwitchFallback { mode: SwitchMode::Hold } }
+        GlobalChord { buttons, action: GlobalAction::SwitchProfile { mode: SwitchMode::HoldFallback } }
     }
 
     fn toggle_chord(buttons: Vec<InputSource>) -> GlobalChord {
-        GlobalChord { buttons, action: GlobalAction::SwitchFallback { mode: SwitchMode::Toggle } }
+        GlobalChord { buttons, action: GlobalAction::SwitchProfile { mode: SwitchMode::Toggle } }
+    }
+
+    fn set_chord(buttons: Vec<InputSource>, mode: SwitchMode) -> GlobalChord {
+        GlobalChord { buttons, action: GlobalAction::SwitchProfile { mode } }
     }
 
     #[test]
@@ -172,6 +186,28 @@ mod tests {
         // Release then re-engage → fires again.
         c.eval(&chords, &frame(Buttons::empty()));
         assert_eq!(c.eval(&chords, &both()).execute.len(), 1);
+    }
+
+    #[test]
+    fn set_main_and_set_fallback_latch_specific_roles_on_engage() {
+        // SetFallback and SetMain latch a specific persistent base on the engage edge, unlike
+        // Toggle (relative) — engaging the same one twice is idempotent, and each is a no-op if
+        // already in the target role.
+        let to_fb = set_chord(vec![InputSource::Steam, InputSource::RightGrip], SwitchMode::SetFallback);
+        let to_main = set_chord(vec![InputSource::View, InputSource::LeftGrip], SwitchMode::SetMain);
+        let chords = vec![to_fb, to_main];
+        let mut c = Chords::new(&chords, false); // boot in Main
+
+        let fb = || frame(Buttons::STEAM | Buttons::R4);
+        let main = || frame(Buttons::VIEW | Buttons::L4);
+        let none = || frame(Buttons::empty());
+
+        assert_eq!(c.eval(&chords, &fb()).role, Role::Fallback); // engage SetFallback → latch
+        assert_eq!(c.eval(&chords, &fb()).role, Role::Fallback); // held → idempotent
+        assert_eq!(c.eval(&chords, &none()).role, Role::Fallback); // release → stays latched
+        assert_eq!(c.eval(&chords, &fb()).role, Role::Fallback); // re-engage same → still Fallback
+        assert_eq!(c.eval(&chords, &main()).role, Role::Main); // engage SetMain → latch to Main
+        assert_eq!(c.eval(&chords, &none()).role, Role::Main); // release → stays Main
     }
 
     #[test]

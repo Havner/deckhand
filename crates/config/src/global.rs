@@ -39,7 +39,7 @@ impl Default for GlobalConfig {
 }
 
 /// Which of the engine's two profile slots the engine boots into (the **main** profile, or the
-/// **fallback**/desktop one). A start-in-`Fallback` boot persists until a `SwitchFallback` chord
+/// **fallback**/desktop one). A start-in-`Fallback` boot persists until a `SwitchProfile` chord
 /// changes it — so pair it with a `Toggle` chord to switch to `Main` when ready.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum StartProfile {
@@ -59,8 +59,9 @@ pub struct GlobalChord {
 /// What a global chord does — each variant carries its own params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GlobalAction {
-    /// Switch main ↔ fallback profile (`Hold` = while held; `Toggle` = latch).
-    SwitchFallback { mode: SwitchMode },
+    /// Switch main ↔ fallback profile (`HoldFallback` = while held; `Toggle` = latch; `SetMain`/
+    /// `SetFallback` = latch a specific role on engage).
+    SwitchProfile { mode: SwitchMode },
     /// Run a headless external program — the escape hatch for system actions (on-screen
     /// keyboard, audio device, …) that keeps the engine free of X/Wayland/DE/audio deps.
     /// Hold/Toggle is N/A (fires on activation).
@@ -71,11 +72,19 @@ pub enum GlobalAction {
     },
 }
 
-/// Switch-chord semantics.
+/// Switch-chord semantics. `HoldFallback`/`Toggle` are relative to the current role; `SetMain`/
+/// `SetFallback` latch a **specific** role on engage (same persistent outcome as `Toggle`, but
+/// unconditional — the target is chosen by the mode, not by the current state).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SwitchMode {
-    Hold,
+    /// Force Fallback while held; back to the persistent base on release.
+    HoldFallback,
+    /// Flip the persistent base (Main ↔ Fallback) on each engage edge.
     Toggle,
+    /// Latch the persistent base to **Main** on engage (no-op if already Main).
+    SetMain,
+    /// Latch the persistent base to **Fallback** on engage (no-op if already Fallback).
+    SetFallback,
 }
 
 #[cfg(test)]
@@ -97,7 +106,7 @@ mod tests {
             chords: vec![
                 GlobalChord {
                     buttons: vec![InputSource::Steam, InputSource::RightGrip],
-                    action: GlobalAction::SwitchFallback { mode: SwitchMode::Toggle },
+                    action: GlobalAction::SwitchProfile { mode: SwitchMode::Toggle },
                 },
                 GlobalChord {
                     buttons: vec![InputSource::Steam, InputSource::LeftGrip],

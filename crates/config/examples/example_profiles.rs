@@ -1496,7 +1496,7 @@ pub fn globals() -> GlobalConfig {
         chords: vec![
             GlobalChord {
                 buttons: vec![InputSource::Steam, InputSource::RightGrip],
-                action: GlobalAction::SwitchFallback {
+                action: GlobalAction::SwitchProfile {
                     mode: SwitchMode::Toggle,
                 },
             },
