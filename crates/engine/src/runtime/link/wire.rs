@@ -44,6 +44,9 @@ pub(super) enum Uplink {
     /// The handshake — always the first frame. The server validates `version` and drops the
     /// connection on a mismatch. Carries no config (config is ordinary `Apply`/`SetGlobals`).
     Hello { version: u16 },
+    /// A keep-alive so the client detects a dead server over the otherwise-idle TCP link (`State`
+    /// frames ride UDP). The server no-ops it.
+    Ping,
     /// Apply a compiled program to a role (main↔fallback), like the local `Control::Apply`.
     Apply { program: Program, role: Role },
     /// Replace the global config (master rumble, chords, ...).

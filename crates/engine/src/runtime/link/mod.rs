@@ -140,20 +140,22 @@ impl LinkClient {
         }
     }
 
-    /// The device's transport went away → drive the mapper into its waiting phase. Network reconnect
-    /// (drop the connection so the server sees link-down) is slice 5.
+    /// The device's transport went away → drive the mapper into its waiting phase. **Local:** flag +
+    /// drop the session. **Network:** drop the connection so the *server* sees link-down (→
+    /// `WaitingForDevice`) and stop reconnecting until the device returns.
     pub(crate) fn detach(&mut self) {
         match self {
             LinkClient::Local(c) => c.detach(),
-            LinkClient::Network(_) => {} // TODO(slice 5): drop the connection.
+            LinkClient::Network(c) => c.detach(),
         }
     }
 
-    /// The device returned → resume mapping. `false` if the mapper/server is gone.
+    /// The device returned → resume. **Local:** mint a fresh session (`false` if the mapper is gone).
+    /// **Network:** allow the uplink thread to re-dial.
     pub(crate) fn reattach(&mut self) -> bool {
         match self {
             LinkClient::Local(c) => c.reattach(),
-            LinkClient::Network(_) => true, // TODO(slice 5): re-dial.
+            LinkClient::Network(c) => c.reattach(),
         }
     }
 

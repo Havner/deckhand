@@ -371,9 +371,9 @@ impl Engine {
             self.events.clone(),
         )?;
         self.runtime = Some(rt);
-        // No local device → no `bound` and no `BindingAcquired` (the "binding" is the network link,
-        // surfaced in slice 5).
-        self.events.emit(EngineEvent::State(Status::Running));
+        // No local device → no `bound` and no `BindingAcquired`. No `State(Running)` either: with no
+        // client yet the mapper immediately emits `WaitingForDevice`, then `Running` when a client
+        // connects — so emitting `Running` here would just be a spurious flicker.
         Ok(())
     }
 

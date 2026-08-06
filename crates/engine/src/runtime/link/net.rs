@@ -20,7 +20,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 
@@ -31,6 +31,8 @@ use super::wire::{self, Downlink, FramePacket, PROTOCOL_VERSION, Uplink};
 
 /// Poll granularity for socket loops so a thread notices `running` cleared on shutdown.
 const POLL: Duration = Duration::from_millis(200);
+/// How often the client sends a TCP keep-alive `Ping` (to detect a dead server promptly).
+const PING_INTERVAL: Duration = Duration::from_millis(1000);
 /// Max UDP datagram we'll accept (a `ControllerState` is well under this; guards the recv buffer).
 const UDP_BUF: usize = 2048;
 
@@ -228,6 +230,7 @@ fn serve_connection(
                     log::warn!("net: client sent data before Hello — dropping");
                     return;
                 }
+                Uplink::Ping => {} // keep-alive — no-op (its arrival keeps this read loop live)
                 Uplink::Apply { program, role } => {
                     let _ = control_tx.send(Control::Apply { program: Box::new(program), role });
                 }
@@ -306,7 +309,18 @@ fn server_backchannel(
 
 struct ClientShared {
     running: AtomicBool,
+    /// True while the local device is present. The reader clears it on device-loss (`detach`) and
+    /// sets it on reacquire (`reattach`); the uplink thread only (re)dials while it's true, so a
+    /// device outage drops the link (→ server `WaitingForDevice`) instead of reconnecting to nothing.
+    device_present: AtomicBool,
     tcp: Mutex<Option<TcpStream>>,
+}
+
+/// (Re)dial the server: connect TCP and send `Hello`.
+fn dial(server: SocketAddr) -> io::Result<TcpStream> {
+    let mut tcp = TcpStream::connect(server)?;
+    wire::write_frame(&mut tcp, &Uplink::Hello { version: PROTOCOL_VERSION })?;
+    Ok(tcp)
 }
 
 /// The device-side end of a network link. Owns the bridge threads; exposes the same channel surface
@@ -321,10 +335,10 @@ pub(crate) struct NetClient {
 }
 
 impl NetClient {
-    /// Dial the server: connect TCP, bind+connect UDP (so datagrams default to the server and the
-    /// server learns our return address), send `Hello`, and spawn the bridge threads.
+    /// Dial the server: bind+connect UDP (so datagrams default to the server and the server learns
+    /// our return address), connect TCP + `Hello`, and spawn the bridge threads. The uplink thread
+    /// re-dials on its own after a drop (§6.1), so the initial dial here is just fail-fast.
     pub(super) fn connect(server: SocketAddr) -> io::Result<NetClient> {
-        let mut tcp = TcpStream::connect(server)?;
         // Bind an ephemeral UDP port on the matching family and connect it to the server.
         let local: SocketAddr =
             if server.is_ipv4() { "0.0.0.0:0".parse().unwrap() } else { "[::]:0".parse().unwrap() };
@@ -332,7 +346,7 @@ impl NetClient {
         udp.connect(server)?;
         udp.set_read_timeout(Some(POLL))?;
 
-        wire::write_frame(&mut tcp, &Uplink::Hello { version: PROTOCOL_VERSION })?;
+        let tcp = dial(server)?; // initial dial, fail-fast
 
         let (frame_tx, frame_rx) = unbounded::<Report>();
         let (control_tx, control_rx) = unbounded::<Control>();
@@ -340,13 +354,14 @@ impl NetClient {
         let (click_tx, click_rx) = unbounded::<Click>();
         let shared = Arc::new(ClientShared {
             running: AtomicBool::new(true),
+            device_present: AtomicBool::new(true),
             tcp: Mutex::new(Some(tcp.try_clone()?)),
         });
 
         let mut threads = Vec::new();
         threads.push(spawn("net-cli-up", {
             let (udp, shared) = (udp.clone(), shared.clone());
-            move || client_uplink(tcp, &udp, &shared, &frame_rx, &control_rx)
+            move || client_uplink(tcp, server, &udp, &shared, &frame_rx, &control_rx)
         }));
         threads.push(spawn("net-cli-down", {
             let shared = shared.clone();
@@ -368,6 +383,21 @@ impl NetClient {
     pub(super) fn click_rx(&self) -> &Receiver<Click> {
         &self.click_rx
     }
+
+    /// The local device went away → drop the connection so the server sees link-down (→
+    /// `WaitingForDevice`), and don't reconnect until the device returns.
+    pub(super) fn detach(&self) {
+        self.shared.device_present.store(false, Ordering::SeqCst);
+        if let Some(tcp) = self.shared.tcp.lock().unwrap().as_ref() {
+            let _ = tcp.shutdown(std::net::Shutdown::Both);
+        }
+    }
+
+    /// The device returned → let the uplink thread re-dial the server.
+    pub(super) fn reattach(&self) -> bool {
+        self.shared.device_present.store(true, Ordering::SeqCst);
+        true
+    }
 }
 
 impl Drop for NetClient {
@@ -384,16 +414,73 @@ impl Drop for NetClient {
     }
 }
 
-/// Split the reader's Reports and the handle's Control onto the wire: `State`→UDP, lifecycle→TCP,
-/// config→TCP. Exits when both input channels close (client dropped).
+/// Split the reader's Reports and the handle's Control onto the wire (`State`→UDP, lifecycle/config→
+/// TCP) and **re-dial** the server whenever the TCP link drops — but only while the device is present
+/// (a device outage drops the link so the server waits). Exits on stop / the reader closing.
 fn client_uplink(
     mut tcp: TcpStream,
+    server: SocketAddr,
     udp: &UdpSocket,
     shared: &ClientShared,
     frame_rx: &Receiver<Report>,
     control_rx: &Receiver<Control>,
 ) {
-    while shared.running.load(Ordering::SeqCst) {
+    loop {
+        match pump(&mut tcp, udp, shared, frame_rx, control_rx) {
+            PumpEnd::Stop => return,
+            PumpEnd::Broke => {}
+        }
+        // The link dropped — re-dial (only while running and the device is present).
+        *shared.tcp.lock().unwrap() = None;
+        loop {
+            if !shared.running.load(Ordering::SeqCst) {
+                return;
+            }
+            if !shared.device_present.load(Ordering::SeqCst) {
+                thread::sleep(POLL); // device gone — nothing to forward, don't reconnect yet
+                continue;
+            }
+            match dial(server) {
+                Ok(new) => {
+                    if let Ok(c) = new.try_clone() {
+                        *shared.tcp.lock().unwrap() = Some(c);
+                    }
+                    tcp = new;
+                    log::info!("net: (re)connected to {server}");
+                    break;
+                }
+                Err(_) => thread::sleep(POLL), // server down — keep retrying
+            }
+        }
+    }
+}
+
+/// Why [`pump`] returned.
+enum PumpEnd {
+    /// Clean stop — the reader/handle closed the channels, or `running` was cleared.
+    Stop,
+    /// The TCP link dropped (or the device went away) — the caller should re-dial.
+    Broke,
+}
+
+/// Pump the current connection until the reader/handle close (→ `Stop`) or the TCP link drops / the
+/// device goes away (→ `Broke`). A periodic `Ping` detects a dead server over the otherwise-idle TCP
+/// (`State` frames ride UDP, which can't surface a broken peer).
+fn pump(
+    tcp: &mut TcpStream,
+    udp: &UdpSocket,
+    shared: &ClientShared,
+    frame_rx: &Receiver<Report>,
+    control_rx: &Receiver<Control>,
+) -> PumpEnd {
+    let mut last_ping = Instant::now();
+    loop {
+        if !shared.running.load(Ordering::SeqCst) {
+            return PumpEnd::Stop;
+        }
+        if !shared.device_present.load(Ordering::SeqCst) {
+            return PumpEnd::Broke; // device gone → drop the link (re-dial gated until it returns)
+        }
         select! {
             recv(frame_rx) -> m => match m {
                 Ok(Report::State(state)) => {
@@ -403,25 +490,30 @@ fn client_uplink(
                 }
                 // Connected / Disconnected / Battery → reliable TCP (never dropped).
                 Ok(report) => {
-                    if wire::write_frame(&mut tcp, &Uplink::Event(report)).is_err() {
-                        return;
+                    if wire::write_frame(tcp, &Uplink::Event(report)).is_err() {
+                        return PumpEnd::Broke;
                     }
                 }
-                Err(_) => return, // reader gone
+                Err(_) => return PumpEnd::Stop, // reader gone
             },
             recv(control_rx) -> m => {
                 let msg = match m {
                     Ok(Control::Apply { program, role }) => Uplink::Apply { program: *program, role },
                     Ok(Control::SetGlobals(g)) => Uplink::SetGlobals(*g),
-                    Ok(Control::Stop) => return, // local stop
-                    Err(_) => return,
+                    Ok(Control::Stop) => return PumpEnd::Stop, // local stop
+                    Err(_) => return PumpEnd::Stop,
                 };
-                if wire::write_frame(&mut tcp, &msg).is_err() {
-                    return;
+                if wire::write_frame(tcp, &msg).is_err() {
+                    return PumpEnd::Broke;
                 }
             },
-            // Wake periodically so a shutdown (running cleared) is noticed even when idle.
             default(POLL) => {}
+        }
+        if last_ping.elapsed() >= PING_INTERVAL {
+            if wire::write_frame(tcp, &Uplink::Ping).is_err() {
+                return PumpEnd::Broke;
+            }
+            last_ping = Instant::now();
         }
     }
 }
@@ -552,6 +644,23 @@ mod tests {
         let client2 = NetClient::connect(server.addr()).unwrap();
         assert!(wait_until(|| !server.is_detached()), "server never registered the reconnect");
         client2.frame_tx().send(Report::Connected).unwrap();
+        assert_eq!(server.frame_rx().recv_timeout(secs(2)).unwrap(), Report::Connected);
+    }
+
+    #[test]
+    fn client_redials_after_device_loss() {
+        let server = NetServer::bind(loopback()).unwrap();
+        let client = NetClient::connect(server.addr()).unwrap();
+        assert!(wait_until(|| !server.is_detached()), "server never registered the client");
+
+        // Device-loss on the client (reader `detach`) → it drops the link, the server sees link-down.
+        client.detach();
+        assert!(wait_until(|| server.is_detached()), "server never saw the client drop the link");
+
+        // Device back (`reattach`) → the client re-dials, the server re-accepts, frames resume.
+        client.reattach();
+        assert!(wait_until(|| !server.is_detached()), "client never re-dialed after reattach");
+        client.frame_tx().send(Report::Connected).unwrap();
         assert_eq!(server.frame_rx().recv_timeout(secs(2)).unwrap(), Report::Connected);
     }
 }
