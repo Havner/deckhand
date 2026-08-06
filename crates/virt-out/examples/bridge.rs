@@ -23,7 +23,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use steam_hid::{Buttons, ControllerState, Device, Manager, Motor, Report, Rumble as HidRumble};
+use steam_hid::{
+    Buttons, ControllerState, Device, HapticPulse as HidRumble, Manager, Motor, Report,
+};
 use virt_out::{GamepadAxis, GamepadButton, Key, OutputEvent, Rumble, Sink};
 
 /// Pad-units (−1..1) → pixels per frame of relative mouse motion.
@@ -220,10 +222,10 @@ fn apply_haptics(
     }
     *last = Instant::now();
     if rumble.strong > 0 {
-        device.rumble(Motor::Left, train(rumble.strong))?;
+        device.haptic_pulse(Motor::Left, train(rumble.strong))?;
     }
     if rumble.weak > 0 {
-        device.rumble(Motor::Right, train(rumble.weak))?;
+        device.haptic_pulse(Motor::Right, train(rumble.weak))?;
     }
     Ok(())
 }

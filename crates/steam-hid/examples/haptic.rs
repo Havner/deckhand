@@ -1,4 +1,5 @@
-//! `haptic` — explore Gordon's trackpad haptic parameters (`0x8F` TRIGGER_HAPTIC_PULSE).
+//! `haptic` — explore controller haptics: Gordon's trackpad pulse (`0x8F`
+//! TRIGGER_HAPTIC_PULSE) and the Deck's dual-motor rumble (`0xEB` TRIGGER_RUMBLE_CMD).
 //!
 //! The `0x8F` pulse is a square wave on a trackpad actuator: each cycle is `duration` µs
 //! ON then `interval` µs OFF, repeated `count` times. So **frequency ≈ 1e6/(duration+
@@ -6,25 +7,33 @@
 //! the total length. Low frequencies (~30–150 Hz) feel like **rumble**; high ones (~1 kHz)
 //! are an audible **tone**. `gain` is ignored on Gordon (verified). Pad map (verified):
 //! wire 0 = RIGHT, 1 = LEFT; **`pad=2` (BOTH) is NOT honored by Gordon — it no-ops**, so
-//! "both" is done by firing wire 0 + wire 1 separately. `0xeb`/`0xea` are Deck-only.
+//! "both" is done by firing wire 0 + wire 1 separately.
 //!
-//! No args → runs three groups: a **frequency sweep**, a **duty-cycle** sweep (both on both pads,
+//! The `0xEB` rumble (**Deck-only**; no-ops on Gordon) is the firmware-sustained continuous
+//! dual-motor rumble the kernel wires `FF_RUMBLE` to: `left`/`right` are raw magnitudes
+//! (`0..=65535`) held until the next command (`0,0` stops), plus per-motor dB gains.
+//!
+//! No args → the Gordon **pulse** suite: a **frequency sweep**, a **duty-cycle** sweep (both
 //! fired the way the **engine** does — a short pulse train re-fired contiguously, so the actuator
-//! rings up the same as in-game, tuning transfers), and **command-haptic clicks** (the singular
-//! per-action Low/Med/High pulse, left pad then right). `--freq` / `--duty` / `--cmd` run a subset
-//! (default all). `<dur_us> <interval_us> <count> [pad]` → fire one **custom** pulse (pad 0=R/1=L/
-//! 2=both, default both).
+//! rings up the same as in-game), and **command-haptic clicks** (the singular per-action Low/Med/
+//! High pulse). `--freq` / `--duty` / `--cmd` run a subset. **`--rumble`** runs the Deck `0xEB`
+//! motor sweep (strength per motor, then a gain sweep). **`--pgain`** runs the Deck `0x8F` **pulse
+//! gain** sweep (fixed frequency, amplitude via the Deck-honored `gain` byte). **`--longstop`**
+//! probes how to **stop** a long (no-re-fire) train early (count=1 vs count=0). **`--eint`** sweeps
+//! the `0xEB` `intensity` word (a finer, **inverted** amplitude lever — 0 = strongest). `<dur_us>
+//! <interval_us> <count> [pad]` → fire one **custom** pulse (pad 0=R/1=L/2=both, default both).
 //!
-//! Disables lizard first (so pad-touch doesn't fire lizard click-haptics; Drop restores).
+//! Disables lizard first — and **re-asserts it before every step** (the Deck reverts to lizard
+//! ~10 s after lizard-off, which would fire during a long sweep); Drop restores it.
 //! `--wired`/`--dongle` pick the transport.
-//! Run: `cargo run -p steam-hid --example haptic -- [--wired|--dongle] [dur int count [pad]]`.
+//! Run: `cargo run -p steam-hid --example haptic -- [--wired|--dongle] [--rumble|--pgain] [dur int count [pad]]`.
 
 mod common;
 
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use steam_hid::{Device, Manager};
+use steam_hid::{Device, HapticPulse, Manager, Motor};
 
 // Mirror the engine's rumble cadence (`crates/engine/src/runtime.rs` RUMBLE_TRAIN_MS /
 // RUMBLE_REFIRE_MS — keep in sync) so what you feel in the sweeps matches the game: a *short*
@@ -34,13 +43,21 @@ const REFIRE_MS: u64 = 220;
 /// How long to hold each sweep step (the engine sustains as long as the game commands rumble).
 const HOLD_MS: u64 = 1200;
 
-/// Fire one `0x8F` pulse (kernel 8-byte form). `wire_pad`: 0=RIGHT, 1=LEFT (Gordon
-/// no-ops any other value, so do NOT pass 2 here — use `both`).
+/// Re-assert lizard-off. The Deck reverts ~10 s after lizard-off, so call this before every
+/// sweep step (best-effort — a transient write hiccup shouldn't abort the test).
+fn keep_lizard_off(dev: &mut Device) {
+    if let Err(e) = dev.set_lizard_mode(false) {
+        eprintln!("warning: re-assert lizard-off failed: {e}");
+    }
+}
+
+/// Fire one `0x8F` pulse at gain 0 (Gordon's model — amplitude is the duty cycle). `wire_pad`:
+/// 0=RIGHT, 1=LEFT (Gordon no-ops any other value, so do NOT pass 2 here — use `both`). Maps the
+/// wire pad to a `Motor` and delegates to `Device::haptic_pulse` (which applies the same L/R swap),
+/// so the bytes are identical to the raw form.
 fn pulse(dev: &mut Device, wire_pad: u8, dur: u16, interval: u16, count: u16) -> steam_hid::Result<()> {
-    let [d0, d1] = dur.to_le_bytes();
-    let [i0, i1] = interval.to_le_bytes();
-    let [c0, c1] = count.to_le_bytes();
-    dev.send_feature_report(&[0x8F, 8, wire_pad, d0, d1, i0, i1, c0, c1, 0])
+    let motor = if wire_pad == 1 { Motor::Left } else { Motor::Right };
+    dev.haptic_pulse(motor, HapticPulse { duration: dur, interval, count, gain: 0 })
 }
 
 /// Drive both actuators — Gordon ignores `pad=2`, so fire wire 0 and wire 1 separately
@@ -65,6 +82,26 @@ fn sustain(
         sleep(Duration::from_millis(REFIRE_MS));
     }
     Ok(())
+}
+
+/// Hold a Deck `0xEB` motor rumble at `left`/`right` (dB gains `lg`/`rg`) for `HOLD_MS`, then
+/// stop. The firmware sustains it from the single command, so there is no re-fire (unlike the
+/// pulse `sustain`) — we just wait, staying Ctrl-C-responsive, and send `(0,0)` to stop.
+fn rumble_hold(
+    dev: &mut Device,
+    running: &common::Running,
+    left: u16,
+    right: u16,
+    lg: i8,
+    rg: i8,
+) -> steam_hid::Result<()> {
+    keep_lizard_off(dev);
+    dev.haptic_rumble(0, left, right, lg, rg)?; // intensity 0 = strongest
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(HOLD_MS) && running.alive() {
+        sleep(Duration::from_millis(50));
+    }
+    dev.haptic_rumble(0, 0, 0, lg, rg) // stop
 }
 
 fn main() -> steam_hid::Result<()> {
@@ -97,6 +134,7 @@ fn main() -> steam_hid::Result<()> {
              ~{}ms)",
             count as u32 * (dur as u32 + interval as u32) / 1000
         );
+        keep_lizard_off(&mut device);
         if pad >= 2 {
             both(&mut device, dur, interval, count)?;
         } else {
@@ -106,13 +144,25 @@ fn main() -> steam_hid::Result<()> {
         return Ok(());
     }
 
-    // Which groups to run — `--freq` / `--duty` / `--cmd` pick a subset; none = all.
+    // Which groups to run. `--freq`/`--duty`/`--cmd` are the Gordon pulse suite (default when no
+    // flag is given); `--rumble` (Deck `0xEB`), `--pgain` (Deck `0x8F`+gain), and `--longstop`
+    // (long-train stop probe) are opt-in. Any flag → run only the flagged groups.
     let args: Vec<String> = std::env::args().collect();
     let has = |name: &str| args.iter().any(|a| a == name);
-    let (run_freq, run_duty, run_cmd) = match (has("--freq"), has("--duty"), has("--cmd")) {
-        (false, false, false) => (true, true, true),
-        picks => picks,
-    };
+    let default_suite = !(has("--freq")
+        || has("--duty")
+        || has("--cmd")
+        || has("--rumble")
+        || has("--pgain")
+        || has("--longstop")
+        || has("--eint"));
+    let run_freq = default_suite || has("--freq");
+    let run_duty = default_suite || has("--duty");
+    let run_cmd = default_suite || has("--cmd");
+    let run_rumble = has("--rumble");
+    let run_pgain = has("--pgain");
+    let run_longstop = has("--longstop");
+    let run_eint = has("--eint");
 
     let pause = Duration::from_millis(1800);
     println!("\nGrip BOTH pads. Starting in 2s…");
@@ -129,6 +179,7 @@ fn main() -> steam_hid::Result<()> {
             let half = (period / 2) as u16;
             let count = ((freq * TRAIN_MS) / 1000).max(1) as u16;
             println!("  {freq:>4} Hz  (dur={half}µs interval={half}µs count={count})");
+            keep_lizard_off(&mut device);
             sustain(&mut device, &running, half, half, count)?;
             sleep(pause);
         }
@@ -149,6 +200,7 @@ fn main() -> steam_hid::Result<()> {
             let dur = ((period as u32 * pct) / 100).clamp(1, period as u32 - 1) as u16;
             let interval = period - dur;
             println!("  {pct:>3}% on  (dur={dur}µs interval={interval}µs count={count})");
+            keep_lizard_off(&mut device);
             sustain(&mut device, &running, dur, interval, count)?;
             sleep(pause);
         }
@@ -176,16 +228,147 @@ fn main() -> steam_hid::Result<()> {
                     break;
                 }
                 println!("    {name} (dur={dur}µs interval={interval}µs count={count})");
+                keep_lizard_off(&mut device);
                 pulse(&mut device, wire, dur, interval, count)?;
                 sleep(pause);
             }
         }
     }
 
+    // --- Deck motor rumble (0xEB): firmware-sustained continuous rumble, the kernel FF path.
+    // First a strength sweep per motor (LEFT/RIGHT/BOTH) at the kernel gains, then a gain sweep
+    // at mid strength so you can feel what the dB gain does (and whether it fixes the L/R
+    // imbalance / weak saturation the 0x8F pulse showed). Deck-only — no-ops on Gordon. ---
+    if run_rumble {
+        const KERNEL_LG: i8 = 2; // kernel drives FF_RUMBLE with left = +2 dB, right = 0 dB
+        const KERNEL_RG: i8 = 0;
+        let speed = |pct: u32| ((u16::MAX as u32 * pct) / 100) as u16;
+
+        println!("\n=== MOTOR RUMBLE 0xEB — STRENGTH sweep (kernel gains L={KERNEL_LG} R={KERNEL_RG}dB, ~{HOLD_MS}ms each) ===");
+        for (label, left_on, right_on) in [("LEFT ", true, false), ("RIGHT", false, true), ("BOTH ", true, true)] {
+            if !running.alive() {
+                break;
+            }
+            println!("  {label}:");
+            for pct in [10u32, 25, 50, 75, 90, 100] {
+                if !running.alive() {
+                    break;
+                }
+                let (l, r) = (if left_on { speed(pct) } else { 0 }, if right_on { speed(pct) } else { 0 });
+                println!("    {pct:>3}%  (left={l} right={r})");
+                rumble_hold(&mut device, &running, l, r, KERNEL_LG, KERNEL_RG)?;
+                sleep(pause/4);
+            }
+        }
+
+        println!("\n=== MOTOR RUMBLE 0xEB — GAIN sweep (both motors at 50% strength, ~{HOLD_MS}ms each) ===");
+        let mid = speed(50);
+        for gain in [-8i8, -4, -2, 0, 2, 4, 6] {
+            if !running.alive() {
+                break;
+            }
+            println!("  gain={gain:>3} dB  (left={mid} right={mid})");
+            rumble_hold(&mut device, &running, mid, mid, gain, gain)?;
+            sleep(pause/4);
+        }
+    }
+
+    // --- 0x8F PULSE GAIN sweep (Deck): the `0x8F` pulse's `gain` byte is HONORED on the Deck
+    // (ignored on Gordon), so unlike the DUTY sweep (which fakes amplitude via duty cycle and
+    // saturates/inverts) this holds a fixed smooth frequency + 50% duty and varies GAIN as the
+    // amplitude lever. ONE long train (no re-fire) so the actuator rings up and plays continuously
+    // — testing whether Deck rumble can be *constant* (like 0x8F) yet *monotonic in strength*
+    // (like gain). Uses `Device::haptic_pulse` (Motor::Left = wire 1, Motor::Right = wire 0). ---
+    if run_pgain {
+        let hz = 150u32; // smooth mid rumble
+        let period = (1_000_000 / hz) as u16;
+        let half = period / 2; // 50% duty
+        let count = ((hz * HOLD_MS as u32) / 1000).max(1) as u16; // one ~HOLD_MS train
+        println!("\n=== 0x8F PULSE GAIN sweep (Deck): {hz}Hz 50% duty, one ~{HOLD_MS}ms train, vary gain (dB) ===");
+        for gain in [-24i8, -20, -16, -12, -8, -4, -2, 0, 2, 4, 6] {
+            if !running.alive() {
+                break;
+            }
+            println!("  gain={gain:>3} dB  (dur={half}µs interval={half}µs count={count})");
+            keep_lizard_off(&mut device);
+            let p = HapticPulse { duration: half, interval: half, count, gain };
+            device.haptic_pulse(Motor::Left, p.clone())?;
+            device.haptic_pulse(Motor::Right, p)?;
+            sleep(Duration::from_millis(HOLD_MS)); // let the single train play out
+            sleep(pause);
+        }
+    }
+
+    // --- LONG-TRAIN STOP probe: a long train is smoother (no re-fire seam), but a fixed short
+    // train self-terminates whereas a long one keeps playing — so to *use* long trains the engine
+    // must be able to STOP one early (when the game drops rumble). Gordon is latest-wins per
+    // actuator, so a new pulse REPLACES the running train. Fire an ~8s train on both pads, let it
+    // run ~2s, then try a stop and listen for silence. Two candidates, each on a fresh train:
+    //   A) count=1 (dur=1) — replace with a single ~imperceptible tick that ends → should stop.
+    //   B) count=0 — replace with a zero-pulse train (may be a no-op the firmware ignores).
+    // Tell me which window actually went silent. ---
+    if run_longstop {
+        let hz = 150u32;
+        let period = (1_000_000 / hz) as u16;
+        let half = period / 2;
+        let long = ((hz * 8_000) / 1000) as u16; // ~8s train — far longer than the observe window
+        let fire_long = |dev: &mut Device| -> steam_hid::Result<()> {
+            let p = HapticPulse { duration: half, interval: half, count: long, gain: 0 };
+            dev.haptic_pulse(Motor::Left, p.clone())?;
+            dev.haptic_pulse(Motor::Right, p)
+        };
+        let stop_with = |dev: &mut Device, count: u16| -> steam_hid::Result<()> {
+            // dur/interval=1 so if `count`>0 the replacing pulse is a single ~imperceptible tick.
+            let p = HapticPulse { duration: 1, interval: 1, count, gain: 0 };
+            dev.haptic_pulse(Motor::Left, p.clone())?;
+            dev.haptic_pulse(Motor::Right, p)
+        };
+
+        println!("\n=== LONG-TRAIN STOP probe (both pads, ~8s train, stop after ~2s) ===");
+        for (label, stop_count) in [("A) count=1", 1u16), ("B) count=0", 0u16)] {
+            if !running.alive() {
+                break;
+            }
+            println!("  {label}: rumbling ~2s…");
+            keep_lizard_off(&mut device);
+            fire_long(&mut device)?;
+            sleep(Duration::from_millis(2000));
+            if !running.alive() {
+                break;
+            }
+            stop_with(&mut device, stop_count)?;
+            println!("    STOP sent — SILENT now? (listening ~3s; if you still feel it, this stop failed)");
+            sleep(Duration::from_millis(3000));
+        }
+    }
+
+    // --- 0xEB INTENSITY sweep (Deck): the `0xeb` `intensity` word — a FINER amplitude lever than
+    // the coarse dB `gain`, but **inverted** (0 = strongest, larger = weaker, ~unfelt near u16::MAX;
+    // usable ~0..16k). Fire a fixed 50% strength + 6dB gain and sweep intensity so you can feel the
+    // amplitude fall off. One burst per value, no stop — the ~0.5s burst self-expires. ---
+    if run_eint {
+        let strength = u16::MAX / 2; // ~50%
+        let gain = 6i8;
+        println!("\n=== 0xEB INTENSITY sweep (Deck): left=right={strength}, gain={gain}dB, sweep intensity (0=strongest) ===");
+        for intensity in [0u16, 1, 16, 256, 1024, 2048, 4096, 8192, 16384, 32768, 65535] {
+            if !running.alive() {
+                break;
+            }
+            println!("  intensity={intensity:>5}  (burst self-expires ~0.5s)");
+            keep_lizard_off(&mut device);
+            device.haptic_rumble(intensity, strength, strength, gain, gain)?;
+            sleep(Duration::from_millis(1500));
+        }
+        let _ = device.haptic_rumble(0, 0, 0, gain, gain); // ensure silence at the end
+    }
+
     println!(
-        "\nDone. DUTY sweep fired the engine's way (short train re-fired every {REFIRE_MS}ms, both \
-         pads) — note where strength stopped changing. COMMAND clicks are the singular per-action \
-         pulse; tell me how Low/Med/High felt (per side) and I'll tune the strengths."
+        "\nDone. DUTY sweep fires the engine's way (short train re-fired every {REFIRE_MS}ms) — note \
+         where strength stops changing. COMMAND clicks are the singular per-action pulse. MOTOR \
+         RUMBLE (--rumble) is the Deck 0xEB path (pulsating). PULSE GAIN (--pgain) is 0x8F with \
+         amplitude via the Deck-honored gain byte. LONG-TRAIN STOP (--longstop) checks which stop \
+         silences a long train. INTENSITY (--eint) is the 0xEB fine amplitude lever (inverted, \
+         0=strongest) — a finer control than the coarse dB gain."
     );
     Ok(())
 }

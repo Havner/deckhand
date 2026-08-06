@@ -9,7 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use config::Side;
-use steam_hid::{Device, DeviceId, Manager, Motor, Report, Rumble as HidRumble};
+use steam_hid::{Device, DeviceId, DeviceKind, HapticPulse, Manager, Motor, Report};
 
 use crate::Result;
 use crate::event::{EngineEvent, EventSink};
@@ -82,6 +82,10 @@ fn read_session(
     events: &EventSink,
 ) -> Result<SessionEnd> {
     apply_device_cfg(device, cfg);
+    // Haptic strategy is per-device: the Deck (Neptune) has real motors driven by a
+    // firmware-sustained continuous rumble (`0xeb`), so we send only on change; Gordon has
+    // only trackpad actuators, faked as a re-fired pulse train (`0x8f`).
+    let neptune = matches!(device.info().kind, DeviceKind::Neptune);
     let mut last_keepalive = Instant::now();
     let mut last_haptic = Instant::now();
     let mut level = RumbleCmd::default();
@@ -120,27 +124,49 @@ fn read_session(
             last_keepalive = Instant::now();
         }
 
-        // Latest rumble level wins; re-issue the pulse train just before it ends so a sustained
-        // rumble is one contiguous drive (the actuator rings up), not a mid-train restart. Zero
-        // level → nothing (the train plays out and stops).
+        // Latest rumble level wins.
+        let mut changed = false;
         while let Ok(r) = link.rumble_rx().try_recv() {
             level = r;
+            changed = true;
         }
-        if (level.strong > 0 || level.weak > 0)
-            && last_haptic.elapsed() >= Duration::from_millis(RUMBLE_REFIRE_MS)
-        {
-            // Non-fatal: a transient write hiccup must not kill the reader (a real disconnect is
-            // caught by the read above → TransportGone). Same for clicks below.
-            if let Err(e) = apply_haptics(device, &level) {
-                log::warn!("rumble write failed: {e}");
+        // Non-fatal on write error: a transient hiccup must not kill the reader (a real disconnect
+        // is caught by the read above → TransportGone). Same for clicks below.
+        if neptune {
+            // Deck: each `0xeb` command is a **fixed short burst** (the packet has no length field),
+            // so a sustained rumble must be **re-issued** every ~`NEPTUNE_REFIRE_MS` — send on change
+            // and on the re-fire tick while non-zero; the change to `(0,0)` stops it. `strong`→left
+            // motor, `weak`→right (kernel FF mapping, PLAN §1.9).
+            let refire = (level.strong > 0 || level.weak > 0)
+                && last_haptic.elapsed() >= Duration::from_millis(NEPTUNE_REFIRE_MS);
+            if changed || refire {
+                if let Err(e) =
+                    // intensity 0 = strongest (finer amplitude lever, unused for now — PLAN §1.9).
+                    device.haptic_rumble(0, level.strong, level.weak, NEPTUNE_L_GAIN, NEPTUNE_R_GAIN)
+                {
+                    log::warn!("rumble write failed: {e}");
+                }
+                last_haptic = Instant::now();
             }
-            last_haptic = Instant::now();
+        } else {
+            // Gordon: re-issue the pulse train just before it ends so a sustained rumble is one
+            // contiguous drive (the actuator rings up), not a mid-train restart. Zero level →
+            // nothing (the train plays out and stops).
+            if (level.strong > 0 || level.weak > 0)
+                && last_haptic.elapsed() >= Duration::from_millis(RUMBLE_REFIRE_MS)
+            {
+                if let Err(e) = apply_haptics(device, &level) {
+                    log::warn!("rumble write failed: {e}");
+                }
+                last_haptic = Instant::now();
+            }
         }
 
         // One-shot command-haptic clicks fire immediately (no arbitration — a click may briefly
         // interrupt the rumble train on its pad, which the re-fire above resumes).
+        let click_gain = if neptune { NEPTUNE_CLICK_GAIN } else { GORDON_CLICK_GAIN };
         while let Ok(click) = link.click_rx().try_recv() {
-            if let Err(e) = fire_click(device, &click) {
+            if let Err(e) = fire_click(device, &click, click_gain) {
                 log::warn!("click write failed: {e}");
             }
         }
@@ -190,16 +216,27 @@ fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) {
 }
 
 /// Route a rumble command to Gordon's trackpad actuators as pulse-trains (strong→left, weak→right;
-/// PLAN §1.9). Re-fired by the reader while the level stays non-zero.
+/// PLAN §1.9). Re-fired by the reader while the level stays non-zero. (Gordon only; the Deck uses
+/// [`Device::haptic_rumble`] directly — see `read_session`.)
 fn apply_haptics(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
     if cmd.strong > 0 {
-        device.rumble(Motor::Left, train(cmd.strong, cmd.hz))?;
+        device.haptic_pulse(Motor::Left, train(cmd.strong, cmd.hz))?;
     }
     if cmd.weak > 0 {
-        device.rumble(Motor::Right, train(cmd.weak, cmd.hz))?;
+        device.haptic_pulse(Motor::Right, train(cmd.weak, cmd.hz))?;
     }
     Ok(())
 }
+
+/// Deck motor gains (dB) for `haptic_rumble` — the kernel drives `FF_RUMBLE` with left = +2 dB,
+/// right = 0 dB (the two motors aren't matched; PLAN §1.9). HW-tunable starting point.
+const NEPTUNE_L_GAIN: i8 = 2;
+const NEPTUNE_R_GAIN: i8 = 2;
+
+/// How often the reader re-issues the Deck's `0xeb` rumble while non-zero. Each command is a fixed
+/// short burst (no length field), so this must be **shorter than that burst** to sound continuous.
+/// **Starting point — HW-tune with fftest** (the burst is ~0.3–0.5 s, so 0.5 s may be a hair long).
+const NEPTUNE_REFIRE_MS: u64 = 500;
 
 /// The duty cycle full drive maps to. Gordon's pad actuator saturates above ~25% duty
 /// (HW-tested: the useful strength band is ~1–25%, above that feels identical), so `drive`
@@ -221,7 +258,7 @@ const RUMBLE_REFIRE_MS: u64 = 220;
 /// only amplitude lever — `gain` is ignored on Gordon). Maps full drive onto the actuator's
 /// useful duty band ([`RUMBLE_MAX_DUTY`]) at µs resolution, so even a fraction-of-a-percent
 /// effective strength produces a distinct (small) pulse.
-fn train(drive: u16, hz: u16) -> HidRumble {
+fn train(drive: u16, hz: u16) -> HapticPulse {
     let hz = hz.clamp(16, 1000); // period must fit u16 (hz ≥ 16); Gordon's usable range
     let period = 1_000_000u32 / hz as u32; // µs
     let full = drive as f32 / u16::MAX as f32;
@@ -230,21 +267,28 @@ fn train(drive: u16, hz: u16) -> HidRumble {
     let duty = (full * RUMBLE_MAX_DUTY * period as f32) as u32;
     let duty = duty.clamp(1, period - 1);
     let count = ((hz as u32 * RUMBLE_TRAIN_MS) / 1000).max(1) as u16;
-    HidRumble { duration: duty as u16, interval: (period - duty) as u16, count, gain: 0 }
+    HapticPulse { duration: duty as u16, interval: (period - duty) as u16, count, gain: 0 }
 }
 
 /// Trailing off-phase of the single click pulse (irrelevant to the felt tick at `count=1`).
 const CLICK_INTERVAL_US: u16 = 1000;
 
-/// Fire one command-haptic click on its pad (`Side::Left`→left actuator, `Side::Right`→right).
-fn fire_click(device: &mut Device, click: &Click) -> Result<()> {
+/// Command-haptic click gain (dB) for the `0x8f` pulse, per controller. Gordon **ignores** `gain`
+/// (kept 0 — it's a no-op there); the Deck **honors** it, so clicks use +6 dB (the strongest,
+/// HW-tested as acceptable). Same packet/code — only the gain differs.
+const GORDON_CLICK_GAIN: i8 = 0;
+const NEPTUNE_CLICK_GAIN: i8 = 6;
+
+/// Fire one command-haptic click on its pad (`Side::Left`→left actuator, `Side::Right`→right) at the
+/// device's click `gain`.
+fn fire_click(device: &mut Device, click: &Click, gain: i8) -> Result<()> {
     let motor = match click.side {
         Side::Left => Motor::Left,
         Side::Right => Motor::Right,
     };
-    device.rumble(
+    device.haptic_pulse(
         motor,
-        HidRumble { duration: click.duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 },
+        HapticPulse { duration: click.duration, interval: CLICK_INTERVAL_US, count: 1, gain },
     )?;
     Ok(())
 }
@@ -255,7 +299,7 @@ mod tests {
 
     #[test]
     fn train_maps_full_drive_to_the_max_duty_band() {
-        let duty_frac = |t: HidRumble| {
+        let duty_frac = |t: HapticPulse| {
             let period = t.duration as f32 + t.interval as f32;
             t.duration as f32 / period
         };

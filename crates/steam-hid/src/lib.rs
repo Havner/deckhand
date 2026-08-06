@@ -29,7 +29,7 @@ mod state;
 mod value;
 
 pub use buttons::{Axis, Button, Buttons, GordonButtons, NeptuneButtons};
-pub use command::{ImuMode, Motor, Rumble};
+pub use command::{HapticPulse, ImuMode, Motor};
 pub use protocol::{ACCEL_RES_PER_G, GYRO_RES_PER_DPS};
 pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, Manager, Transport};
 pub use error::{Error, Result};

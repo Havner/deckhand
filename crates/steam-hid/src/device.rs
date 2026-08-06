@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use hidapi::HidApi;
 
 use crate::backend::{HidapiDevice, RawHid};
-use crate::command::{ImuMode, Motor, Rumble};
+use crate::command::{HapticPulse, ImuMode, Motor};
 use crate::error::{Error, Result};
 use crate::event::Events;
 use crate::protocol::{self, cmd, setting, trackpad_mode};
@@ -376,12 +376,13 @@ impl Device {
         self.set_settings(&[(setting::SLEEP_INACTIVITY_TIMEOUT, secs)])
     }
 
-    /// Trigger a trackpad haptic pulse (`0x8f`), kernel 8-byte form.
+    /// Trigger a trackpad haptic **pulse** (`0x8f`), kernel 8-byte form.
     ///
     /// **Verified on Gordon** (PLAN §1.9): `Motor::Right`→wire pad 0, `Motor::Left`→wire
     /// pad 1 (the kernel's legacy left/right swap). `params.gain` is honored on the Deck
-    /// but ignored on Gordon. (`0xeb` rumble / `0xea` haptic2 are Deck-only.)
-    pub fn rumble(&mut self, motor: Motor, params: Rumble) -> Result<()> {
+    /// but ignored on Gordon. This drives the *trackpad* actuator (Gordon's only haptic;
+    /// works on the Deck too). For the Deck's native continuous rumble use [`Self::haptic_rumble`].
+    pub fn haptic_pulse(&mut self, motor: Motor, params: HapticPulse) -> Result<()> {
         let position: u8 = match motor {
             Motor::Right => 0,
             Motor::Left => 1,
@@ -392,6 +393,39 @@ impl Device {
         self.feature(
             cmd::TRIGGER_HAPTIC_PULSE,
             &[position, d0, d1, i0, i1, c0, c1, params.gain as u8],
+        )
+    }
+
+    /// Drive the Deck's dual haptic motors — **rumble** (`0xeb` `TRIGGER_RUMBLE_CMD`), kernel
+    /// 9-byte form.
+    ///
+    /// The Deck's native rumble, what the Linux `hid-steam` driver wires `FF_RUMBLE` to. Each
+    /// command plays a **fixed short burst** (~0.5 s, HW-measured — the packet has no length field),
+    /// so a sustained rumble must be **re-issued** periodically; `(0, 0)` stops it. Character is
+    /// **pulsating**: `left`/`right` set the **pulse rate** (higher = faster; *not* a rumble
+    /// frequency), while amplitude has two levers — `left_gain`/`right_gain` (dB, coarse) and
+    /// **`intensity`** (a finer amplitude control gain lacks, but **inverted**: `0` = strongest,
+    /// larger = weaker, ~unfelt near `u16::MAX`; usable ~`0..16k`). We currently pass `intensity = 0`
+    /// (strongest) everywhere — it's plumbed but not yet used as a mapping lever.
+    ///
+    /// **Deck-only:** Gordon has no motors, so `0xeb` no-ops there — use [`Self::haptic_pulse`] for
+    /// Gordon. (`left` = strong/large motor, `right` = weak/small, matching the kernel's
+    /// `rumble_left`/`rumble_right` ← FF strong/weak.)
+    pub fn haptic_rumble(
+        &mut self,
+        intensity: u16,
+        left: u16,
+        right: u16,
+        left_gain: i8,
+        right_gain: i8,
+    ) -> Result<()> {
+        let [in0, in1] = intensity.to_le_bytes();
+        let [l0, l1] = left.to_le_bytes();
+        let [r0, r1] = right.to_le_bytes();
+        // Leading 0 = report[2] (unused/reserved; the kernel leaves it zero).
+        self.feature(
+            cmd::TRIGGER_RUMBLE_CMD,
+            &[0, in0, in1, l0, l1, r0, r1, left_gain as u8, right_gain as u8],
         )
     }
 
