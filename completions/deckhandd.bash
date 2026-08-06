@@ -55,6 +55,13 @@ _deckhand_ron_files() {
     compopt -o filenames 2>/dev/null
 }
 
+# Complete a control-socket path. On Unix it is a filesystem path (a Windows pipe name is free-form);
+# offering files + directories is the useful default either way.
+_deckhand_socket() {
+    COMPREPLY=( $(compgen -f -- "$cur") $(compgen -d -- "$cur") )
+    compopt -o filenames 2>/dev/null
+}
+
 # Complete an input spec (keywords + common device ids), colons handled.
 _deckhand_input() {
     COMPREPLY=( $(compgen -W "$_deckhand_input_specs" -- "$cur") )
@@ -68,7 +75,7 @@ _deckhandd() {
     _deckhand_get_words
 
     local opts="-m --main -f --fallback -g --globals -i --input -o --output \
--s --start -v --verbose -h --help -V --version"
+-k --socket -s --start -v --verbose -h --help -V --version"
 
     # Value completion for the option that takes one.
     case $prev in
@@ -84,6 +91,10 @@ _deckhandd() {
             COMPREPLY=( $(compgen -W "$_deckhand_output_specs" -- "$cur") )
             return
             ;;
+        -k|--socket)
+            _deckhand_socket
+            return
+            ;;
     esac
 
     # Otherwise: complete options (this tool has no subcommands or positionals).
@@ -96,13 +107,23 @@ _deckhandctl() {
     local cur prev words cword cmd i
     _deckhand_get_words
 
+    # Value for the global --socket option (it may appear before or after the subcommand).
+    case $prev in
+        -k|--socket)
+            _deckhand_socket
+            return
+            ;;
+    esac
+
     local cmds="status list-devices input output main fallback globals \
 start stop shutdown monitor help"
 
-    # Find the subcommand (first non-option word after argv[0]).
+    # Find the subcommand (first non-option word after argv[0]), skipping --socket's value so it
+    # isn't mistaken for the subcommand.
     cmd=""
     for (( i=1; i < cword; i++ )); do
         case ${words[i]} in
+            -k|--socket) (( i++ )) ;;
             -*) ;;
             *) cmd=${words[i]}; break ;;
         esac
@@ -110,7 +131,7 @@ start stop shutdown monitor help"
 
     # No subcommand yet → complete the subcommand (or top-level flags).
     if [[ -z $cmd ]]; then
-        COMPREPLY=( $(compgen -W "$cmds -h --help -V --version" -- "$cur") )
+        COMPREPLY=( $(compgen -W "$cmds -k --socket -h --help -V --version" -- "$cur") )
         return
     fi
 
