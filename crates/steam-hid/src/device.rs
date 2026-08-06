@@ -331,8 +331,12 @@ impl Device {
     /// Enable ("lizard") or disable raw mode.
     ///
     /// Lizard-off clears digital mappings and sets both trackpads to `NONE`
-    /// (raw). TODO(PLAN §1.4): the Deck also needs click-pressure + watchdog
-    /// writes and the ~1 s keep-alive thread — added with the Deck path.
+    /// (raw). The Deck (Neptune) reverts to lizard ~10 s after lizard-off unless
+    /// it is re-asserted, so a long-lived consumer must call this periodically —
+    /// the engine reader does (~2 s, Neptune-gated; HW-verified holding a real
+    /// Deck alive across a multi-minute session). steam-hid spawns NO keep-alive
+    /// thread by design: `Device` is the single writer (Send, not Sync), so the
+    /// cadence lives in the owner's read loop, alongside its other device writes.
     pub fn set_lizard_mode(&mut self, on: bool) -> Result<()> {
         if on {
             self.feature(cmd::SET_DEFAULT_DIGITAL_MAPPINGS, &[])?;
@@ -435,7 +439,9 @@ impl Device {
 impl Drop for Device {
     fn drop(&mut self) {
         // Best-effort: restore lizard mode so the controller isn't left dead
-        // after we exit (PLAN §1.6). TODO: join the Deck keep-alive thread.
+        // after we exit (PLAN §1.6). No keep-alive thread to join — the owning
+        // consumer (the engine reader) drives the Deck keep-alive from its read
+        // loop, so it stops the instant this Device is dropped.
         let _ = self.set_lizard_mode(true);
     }
 }
