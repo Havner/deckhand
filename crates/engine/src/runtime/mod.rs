@@ -129,15 +129,15 @@ impl Runtime {
         Runtime { running, detached, control_tx, reader: Some(reader), mapper: Some(mapper) }
     }
 
-    /// **Client/forwarder** role (output=Network): reader only — it reads the device and forwards
-    /// frames to the remote server at `addr`; there is no local mapper or `Sink`. The link's config
-    /// uplink becomes the runtime's `control_tx`, so the handle's `apply`/`set_globals` travel to the
+    /// **Client** role (output=Network): reader only — it reads the device and forwards frames to
+    /// the remote server at `addr`; there is no local mapper or `Sink`. The link's config uplink
+    /// becomes the runtime's `control_tx`, so the handle's `apply`/`set_globals` travel to the
     /// server. Errors if the dial fails.
     pub fn start_client(
+        addr: SocketAddr,
         device: Device,
         pinned_id: DeviceId,
         cfg: DeviceCfg,
-        addr: SocketAddr,
         events: EventSink,
     ) -> Result<Runtime> {
         let running = Arc::new(AtomicBool::new(true));
@@ -154,11 +154,11 @@ impl Runtime {
     /// `control_tx` merges the server's *own* handle config with the client's wire config into
     /// `control_rx`. Errors if the bind fails.
     pub fn start_server(
+        addr: SocketAddr,
         sink: Sink,
         main: Option<Program>,
         fallback: Option<Program>,
         globals: GlobalConfig,
-        addr: SocketAddr,
         events: EventSink,
     ) -> Result<Runtime> {
         let running = Arc::new(AtomicBool::new(true));

@@ -285,7 +285,7 @@ impl Engine {
         }
         match (self.input.clone(), self.output.clone()) {
             (Input::Local(_), Output::Local) => self.start_local(),
-            (Input::Local(_), Output::Network(addr)) => self.start_forwarder(addr),
+            (Input::Local(_), Output::Network(addr)) => self.start_client(addr),
             (Input::Network(addr), Output::Local) => self.start_server(addr),
             (Input::Network(_), Output::Network(_)) => {
                 Err(Error::NotReady("input and output cannot both be network"))
@@ -298,28 +298,10 @@ impl Engine {
     fn start_local(&mut self) -> Result<()> {
         let device = self.open_device()?;
         let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
-        // Pin the resolved device's stable id so the reader reacquires *this* device if its
-        // transport drops (D6), regardless of how the selection policy chose it.
-        let pinned_id = device.info().id();
-        {
-            let info = device.info();
-            let fb = self
-                .fallback
-                .as_ref()
-                .map(|f| format!(", fallback '{}'", f.meta.name))
-                .unwrap_or_default();
-            log::info!(
-                "starting: {:?} via {:?}, main '{}'{fb}",
-                info.kind,
-                info.transport,
-                self.main.as_ref().map(|m| m.meta.name.as_str()).unwrap_or("(none)"),
-            );
-        }
-        // Remember the concrete bound device so `status()` can report it (the id itself moves into
-        // the reader below), and announce the bind. `BindingAcquired` fires on *every* bind — here
-        // for the initial one and in the reader for a reacquire (D6) — so a subscriber never has to
-        // special-case the first; `bound` seeds the same fact for a client that connects afterwards.
+        let info = device.info();
+        let pinned_id = info.id();
         self.bound = Some(pinned_id.clone());
+        log::info!("starting: {:?} via {:?}, {}", info.kind, info.transport, self.profile_names());
         let sink = Sink::new()?;
         self.runtime = Some(Runtime::start_local(
             device,
@@ -336,20 +318,23 @@ impl Engine {
         Ok(())
     }
 
-    /// `output=Network` (client/forwarder): open the device and forward its frames to the server at
-    /// `addr`. **No main program is required** — the server maps, with its own config or the config
-    /// we push here on connect (config is ordinary `Apply`/`SetGlobals`, PLAN §6.1).
-    fn start_forwarder(&mut self, addr: SocketAddr) -> Result<()> {
+    /// `output=Network` (client): open the device and forward its frames to the server at `addr`.
+    /// **No main program is required** — the server maps, with its own config or the config we push
+    /// here on connect (config is ordinary `Apply`/`SetGlobals`, PLAN §6.1).
+    fn start_client(&mut self, addr: SocketAddr) -> Result<()> {
         let device = self.open_device()?;
         let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
-        let pinned_id = device.info().id();
-        {
-            let info = device.info();
-            log::info!("starting (forwarder): {:?} via {:?} → {addr}", info.kind, info.transport);
-        }
-        let rt = Runtime::start_client(device, pinned_id.clone(), cfg, addr, self.events.clone())?;
+        let info = device.info();
+        let pinned_id = info.id();
         self.bound = Some(pinned_id.clone());
-        self.runtime = Some(rt);
+        log::info!("starting (client): {:?} via {:?} → {addr}", info.kind, info.transport);
+        self.runtime = Some(Runtime::start_client(
+            addr,
+            device,
+            pinned_id.clone(),
+            cfg,
+            self.events.clone()
+        )?);
         self.push_staged_config(); // seed the server with our staged programs + globals
         self.events.emit(EngineEvent::BindingAcquired(pinned_id));
         self.events.emit(EngineEvent::State(Status::Running));
@@ -361,23 +346,25 @@ impl Engine {
     /// or one the client pushes over the wire).
     fn start_server(&mut self, addr: SocketAddr) -> Result<()> {
         let sink = Sink::new()?;
-        log::info!(
-            "starting (server): binding {addr}, main '{}'",
-            self.main.as_ref().map(|m| m.meta.name.as_str()).unwrap_or("(none)"),
-        );
-        let rt = Runtime::start_server(
+        log::info!("starting (server): binding {addr}, {}", self.profile_names());
+        self.runtime = Some(Runtime::start_server(
+            addr,
             sink,
             self.main.clone(),
             self.fallback.clone(),
             self.globals.clone(),
-            addr,
             self.events.clone(),
-        )?;
-        self.runtime = Some(rt);
+        )?);
         // No local device → no `bound` and no `BindingAcquired`. No `State(Running)` either: with no
         // client yet the mapper immediately emits `WaitingForDevice`, then `Running` when a client
         // connects — so emitting `Running` here would just be a spurious flicker.
         Ok(())
+    }
+
+    fn profile_names(&self) -> String {
+        format!("main '{}', fallback '{}'",
+                self.main.as_ref().map(|m| m.meta.name.as_str()).unwrap_or("(none)"),
+                self.fallback.as_ref().map(|f| f.meta.name.as_str()).unwrap_or("(none)"))
     }
 
     /// Ship the currently-staged programs + globals to a running (network) runtime as ordinary
