@@ -51,10 +51,14 @@ struct ServerShared {
 
 /// The mapper-side end of a network link. Owns the bridge threads; exposes the same channel surface
 /// as the loopback `LinkServer` session.
-pub(super) struct NetServer {
+pub(crate) struct NetServer {
     addr: SocketAddr,
     frame_rx: Receiver<Report>,
     control_rx: Receiver<Control>,
+    /// A clone of the control sender the TCP thread feeds — exposed so the server's *own* handle can
+    /// merge local `apply`/`set_globals` into the same stream as the client's wire config (the
+    /// two-feeder `control_rx`, PLAN §6.1).
+    control_tx: Sender<Control>,
     rumble_tx: Sender<RumbleCmd>,
     click_tx: Sender<Click>,
     shared: Arc<ServerShared>,
@@ -83,8 +87,8 @@ impl NetServer {
 
         let mut threads = Vec::new();
         threads.push(spawn("net-srv-tcp", {
-            let (shared, frame_tx, control_tx) = (shared.clone(), frame_tx.clone(), control_tx);
-            move || server_tcp(listener, &shared, &frame_tx, &control_tx)
+            let (shared, frame_tx, ctl) = (shared.clone(), frame_tx.clone(), control_tx.clone());
+            move || server_tcp(listener, &shared, &frame_tx, &ctl)
         }));
         threads.push(spawn("net-srv-udp", {
             let (shared, udp, frame_tx) = (shared.clone(), udp.clone(), frame_tx);
@@ -95,7 +99,16 @@ impl NetServer {
             move || server_backchannel(&udp, &shared, &rumble_rx, &click_rx)
         }));
 
-        Ok(NetServer { addr: bound, frame_rx, control_rx, rumble_tx, click_tx, shared, threads })
+        Ok(NetServer {
+            addr: bound,
+            frame_rx,
+            control_rx,
+            control_tx,
+            rumble_tx,
+            click_tx,
+            shared,
+            threads,
+        })
     }
 
     pub(super) fn addr(&self) -> SocketAddr {
@@ -106,6 +119,9 @@ impl NetServer {
     }
     pub(super) fn control_rx(&self) -> &Receiver<Control> {
         &self.control_rx
+    }
+    pub(super) fn control_tx(&self) -> &Sender<Control> {
+        &self.control_tx
     }
     pub(super) fn rumble_tx(&self) -> &Sender<RumbleCmd> {
         &self.rumble_tx
@@ -250,7 +266,7 @@ struct ClientShared {
 
 /// The device-side end of a network link. Owns the bridge threads; exposes the same channel surface
 /// as the loopback `LinkClient` session, plus a `control_tx` for the handle's config uplink.
-pub(super) struct NetClient {
+pub(crate) struct NetClient {
     frame_tx: Sender<Report>,
     control_tx: Sender<Control>,
     rumble_rx: Receiver<RumbleCmd>,
