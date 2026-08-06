@@ -75,7 +75,7 @@ _deckhandd() {
     _deckhand_get_words
 
     local opts="-m --main -f --fallback -g --globals -i --input -o --output \
--k --socket -s --start -v --verbose -h --help -V --version"
+-k --socket -p --prevent-sleep -s --start -v --verbose -h --help -V --version"
 
     # Value completion for the option that takes one.
     case $prev in

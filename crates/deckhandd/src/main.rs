@@ -9,6 +9,8 @@
 //! Profiles are never defaulted, so `--start` with no `-m` logs a `NotReady` and keeps serving.
 
 mod daemon;
+#[cfg(target_os = "linux")]
+mod inhibit;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -47,6 +49,11 @@ struct Args {
     /// Acquire hardware and start immediately (defaults a missing -i/-o to auto/local).
     #[arg(short, long)]
     start: bool,
+    /// Keep the session awake while running (Linux only). Useful when forwarding a controller over
+    /// the network: the compositor sees no local input and would otherwise blank/suspend. Holds a
+    /// freedesktop ScreenSaver inhibitor (unprivileged, session bus).
+    #[arg(short = 'p', long)]
+    prevent_sleep: bool,
     /// Control socket path (Unix) / pipe name (Windows). Overrides $DECKHAND_SOCKET and the default.
     #[arg(short = 'k', long, value_name = "PATH")]
     socket: Option<String>,
@@ -70,6 +77,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(args.log_level()))
         .init();
+
+    // Hold a sleep/idle inhibitor for the daemon's lifetime (best-effort). Kept in a binding so it
+    // lives across `serve` and releases on a clean exit.
+    #[cfg(target_os = "linux")]
+    let _inhibitor = args.prevent_sleep.then(inhibit::SleepInhibitor::acquire).flatten();
+    #[cfg(not(target_os = "linux"))]
+    if args.prevent_sleep {
+        log::warn!("--prevent-sleep is only supported on Linux — ignored");
+    }
 
     let mut daemon = Daemon::new();
 
