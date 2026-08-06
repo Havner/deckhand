@@ -27,4 +27,8 @@ pub enum Error {
     /// matching input device found).
     #[error("engine not ready: {0}")]
     NotReady(&'static str),
+
+    /// A §6 network transport failure — binding the server or dialing the client (socket/IO).
+    #[error("network: {0}")]
+    Network(#[from] std::io::Error),
 }

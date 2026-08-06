@@ -15,6 +15,7 @@ mod link;
 mod mapping;
 mod reader;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
@@ -30,7 +31,7 @@ use crate::Result;
 use crate::event::EventSink;
 use crate::program::{Program, Role};
 
-use link::LocalLink;
+use link::{LinkClient, LinkServer, LocalLink};
 use mapping::run_mapper;
 use reader::run_reader;
 
@@ -104,10 +105,11 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
-    /// Acquire hardware and spawn the reader + mapping threads. `device` and `sink` are already
-    /// opened/created by the caller so any HW error surfaces before the threads start.
+    /// **Local** role (input=Local, output=Local): reader + mapper co-located, wired by the loopback
+    /// link. `device` and `sink` are already opened/created by the caller so any HW error surfaces
+    /// before the threads start.
     #[allow(clippy::too_many_arguments)]
-    pub fn start(
+    pub fn start_local(
         device: Device,
         pinned_id: DeviceId,
         cfg: DeviceCfg,
@@ -118,32 +120,53 @@ impl Runtime {
         events: EventSink,
     ) -> Runtime {
         let running = Arc::new(AtomicBool::new(true));
-        // Wire the reader↔mapper seam behind the link (loopback for now). The reader gets the
-        // client end, the mapper the server end; the handle keeps `control_tx`, and `detached` is
-        // the shared `WaitingForDevice` flag (PLAN §6.1).
+        // The reader gets the client end, the mapper the server end; the handle keeps `control_tx`,
+        // and `detached` is the shared `WaitingForDevice` flag (PLAN §6.1).
         let LocalLink { client, server, control_tx, detached } = link::local_link();
-
-        let r_reader = running.clone();
-        let ev_reader = events.clone();
-        let reader = thread::Builder::new()
-            .name("deckhand-reader".into())
-            .spawn(move || {
-                let result = run_reader(device, pinned_id, cfg, client, r_reader, ev_reader);
-                // A reader error would otherwise be invisible until stop() joins it — log it now.
-                if let Err(ref e) = result {
-                    log::error!("reader thread exited with error: {e}");
-                }
-                result
-            })
-            .expect("spawn reader thread");
-
-        let r_mapper = running.clone();
-        let mapper = thread::Builder::new()
-            .name("deckhand-mapper".into())
-            .spawn(move || run_mapper(sink, main, fallback, globals, server, r_mapper, events))
-            .expect("spawn mapper thread");
-
+        let reader = spawn_reader(device, pinned_id, cfg, client, running.clone(), events.clone());
+        let mapper =
+            spawn_mapper(sink, main, fallback, globals, server, running.clone(), events);
         Runtime { running, detached, control_tx, reader: Some(reader), mapper: Some(mapper) }
+    }
+
+    /// **Client/forwarder** role (output=Network): reader only — it reads the device and forwards
+    /// frames to the remote server at `addr`; there is no local mapper or `Sink`. The link's config
+    /// uplink becomes the runtime's `control_tx`, so the handle's `apply`/`set_globals` travel to the
+    /// server. Errors if the dial fails.
+    pub fn start_client(
+        device: Device,
+        pinned_id: DeviceId,
+        cfg: DeviceCfg,
+        addr: SocketAddr,
+        events: EventSink,
+    ) -> Result<Runtime> {
+        let running = Arc::new(AtomicBool::new(true));
+        // The client has no local mapper, so no `WaitingForDevice` of its own (slice 5).
+        let detached = Arc::new(AtomicBool::new(false));
+        let link = LinkClient::connect(addr)?;
+        let control_tx = link.control_tx().cloned().expect("a network client has a control uplink");
+        let reader = spawn_reader(device, pinned_id, cfg, link, running.clone(), events);
+        Ok(Runtime { running, detached, control_tx, reader: Some(reader), mapper: None })
+    }
+
+    /// **Server** role (input=Network): mapper only — it binds `addr`, receives a remote client's
+    /// frames, and maps them to the local `Sink`; there is no local device or reader. The returned
+    /// `control_tx` merges the server's *own* handle config with the client's wire config into
+    /// `control_rx`. Errors if the bind fails.
+    pub fn start_server(
+        sink: Sink,
+        main: Program,
+        fallback: Option<Program>,
+        globals: GlobalConfig,
+        addr: SocketAddr,
+        events: EventSink,
+    ) -> Result<Runtime> {
+        let running = Arc::new(AtomicBool::new(true));
+        // Slice 5 will track link state → `WaitingForDevice`; for now a single connection stays up.
+        let detached = Arc::new(AtomicBool::new(false));
+        let (link, control_tx) = LinkServer::bind(addr)?;
+        let mapper = spawn_mapper(sink, main, fallback, globals, link, running.clone(), events);
+        Ok(Runtime { running, detached, control_tx, reader: None, mapper: Some(mapper) })
     }
 
     /// True when the loop is up but the bound device's transport is gone (`WaitingForDevice`).
@@ -174,4 +197,43 @@ impl Runtime {
         }
         result
     }
+}
+
+/// Spawn the reader thread (device side). Shared by the local + client roles.
+fn spawn_reader(
+    device: Device,
+    pinned_id: DeviceId,
+    cfg: DeviceCfg,
+    link: LinkClient,
+    running: Arc<AtomicBool>,
+    events: EventSink,
+) -> JoinHandle<Result<()>> {
+    thread::Builder::new()
+        .name("deckhand-reader".into())
+        .spawn(move || {
+            let result = run_reader(device, pinned_id, cfg, link, running, events);
+            // A reader error would otherwise be invisible until stop() joins it — log it now.
+            if let Err(ref e) = result {
+                log::error!("reader thread exited with error: {e}");
+            }
+            result
+        })
+        .expect("spawn reader thread")
+}
+
+/// Spawn the mapping thread (mapper side). Shared by the local + server roles.
+#[allow(clippy::too_many_arguments)]
+fn spawn_mapper(
+    sink: Sink,
+    main: Program,
+    fallback: Option<Program>,
+    globals: GlobalConfig,
+    link: LinkServer,
+    running: Arc<AtomicBool>,
+    events: EventSink,
+) -> JoinHandle<Result<()>> {
+    thread::Builder::new()
+        .name("deckhand-mapper".into())
+        .spawn(move || run_mapper(sink, main, fallback, globals, link, running, events))
+        .expect("spawn mapper thread")
 }

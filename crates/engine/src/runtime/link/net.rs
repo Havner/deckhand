@@ -10,12 +10,10 @@
 //!   channels: `frame_tx` (Reports; `State`→UDP, lifecycle→TCP), `control_tx` (config→TCP), and
 //!   `rumble_rx`/`click_rx` (fed by the UDP back-channel).
 //!
-//! Slice 3 is a **single connection** (no reconnect yet — slice 5). Idempotency split per §6.1:
+//! A **single connection** for now (no reconnect yet — slice 5). Idempotency split per §6.1:
 //! `State` snapshots ride UDP (latest-wins, `state.seq` drops stale); lifecycle + config ride TCP.
-//!
-//! NB not yet wired into [`LinkClient`](super::LinkClient)/[`LinkServer`](super::LinkServer) — that
-//! enum unification + handle role-branching is slice 4, so this is standalone + unit-tested for now.
-#![allow(dead_code)]
+//! Wired into [`LinkClient`](super::LinkClient)/[`LinkServer`](super::LinkServer) as the `Network`
+//! variants, which the handle selects via `set_output(Network)` / `set_input(Network)`.
 
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -52,6 +50,9 @@ struct ServerShared {
 /// The mapper-side end of a network link. Owns the bridge threads; exposes the same channel surface
 /// as the loopback `LinkServer` session.
 pub(crate) struct NetServer {
+    /// The actually-bound address (resolves an ephemeral `:0` port). Only the tests read it — a real
+    /// server is given a fixed address — so it's `allow(dead_code)` rather than removed.
+    #[allow(dead_code)]
     addr: SocketAddr,
     frame_rx: Receiver<Report>,
     control_rx: Receiver<Control>,
@@ -111,6 +112,7 @@ impl NetServer {
         })
     }
 
+    #[allow(dead_code)] // read only by tests (ephemeral-port bind); see the `addr` field.
     pub(super) fn addr(&self) -> SocketAddr {
         self.addr
     }

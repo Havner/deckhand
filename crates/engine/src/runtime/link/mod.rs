@@ -117,7 +117,6 @@ pub(crate) struct LocalServer {
 /// loopback or real sockets is chosen at construction (PLAN §6.1).
 pub(crate) enum LinkClient {
     Local(LocalClient),
-    #[allow(dead_code)] // constructed by the handle in slice 4b (set_output=Network).
     Network(net::NetClient),
 }
 
@@ -158,15 +157,13 @@ impl LinkClient {
         }
     }
 
-    /// Dial a remote server (client/forwarder role). Slice 4b wires this to `set_output(Network)`.
-    #[allow(dead_code)]
+    /// Dial a remote server (client/forwarder role) — the handle wires this to `set_output(Network)`.
     pub(crate) fn connect(server: std::net::SocketAddr) -> std::io::Result<LinkClient> {
         Ok(LinkClient::Network(net::NetClient::connect(server)?))
     }
 
     /// The config uplink — the handle routes `apply`/`set_globals` here (Network only). `None` for a
     /// loopback client: its control reaches the co-located mapper via [`LocalLink::control_tx`].
-    #[allow(dead_code)]
     pub(crate) fn control_tx(&self) -> Option<&Sender<Control>> {
         match self {
             LinkClient::Local(_) => None,
@@ -178,7 +175,6 @@ impl LinkClient {
 /// Mapper-side end of the link. The mapper talks only to this.
 pub(crate) enum LinkServer {
     Local(LocalServer),
-    #[allow(dead_code)] // constructed by the handle in slice 4b (set_input=Network).
     Network(NetworkServer),
 }
 
@@ -234,7 +230,6 @@ impl LinkServer {
     /// Bind for a remote client (server role). Returns the server end plus the `control_tx` for the
     /// server's *own* handle (merged with the client's wire config — the two-feeder `control_rx`).
     /// Slice 4b wires this to `set_input(Network)`.
-    #[allow(dead_code)]
     pub(crate) fn bind(
         addr: std::net::SocketAddr,
     ) -> std::io::Result<(LinkServer, Sender<Control>)> {

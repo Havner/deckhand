@@ -14,6 +14,7 @@
 use config::GlobalConfig;
 use steam_hid::{Device, DeviceId, DeviceInfo, Manager, RawReport, Transport};
 use std::fmt;
+use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 use virt_out::Sink;
@@ -23,10 +24,13 @@ use crate::program::{Program, Role};
 use crate::runtime::{Control, DeviceCfg, Runtime};
 use crate::{Error, Result};
 
-/// Where input comes from. `Network` (a bound UDP receiver) is deferred; the seam is kept.
+/// Where input comes from: a local controller, or a bound network endpoint that receives a remote
+/// controller's frames (the server role — PLAN §6).
 #[derive(Debug, Clone)]
 pub enum Input {
     Local(DeviceSelect),
+    /// Bind `host:port` and map frames arriving from a remote client (server/PC role).
+    Network(SocketAddr),
 }
 
 /// How to pick the local controller.
@@ -41,10 +45,13 @@ pub enum DeviceSelect {
     Explicit(DeviceId),
 }
 
-/// Where output goes. `Network` (a UDP sender to a remote sink) is deferred; the seam is kept.
+/// Where output goes: the local virtual devices, or a network endpoint we forward the controller's
+/// frames to (the client/forwarder role — PLAN §6).
 #[derive(Debug, Clone)]
 pub enum Output {
     Local,
+    /// Dial `host:port` and forward this machine's controller frames there (client/Deck role).
+    Network(SocketAddr),
 }
 
 // --- string conversions -------------------------------------------------------------------
@@ -86,6 +93,7 @@ impl fmt::Display for Input {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Input::Local(sel) => write!(f, "{sel}"),
+            Input::Network(addr) => write!(f, "{addr}"),
         }
     }
 }
@@ -93,16 +101,15 @@ impl fmt::Display for Input {
 impl FromStr for Input {
     type Err = String;
 
-    /// A local selection (see [`DeviceSelect`]). A `host:port` shape is recognized but rejected —
-    /// the `Network` input is a stubbed seam (PLAN §6).
+    /// A local selection (see [`DeviceSelect`]) first, else a `host:port` bind address (server role).
     fn from_str(s: &str) -> std::result::Result<Self, String> {
-        match s.parse::<DeviceSelect>() {
-            Ok(sel) => Ok(Input::Local(sel)),
-            Err(_) if s.contains(':') => {
-                Err(format!("network input '{s}' not supported yet (PLAN §6)"))
-            }
-            Err(e) => Err(e),
+        if let Ok(sel) = s.parse::<DeviceSelect>() {
+            return Ok(Input::Local(sel));
         }
+        if let Ok(addr) = s.parse::<SocketAddr>() {
+            return Ok(Input::Network(addr));
+        }
+        Err(format!("unrecognized input '{s}' (want auto|dongle|wired|<id>|host:port)"))
     }
 }
 
@@ -110,6 +117,7 @@ impl fmt::Display for Output {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Output::Local => f.write_str("local"),
+            Output::Network(addr) => write!(f, "{addr}"),
         }
     }
 }
@@ -117,15 +125,14 @@ impl fmt::Display for Output {
 impl FromStr for Output {
     type Err = String;
 
-    /// Only `local` for now. A `host:port` shape is recognized but rejected — the `Network` sender
-    /// is a stubbed seam (PLAN §6).
+    /// `local`, or a `host:port` server address to forward frames to (client role).
     fn from_str(s: &str) -> std::result::Result<Self, String> {
         match s {
             "local" | "l" => Ok(Output::Local),
-            other if other.contains(':') => {
-                Err(format!("network output '{other}' not supported yet (PLAN §6)"))
-            }
-            other => Err(format!("unrecognized output '{other}' (want local|host:port)")),
+            other => other
+                .parse::<SocketAddr>()
+                .map(Output::Network)
+                .map_err(|_| format!("unrecognized output '{other}' (want local|host:port)")),
         }
     }
 }
@@ -268,15 +275,32 @@ impl Engine {
 
     // --- lifecycle ---------------------------------------------------------------------
 
-    /// Acquire hardware and start the mapping loop. Errors if no main program is applied, or
-    /// on any device/sink failure. A no-op if already running.
+    /// Acquire hardware and start the mapping loop, in the role chosen by the staged input/output
+    /// (PLAN §6): `Local`/`Local` maps here; `output=Network` forwards this device's frames to a
+    /// server; `input=Network` maps a remote client's frames to the local sink. A no-op if already
+    /// running.
     pub fn start(&mut self) -> Result<()> {
         if self.runtime.is_some() {
             return Ok(());
         }
+        match (self.input.clone(), self.output.clone()) {
+            (Input::Local(_), Output::Local) => self.start_local(),
+            (Input::Local(_), Output::Network(addr)) => self.start_forwarder(addr),
+            (Input::Network(addr), Output::Local) => self.start_server(addr),
+            (Input::Network(_), Output::Network(_)) => {
+                Err(Error::NotReady("input and output cannot both be network"))
+            }
+        }
+    }
+
+    /// `Local`/`Local`: open the device + create the sink and map here (the original behaviour).
+    fn start_local(&mut self) -> Result<()> {
         let main = self.main.clone().ok_or(Error::NotReady("no main program applied"))?;
-        let Output::Local = self.output; // Network output deferred.
         let device = self.open_device()?;
+        let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
+        // Pin the resolved device's stable id so the reader reacquires *this* device if its
+        // transport drops (D6), regardless of how the selection policy chose it.
+        let pinned_id = device.info().id();
         {
             let info = device.info();
             let fb = self
@@ -291,17 +315,13 @@ impl Engine {
                 main.meta.name,
             );
         }
-        let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
-        // Pin the resolved device's stable id so the reader reacquires *this* device if its
-        // transport drops (D6), regardless of how the selection policy chose it.
-        let pinned_id = device.info().id();
         // Remember the concrete bound device so `status()` can report it (the id itself moves into
         // the reader below), and announce the bind. `BindingAcquired` fires on *every* bind — here
         // for the initial one and in the reader for a reacquire (D6) — so a subscriber never has to
         // special-case the first; `bound` seeds the same fact for a client that connects afterwards.
         self.bound = Some(pinned_id.clone());
         let sink = Sink::new()?;
-        self.runtime = Some(Runtime::start(
+        self.runtime = Some(Runtime::start_local(
             device,
             pinned_id.clone(),
             cfg,
@@ -314,6 +334,64 @@ impl Engine {
         self.events.emit(EngineEvent::BindingAcquired(pinned_id));
         self.events.emit(EngineEvent::State(Status::Running));
         Ok(())
+    }
+
+    /// `output=Network` (client/forwarder): open the device and forward its frames to the server at
+    /// `addr`. **No main program is required** — the server maps, with its own config or the config
+    /// we push here on connect (config is ordinary `Apply`/`SetGlobals`, PLAN §6.1).
+    fn start_forwarder(&mut self, addr: SocketAddr) -> Result<()> {
+        let device = self.open_device()?;
+        let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
+        let pinned_id = device.info().id();
+        {
+            let info = device.info();
+            log::info!("starting (forwarder): {:?} via {:?} → {addr}", info.kind, info.transport);
+        }
+        let rt = Runtime::start_client(device, pinned_id.clone(), cfg, addr, self.events.clone())?;
+        self.bound = Some(pinned_id.clone());
+        self.runtime = Some(rt);
+        self.push_staged_config(); // seed the server with our staged programs + globals
+        self.events.emit(EngineEvent::BindingAcquired(pinned_id));
+        self.events.emit(EngineEvent::State(Status::Running));
+        Ok(())
+    }
+
+    /// `input=Network` (server): bind `addr` and map a remote client's frames to the local sink.
+    /// Requires a main program (its own config); the client may push more over the wire.
+    fn start_server(&mut self, addr: SocketAddr) -> Result<()> {
+        let main = self.main.clone().ok_or(Error::NotReady("no main program applied"))?;
+        let sink = Sink::new()?;
+        log::info!("starting (server): binding {addr}, main '{}'", main.meta.name);
+        let rt = Runtime::start_server(
+            sink,
+            main,
+            self.fallback.clone(),
+            self.globals.clone(),
+            addr,
+            self.events.clone(),
+        )?;
+        self.runtime = Some(rt);
+        // No local device → no `bound` and no `BindingAcquired` (the "binding" is the network link,
+        // surfaced in slice 5).
+        self.events.emit(EngineEvent::State(Status::Running));
+        Ok(())
+    }
+
+    /// Ship the currently-staged programs + globals to a running (network) runtime as ordinary
+    /// control messages — the forwarder uses this to seed the server on connect.
+    fn push_staged_config(&self) {
+        let Some(rt) = &self.runtime else { return };
+        if let Some(m) = &self.main {
+            let _ = rt
+                .control()
+                .send(Control::Apply { program: Box::new(m.clone()), role: Role::Main });
+        }
+        if let Some(f) = &self.fallback {
+            let _ = rt
+                .control()
+                .send(Control::Apply { program: Box::new(f.clone()), role: Role::Fallback });
+        }
+        let _ = rt.control().send(Control::SetGlobals(Box::new(self.globals.clone())));
     }
 
     /// Halt the loop and release hardware (device → lizard restored, virtual pad unplugged).
@@ -376,7 +454,10 @@ impl Engine {
     fn open_device(&mut self) -> Result<Device> {
         self.ensure_manager()?;
         let manager = self.manager.as_mut().unwrap();
-        let Input::Local(select) = &self.input;
+        // Only the local + forwarder roles open a device, and both stage `Input::Local`.
+        let Input::Local(select) = &self.input else {
+            return Err(Error::NotReady("open_device requires a local input"));
+        };
 
         if let DeviceSelect::Explicit(id) = select {
             // Resolve the pinned DeviceId against the *current* enumeration (the OS path may
@@ -446,28 +527,32 @@ mod tests {
     }
 
     #[test]
-    fn input_rejects_network_and_garbage() {
-        assert!("192.168.0.5:9000".parse::<Input>().unwrap_err().contains("network"));
+    fn input_parses_network_and_rejects_garbage() {
+        assert!(matches!("192.168.0.5:9000".parse::<Input>(), Ok(Input::Network(_))));
         assert!("wat".parse::<Input>().unwrap_err().contains("unrecognized"));
     }
 
     #[test]
-    fn output_only_local() {
+    fn output_parses_local_and_network() {
         assert!(matches!("local".parse::<Output>(), Ok(Output::Local)));
-        assert!("host:1".parse::<Output>().unwrap_err().contains("network"));
+        assert!(matches!("127.0.0.1:9000".parse::<Output>(), Ok(Output::Network(_))));
         assert!("wat".parse::<Output>().unwrap_err().contains("unrecognized"));
     }
 
     /// `Display` emits what `FromStr` accepts, for every `Input`/`Output` the daemon reports.
     #[test]
     fn input_output_round_trip() {
-        for spec in ["auto", "dongle", "wired", "gordon:dongle:1:", "gordon:wired:2:ABC"] {
+        for spec in
+            ["auto", "dongle", "wired", "gordon:dongle:1:", "gordon:wired:2:ABC", "127.0.0.1:9000"]
+        {
             let parsed: Input = spec.parse().unwrap();
             assert_eq!(parsed.to_string().parse::<Input>().unwrap().to_string(), parsed.to_string());
             assert_eq!(parsed.to_string(), spec);
         }
-        let out: Output = "local".parse().unwrap();
-        assert_eq!(out.to_string(), "local");
-        assert!(matches!(out.to_string().parse::<Output>(), Ok(Output::Local)));
+        for spec in ["local", "127.0.0.1:9000"] {
+            let parsed: Output = spec.parse().unwrap();
+            assert_eq!(parsed.to_string(), spec);
+            assert_eq!(parsed.to_string().parse::<Output>().unwrap().to_string(), spec);
+        }
     }
 }
