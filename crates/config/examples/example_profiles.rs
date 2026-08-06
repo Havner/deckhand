@@ -318,6 +318,7 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::DirectionalPad {
             settings: DirectionalPadSettings {
                 layout: DpadLayout::FourWay,
+                deadzone: Deadzone { inner: 0.3 },
                 ..Default::default()
             },
             up: vec![Command {
@@ -353,6 +354,25 @@ pub fn desktop_profile() -> ConfigDoc {
                 settings: Default::default(),
             }],
         },
+    );
+
+    // Right stick → mouse cursor.
+    base.insert(
+        InputSource::RightStick,
+        SourceBinding::JoystickMouse {
+            settings: JoystickMouseSettings {
+                output: MouseOutput::Cursor,
+                sensitivity: Sensitivity { x: 5.0, y: 5.0 },
+                curve: Curve::Power(3.0),
+                deadzone: Deadzone { inner: 0.02 },
+                ..Default::default()
+            },
+        },
+    );
+    // Right-stick click → .
+    base.insert(
+        InputSource::RightStickClick,
+        SourceBinding::None,
     );
 
     // ----- TRACKPADS -----
@@ -483,7 +503,7 @@ pub fn desktop_profile() -> ConfigDoc {
                         output: MouseOutput::Cursor,
                         sensitivity: Sensitivity { x: 2.0, y: 2.0 },
                         curve: Curve::Power(2.0),
-                        deadzone: Deadzone { inner: 0.0 },
+                        deadzone: Deadzone { inner: 0.02 },
                         ..Default::default()
                     },
                 },
@@ -692,6 +712,25 @@ pub fn cp2077_profile() -> ConfigDoc {
                 settings: Default::default(),
             }],
         },
+    );
+
+    // Right stick → mouse cursor.
+    base.insert(
+        InputSource::RightStick,
+        SourceBinding::JoystickMouse {
+            settings: JoystickMouseSettings {
+                output: MouseOutput::Cursor,
+                sensitivity: Sensitivity { x: 5.0, y: 5.0 },
+                curve: Curve::Power(3.0),
+                deadzone: Deadzone { inner: 0.02 },
+                ..Default::default()
+            },
+        },
+    );
+    // Right-stick click → .
+    base.insert(
+        InputSource::RightStickClick,
+        SourceBinding::None,
     );
 
     // ----- TRACKPADS -----
@@ -1043,6 +1082,25 @@ pub fn control_profile() -> ConfigDoc {
         },
     );
 
+    // Right stick → mouse cursor.
+    base.insert(
+        InputSource::RightStick,
+        SourceBinding::JoystickMouse {
+            settings: JoystickMouseSettings {
+                output: MouseOutput::Cursor,
+                sensitivity: Sensitivity { x: 5.0, y: 5.0 },
+                curve: Curve::Power(3.0),
+                deadzone: Deadzone { inner: 0.02 },
+                ..Default::default()
+            },
+        },
+    );
+    // Right-stick click → .
+    base.insert(
+        InputSource::RightStickClick,
+        SourceBinding::None,
+    );
+
     // ----- TRACKPADS -----
 
     base.insert(
@@ -1327,6 +1385,25 @@ pub fn system_shock_profile() -> ConfigDoc {
 
     // ----- JOYSTICKS -----
 
+    // Right stick → mouse cursor.
+    base.insert(
+        InputSource::RightStick,
+        SourceBinding::JoystickMouse {
+            settings: JoystickMouseSettings {
+                output: MouseOutput::Cursor,
+                sensitivity: Sensitivity { x: 5.0, y: 5.0 },
+                curve: Curve::Power(3.0),
+                deadzone: Deadzone { inner: 0.02 },
+                ..Default::default()
+            },
+        },
+    );
+    // Right-stick click → .
+    base.insert(
+        InputSource::RightStickClick,
+        SourceBinding::None,
+    );
+
     // Left stick → left gamepad stick.
     base.insert(
         InputSource::LeftStick,
@@ -1495,18 +1572,24 @@ pub fn globals() -> GlobalConfig {
         master_rumble: 100,
         chords: vec![
             GlobalChord {
-                buttons: vec![InputSource::Steam, InputSource::RightGrip],
+                buttons: vec![InputSource::Steam, InputSource::Menu],
                 action: GlobalAction::SwitchProfile {
-                    mode: SwitchMode::Toggle,
+                    mode: SwitchMode::SetMain,
                 },
             },
             GlobalChord {
-                buttons: vec![InputSource::Steam, InputSource::LeftGrip],
-                action: GlobalAction::CommandExecute {
-                    command: "ls".into(),
-                    args: vec!["-l".into(), "/home/havner/Documents/Steam-Claude".into()],
+                buttons: vec![InputSource::Steam, InputSource::View],
+                action: GlobalAction::SwitchProfile {
+                    mode: SwitchMode::SetFallback,
                 },
             },
+            // GlobalChord {
+            //     buttons: vec![InputSource::Steam, InputSource::LeftGrip],
+            //     action: GlobalAction::CommandExecute {
+            //         command: "ls".into(),
+            //         args: vec!["-l".into(), "/home/havner/Documents/Steam-Claude".into()],
+            //     },
+            // },
         ],
         ..Default::default()
     }
