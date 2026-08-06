@@ -134,8 +134,10 @@ impl ControllerState {
     ///
     /// The Deck reports **separate** stick/pad fields (no Gordon multiplex) and
     /// direct press/touch bits, so the fold is 1:1. Triggers are `i16` (`0..=32767`).
-    /// IMU passes through **raw** — Neptune axis/sign are unverified (a different
-    /// sensor from Gordon; no `gordon_gyro`-style correction until verified, §1.9).
+    /// IMU passes through **raw** — HW-verified (PLAN §1.9): Neptune's accel and gyro
+    /// already sit in the same unified right-handed frame Gordon reaches *after* its
+    /// `gordon_gyro` y-negation, so Neptune needs **no** correction. All 3 accel and
+    /// 3 gyro axes + signs were checked against Gordon via the `imu` example and match.
     fn from_neptune(n: &NeptuneReport, timestamp: Timestamp) -> Self {
         let b = &n.buttons;
         ControllerState {
