@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use hidapi::HidApi;
 
 use crate::backend::{HidapiDevice, RawHid};
-use crate::command::{HapticPulse, ImuMode, Motor};
+use crate::command::{HapticPulse, HapticStyle, ImuMode, Motor};
 use crate::error::{Error, Result};
 use crate::event::Events;
 use crate::protocol::{self, cmd, setting, trackpad_mode};
@@ -381,7 +381,7 @@ impl Device {
     /// **Verified on Gordon** (PLAN §1.9): `Motor::Right`→wire pad 0, `Motor::Left`→wire
     /// pad 1 (the kernel's legacy left/right swap). `params.gain` is honored on the Deck
     /// but ignored on Gordon. This drives the *trackpad* actuator (Gordon's only haptic;
-    /// works on the Deck too). For the Deck's native continuous rumble use [`Self::haptic_rumble`].
+    /// works on the Deck too). For the Deck's native continuous rumble use [`Self::rumble_cmd`].
     pub fn haptic_pulse(&mut self, motor: Motor, params: HapticPulse) -> Result<()> {
         let position: u8 = match motor {
             Motor::Right => 0,
@@ -411,7 +411,7 @@ impl Device {
     /// **Deck-only:** Gordon has no motors, so `0xeb` no-ops there — use [`Self::haptic_pulse`] for
     /// Gordon. (`left` = strong/large motor, `right` = weak/small, matching the kernel's
     /// `rumble_left`/`rumble_right` ← FF strong/weak.)
-    pub fn haptic_rumble(
+    pub fn rumble_cmd(
         &mut self,
         intensity: u16,
         left: u16,
@@ -426,6 +426,34 @@ impl Device {
         self.feature(
             cmd::TRIGGER_RUMBLE_CMD,
             &[0, in0, in1, l0, l1, r0, r1, left_gain as u8, right_gain as u8],
+        )
+    }
+
+    /// Fire the Deck's `0xEA` `SET_HAPTIC2` (C# `NCHapticPacket2`) — a short, finely-tuned trackpad
+    /// **click** haptic (much better than `0x8f` for command clicks; the strongest setting beats a
+    /// full `0x8f` click). `style` picks off / weak / strong and `intensity` (C#'s `−7..=5` ⇒ ~`−2..
+    /// +10` dB) scales it — together they give a wide range of click strengths.
+    ///
+    /// **Deck-only** (no-ops on Gordon). **Provisional (PLAN §1.9):** motor/style/intensity are
+    /// HW-confirmed, and the two motors are the **reverse** of the `0x8f` wire pads (found on HW), so
+    /// here `Motor::Left → 0`, `Motor::Right → 1`. The packet's remaining bytes are **unverified** —
+    /// C#'s fixed `unsure2 = 0` / `unsure3 = 4`, and two timestamp words we fill with a current
+    /// millisecond tick (as C# does with `Environment.TickCount`); none are exposed.
+    pub fn haptic_cmd(&mut self, motor: Motor, style: HapticStyle, intensity: i8) -> Result<()> {
+        // 0xEA position is the REVERSE of the 0x8f wire pads (HW-found): Left → 0, Right → 1.
+        let position: u8 = match motor {
+            Motor::Left => 0,
+            Motor::Right => 1,
+        };
+        // C# sets both timestamp words to `Environment.TickCount`; purpose unknown, not a lever.
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i32)
+            .unwrap_or(0);
+        let [t0, t1, t2, t3] = ts.to_le_bytes();
+        self.feature(
+            cmd::TRIGGER_HAPTIC_CMD,
+            &[position, style as u8, 0x00, intensity as u8, 0x04, t0, t1, t2, t3, t0, t1, t2, t3],
         )
     }
 

@@ -37,6 +37,18 @@ pub enum Motor {
     Right,
 }
 
+/// Style for the Deck's `0xEA` `SET_HAPTIC2` haptic
+/// ([`Device::haptic_cmd`](crate::Device::haptic_cmd)) — matches C# `NCHapticStyle`. A short, finely-tuned
+/// trackpad "click"; `Disabled` is off, and `Weak` is weaker than `Strong` at the same `intensity`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[non_exhaustive]
+pub enum HapticStyle {
+    Disabled = 0,
+    Weak = 1,
+    Strong = 2,
+}
+
 /// Parameters for a `TRIGGER_HAPTIC_PULSE` (`0x8f`) trackpad haptic pulse
 /// ([`Device::haptic_pulse`](crate::Device::haptic_pulse)).
 ///
@@ -48,7 +60,7 @@ pub enum Motor {
 ///
 /// This is a *pulse* on the trackpad actuator — Gordon's only haptic, and usable on the
 /// Deck too. The Deck's native continuous dual-motor rumble is a different command
-/// ([`Device::haptic_rumble`](crate::Device::haptic_rumble), `0xeb`).
+/// ([`Device::rumble_cmd`](crate::Device::rumble_cmd), `0xeb`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct HapticPulse {

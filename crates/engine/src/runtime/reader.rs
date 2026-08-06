@@ -82,9 +82,9 @@ fn read_session(
     events: &EventSink,
 ) -> Result<SessionEnd> {
     apply_device_cfg(device, cfg);
-    // Haptic strategy is per-device: the Deck (Neptune) has real motors driven by a
-    // firmware-sustained continuous rumble (`0xeb`), so we send only on change; Gordon has
-    // only trackpad actuators, faked as a re-fired pulse train (`0x8f`).
+    // Haptic strategy is per-device: the Deck (Neptune) has real motors driven by `0xeb`
+    // (`rumble_cmd`, re-issued periodically — see below); Gordon has only trackpad actuators,
+    // driven as a re-fired pulse train (`0x8f`, `haptic_pulse`).
     let neptune = matches!(device.info().kind, DeviceKind::Neptune);
     let mut last_keepalive = Instant::now();
     let mut last_haptic = Instant::now();
@@ -142,7 +142,7 @@ fn read_session(
             if changed || refire {
                 if let Err(e) =
                     // intensity 0 = strongest (finer amplitude lever, unused for now — PLAN §1.9).
-                    device.haptic_rumble(0, level.strong, level.weak, NEPTUNE_L_GAIN, NEPTUNE_R_GAIN)
+                    device.rumble_cmd(0, level.strong, level.weak, NEPTUNE_L_GAIN, NEPTUNE_R_GAIN)
                 {
                     log::warn!("rumble write failed: {e}");
                 }
@@ -217,7 +217,7 @@ fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) {
 
 /// Route a rumble command to Gordon's trackpad actuators as pulse-trains (strong→left, weak→right;
 /// PLAN §1.9). Re-fired by the reader while the level stays non-zero. (Gordon only; the Deck uses
-/// [`Device::haptic_rumble`] directly — see `read_session`.)
+/// [`Device::rumble_cmd`] directly — see `read_session`.)
 fn apply_haptics(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
     if cmd.strong > 0 {
         device.haptic_pulse(Motor::Left, train(cmd.strong, cmd.hz))?;
@@ -228,7 +228,7 @@ fn apply_haptics(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
     Ok(())
 }
 
-/// Deck motor gains (dB) for `haptic_rumble` — the kernel drives `FF_RUMBLE` with left = +2 dB,
+/// Deck motor gains (dB) for `rumble_cmd` — the kernel drives `FF_RUMBLE` with left = +2 dB,
 /// right = 0 dB (the two motors aren't matched; PLAN §1.9). HW-tunable starting point.
 const NEPTUNE_L_GAIN: i8 = 2;
 const NEPTUNE_R_GAIN: i8 = 2;
