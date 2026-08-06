@@ -114,7 +114,7 @@ impl Runtime {
         pinned_id: DeviceId,
         cfg: DeviceCfg,
         sink: Sink,
-        main: Program,
+        main: Option<Program>,
         fallback: Option<Program>,
         globals: GlobalConfig,
         events: EventSink,
@@ -155,7 +155,7 @@ impl Runtime {
     /// `control_rx`. Errors if the bind fails.
     pub fn start_server(
         sink: Sink,
-        main: Program,
+        main: Option<Program>,
         fallback: Option<Program>,
         globals: GlobalConfig,
         addr: SocketAddr,
@@ -225,7 +225,7 @@ fn spawn_reader(
 #[allow(clippy::too_many_arguments)]
 fn spawn_mapper(
     sink: Sink,
-    main: Program,
+    main: Option<Program>,
     fallback: Option<Program>,
     globals: GlobalConfig,
     link: LinkServer,

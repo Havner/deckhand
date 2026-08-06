@@ -18,7 +18,7 @@ use crate::chords::{Chords, ExecReq};
 use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
 use crate::logical::LogicalFrame;
-use crate::program::{Program, Role};
+use crate::program::{Program, Role, empty_program};
 use crate::{HapticReq, Mapper, Result, Tick};
 
 use super::link::LinkServer;
@@ -30,7 +30,7 @@ use super::{Click, Control, RumbleCmd};
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_mapper(
     mut sink: Sink,
-    mut main: Program,
+    mut main: Option<Program>,
     mut fallback: Option<Program>,
     mut globals: GlobalConfig,
     mut link: LinkServer,
@@ -156,7 +156,7 @@ pub(super) fn run_mapper(
 /// Handle one control message (shared by the connected and waiting phases). Returns true to stop.
 fn apply_control(
     msg: std::result::Result<Control, RecvError>,
-    main: &mut Program,
+    main: &mut Option<Program>,
     fallback: &mut Option<Program>,
     globals: &mut GlobalConfig,
     mapper: &mut Mapper,
@@ -166,18 +166,12 @@ fn apply_control(
     match msg {
         Ok(Control::Apply { program, role: target }) => {
             match target {
-                Role::Main => {
-                    *main = *program;
-                    if *role == Role::Main {
-                        mapper.switch_program(main);
-                    }
-                }
-                Role::Fallback => {
-                    *fallback = Some(*program);
-                    if *role == Role::Fallback {
-                        mapper.switch_program(program_for(role, main, fallback));
-                    }
-                }
+                Role::Main => *main = Some(*program),
+                Role::Fallback => *fallback = Some(*program),
+            }
+            // Re-seed the mapper only if the applied role is the one currently live.
+            if *role == target {
+                mapper.switch_program(program_for(role, main, fallback));
             }
             false
         }
@@ -206,7 +200,7 @@ enum WaitOutcome {
 #[allow(clippy::too_many_arguments)]
 fn run_waiting(
     sink: &mut Sink,
-    main: &mut Program,
+    main: &mut Option<Program>,
     fallback: &mut Option<Program>,
     globals: &mut GlobalConfig,
     mapper: &mut Mapper,
@@ -273,11 +267,17 @@ fn rumble_cmd(raw: Rumble, master: u8, s: &RumbleSettings) -> RumbleCmd {
     RumbleCmd { strong: drive(raw.strong), weak: drive(raw.weak), hz: s.hz }
 }
 
-/// The program driving a given role (fallback falls back to main when unset).
-fn program_for<'a>(role: &Role, main: &'a Program, fallback: &'a Option<Program>) -> &'a Program {
+/// The program driving a given role. Each role prefers its own slot, falls through to the other,
+/// and only when **both** are unset uses the [`empty_program`] placeholder (which maps nothing) —
+/// so the engine can run before any profile is applied (PLAN §6).
+fn program_for<'a>(
+    role: &Role,
+    main: &'a Option<Program>,
+    fallback: &'a Option<Program>,
+) -> &'a Program {
     match role {
-        Role::Main => main,
-        Role::Fallback => fallback.as_ref().unwrap_or(main),
+        Role::Main => main.as_ref().or(fallback.as_ref()).unwrap_or_else(|| empty_program()),
+        Role::Fallback => fallback.as_ref().or(main.as_ref()).unwrap_or_else(|| empty_program()),
     }
 }
 
@@ -371,12 +371,18 @@ mod tests {
     }
 
     #[test]
-    fn program_for_falls_back_to_active_when_unset() {
-        let main = prog("main");
-        let none: Option<Program> = None;
-        assert_eq!(program_for(&Role::Fallback, &main, &none).meta.name, "main");
+    fn program_for_resolves_and_falls_back_to_empty() {
+        let main = Some(prog("main"));
         let fb = Some(prog("fallback"));
-        assert_eq!(program_for(&Role::Fallback, &main, &fb).meta.name, "fallback");
+        let none: Option<Program> = None;
+        // Both present → each role uses its own slot.
         assert_eq!(program_for(&Role::Main, &main, &fb).meta.name, "main");
+        assert_eq!(program_for(&Role::Fallback, &main, &fb).meta.name, "fallback");
+        // One present → both roles fall through to it (symmetric).
+        assert_eq!(program_for(&Role::Fallback, &main, &none).meta.name, "main");
+        assert_eq!(program_for(&Role::Main, &none, &fb).meta.name, "fallback");
+        // Neither present → the empty placeholder (maps nothing).
+        assert_eq!(program_for(&Role::Main, &none, &none).meta.name, "EMPTY_PROFILE");
+        assert_eq!(program_for(&Role::Fallback, &none, &none).meta.name, "EMPTY_PROFILE");
     }
 }

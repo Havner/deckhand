@@ -15,6 +15,7 @@
 //! **never persisted to disk** — `ConfigDoc` remains the sole on-disk form.
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use config::{
     AsMouseSettings, Activator, CommandSettings, DirectionalPadSettings, GyroToMouseSettings,
@@ -83,6 +84,21 @@ impl Program {
     pub fn set(&self, id: &SetId) -> &CompiledSet {
         &self.sets[id.index()]
     }
+}
+
+/// A placeholder [`Program`] that maps nothing — used when a role resolves to no applied program
+/// (e.g. a server started before any profile is set; PLAN §6). It has **one empty action set** so
+/// the mapper's `default_set` indexing stays valid (an empty `sets` would panic at tick). Lazily
+/// built behind a `OnceLock` so it lives long enough to hand out `&'static`. (Future: give it
+/// sensible defaults + rename to `DEFAULT_PROFILE`.)
+pub(crate) fn empty_program() -> &'static Program {
+    static EMPTY: OnceLock<Program> = OnceLock::new();
+    EMPTY.get_or_init(|| Program {
+        meta: ProgramMeta { name: "EMPTY_PROFILE".into(), role: Role::Main },
+        sets: vec![CompiledSet { name: "empty".into(), base: SourceMap::new(), layers: vec![] }],
+        default_set: SetId::new(0),
+        rumble: RumbleSettings::default(),
+    })
 }
 
 /// One action set: base bindings + its layers (index = declared-order precedence).

@@ -294,8 +294,8 @@ impl Engine {
     }
 
     /// `Local`/`Local`: open the device + create the sink and map here (the original behaviour).
+    /// No main is required — the mapper runs the empty placeholder program until one is applied.
     fn start_local(&mut self) -> Result<()> {
-        let main = self.main.clone().ok_or(Error::NotReady("no main program applied"))?;
         let device = self.open_device()?;
         let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
         // Pin the resolved device's stable id so the reader reacquires *this* device if its
@@ -312,7 +312,7 @@ impl Engine {
                 "starting: {:?} via {:?}, main '{}'{fb}",
                 info.kind,
                 info.transport,
-                main.meta.name,
+                self.main.as_ref().map(|m| m.meta.name.as_str()).unwrap_or("(none)"),
             );
         }
         // Remember the concrete bound device so `status()` can report it (the id itself moves into
@@ -326,7 +326,7 @@ impl Engine {
             pinned_id.clone(),
             cfg,
             sink,
-            main,
+            self.main.clone(),
             self.fallback.clone(),
             self.globals.clone(),
             self.events.clone(),
@@ -357,14 +357,17 @@ impl Engine {
     }
 
     /// `input=Network` (server): bind `addr` and map a remote client's frames to the local sink.
-    /// Requires a main program (its own config); the client may push more over the wire.
+    /// No main is required — the mapper runs the empty placeholder until a profile is set (its own,
+    /// or one the client pushes over the wire).
     fn start_server(&mut self, addr: SocketAddr) -> Result<()> {
-        let main = self.main.clone().ok_or(Error::NotReady("no main program applied"))?;
         let sink = Sink::new()?;
-        log::info!("starting (server): binding {addr}, main '{}'", main.meta.name);
+        log::info!(
+            "starting (server): binding {addr}, main '{}'",
+            self.main.as_ref().map(|m| m.meta.name.as_str()).unwrap_or("(none)"),
+        );
         let rt = Runtime::start_server(
             sink,
-            main,
+            self.main.clone(),
             self.fallback.clone(),
             self.globals.clone(),
             addr,
