@@ -428,7 +428,7 @@ fn client_uplink(
     loop {
         match pump(&mut tcp, udp, shared, frame_rx, control_rx) {
             PumpEnd::Stop => return,
-            PumpEnd::Broke => {}
+            PumpEnd::Broke => log::warn!("net: connection to {server} lost — reconnecting"),
         }
         // The link dropped — re-dial (only while running and the device is present).
         *shared.tcp.lock().unwrap() = None;
