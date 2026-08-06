@@ -115,6 +115,12 @@ pub(super) fn run_mapper(
             if lost {
                 break;
             }
+            // Network: the mapper's `frame_rx` stays connected across a client outage (it's fed by the
+            // persistent bridge threads), so detect the outage via the flag rather than a disconnect.
+            if link.is_detached() {
+                lost = true;
+                break; // → waiting phase
+            }
 
             // Rumble back-channel (game → virtual pad → real controller): scale by the global
             // master % and the *main* profile's strength/curve, carrying its pulse Hz. On change.
@@ -135,8 +141,14 @@ pub(super) fn run_mapper(
             &mut link, &running, &events,
         )? {
             WaitOutcome::Stopped => return Ok(()),
-            // Reattached (channels swapped) → resume the connected phase on the new device.
-            WaitOutcome::Reattached => continue 'session,
+            // Reattached → back to `Running` and resume the connected phase (local: on the reacquired
+            // device with channels swapped; network: on the reconnected client). The mapper owns this
+            // `State(Running)` edge so it covers both transports (the reader only emits the
+            // device-specific `BindingAcquired`).
+            WaitOutcome::Reattached => {
+                events.emit(EngineEvent::State(Status::Running));
+                continue 'session;
+            }
         }
     }
 }
@@ -209,9 +221,8 @@ fn run_waiting(
     sink.emit(&out)?;
     events.emit(EngineEvent::State(Status::WaitingForDevice));
 
-    // Owned clones so the `select!` doesn't borrow `link` — the reattach arm needs `&mut link`.
+    // Owned clone so the `select!` doesn't borrow `link` — `poll_reattach` below needs `&mut link`.
     let control = link.control_rx().clone();
-    let reattach = link.reattach_rx().clone();
     while running.load(Ordering::Relaxed) {
         select! {
             recv(control) -> msg => {
@@ -219,12 +230,11 @@ fn run_waiting(
                     return Ok(WaitOutcome::Stopped);
                 }
             }
-            // The reader reacquired the device and minted a fresh session → swap it in and resume.
-            recv(reattach) -> msg => if let Ok(session) = msg {
-                link.reattach(session);
-                return Ok(WaitOutcome::Reattached);
-            },
             default(Duration::from_millis(50)) => {}
+        }
+        // Reattached? (local: the reader minted a fresh session; network: a client reconnected.)
+        if link.poll_reattach() {
+            return Ok(WaitOutcome::Reattached);
         }
         // Discard rumble (no controller to feed) — but drain it so the game's FF thread isn't stuck.
         let _ = sink.poll_rumble();

@@ -168,6 +168,8 @@ fn server_tcp(
         let Some(mut stream) = accept_client(&listener, shared) else {
             return; // stopped
         };
+        let peer = stream.peer_addr().ok();
+        log::info!("net: client connected{}", peer.map(|a| format!(" from {a}")).unwrap_or_default());
         // Store a clone so `Drop` can unblock the blocking reads in `serve_connection`.
         match stream.try_clone() {
             Ok(c) => *shared.tcp.lock().unwrap() = Some(c),
@@ -178,6 +180,7 @@ fn server_tcp(
         // can't reach the next client's back-channel.
         shared.detached.store(true, Ordering::SeqCst);
         *shared.client_udp.lock().unwrap() = None;
+        log::info!("net: client disconnected — waiting for reconnect");
     }
 }
 

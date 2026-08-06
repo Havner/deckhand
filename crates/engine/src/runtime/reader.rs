@@ -13,7 +13,6 @@ use steam_hid::{Device, DeviceId, Manager, Motor, Report, Rumble as HidRumble};
 
 use crate::Result;
 use crate::event::{EngineEvent, EventSink};
-use crate::handle::Status;
 
 use super::link::LinkClient;
 use super::{Click, DeviceCfg, RumbleCmd};
@@ -62,10 +61,10 @@ pub(super) fn run_reader(
             return Ok(()); // stopped while waiting
         };
 
-        // Reacquired: `reattach` mints a fresh session, hands the mapper its ends, and clears the
-        // flag; the mapper swaps and returns to the connected phase (pad never left).
+        // Reacquired: emit the device-specific `BindingAcquired`, then `reattach` mints a fresh
+        // session and hands the mapper its ends; the mapper swaps, emits `State(Running)`, and
+        // resumes the connected phase (the pad never left).
         events.emit(EngineEvent::BindingAcquired(pinned_id.clone()));
-        events.emit(EngineEvent::State(Status::Running));
         if !link.reattach() {
             return Ok(()); // mapper gone
         }

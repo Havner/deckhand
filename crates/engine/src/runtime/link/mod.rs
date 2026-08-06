@@ -191,12 +191,6 @@ impl LinkServer {
             LinkServer::Network(s) => s.net.control_rx(),
         }
     }
-    pub(crate) fn reattach_rx(&self) -> &Receiver<ServerSession> {
-        match self {
-            LinkServer::Local(s) => &s.reattach_rx,
-            LinkServer::Network(s) => &s.reattach_rx,
-        }
-    }
     pub(crate) fn rumble_tx(&self) -> &Sender<RumbleCmd> {
         match self {
             LinkServer::Local(s) => &s.session.rumble_tx,
@@ -218,37 +212,40 @@ impl LinkServer {
         }
     }
 
-    /// Swap in a freshly-reattached session (the pad never left). Network reattach = reconnect, not a
-    /// session swap (slice 5), so it is a no-op here.
-    pub(crate) fn reattach(&mut self, session: ServerSession) {
+    /// Poll (from the waiting phase) whether the link has (re)attached — if so, leave the waiting
+    /// phase. **Local:** a fresh session arrived on `reattach_rx`, swap it in (the pad never left).
+    /// **Network:** the server re-accepted a client, resume on the same persistent channel (no swap).
+    /// `false` = keep waiting.
+    pub(crate) fn poll_reattach(&mut self) -> bool {
         match self {
-            LinkServer::Local(s) => s.session = session,
-            LinkServer::Network(_) => {}
+            LinkServer::Local(s) => {
+                if let Ok(session) = s.reattach_rx.try_recv() {
+                    s.session = session;
+                    true
+                } else {
+                    false
+                }
+            }
+            LinkServer::Network(s) => !s.net.is_detached(),
         }
     }
 
     /// Bind for a remote client (server role). Returns the server end plus the `control_tx` for the
     /// server's *own* handle (merged with the client's wire config — the two-feeder `control_rx`).
-    /// Slice 4b wires this to `set_input(Network)`.
+    /// The handle wires this to `set_input(Network)`.
     pub(crate) fn bind(
         addr: std::net::SocketAddr,
     ) -> std::io::Result<(LinkServer, Sender<Control>)> {
         let net = net::NetServer::bind(addr)?;
         let control_tx = net.control_tx().clone();
-        // Never-ready reattach: keep the sender alive so the mapper's `select!` blocks on it rather
-        // than seeing a disconnect (Network reconnect is slice 5).
-        let (keep, reattach_rx) = unbounded();
-        let server = LinkServer::Network(NetworkServer { net, reattach_rx, _reattach_keep: keep });
-        Ok((server, control_tx))
+        Ok((LinkServer::Network(NetworkServer { net }), control_tx))
     }
 }
 
-/// The network mapper-side end: the socket bridge ([`net::NetServer`]) plus a **never-ready** reattach
-/// receiver (Network reconnect is slice 5; until then the mapper never leaves its connected phase).
+/// The network mapper-side end: just the socket bridge. "Reattach" = the server re-accepting a client
+/// (observed via `is_detached`), so there is no session to swap (unlike the loopback path).
 pub(crate) struct NetworkServer {
     net: net::NetServer,
-    reattach_rx: Receiver<ServerSession>,
-    _reattach_keep: Sender<ServerSession>,
 }
 
 /// What [`Runtime`](super::Runtime) keeps after wiring a local link: the two ends (moved into the
