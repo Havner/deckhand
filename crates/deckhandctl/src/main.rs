@@ -49,10 +49,16 @@ struct Cli {
 
 /// One parsed step of the chain.
 enum Step {
-    /// A request/reply command.
-    Call(Request),
+    /// A request/reply command. `label` is the command as typed (e.g. `main game.ron`), so a chain's
+    /// replies can be told apart.
+    Call { label: String, req: Request },
     /// The streaming follow mode — terminal (subscribes on the connection and never returns).
     Monitor,
+}
+
+/// Build a request/reply step with its display label.
+fn call(label: &str, req: Request) -> Step {
+    Step::Call { label: label.to_string(), req }
 }
 
 fn main() -> ExitCode {
@@ -80,15 +86,15 @@ fn main() -> ExitCode {
 
     for step in steps {
         match step {
-            Step::Call(req) => match client.call(&req) {
+            Step::Call { label, req } => match client.call(&req) {
                 Ok(resp) => {
-                    let code = print_response(resp);
+                    let code = print_response(&label, resp);
                     if code != ExitCode::SUCCESS {
                         return code; // fail-fast: stop the chain on the first error
                     }
                 }
                 Err(e) => {
-                    eprintln!("error: {e}");
+                    eprintln!("{label}: error: {e}");
                     return ExitCode::FAILURE;
                 }
             },
@@ -108,25 +114,41 @@ fn parse_steps(tokens: &[String]) -> Result<Vec<Step>, String> {
         let tok = tokens[i].as_str();
         i += 1;
         let step = match tok {
-            "status" => Step::Call(Request::Status),
-            "list-devices" => Step::Call(Request::ListDevices),
-            "start" => Step::Call(Request::Start),
-            "stop" => Step::Call(Request::Stop),
-            "shutdown" => Step::Call(Request::Shutdown),
+            "status" => call("status", Request::Status),
+            "list-devices" => call("list-devices", Request::ListDevices),
+            "start" => call("start", Request::Start),
+            "stop" => call("stop", Request::Stop),
+            "shutdown" => call("shutdown", Request::Shutdown),
             "monitor" => Step::Monitor,
-            "input" => Step::Call(Request::SetInput(take_arg(tokens, &mut i, "input")?)),
-            "output" => Step::Call(Request::SetOutput(take_arg(tokens, &mut i, "output")?)),
-            "main" => Step::Call(Request::Apply {
-                role: ProfileRole::Main,
-                config: Box::new(load_doc(&take_arg(tokens, &mut i, "main")?)?),
-            }),
-            "fallback" => Step::Call(Request::Apply {
-                role: ProfileRole::Fallback,
-                config: Box::new(load_doc(&take_arg(tokens, &mut i, "fallback")?)?),
-            }),
-            "globals" => Step::Call(Request::SetGlobals(Box::new(load_globals(&take_arg(
-                tokens, &mut i, "globals",
-            )?)?))),
+            "input" => {
+                let a = take_arg(tokens, &mut i, "input")?;
+                call(&format!("input {a}"), Request::SetInput(a))
+            }
+            "output" => {
+                let a = take_arg(tokens, &mut i, "output")?;
+                call(&format!("output {a}"), Request::SetOutput(a))
+            }
+            "main" => {
+                let p = take_arg(tokens, &mut i, "main")?;
+                let doc = load_doc(&p)?;
+                call(&format!("main {p}"), Request::Apply {
+                    role: ProfileRole::Main,
+                    config: Box::new(doc),
+                })
+            }
+            "fallback" => {
+                let p = take_arg(tokens, &mut i, "fallback")?;
+                let doc = load_doc(&p)?;
+                call(&format!("fallback {p}"), Request::Apply {
+                    role: ProfileRole::Fallback,
+                    config: Box::new(doc),
+                })
+            }
+            "globals" => {
+                let p = take_arg(tokens, &mut i, "globals")?;
+                let g = load_globals(&p)?;
+                call(&format!("globals {p}"), Request::SetGlobals(Box::new(g)))
+            }
             other => return Err(format!("unknown command '{other}' — try `deckhandctl --help`")),
         };
         steps.push(step);
@@ -137,7 +159,7 @@ fn parse_steps(tokens: &[String]) -> Result<Vec<Step>, String> {
     for (idx, step) in steps.iter().enumerate() {
         let terminal = match step {
             Step::Monitor => Some("monitor"),
-            Step::Call(Request::Shutdown) => Some("shutdown"),
+            Step::Call { req: Request::Shutdown, .. } => Some("shutdown"),
             _ => None,
         };
         if let Some(name) = terminal
@@ -223,10 +245,12 @@ fn fmt_event(ev: &Event) -> String {
     }
 }
 
-fn print_response(resp: Response) -> ExitCode {
+/// Print a reply, prefixed with the command `label` so a chain's acks/errors are attributable.
+/// `status`/`list-devices` print their own (self-describing) block without a prefix.
+fn print_response(label: &str, resp: Response) -> ExitCode {
     match resp {
         Response::Ok => {
-            println!("ok");
+            println!("{label}: ok");
             ExitCode::SUCCESS
         }
         Response::Status(s) => {
@@ -238,11 +262,11 @@ fn print_response(resp: Response) -> ExitCode {
             ExitCode::SUCCESS
         }
         Response::Error(msg) => {
-            eprintln!("error: {msg}");
+            eprintln!("{label}: error: {msg}");
             ExitCode::FAILURE
         }
         Response::Diagnostics(diags) => {
-            eprintln!("config rejected:");
+            eprintln!("{label}: config rejected:");
             for d in &diags {
                 eprintln!("  {d}");
             }
@@ -250,7 +274,7 @@ fn print_response(resp: Response) -> ExitCode {
         }
         // `Response` is #[non_exhaustive] — a reply from a newer daemon.
         other => {
-            eprintln!("unexpected reply: {other:?}");
+            eprintln!("{label}: unexpected reply: {other:?}");
             ExitCode::FAILURE
         }
     }

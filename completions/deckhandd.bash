@@ -103,11 +103,14 @@ _deckhandd() {
 
 # --- deckhandctl -------------------------------------------------------------
 
+# Commands can be chained (deckhandctl runs them in sequence), so completion tracks where we are in
+# the chain: after a command that takes an argument we complete the argument; otherwise (at a command
+# boundary) we complete the next command keyword.
 _deckhandctl() {
-    local cur prev words cword cmd i
+    local cur prev words cword i tok need started
     _deckhand_get_words
 
-    # Value for the global --socket option (it may appear before or after the subcommand).
+    # Value for the global --socket option (must precede the commands).
     case $prev in
         -k|--socket)
             _deckhand_socket
@@ -116,44 +119,44 @@ _deckhandctl() {
     esac
 
     local cmds="status list-devices input output main fallback globals \
-start stop shutdown monitor help"
+start stop shutdown monitor"
 
-    # Find the subcommand (first non-option word after argv[0]), skipping --socket's value so it
-    # isn't mistaken for the subcommand.
-    cmd=""
+    # Walk the words before the cursor: `need` holds a command still awaiting its argument (else empty
+    # = at a command boundary); `started` is set once any command word is seen (global flags are only
+    # valid before that).
+    need=""
+    started=""
     for (( i=1; i < cword; i++ )); do
-        case ${words[i]} in
-            -k|--socket) (( i++ )) ;;
-            -*) ;;
-            *) cmd=${words[i]}; break ;;
+        tok=${words[i]}
+        case $tok in
+            -k|--socket) (( i++ )); continue ;;   # skip the socket value
+            -*) continue ;;                        # other global flags (-h/-V)
         esac
+        started=1
+        if [[ -n $need ]]; then
+            need=""                                # this word is the awaited argument
+        else
+            case $tok in
+                input|output|main|fallback|globals) need=$tok ;;  # awaits an argument
+                *) need="" ;;                                     # 0-arg command
+            esac
+        fi
     done
 
-    # No subcommand yet → complete the subcommand (or top-level flags).
-    if [[ -z $cmd ]]; then
+    # Complete based on the chain state at the cursor.
+    if [[ -n $need ]]; then
+        case $need in
+            input) _deckhand_input ;;
+            output) COMPREPLY=( $(compgen -W "$_deckhand_output_specs" -- "$cur") ) ;;
+            main|fallback|globals) _deckhand_ron_files ;;
+        esac
+    elif [[ -z $started ]]; then
+        # At the very start: commands plus the global flags.
         COMPREPLY=( $(compgen -W "$cmds -k --socket -h --help -V --version" -- "$cur") )
-        return
+    else
+        # Between commands in a chain: just the next command keyword.
+        COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )
     fi
-
-    # Argument completion per subcommand.
-    case $cmd in
-        input)
-            _deckhand_input
-            ;;
-        output)
-            COMPREPLY=( $(compgen -W "$_deckhand_output_specs" -- "$cur") )
-            ;;
-        main|fallback|globals)
-            _deckhand_ron_files
-            ;;
-        help)
-            COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )
-            ;;
-        *)
-            # status/list-devices/start/stop/shutdown/monitor take no arguments.
-            COMPREPLY=()
-            ;;
-    esac
 }
 
 complete -F _deckhandd deckhandd
