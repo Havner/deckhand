@@ -1,85 +1,159 @@
 //! `deckhandctl` — the thin CLI client for the deckhand daemon (PLAN §4.4).
 //!
-//! One-shot: parse a subcommand → one [`Request`] → connect to `deckhandd`'s control socket → print
-//! the reply → exit. Depends only on `ipc` (+ `config` to read RON profiles), never on
-//! `engine`. The `monitor` follow mode lands with the real event stream (D7).
+//! Parses a **sequence** of commands and runs them in order over **one connection** — the daemon
+//! serves multiple request/reply pairs per connection. Global flags (`--socket`, `-h`, `-V`) must
+//! precede the commands. Depends only on `ipc` (+ `config` to read RON profiles), never on `engine`.
+//!
+//! `shutdown` and `monitor` are terminal (they end / take over the connection), so they must be the
+//! last command in a chain.
 
-use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use config::{ConfigDoc, GlobalConfig};
 use ipc::{Client, Event, ProfileRole, Request, Response, StatusSnapshot};
 
+/// The command reference, shown under `--help` (the commands are raw args, so clap can't describe
+/// them itself).
+const COMMANDS_HELP: &str = "\
+Commands (run in sequence; put --socket/-h/-V first):
+  status                show engine status (state, staged input/output, profiles, globals)
+  list-devices          list the enumerated devices (id, kind, transport, slot)
+  input <spec>          stage input: auto | dongle | wired | <device-id> | host:port
+  output <spec>         stage output: local | host:port
+  main <file.ron>       load + apply a Main profile
+  fallback <file.ron>   load + apply a Fallback profile
+  globals <file.ron>    load + apply the global config
+  start                 acquire hardware and start the mapping loop
+  stop                  stop the mapping loop (release hardware, keep config)
+  shutdown              shut the daemon down (must be last)
+  monitor               follow the event stream until Ctrl-C (must be last)
+
+Examples:
+  deckhandctl status
+  deckhandctl main game.ron fallback desktop.ron input wired start
+  deckhandctl --socket /run/user/1000/dev.sock stop";
+
 /// Control the deckhand daemon.
 #[derive(Parser)]
-#[command(name = "deckhandctl", version, about)]
+#[command(name = "deckhandctl", version, about, after_help = COMMANDS_HELP)]
 struct Cli {
-    /// Control socket path (Unix) / pipe name (Windows). Overrides $DECKHAND_SOCKET and the default.
-    #[arg(short = 'k', long, value_name = "PATH", global = true)]
+    /// Control socket path (Unix) / pipe name (Windows). Overrides $DECKHAND_SOCKET and the
+    /// default. Must precede the commands.
+    #[arg(short = 'k', long, value_name = "PATH")]
     socket: Option<String>,
-    #[command(subcommand)]
-    cmd: Command,
+    /// One or more commands to run in sequence (see the command reference under `--help`).
+    #[arg(value_name = "COMMAND", trailing_var_arg = true, allow_hyphen_values = true)]
+    commands: Vec<String>,
 }
 
-#[derive(Subcommand)]
-enum Command {
-    /// Show engine status (state, staged input/output, loaded profiles).
-    Status,
-    /// List the currently-enumerated devices (id, kind, transport, slot).
-    ListDevices,
-    /// Stage the input source: auto | dongle | wired | <device-id> | host:port.
-    ///
-    /// A <device-id> is `kind:transport:interface:serial` — e.g. `gordon:dongle:1:` (see
-    /// `deckhandctl list-devices`).
-    Input { spec: String },
-    /// Stage the output sink: local | host:port.
-    Output { spec: String },
-    /// Load a RON profile and apply it as the Main program.
-    Main { path: PathBuf },
-    /// Load a RON profile and apply it as the Fallback program.
-    Fallback { path: PathBuf },
-    /// Load a RON global config and apply it.
-    Globals { path: PathBuf },
-    /// Acquire hardware and start the mapping loop.
-    Start,
-    /// Stop the mapping loop (release hardware, keep config).
-    Stop,
-    /// Shut the daemon down.
-    Shutdown,
-    /// Follow the engine's event stream, printing events as they happen (Ctrl-C to stop).
+/// One parsed step of the chain.
+enum Step {
+    /// A request/reply command.
+    Call(Request),
+    /// The streaming follow mode — terminal (subscribes on the connection and never returns).
     Monitor,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    // `monitor` is a long-lived stream, not a one-shot request/reply.
-    if matches!(cli.cmd, Command::Monitor) {
-        return run_monitor(cli.socket.as_deref());
-    }
-
-    // Build the request first — file reads (Main/Fallback/Globals) can fail before we connect.
-    let req = match build_request(&cli.cmd) {
-        Ok(req) => req,
+    // Parse + read any profile files up front, so a typo fails before we touch the daemon and the
+    // chain never half-runs.
+    let steps = match parse_steps(&cli.commands) {
+        Ok(steps) => steps,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }
     };
+    if steps.is_empty() {
+        eprintln!("no command given — try `deckhandctl --help`");
+        return ExitCode::FAILURE;
+    }
 
+    // One connection carries the whole chain (the daemon loops over requests on it).
     let mut client = match connect(cli.socket.as_deref()) {
         Ok(c) => c,
         Err(code) => return code,
     };
 
-    match client.call(&req) {
-        Ok(resp) => print_response(resp),
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::FAILURE
+    for step in steps {
+        match step {
+            Step::Call(req) => match client.call(&req) {
+                Ok(resp) => {
+                    let code = print_response(resp);
+                    if code != ExitCode::SUCCESS {
+                        return code; // fail-fast: stop the chain on the first error
+                    }
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::FAILURE;
+                }
+            },
+            // Terminal: subscribe on this same connection and stream until close/Ctrl-C.
+            Step::Monitor => return run_monitor(&mut client),
         }
     }
+    ExitCode::SUCCESS
+}
+
+/// Parse the raw command tokens into a sequence of steps (reading profile files as it goes).
+/// `shutdown`/`monitor` are terminal, so nothing may follow them.
+fn parse_steps(tokens: &[String]) -> Result<Vec<Step>, String> {
+    let mut steps = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        let tok = tokens[i].as_str();
+        i += 1;
+        let step = match tok {
+            "status" => Step::Call(Request::Status),
+            "list-devices" => Step::Call(Request::ListDevices),
+            "start" => Step::Call(Request::Start),
+            "stop" => Step::Call(Request::Stop),
+            "shutdown" => Step::Call(Request::Shutdown),
+            "monitor" => Step::Monitor,
+            "input" => Step::Call(Request::SetInput(take_arg(tokens, &mut i, "input")?)),
+            "output" => Step::Call(Request::SetOutput(take_arg(tokens, &mut i, "output")?)),
+            "main" => Step::Call(Request::Apply {
+                role: ProfileRole::Main,
+                config: Box::new(load_doc(&take_arg(tokens, &mut i, "main")?)?),
+            }),
+            "fallback" => Step::Call(Request::Apply {
+                role: ProfileRole::Fallback,
+                config: Box::new(load_doc(&take_arg(tokens, &mut i, "fallback")?)?),
+            }),
+            "globals" => Step::Call(Request::SetGlobals(Box::new(load_globals(&take_arg(
+                tokens, &mut i, "globals",
+            )?)?))),
+            other => return Err(format!("unknown command '{other}' — try `deckhandctl --help`")),
+        };
+        steps.push(step);
+    }
+
+    // `shutdown` and `monitor` end / take over the connection — nothing may follow them.
+    let last = steps.len().saturating_sub(1);
+    for (idx, step) in steps.iter().enumerate() {
+        let terminal = match step {
+            Step::Monitor => Some("monitor"),
+            Step::Call(Request::Shutdown) => Some("shutdown"),
+            _ => None,
+        };
+        if let Some(name) = terminal
+            && idx != last
+        {
+            return Err(format!("'{name}' must be the last command"));
+        }
+    }
+    Ok(steps)
+}
+
+/// Consume `tokens[*i]` as `cmd`'s argument, advancing `i`.
+fn take_arg(tokens: &[String], i: &mut usize, cmd: &str) -> Result<String, String> {
+    let a = tokens.get(*i).cloned().ok_or_else(|| format!("'{cmd}' requires an argument"))?;
+    *i += 1;
+    Ok(a)
 }
 
 /// Connect to the daemon, resolving the `--socket` override: `None` → the env/default
@@ -94,7 +168,7 @@ fn connect(socket: Option<&str>) -> Result<Client, ExitCode> {
 
 #[cfg(unix)]
 fn open(socket: Option<&str>) -> std::io::Result<Client> {
-    let path = socket.map(PathBuf::from).unwrap_or_else(ipc::default_socket_path);
+    let path = socket.map(std::path::PathBuf::from).unwrap_or_else(ipc::default_socket_path);
     Client::connect_path(&path)
 }
 #[cfg(windows)]
@@ -102,12 +176,8 @@ fn open(socket: Option<&str>) -> std::io::Result<Client> {
     Client::connect_name(socket.unwrap_or(ipc::DEFAULT_PIPE_NAME))
 }
 
-/// Subscribe and print events until the daemon closes the stream or the user Ctrl-Cs.
-fn run_monitor(socket: Option<&str>) -> ExitCode {
-    let mut client = match connect(socket) {
-        Ok(c) => c,
-        Err(code) => return code,
-    };
+/// Subscribe on `client` and print events until the daemon closes the stream or the user Ctrl-Cs.
+fn run_monitor(client: &mut Client) -> ExitCode {
     if let Err(e) = client.subscribe() {
         eprintln!("error: {e}");
         return ExitCode::FAILURE;
@@ -125,26 +195,6 @@ fn run_monitor(socket: Option<&str>) -> ExitCode {
             }
         }
     }
-}
-
-fn build_request(cmd: &Command) -> Result<Request, String> {
-    Ok(match cmd {
-        Command::Status => Request::Status,
-        Command::ListDevices => Request::ListDevices,
-        Command::Input { spec } => Request::SetInput(spec.clone()),
-        Command::Output { spec } => Request::SetOutput(spec.clone()),
-        Command::Main { path } => {
-            Request::Apply { role: ProfileRole::Main, config: Box::new(load_doc(path)?) }
-        }
-        Command::Fallback { path } => {
-            Request::Apply { role: ProfileRole::Fallback, config: Box::new(load_doc(path)?) }
-        }
-        Command::Globals { path } => Request::SetGlobals(Box::new(load_globals(path)?)),
-        Command::Start => Request::Start,
-        Command::Stop => Request::Stop,
-        Command::Shutdown => Request::Shutdown,
-        Command::Monitor => unreachable!("monitor is handled before build_request"),
-    })
 }
 
 /// A one-line human rendering of a pushed event.
@@ -231,12 +281,12 @@ fn print_devices(ids: &[String]) {
     }
 }
 
-fn load_doc(path: &Path) -> Result<ConfigDoc, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    ron::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+fn load_doc(path: &str) -> Result<ConfigDoc, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    ron::from_str(&text).map_err(|e| format!("{path}: {e}"))
 }
 
-fn load_globals(path: &Path) -> Result<GlobalConfig, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    ron::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+fn load_globals(path: &str) -> Result<GlobalConfig, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    ron::from_str(&text).map_err(|e| format!("{path}: {e}"))
 }
