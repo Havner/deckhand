@@ -41,6 +41,9 @@ const UDP_BUF: usize = 2048;
 /// State shared between the server's bridge threads and its `Drop`.
 struct ServerShared {
     running: AtomicBool,
+    /// True when no client is connected — before the first `Hello` and between reconnects. The
+    /// mapper's cue for `WaitingForDevice` (read via [`NetServer::is_detached`]; wired in slice 5b).
+    detached: AtomicBool,
     /// The client's UDP return address, learned from the first frame datagram (for the back-channel).
     client_udp: Mutex<Option<SocketAddr>>,
     /// A clone of the accepted TCP stream, so `Drop` can `shutdown` it to unblock the reader thread.
@@ -68,7 +71,8 @@ pub(crate) struct NetServer {
 
 impl NetServer {
     /// Bind TCP+UDP on `addr` (port `0` picks an ephemeral one, exposed via [`Self::addr`]) and spawn
-    /// the bridge threads. A single client connection is served (reconnect = slice 5).
+    /// the bridge threads. Serves clients one at a time, **re-accepting after each disconnect** so the
+    /// server survives a client reconnect (the well-behaved server, PLAN §6.1).
     pub(super) fn bind(addr: SocketAddr) -> io::Result<NetServer> {
         let listener = TcpListener::bind(addr)?;
         let bound = listener.local_addr()?;
@@ -82,6 +86,7 @@ impl NetServer {
         let (click_tx, click_rx) = unbounded::<Click>();
         let shared = Arc::new(ServerShared {
             running: AtomicBool::new(true),
+            detached: AtomicBool::new(true), // no client yet
             client_udp: Mutex::new(None),
             tcp: Mutex::new(None),
         });
@@ -125,6 +130,10 @@ impl NetServer {
     pub(super) fn control_tx(&self) -> &Sender<Control> {
         &self.control_tx
     }
+    /// True while no client is connected (before the first connect, and between reconnects).
+    pub(super) fn is_detached(&self) -> bool {
+        self.shared.detached.load(Ordering::SeqCst)
+    }
     pub(super) fn rumble_tx(&self) -> &Sender<RumbleCmd> {
         &self.rumble_tx
     }
@@ -146,39 +155,63 @@ impl Drop for NetServer {
     }
 }
 
-/// Accept one client and pump its TCP frames: `Hello` (validated), config → `control_tx`, lifecycle
-/// events → `frame_tx`. Blocking reads; `Drop` shuts the stream down to unblock this loop.
+/// Serve clients one at a time, re-accepting after each disconnect so the server survives a client
+/// reconnect. Each connection is [`serve_connection`]; a disconnect flags `detached` + forgets the
+/// old client's UDP address (an epoch boundary for the frame stream).
 fn server_tcp(
     listener: TcpListener,
     shared: &ServerShared,
     frame_tx: &Sender<Report>,
     control_tx: &Sender<Control>,
 ) {
-    // Nonblocking accept until a client arrives or we're told to stop.
-    let mut stream = loop {
+    while shared.running.load(Ordering::SeqCst) {
+        let Some(mut stream) = accept_client(&listener, shared) else {
+            return; // stopped
+        };
+        // Store a clone so `Drop` can unblock the blocking reads in `serve_connection`.
+        match stream.try_clone() {
+            Ok(c) => *shared.tcp.lock().unwrap() = Some(c),
+            Err(_) => continue,
+        }
+        serve_connection(&mut stream, shared, frame_tx, control_tx);
+        // Connection ended → back to detached; forget the client's UDP address so a stale datagram
+        // can't reach the next client's back-channel.
+        shared.detached.store(true, Ordering::SeqCst);
+        *shared.client_udp.lock().unwrap() = None;
+    }
+}
+
+/// Nonblocking-accept one client, or `None` if the server is stopping.
+fn accept_client(listener: &TcpListener, shared: &ServerShared) -> Option<TcpStream> {
+    loop {
         if !shared.running.load(Ordering::SeqCst) {
-            return;
+            return None;
         }
         match listener.accept() {
-            Ok((s, _)) => break s,
+            Ok((s, _)) => return Some(s),
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(50));
             }
             Err(_) => thread::sleep(Duration::from_millis(50)),
         }
-    };
-    // Store a clone so `Drop` can unblock the blocking reads below.
-    match stream.try_clone() {
-        Ok(c) => *shared.tcp.lock().unwrap() = Some(c),
-        Err(_) => return,
     }
+}
 
+/// Pump one client connection: the first `Hello` (validated) marks it connected; then config →
+/// `control_tx`, lifecycle events → `frame_tx`, until EOF/error. Blocking reads; `Drop` shuts the
+/// stream down to unblock this loop.
+fn serve_connection(
+    stream: &mut TcpStream,
+    shared: &ServerShared,
+    frame_tx: &Sender<Report>,
+    control_tx: &Sender<Control>,
+) {
     let mut greeted = false;
     loop {
         if !shared.running.load(Ordering::SeqCst) {
             return;
         }
-        match wire::read_frame::<Uplink>(&mut stream) {
+        match wire::read_frame::<Uplink>(stream) {
             Ok(Some(msg)) => match msg {
                 Uplink::Hello { version } => {
                     if version != PROTOCOL_VERSION {
@@ -186,6 +219,7 @@ fn server_tcp(
                         return;
                     }
                     greeted = true;
+                    shared.detached.store(false, Ordering::SeqCst); // connected
                 }
                 _ if !greeted => {
                     log::warn!("net: client sent data before Hello — dropping");
@@ -201,8 +235,8 @@ fn server_tcp(
                     let _ = frame_tx.send(report);
                 }
             },
-            Ok(None) => return,  // clean EOF — client closed
-            Err(_) => return,    // error or Drop-shutdown — done
+            Ok(None) => return, // clean EOF — client closed
+            Err(_) => return,   // error or Drop-shutdown — done
         }
     }
 }
@@ -220,6 +254,12 @@ fn server_udp(udp: &UdpSocket, shared: &ServerShared, frame_tx: &Sender<Report>)
             }
             Err(_) => continue,
         };
+        // Between connections (detached), drop frames and reset the seq gate so the *next* client's
+        // stream isn't gated by the previous one's sequence (epoch boundary, PLAN §6.1).
+        if shared.detached.load(Ordering::SeqCst) {
+            last_seq = None;
+            continue;
+        }
         let state: FramePacket = match wire::decode(&buf[..n]) {
             Ok(s) => s,
             Err(_) => continue,
@@ -477,5 +517,38 @@ mod tests {
             }
         }
         panic!("rumble never arrived");
+    }
+
+    /// Poll `cond` (up to ~3 s) — for the async connect/disconnect transitions.
+    fn wait_until(mut cond: impl FnMut() -> bool) -> bool {
+        for _ in 0..300 {
+            if cond() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    #[test]
+    fn server_survives_client_reconnect() {
+        let server = NetServer::bind(loopback()).unwrap();
+        assert!(server.is_detached(), "no client yet");
+
+        let client = NetClient::connect(server.addr()).unwrap();
+        assert!(wait_until(|| !server.is_detached()), "server never registered the client");
+        // A lifecycle event over reliable TCP flows.
+        client.frame_tx().send(Report::Connected).unwrap();
+        assert_eq!(server.frame_rx().recv_timeout(secs(2)).unwrap(), Report::Connected);
+
+        // Disconnect → the server re-detaches.
+        drop(client);
+        assert!(wait_until(|| server.is_detached()), "server never noticed the disconnect");
+
+        // Reconnect with a fresh client → the server re-accepts and frames resume on the same channel.
+        let client2 = NetClient::connect(server.addr()).unwrap();
+        assert!(wait_until(|| !server.is_detached()), "server never registered the reconnect");
+        client2.frame_tx().send(Report::Connected).unwrap();
+        assert_eq!(server.frame_rx().recv_timeout(secs(2)).unwrap(), Report::Connected);
     }
 }

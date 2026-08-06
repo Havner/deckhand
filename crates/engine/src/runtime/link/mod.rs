@@ -214,7 +214,7 @@ impl LinkServer {
     pub(crate) fn is_detached(&self) -> bool {
         match self {
             LinkServer::Local(s) => s.detached.load(Ordering::SeqCst),
-            LinkServer::Network(_) => false, // TODO(slice 5): track connection state.
+            LinkServer::Network(s) => s.net.is_detached(),
         }
     }
 
