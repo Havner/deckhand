@@ -17,6 +17,7 @@
 //! NB: only the local adapter exists for now, so these are plain structs; the network adapter will
 //! turn the internal representation into a `Local | Network` enum (the method surface is unchanged).
 
+mod net;
 mod wire;
 
 use std::sync::Arc;

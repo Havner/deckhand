@@ -35,8 +35,15 @@ pub(super) type FramePacket = ControllerState;
 /// Client→server over **TCP** (reliable, ordered): the config uplink + device lifecycle. The client
 /// owns config and compiles `ConfigDoc→Program` before the wire (decision B), so the server never
 /// compiles. `Report::State` never travels here — snapshots go over UDP as [`FramePacket`].
+/// The wire protocol version — bumped on any incompatible change to the message vocab. The client
+/// sends it first ([`Uplink::Hello`]); the server closes the connection on a mismatch.
+pub(super) const PROTOCOL_VERSION: u16 = 1;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) enum Uplink {
+    /// The handshake — always the first frame. The server validates `version` and drops the
+    /// connection on a mismatch. Carries no config (config is ordinary `Apply`/`SetGlobals`).
+    Hello { version: u16 },
     /// Apply a compiled program to a role (main↔fallback), like the local `Control::Apply`.
     Apply { program: Program, role: Role },
     /// Replace the global config (master rumble, chords, ...).
