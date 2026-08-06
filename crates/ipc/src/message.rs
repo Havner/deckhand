@@ -80,20 +80,20 @@ pub enum RunState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusSnapshot {
     pub state: RunState,
+    /// The staged output spec — always set (defaults to `local`).
+    pub output: String,
     /// The staged input spec — always set (defaults to `auto`). Round-trips: pass it back verbatim
     /// as `SetInput` to reselect the same source.
     pub input: String,
-    /// The staged output spec — always set (defaults to `local`).
-    pub output: String,
-    /// Name of the loaded **Main** program, or `None` if none is applied.
-    pub main: Option<String>,
-    /// Name of the loaded **Fallback** program, or `None`.
-    pub fallback: Option<String>,
     /// The **bound** device id — the concrete device the running loop resolved and is using (or
     /// reacquiring while `WaitingForDevice`) — or `None` when idle. Distinct from `input`, which is
     /// the staged *selection* (possibly a policy like `auto`); this is what's actually in use, so a
     /// client connecting to a running daemon learns the current device.
     pub bound: Option<String>,
+    /// Name of the loaded **Main** program, or `None` if none is applied.
+    pub main: Option<String>,
+    /// Name of the loaded **Fallback** program, or `None`.
+    pub fallback: Option<String>,
     /// The full global config (master rumble, chords, device toggles, `start_profile`). Sent whole
     /// so a connecting client seeds its complete view in one `Status` call; later changes arrive as
     /// [`Event::GlobalConfigSet`].

@@ -24,11 +24,11 @@ fn ctl_drives_a_fake_daemon() {
                 let resp = match req {
                     Request::Status => Response::Status(StatusSnapshot {
                         state: RunState::Running,
-                        input: "dongle".into(),
                         output: "local".into(),
+                        input: "dongle".into(),
+                        bound: None,
                         main: Some("game".into()),
                         fallback: None,
-                        bound: None,
                         globals: Default::default(),
                     }),
                     Request::SetInput(spec) if spec == "gordon:dongle:1:" => Response::Ok,

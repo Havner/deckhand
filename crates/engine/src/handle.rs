@@ -157,20 +157,20 @@ pub enum Status {
 #[derive(Debug, Clone)]
 pub struct StatusInfo {
     pub state: Status,
-    /// The staged input source (always set; defaults to `auto`).
-    pub input: Input,
     /// The staged output target (always set; defaults to `local`).
     pub output: Output,
-    /// Name of the loaded **Main** program, or `None` if none is applied.
-    pub main: Option<String>,
-    /// Name of the loaded **Fallback** program, or `None`.
-    pub fallback: Option<String>,
+    /// The staged input source (always set; defaults to `auto`).
+    pub input: Input,
     /// The **bound** device — the id the reader resolved at `start()` and (across an outage) keeps
     /// reacquiring — or `None` when idle. Unlike `input` (the *staged* selection, which may be a
     /// policy like `auto`/`dongle`), this is the concrete device actually in use, so a UI that
     /// connects to an already-running daemon learns what's bound. Stays set through
     /// `WaitingForDevice` (the device it's waiting to reacquire); cleared on `stop()`.
     pub bound: Option<DeviceId>,
+    /// Name of the loaded **Main** program, or `None` if none is applied.
+    pub main: Option<String>,
+    /// Name of the loaded **Fallback** program, or `None`.
+    pub fallback: Option<String>,
     /// The full global config (master rumble, chords, device toggles, `start_profile`). Included
     /// whole so a client connecting to a running daemon can seed its complete view in one call;
     /// subsequent changes arrive as `GlobalConfigSet` events. (`start_profile` here is the boot
@@ -409,11 +409,11 @@ impl Engine {
         };
         StatusInfo {
             state,
-            input: self.input.clone(),
             output: self.output.clone(),
+            input: self.input.clone(),
+            bound: self.bound.clone(),
             main: self.main.as_ref().map(|p| p.meta.name.clone()),
             fallback: self.fallback.as_ref().map(|p| p.meta.name.clone()),
-            bound: self.bound.clone(),
             globals: self.globals.clone(),
         }
     }

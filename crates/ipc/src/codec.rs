@@ -72,11 +72,11 @@ mod tests {
             &mut buf,
             &Response::Status(StatusSnapshot {
                 state: RunState::Idle,
-                input: "dongle".into(),
                 output: "local".into(),
+                input: "dongle".into(),
+                bound: None,
                 main: None,
                 fallback: None,
-                bound: None,
                 globals: Default::default(),
             }),
         )

@@ -22,11 +22,11 @@ fn client_server_round_trip() {
                     Request::Start => Response::Ok,
                     Request::Status => Response::Status(StatusSnapshot {
                         state: RunState::Running,
-                        input: "dongle".into(),
                         output: "local".into(),
+                        input: "dongle".into(),
+                        bound: None,
                         main: Some("game".into()),
                         fallback: None,
-                        bound: None,
                         globals: Default::default(),
                     }),
                     Request::ListDevices => Response::Devices(vec!["gordon:dongle:1:".into()]),

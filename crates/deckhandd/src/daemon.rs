@@ -108,11 +108,11 @@ impl Daemon {
         let s = self.engine.status();
         StatusSnapshot {
             state: run_state(s.state),
-            input: s.input.to_string(),
             output: s.output.to_string(),
+            input: s.input.to_string(),
+            bound: s.bound.map(|id| id.to_string()),
             main: s.main,
             fallback: s.fallback,
-            bound: s.bound.map(|id| id.to_string()),
             globals: s.globals,
         }
     }
@@ -178,4 +178,3 @@ pub fn to_wire_event(ev: EngineEvent) -> Event {
         EngineEvent::GlobalConfigSet(g) => Event::GlobalConfigSet(g),
     }
 }
-

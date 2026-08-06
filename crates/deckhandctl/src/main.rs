@@ -282,11 +282,11 @@ fn print_response(label: &str, resp: Response) -> ExitCode {
 
 fn print_status(s: &StatusSnapshot) {
     println!("state:    {:?}", s.state);
-    println!("input:    {}", s.input);
     println!("output:   {}", s.output);
+    println!("input:    {}", s.input);
+    println!("bound:    {}", s.bound.as_deref().unwrap_or("(none)"));
     println!("main:     {}", s.main.as_deref().unwrap_or("(none)"));
     println!("fallback: {}", s.fallback.as_deref().unwrap_or("(none)"));
-    println!("bound:    {}", s.bound.as_deref().unwrap_or("(none)"));
     println!(
         "globals:  start={:?}, master_rumble={}%, {} chord(s)",
         s.globals.start_profile,
