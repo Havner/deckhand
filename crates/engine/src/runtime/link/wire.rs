@@ -125,7 +125,7 @@ mod tests {
         CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId,
         ProgramMeta, SetId, SourceMap,
     };
-    use config::{Activator, InputSource, Side};
+    use config::{Activator, HapticStrength, InputSource, Side};
 
     /// A non-trivial program exercising nested IR serde (sets, layers, a bound command, ids).
     fn sample_program() -> Program {
@@ -202,7 +202,7 @@ mod tests {
         // UDP back-channel: rumble level + one-shot click.
         for msg in [
             Downlink::Rumble(RumbleCmd { strong: 30000, weak: 12000, hz: 80 }),
-            Downlink::Click(Click { side: Side::Left, duration: 1000 }),
+            Downlink::Click(Click { side: Side::Left, strength: HapticStrength::Medium }),
         ] {
             let bytes = encode(&msg).unwrap();
             assert_eq!(decode::<Downlink>(&bytes).unwrap(), msg);

@@ -23,7 +23,7 @@ use std::thread::{self, JoinHandle};
 use crossbeam_channel::Sender;
 use serde::{Deserialize, Serialize};
 
-use config::{GlobalConfig, Side};
+use config::{GlobalConfig, HapticStrength, Side};
 use steam_hid::{Device, DeviceId, DeviceKind};
 use virt_out::Sink;
 
@@ -81,14 +81,15 @@ pub(crate) struct RumbleCmd {
     pub(crate) hz: u16,
 }
 
-/// One-shot command-haptic click for the reader to fire immediately: a single `0x8f` pulse
-/// (`count=1`) of `duration` µs on `side`'s pad — distinct from the sustained rumble train, and
-/// with **no arbitration** (it briefly interrupts a rumble on the shared pad, which resumes next
-/// re-fire; the opposite pad is untouched — PLAN §1.9 haptics v1).
+/// One-shot command-haptic click for the reader to fire immediately on `side`'s pad, at one of three
+/// `strength` levels — **the reader maps the level to the device** (Gordon `0x8f` pulse duration,
+/// Deck `0xea` gain), distinct from the sustained rumble, with **no arbitration** (it briefly
+/// interrupts a rumble on the shared pad, which resumes next re-fire; the opposite pad is untouched
+/// — PLAN §1.9 haptics v1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Click {
     pub(crate) side: Side,
-    pub(crate) duration: u16,
+    pub(crate) strength: HapticStrength,
 }
 
 /// A running engine: the two threads + the control channel. Created by [`Runtime::start`] on

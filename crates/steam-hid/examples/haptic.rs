@@ -367,11 +367,11 @@ fn main() -> steam_hid::Result<()> {
 
     // --- 0xEA SET_HAPTIC2 (Deck): the C# app's exclusive Deck haptic — a short, finely-tuned
     // trackpad "click" (nicer than 0x8f; the strongest beats a full 0x8f click). All three fields
-    // the C# `NCHapticPacket2` exposes — motor (LEFT/RIGHT), style (Disabled/Weak/Strong), intensity
-    // (i8, C#: −7..5 ⇒ −2..+10 dB). Uses `Device::haptic_cmd` (which maps the motor + fills the rest).
-    // Per pad: a Disabled "off" check, then Weak and Strong across an intensity sweep. ---
+    // the C# `NCHapticPacket2` exposes — motor (LEFT/RIGHT), style (Disabled/Weak/Strong), gain
+    // (i8 dB, C#: −7..5 ⇒ −2..+10 dB). Uses `Device::haptic_cmd` (which maps the motor + fills the
+    // rest). Per pad: a Disabled "off" check, then Weak and Strong across a gain sweep. ---
     if run_ea {
-        println!("\n=== 0xEA SET_HAPTIC2 (Deck): motor × style × intensity ===");
+        println!("\n=== 0xEA SET_HAPTIC2 (Deck): motor × style × gain ===");
         for (pad, motor) in [("LEFT ", Motor::Left), ("RIGHT", Motor::Right)] {
             if !running.alive() {
                 break;
@@ -386,13 +386,13 @@ fn main() -> steam_hid::Result<()> {
                     break;
                 }
                 println!("    style={sname}:");
-                for intensity in [-7i8, -4, -2, 0, 2, 4, 5] {
+                for gain in [-7i8, -4, -2, 0, 2, 4, 5] {
                     if !running.alive() {
                         break;
                     }
-                    println!("      intensity={intensity:>3} (~{}dB)", intensity as i32 + 5);
+                    println!("      gain={gain:>3} (~{}dB)", gain as i32 + 5);
                     keep_lizard_off(&mut device);
-                    device.haptic_cmd(motor.clone(), style.clone(), intensity)?;
+                    device.haptic_cmd(motor.clone(), style.clone(), gain)?;
                     sleep(Duration::from_millis(1200));
                 }
             }

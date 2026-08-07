@@ -431,15 +431,16 @@ impl Device {
 
     /// Fire the Deck's `0xEA` `SET_HAPTIC2` (C# `NCHapticPacket2`) — a short, finely-tuned trackpad
     /// **click** haptic (much better than `0x8f` for command clicks; the strongest setting beats a
-    /// full `0x8f` click). `style` picks off / weak / strong and `intensity` (C#'s `−7..=5` ⇒ ~`−2..
-    /// +10` dB) scales it — together they give a wide range of click strengths.
+    /// full `0x8f` click). `style` picks off / weak / strong and `gain` (dB, C#'s `−7..=5` ⇒ ~`−2..
+    /// +10` dB — its `NCHapticPacket2.intensity` field, renamed here for consistency with the other
+    /// haptic gains) scales it — together they give a wide range of click strengths.
     ///
-    /// **Deck-only** (no-ops on Gordon). **Provisional (PLAN §1.9):** motor/style/intensity are
+    /// **Deck-only** (no-ops on Gordon). **Provisional (PLAN §1.9):** motor/style/gain are
     /// HW-confirmed, and the two motors are the **reverse** of the `0x8f` wire pads (found on HW), so
     /// here `Motor::Left → 0`, `Motor::Right → 1`. The packet's remaining bytes are **unverified** —
     /// C#'s fixed `unsure2 = 0` / `unsure3 = 4`, and two timestamp words we fill with a current
     /// millisecond tick (as C# does with `Environment.TickCount`); none are exposed.
-    pub fn haptic_cmd(&mut self, motor: Motor, style: HapticStyle, intensity: i8) -> Result<()> {
+    pub fn haptic_cmd(&mut self, motor: Motor, style: HapticStyle, gain: i8) -> Result<()> {
         // 0xEA position is the REVERSE of the 0x8f wire pads (HW-found): Left → 0, Right → 1.
         let position: u8 = match motor {
             Motor::Left => 0,
@@ -453,7 +454,7 @@ impl Device {
         let [t0, t1, t2, t3] = ts.to_le_bytes();
         self.feature(
             cmd::TRIGGER_HAPTIC_CMD,
-            &[position, style as u8, 0x00, intensity as u8, 0x04, t0, t1, t2, t3, t0, t1, t2, t3],
+            &[position, style as u8, 0x00, gain as u8, 0x04, t0, t1, t2, t3, t0, t1, t2, t3],
         )
     }
 

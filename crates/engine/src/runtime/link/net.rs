@@ -553,7 +553,7 @@ fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config::Side;
+    use config::{HapticStrength, Side};
     use steam_hid::ControllerState;
 
     fn loopback() -> SocketAddr {
@@ -581,10 +581,10 @@ mod tests {
         assert_eq!(got, cmd);
 
         // Server → client: a one-shot click.
-        server.click_tx().send(Click { side: Side::Left, duration: 1000 }).unwrap();
+        server.click_tx().send(Click { side: Side::Left, strength: HapticStrength::Medium }).unwrap();
         assert_eq!(
             client.click_rx().recv_timeout(secs(2)).unwrap(),
-            Click { side: Side::Left, duration: 1000 }
+            Click { side: Side::Left, strength: HapticStrength::Medium }
         );
     }
 

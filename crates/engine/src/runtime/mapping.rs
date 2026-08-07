@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{RecvError, select};
 
-use config::{GlobalConfig, HapticStrength, RumbleSettings, StartProfile};
+use config::{GlobalConfig, RumbleSettings, StartProfile};
 use steam_hid::Report;
 use virt_out::{OutputEvent, Rumble, Sink};
 
@@ -73,10 +73,10 @@ pub(super) fn run_mapper(
                         haptics.clear();
                         mapper.tick(&masked, now, program_for(&role, &main, &fallback), &mut out, &mut haptics);
                         sink.emit(&out)?;
-                        // Command-haptic pulses this tick → the reader (scaled by master rumble %).
+                        // Command-haptic clicks this tick → the reader, which maps the strength
+                        // level to the device (Gordon pulse duration / Deck gain).
                         for h in haptics.drain(..) {
-                            let duration = click_duration(&h.strength, globals.master_rumble);
-                            let _ = link.click_tx().send(Click { side: h.side, duration });
+                            let _ = link.click_tx().send(Click { side: h.side, strength: h.strength });
                         }
                     }
                     // Controller gone but the transport (dongle) is alive → release outputs so
@@ -236,22 +236,6 @@ fn run_waiting(
     Ok(WaitOutcome::Stopped)
 }
 
-/// Command-haptic click durations (µs) for Low/Med/High — a single pulse, HW-tuned via the `haptic`
-/// example (`interval`/`count` are fixed; the duration is the strength). Scaled by master rumble %.
-const CLICK_LOW_US: u16 = 500;
-const CLICK_MED_US: u16 = 1000;
-const CLICK_HIGH_US: u16 = 2000;
-
-/// The click pulse duration for `strength`, attenuated by the global `master` % (like all haptics).
-fn click_duration(strength: &HapticStrength, master: u8) -> u16 {
-    let base = match strength {
-        HapticStrength::Low => CLICK_LOW_US,
-        HapticStrength::Medium => CLICK_MED_US,
-        HapticStrength::High => CLICK_HIGH_US,
-    };
-    ((base as u32 * master.min(100) as u32) / 100).max(1) as u16
-}
-
 /// Compute the effective per-pad drive from a raw game rumble, the global master %, and the main
 /// profile's rumble settings (strength % + response curve); `hz` passes through from the profile.
 fn rumble_cmd(raw: Rumble, master: u8, s: &RumbleSettings) -> RumbleCmd {
@@ -357,17 +341,6 @@ mod tests {
         assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 2);
         let cmd = rumble_cmd(Rumble { strong: u16::MAX, weak: 0 }, 100, &boost);
         assert_eq!(cmd.strong, u16::MAX);
-    }
-
-    #[test]
-    fn click_duration_maps_strength_and_scales_with_master() {
-        // Low/Med/High map to their base durations at full master.
-        assert_eq!(click_duration(&HapticStrength::Low, 100), CLICK_LOW_US);
-        assert_eq!(click_duration(&HapticStrength::Medium, 100), CLICK_MED_US);
-        assert_eq!(click_duration(&HapticStrength::High, 100), CLICK_HIGH_US);
-        // Master attenuates the click like all haptics, but never to silence.
-        assert_eq!(click_duration(&HapticStrength::High, 50), CLICK_HIGH_US / 2);
-        assert_eq!(click_duration(&HapticStrength::Low, 0), 1);
     }
 
     #[test]

@@ -39,7 +39,7 @@ pub enum Motor {
 
 /// Style for the Deck's `0xEA` `SET_HAPTIC2` haptic
 /// ([`Device::haptic_cmd`](crate::Device::haptic_cmd)) — matches C# `NCHapticStyle`. A short, finely-tuned
-/// trackpad "click"; `Disabled` is off, and `Weak` is weaker than `Strong` at the same `intensity`.
+/// trackpad "click"; `Disabled` is off, and `Weak` is weaker than `Strong` at the same `gain`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[non_exhaustive]

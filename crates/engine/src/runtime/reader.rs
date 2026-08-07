@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use config::Side;
-use steam_hid::{Device, DeviceId, DeviceKind, HapticPulse, Manager, Motor, Report};
+use config::{HapticStrength, Side};
+use steam_hid::{Device, DeviceId, DeviceKind, HapticPulse, HapticStyle, Manager, Motor, Report};
 
 use crate::Result;
 use crate::event::{EngineEvent, EventSink};
@@ -164,9 +164,8 @@ fn read_session(
 
         // One-shot command-haptic clicks fire immediately (no arbitration — a click may briefly
         // interrupt the rumble train on its pad, which the re-fire above resumes).
-        let click_gain = if neptune { NEPTUNE_CLICK_GAIN } else { GORDON_CLICK_GAIN };
         while let Ok(click) = link.click_rx().try_recv() {
-            if let Err(e) = fire_click(device, &click, click_gain) {
+            if let Err(e) = fire_click(device, &click, neptune) {
                 log::warn!("click write failed: {e}");
             }
         }
@@ -273,24 +272,46 @@ fn train(drive: u16, hz: u16) -> HapticPulse {
 /// Trailing off-phase of the single click pulse (irrelevant to the felt tick at `count=1`).
 const CLICK_INTERVAL_US: u16 = 1000;
 
-/// Command-haptic click gain (dB) for the `0x8f` pulse, per controller. Gordon **ignores** `gain`
-/// (kept 0 — it's a no-op there); the Deck **honors** it, so clicks use +6 dB (the strongest,
-/// HW-tested as acceptable). Same packet/code — only the gain differs.
-const GORDON_CLICK_GAIN: i8 = 0;
-const NEPTUNE_CLICK_GAIN: i8 = 6;
-
-/// Fire one command-haptic click on its pad (`Side::Left`→left actuator, `Side::Right`→right) at the
-/// device's click `gain`.
-fn fire_click(device: &mut Device, click: &Click, gain: i8) -> Result<()> {
+/// Fire one command-haptic click on its pad, mapping the `strength` level to the device: Gordon uses
+/// a `0x8f` pulse whose **duration** encodes strength (gain inert → 0); the Deck uses a `0xea`
+/// `haptic_cmd` (`Strong` style) whose **gain** encodes strength, **per side** (the two motors
+/// differ). `Side::Left`→left actuator, `Side::Right`→right.
+fn fire_click(device: &mut Device, click: &Click, neptune: bool) -> Result<()> {
     let motor = match click.side {
         Side::Left => Motor::Left,
         Side::Right => Motor::Right,
     };
-    device.haptic_pulse(
-        motor,
-        HapticPulse { duration: click.duration, interval: CLICK_INTERVAL_US, count: 1, gain },
-    )?;
+    if neptune {
+        let gain = neptune_click_gain(&click.side, &click.strength);
+        device.haptic_cmd(motor, HapticStyle::Strong, gain)?;
+    } else {
+        let duration = gordon_click_duration(&click.strength);
+        device.haptic_pulse(motor, HapticPulse { duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 })?;
+    }
     Ok(())
+}
+
+/// Gordon `0x8f` click pulse duration (µs) for a strength level — the duration is the strength lever
+/// (gain is inert on Gordon). HW-tuned via the `haptic` example.
+fn gordon_click_duration(strength: &HapticStrength) -> u16 {
+    match strength {
+        HapticStrength::Low => 500,
+        HapticStrength::Medium => 1000,
+        HapticStrength::High => 2000,
+    }
+}
+
+/// Deck `0xea` click gain (dB) for a strength level, **per side** (HW-tuned — the two motors differ,
+/// the right needing a couple dB more for a comparable feel).
+fn neptune_click_gain(side: &Side, strength: &HapticStrength) -> i8 {
+    match (side, strength) {
+        (Side::Left, HapticStrength::Low) => -2,
+        (Side::Left, HapticStrength::Medium) => 1,
+        (Side::Left, HapticStrength::High) => 4,
+        (Side::Right, HapticStrength::Low) => -2,
+        (Side::Right, HapticStrength::Medium) => 2,
+        (Side::Right, HapticStrength::High) => 6,
+    }
 }
 
 #[cfg(test)]
