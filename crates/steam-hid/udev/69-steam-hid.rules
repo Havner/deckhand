@@ -6,9 +6,17 @@
 #     sudo cp 69-steam-hid.rules /etc/udev/rules.d/
 #     sudo udevadm control --reload-rules && sudo udevadm trigger
 #
-# Valve VID 0x28de; PIDs: 1102 wired SC, 1142 wireless dongle, 1205 Steam Deck.
+# Valve VID 0x28de; PIDs: 1102 wired SC, 1142 wireless dongle, 1205 Steam Deck,
+# 1106 Steam Controller over Bluetooth (Gordon BLE).
 
 # USB (wired controller + wireless dongle + Deck)
 SUBSYSTEM=="usb", ATTRS{idVendor}=="28de", MODE="0660", TAG+="uaccess"
 # hidraw nodes for the same devices
 KERNEL=="hidraw*", ATTRS{idVendor}=="28de", MODE="0660", TAG+="uaccess"
+
+# Bluetooth: modern BlueZ creates the HID device through /dev/uhid, so it lands
+# under /devices/virtual/misc/uhid/... with NO id/vendor attribute anywhere in
+# the parent chain — ATTRS{idVendor}/ATTRS{id/vendor} can't match it. Match the
+# parent HID device's kernel name instead ("0005:<VID>:<PID>.<n>", bus 0005 =
+# Bluetooth, VID/PID uppercase hex).
+KERNEL=="hidraw*", KERNELS=="0005:28DE:*", MODE="0660", TAG+="uaccess"

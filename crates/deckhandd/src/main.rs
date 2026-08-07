@@ -37,7 +37,7 @@ struct Args {
     /// Global config (RON): master rumble, boot role, switch chords.
     #[arg(short, long, value_name = "RON")]
     globals: Option<PathBuf>,
-    /// Input source: auto | dongle | wired | <device-id> | host:port.
+    /// Input source: auto | dongle | wired | bt | <device-id> | host:port.
     ///
     /// A <device-id> is `kind:transport:interface:serial` — e.g. `gordon:dongle:1:` (see
     /// `deckhandctl list-devices`).

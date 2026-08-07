@@ -38,18 +38,20 @@ pub fn install_ctrlc() -> Running {
 /// Enumerate and open the target controller — the one selection path all examples
 /// share.
 ///
-/// Honors `--wired` / `--dongle` args to restrict transport. A single (or
-/// explicitly-filtered) candidate is opened **directly**: a wired controller is
-/// idle until you move it, so we must *not* gate on receiving a frame (that gate
-/// works on the dongle only because the receiver sends periodic connect/battery
-/// frames). With multiple candidates (dongle slots) it polls to pick the one that
-/// actually streams. Returns the device and a human description, or `None`.
+/// Honors `--wired` / `--dongle` / `--bt` args to restrict transport. A single (or
+/// explicitly-filtered) candidate is opened **directly**: a wired/Bluetooth
+/// controller is idle until you move it, so we must *not* gate on receiving a frame
+/// (that gate works on the dongle only because the receiver sends periodic
+/// connect/battery frames). With multiple candidates (dongle slots) it polls to pick
+/// the one that actually streams. Returns the device and a human description, or `None`.
 pub fn select_device(manager: &mut Manager) -> Result<Option<(String, Device)>> {
     let args: Vec<String> = std::env::args().collect();
     let want = if args.iter().any(|a| a == "--wired") {
         Some(Transport::UsbWired)
     } else if args.iter().any(|a| a == "--dongle") {
         Some(Transport::UsbDongle)
+    } else if args.iter().any(|a| a == "--bt") {
+        Some(Transport::Bluetooth)
     } else {
         None
     };
@@ -77,7 +79,7 @@ pub fn select_device(manager: &mut Manager) -> Result<Option<(String, Device)>> 
         for _ in 0..8 {
             if matches!(
                 device.poll_raw(Duration::from_millis(200))?,
-                Some(RawReport::Gordon(_)) | Some(RawReport::Connected)
+                Some(RawReport::Gordon(_)) | Some(RawReport::GordonBle(_)) | Some(RawReport::Connected)
             ) {
                 return Ok(Some((describe(info), device)));
             }

@@ -53,6 +53,9 @@ impl DeviceKind {
 pub enum Transport {
     UsbWired,
     UsbDongle,
+    /// Bluetooth (BLE). Gordon only so far; uses the segmented Report-ID-3 framing
+    /// and the compact input format (PLAN §1.4).
+    Bluetooth,
 }
 
 impl Transport {
@@ -61,6 +64,7 @@ impl Transport {
         match self {
             Transport::UsbWired => "wired",
             Transport::UsbDongle => "dongle",
+            Transport::Bluetooth => "bt",
         }
     }
 
@@ -69,8 +73,14 @@ impl Transport {
         match s {
             "wired" => Some(Transport::UsbWired),
             "dongle" => Some(Transport::UsbDongle),
+            "bt" => Some(Transport::Bluetooth),
             _ => None,
         }
+    }
+
+    /// Whether this transport uses the BLE segmented framing + compact input format.
+    fn is_bluetooth(&self) -> bool {
+        matches!(self, Transport::Bluetooth)
     }
 }
 
@@ -155,6 +165,7 @@ fn classify(pid: u16) -> Option<(DeviceKind, Transport)> {
     match pid {
         protocol::PID_GORDON_WIRED => Some((DeviceKind::Gordon, Transport::UsbWired)),
         protocol::PID_GORDON_DONGLE => Some((DeviceKind::Gordon, Transport::UsbDongle)),
+        protocol::PID_GORDON_BLE => Some((DeviceKind::Gordon, Transport::Bluetooth)),
         protocol::PID_NEPTUNE => Some((DeviceKind::Neptune, Transport::UsbWired)),
         _ => None,
     }
@@ -191,7 +202,12 @@ impl Manager {
             let Some((kind, transport)) = classify(info.product_id()) else {
                 continue;
             };
-            // Gamepad interface discriminator (PLAN §1.6): vendor usage page.
+            // Gamepad interface discriminator (PLAN §1.6): the vendor usage page
+            // (>= 0xFF00) picks the gamepad interface, dropping the emulated
+            // mouse/keyboard. This works for BLE too — hidapi lists the single BLE
+            // hidraw node once *per top-level collection* (mouse 0x01, keyboard
+            // 0x01, vendor 0xFF00, all same path), so the filter keeps exactly the
+            // one vendor entry (verified on HW).
             if info.usage_page() < 0xFF00 {
                 continue;
             }
@@ -234,11 +250,43 @@ pub struct Device {
     connected: bool,
     battery: Option<Battery>,
     buf: [u8; protocol::REPORT_LEN],
+    /// BLE reassembly + accumulation state; `Some` only on the Bluetooth transport.
+    ble: Option<BleState>,
+}
+
+/// Per-device state for the Bluetooth transport (PLAN §1.4).
+///
+/// BLE input is a segmented *delta* stream, so we reassemble 20-byte segments into
+/// a full packet and accumulate chunk updates into `acc`, emitting a snapshot per
+/// completed input packet. `seq` is synthesized (the wire has none).
+struct BleState {
+    /// Reassembly buffer for the current multi-segment packet.
+    assembled: [u8; protocol::ble::SEGMENT_PAYLOAD * protocol::ble::MAX_SEGMENTS],
+    /// Next segment number expected (resets to 0 on a completed/!ordered packet).
+    expected_seg: usize,
+    /// Accumulated controller state (only-changed chunks arrive per packet).
+    acc: report::GordonBleReport,
+    /// Synthesized sequence counter, bumped per input snapshot.
+    seq: u32,
+}
+
+impl BleState {
+    fn new() -> Self {
+        BleState {
+            assembled: [0u8; protocol::ble::SEGMENT_PAYLOAD * protocol::ble::MAX_SEGMENTS],
+            expected_seg: 0,
+            acc: report::GordonBleReport::default(),
+            seq: 0,
+        }
+    }
 }
 
 impl Device {
     fn new(backend: Box<dyn RawHid>, info: DeviceInfo) -> Result<Self> {
-        let connected = matches!(info.transport, Transport::UsbWired);
+        // Wired USB and Bluetooth are point-to-point (connected the moment the
+        // endpoint opens); only the dongle multiplexes an absent controller.
+        let connected = matches!(info.transport, Transport::UsbWired | Transport::Bluetooth);
+        let ble = info.transport.is_bluetooth().then(BleState::new);
         let mut dev = Device {
             backend,
             info,
@@ -246,6 +294,7 @@ impl Device {
             connected,
             battery: None,
             buf: [0u8; protocol::REPORT_LEN],
+            ble,
         };
         // On a wireless endpoint, prompt the current connection status so an
         // already-connected controller surfaces without waiting (PLAN §1.6).
@@ -308,6 +357,9 @@ impl Device {
 
     /// Read one frame, update cached connection/battery state, and decode it.
     fn next_frame(&mut self, timeout_ms: i32) -> Result<Option<RawReport>> {
+        if self.ble.is_some() {
+            return self.next_frame_ble(timeout_ms);
+        }
         let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;
         if n == 0 {
             return Ok(None);
@@ -320,6 +372,62 @@ impl Device {
             _ => {}
         }
         Ok(Some(raw))
+    }
+
+    /// BLE read path: reassemble 20-byte segments into a packet, accumulate its
+    /// chunks, and emit a full snapshot per completed **input** packet (PLAN §1.4).
+    ///
+    /// Loops within one call so a multi-segment frame returns as one `RawReport`;
+    /// a read timeout returns `None` with partial reassembly state preserved for the
+    /// next call. Non-input (status) packets are skipped (read again).
+    fn next_frame_ble(&mut self, timeout_ms: i32) -> Result<Option<RawReport>> {
+        use protocol::ble;
+        loop {
+            let mut seg = [0u8; ble::SEGMENT_SIZE];
+            let n = self.backend.read_timeout(&mut seg, timeout_ms)?;
+            if n == 0 {
+                return Ok(None); // timeout — partial reassembly (if any) is retained
+            }
+            if n < ble::SEGMENT_SIZE || seg[0] != ble::REPORT_ID {
+                continue;
+            }
+            let hdr = seg[1];
+            if hdr & ble::SEG_DATA_FLAG == 0 {
+                continue; // empty segment
+            }
+            let ble_state = self.ble.as_mut().expect("ble state present on BT transport");
+            let segnum = (hdr & ble::SEG_NUM_MASK) as usize;
+            if segnum != ble_state.expected_seg {
+                // Out of order: resync only on a fresh packet (segment 0).
+                ble_state.expected_seg = 0;
+                if segnum != 0 {
+                    continue;
+                }
+            }
+            if segnum >= ble::MAX_SEGMENTS {
+                ble_state.expected_seg = 0;
+                continue;
+            }
+            let at = segnum * ble::SEGMENT_PAYLOAD;
+            ble_state.assembled[at..at + ble::SEGMENT_PAYLOAD]
+                .copy_from_slice(&seg[2..ble::SEGMENT_SIZE]);
+
+            if hdr & ble::SEG_LAST_FLAG == 0 {
+                ble_state.expected_seg += 1;
+                continue; // need more segments
+            }
+
+            // Packet complete: apply its chunks to the accumulator.
+            ble_state.expected_seg = 0;
+            let len = (segnum + 1) * ble::SEGMENT_PAYLOAD;
+            let assembled = ble_state.assembled;
+            if report::apply_gordon_ble(&mut ble_state.acc, &assembled[..len]) {
+                ble_state.seq = ble_state.seq.wrapping_add(1);
+                ble_state.acc.seq = ble_state.seq;
+                return Ok(Some(RawReport::GordonBle(ble_state.acc.clone())));
+            }
+            // Non-input (status) packet — keep reading within the timeout budget.
+        }
     }
 
     fn now(&self) -> Timestamp {
@@ -466,10 +574,19 @@ impl Device {
     // --- escape hatch (PLAN §1.5) ---
 
     /// Send a raw feature report. Takes the **logical** command
-    /// `[cmd_id, len, payload…]`; the report-ID-0 prepend + pad-to-64 framing
-    /// is applied here, not by the caller (PLAN §1.4).
+    /// `[cmd_id, len, payload…]`; the transport framing is applied here, not by the
+    /// caller (PLAN §1.4): USB prepends report id 0 and pads to 64; Bluetooth splits
+    /// the command into Report-ID-3 segments (`[0x03][0x80|seg|(0x40 if last)]
+    /// [<=18 data]`, zero-padded to 20 — the command bytes are identical to USB).
     pub fn send_feature_report(&mut self, cmd: &[u8]) -> Result<()> {
-        self.backend.send_feature_report(&frame(cmd))
+        if self.info.transport.is_bluetooth() {
+            for seg in frame_ble(cmd) {
+                self.backend.send_feature_report(&seg)?;
+            }
+            Ok(())
+        } else {
+            self.backend.send_feature_report(&frame(cmd))
+        }
     }
 
     /// Get a raw feature report into `buf` (report id in `buf[0]` on entry).
@@ -517,6 +634,34 @@ fn frame(cmd: &[u8]) -> Vec<u8> {
     let n = cmd.len().min(protocol::REPORT_LEN);
     buf[1..1 + n].copy_from_slice(&cmd[..n]);
     buf
+}
+
+/// Frame a logical command into BLE feature segments (PLAN §1.4): split `cmd`
+/// (`[id, len, payload…]`) into ≤18-byte chunks, each a 20-byte Report-ID-3 report
+/// `[0x03][0x80 | seg | (0x40 if last)][chunk, zero-padded]`. A single-segment
+/// command's header is `0xC0`.
+fn frame_ble(cmd: &[u8]) -> Vec<[u8; protocol::ble::SEGMENT_SIZE]> {
+    use protocol::ble;
+    let mut out = Vec::new();
+    // An empty command still needs one (terminal) segment.
+    let mut chunks = cmd.chunks(ble::SEGMENT_PAYLOAD).peekable();
+    let mut seg_num: u8 = 0;
+    loop {
+        let chunk = chunks.next().unwrap_or(&[]);
+        let last = chunks.peek().is_none();
+        let mut buf = [0u8; ble::SEGMENT_SIZE];
+        buf[0] = ble::REPORT_ID;
+        buf[1] = ble::SEG_DATA_FLAG
+            | (seg_num & ble::SEG_NUM_MASK)
+            | if last { ble::SEG_LAST_FLAG } else { 0 };
+        buf[2..2 + chunk.len()].copy_from_slice(chunk);
+        out.push(buf);
+        if last {
+            break;
+        }
+        seg_num += 1;
+    }
+    out
 }
 
 fn clamp_timeout(timeout: Duration) -> i32 {

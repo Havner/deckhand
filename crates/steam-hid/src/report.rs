@@ -4,9 +4,9 @@
 //! a lifecycle frame — so [`RawReport`] carries both. Field offsets follow PLAN
 //! §1.4 and are **unverified on hardware** (PLAN §1.9).
 
-use crate::buttons::{GordonButtons, NeptuneButtons};
+use crate::buttons::{GordonBleButtons, GordonButtons, NeptuneButtons};
 use crate::error::{Error, Result};
-use crate::protocol::{REPORT_LEN, event_type, wireless};
+use crate::protocol::{REPORT_LEN, ble, event_type, wireless};
 use crate::value::{Quati, Vec2i, Vec3i};
 
 #[cfg(feature = "serde")]
@@ -19,6 +19,9 @@ use serde::{Deserialize, Serialize};
 pub enum RawReport {
     /// Original Steam Controller input (`0x01`).
     Gordon(GordonReport),
+    /// Original Steam Controller input over **Bluetooth** — a full snapshot
+    /// accumulated from the BLE delta stream (see [`GordonBleReport`]).
+    GordonBle(GordonBleReport),
     /// Steam Deck input (`0x09`).
     Neptune(NeptuneReport),
     /// A wireless controller connected (`0x03`, payload `0x02`).
@@ -63,6 +66,32 @@ pub struct GordonReport {
     /// `y` (roll) channel is inverted vs. a right-handed frame; the sign is corrected
     /// only in [`ControllerState`] (`gordon_gyro`, PLAN §1.9). The C# `gyaw`/`groll`
     /// field names are transposed; the offsets here are correct.
+    pub gyro: Vec3i,
+    pub orientation: Quati,
+}
+
+/// Original Steam Controller (Gordon) input over **Bluetooth** (PLAN §1.4).
+///
+/// The BLE wire is a *delta* stream — each packet carries only the chunks that
+/// changed — so this struct is the **accumulated** state, updated in place by
+/// [`apply_gordon_ble`] and emitted as a full snapshot per input packet. Unlike
+/// USB Gordon there is **no left multiplex**: `left_stick` and `left_pad` are
+/// distinct, always-current fields. IMU raw values match USB Gordon exactly
+/// (HW-verified, PLAN §1.9), so the same `gordon_gyro` correction applies during
+/// conversion. `seq` is synthesized (the wire carries no sequence number). The
+/// `orientation` quaternion chunk is only present if `SEND_ORIENTATION` is enabled;
+/// we don't enable it, so it stays default (unused downstream — PLAN §1.9).
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct GordonBleReport {
+    pub seq: u32,
+    pub buttons: GordonBleButtons,
+    pub left_trigger: u8,
+    pub right_trigger: u8,
+    pub left_stick: Vec2i,
+    pub left_pad: Vec2i,
+    pub right_pad: Vec2i,
+    pub accel: Vec3i,
     pub gyro: Vec3i,
     pub orientation: Quati,
 }
@@ -171,6 +200,71 @@ fn parse_gordon(b: &[u8]) -> GordonReport {
             w: i16_at(b, 0x2E),
         },
     }
+}
+
+/// Apply one reassembled **BLE** input payload to the accumulated `acc`, in place.
+///
+/// `payload` is a fully-reassembled packet: `byte0` low nibble = report type,
+/// `(byte0 & 0xF0) | (byte1 << 8)` = the chunk mask, then each present chunk's
+/// bytes in ascending bit order. Only `State` reports carry input; on anything
+/// else (e.g. a `Status`/battery report) `acc` is left untouched. Returns `true`
+/// if an input state was applied (caller bumps `seq` and emits a snapshot).
+pub(crate) fn apply_gordon_ble(acc: &mut GordonBleReport, payload: &[u8]) -> bool {
+    if payload.len() < 2 || (payload[0] & 0x0F) != ble::report_type::STATE {
+        return false;
+    }
+    let mask = ((payload[0] & 0xF0) as u16) | ((payload[1] as u16) << 8);
+    let mut p = 2usize;
+    // Read a chunk of `n` bytes starting at the cursor, advancing it; None if the
+    // payload is short (defensive — a well-formed packet always fits).
+    let mut take = |n: usize| -> Option<usize> {
+        if p + n <= payload.len() {
+            let at = p;
+            p += n;
+            Some(at)
+        } else {
+            None
+        }
+    };
+
+    use ble::chunk;
+    if mask & chunk::BUTTON1 != 0 && let Some(o) = take(3) {
+        acc.buttons = GordonBleButtons::from_bits_truncate(
+            payload[o] as u32 | (payload[o + 1] as u32) << 8 | (payload[o + 2] as u32) << 16,
+        );
+    }
+    if mask & chunk::TRIGGERS != 0 && let Some(o) = take(2) {
+        acc.left_trigger = payload[o];
+        acc.right_trigger = payload[o + 1];
+    }
+    if mask & chunk::BUTTON3 != 0 {
+        take(3); // high button bytes — unused on the original SC
+    }
+    if mask & chunk::LSTICK != 0 && let Some(o) = take(4) {
+        acc.left_stick = vec2i_at(payload, o);
+    }
+    if mask & chunk::LPAD != 0 && let Some(o) = take(4) {
+        acc.left_pad = vec2i_at(payload, o);
+    }
+    if mask & chunk::RPAD != 0 && let Some(o) = take(4) {
+        acc.right_pad = vec2i_at(payload, o);
+    }
+    if mask & chunk::ACCEL != 0 && let Some(o) = take(6) {
+        acc.accel = vec3i_at(payload, o);
+    }
+    if mask & chunk::GYRO != 0 && let Some(o) = take(6) {
+        acc.gyro = vec3i_at(payload, o);
+    }
+    if mask & chunk::QUAT != 0 && let Some(o) = take(8) {
+        // quat wire order is w,x,y,z (SDL); Quati stores x,y,z,w.
+        acc.orientation = Quati {
+            w: i16_at(payload, o),
+            x: i16_at(payload, o + 2),
+            y: i16_at(payload, o + 4),
+            z: i16_at(payload, o + 6),
+        };
+    }
+    true
 }
 
 /// Decode a Neptune (Steam Deck) input frame.

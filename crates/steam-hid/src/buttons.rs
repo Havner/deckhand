@@ -81,6 +81,49 @@ bitflags::bitflags! {
 }
 
 bitflags::bitflags! {
+    /// Raw Gordon **Bluetooth** button bits (PLAN §1.4).
+    ///
+    /// The BLE compact input report's button word has bit **positions identical to
+    /// the USB [`GordonButtons`]** layout — only the *names* differ in the SDL/
+    /// sc-controller reference (RT=R2, RB=R1, BACK=View, START=Menu, LGRIP=L4,
+    /// RGRIP=R4, C=Steam); it's kept as its own type for that BLE-native naming.
+    /// Unlike USB there is no left multiplex (pad/stick are separate blocks), so
+    /// `LPAD_PRESS`/`LSTICK_PRESS` are independent. Folded into the unified set by
+    /// `map_gordon_ble_buttons`.
+    ///
+    /// The dpad bits (8..11) are wired the same as USB and **HW-verified over BT**: the
+    /// SC synthesizes them from left-pad directional clicks, firing alongside
+    /// `LPAD_TOUCH`/`LPAD_PRESS` exactly as on USB Gordon.
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct GordonBleButtons: u32 {
+        const RT           = 1 << 0; // right trigger full-pull → R2
+        const LT           = 1 << 1; // left trigger full-pull  → L2
+        const RB           = 1 << 2; // → R1
+        const LB           = 1 << 3; // → L1
+        const Y            = 1 << 4;
+        const B            = 1 << 5;
+        const X            = 1 << 6;
+        const A            = 1 << 7;
+        // bits 8..11: dpad — synthesized from left-pad directional clicks (HW-verified).
+        const DPAD_UP      = 1 << 8;
+        const DPAD_RIGHT   = 1 << 9;
+        const DPAD_LEFT    = 1 << 10;
+        const DPAD_DOWN    = 1 << 11;
+        const BACK         = 1 << 12; // Valve "View" (BTN_SELECT)
+        const STEAM        = 1 << 13;
+        const START        = 1 << 14; // Valve "Menu" (BTN_START)
+        const LGRIP        = 1 << 15; // → L4
+        const RGRIP        = 1 << 16; // → R4
+        const LPAD_PRESS   = 1 << 17;
+        const RPAD_PRESS   = 1 << 18;
+        const LPAD_TOUCH   = 1 << 19;
+        const RPAD_TOUCH   = 1 << 20;
+        const LSTICK_PRESS = 1 << 22;
+    }
+}
+
+bitflags::bitflags! {
     /// Raw Neptune (Steam Deck) button bits, packed from `buttons0..6`
     /// (bytes 0x08..0x0E, PLAN §1.4). Byte N occupies bits `8*N..`.
     #[derive(Debug, Clone, PartialEq, Eq, Default)]

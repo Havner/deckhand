@@ -24,7 +24,7 @@ impl Daemon {
         self.engine.apply(program, role);
     }
 
-    /// Stage the input from a spec string (`auto|dongle|wired|<device-id>|host:port`). Shared by
+    /// Stage the input from a spec string (`auto|dongle|wired|bt|<device-id>|host:port`). Shared by
     /// the CLI `-i` and the `SetInput` request. `Err` is a human-readable reason.
     pub fn set_input(&mut self, spec: &str) -> Result<(), String> {
         self.engine.set_input(spec.parse::<Input>()?);

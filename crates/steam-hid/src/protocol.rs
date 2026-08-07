@@ -13,6 +13,8 @@ pub(crate) const VALVE_VID: u16 = 0x28DE;
 pub(crate) const PID_GORDON_WIRED: u16 = 0x1102;
 /// Original Steam Controller, wireless dongle (Gordon).
 pub(crate) const PID_GORDON_DONGLE: u16 = 0x1142;
+/// Original Steam Controller, Bluetooth (Gordon over BLE).
+pub(crate) const PID_GORDON_BLE: u16 = 0x1106;
 /// Steam Deck built-in controls (Neptune).
 pub(crate) const PID_NEPTUNE: u16 = 0x1205;
 
@@ -20,6 +22,53 @@ pub(crate) const PID_NEPTUNE: u16 = 0x1205;
 pub(crate) const REPORT_LEN: usize = 64;
 /// Report id prepended to feature-report buffers (PLAN §1.4).
 pub(crate) const REPORT_ID: u8 = 0x00;
+
+/// Bluetooth (BLE) transport framing + compact input layout (PLAN §1.4).
+///
+/// The kernel `hid-steam` driver is USB-only, so BLE is reverse-engineered from
+/// SDL (`SDL_hidapi_steam.c`) and sc-controller (`sc_by_bt`) — see PLAN §1.4/§1.9.
+/// Everything rides **Report ID 3** on a 20-byte HID report (report id + 1 header
+/// byte + 18 payload). Feature *and* input reports longer than 18 bytes are split
+/// into segments; the command bytes themselves are identical to USB.
+pub(crate) mod ble {
+    /// Report id prefixing every BLE feature/input report.
+    pub(crate) const REPORT_ID: u8 = 0x03;
+    /// Total segment size on the wire: report id + header + 18 payload.
+    pub(crate) const SEGMENT_SIZE: usize = 20;
+    /// Data bytes carried per segment.
+    pub(crate) const SEGMENT_PAYLOAD: usize = 18;
+    /// Max segments per packet (segment number is 3 bits).
+    pub(crate) const MAX_SEGMENTS: usize = 8;
+    /// Segment-header bit: this segment carries data.
+    pub(crate) const SEG_DATA_FLAG: u8 = 0x80;
+    /// Segment-header bit: last segment of the packet.
+    pub(crate) const SEG_LAST_FLAG: u8 = 0x40;
+    /// Segment-header mask: segment number (low 3 bits).
+    pub(crate) const SEG_NUM_MASK: u8 = 0x07;
+
+    /// Reassembled input payload: `byte0` low nibble = report type, high nibble +
+    /// `byte1` = the chunk mask; chunk data follows from `byte2`.
+    pub(crate) mod report_type {
+        /// An input state report (chunks present per the mask).
+        pub(crate) const STATE: u8 = 4;
+        /// A status report (battery/idle) — not decoded as input yet.
+        pub(crate) const STATUS: u8 = 5;
+    }
+
+    /// Chunk-present bits (SDL `k_EBLE*Chunk`), in ascending order = wire order.
+    /// Each present chunk contributes a fixed number of payload bytes.
+    pub(crate) mod chunk {
+        pub(crate) const BUTTON1: u16 = 0x0010; // 3B buttons (low)
+        pub(crate) const TRIGGERS: u16 = 0x0020; // 2B L/R triggers
+        pub(crate) const BUTTON3: u16 = 0x0040; // 3B buttons (high; unused on SC)
+        pub(crate) const LSTICK: u16 = 0x0080; // 4B stick x,y
+        pub(crate) const LPAD: u16 = 0x0100; // 4B lpad x,y
+        pub(crate) const RPAD: u16 = 0x0200; // 4B rpad x,y
+        pub(crate) const ACCEL: u16 = 0x0400; // 6B accel x,y,z
+        pub(crate) const GYRO: u16 = 0x0800; // 6B gyro x,y,z
+        pub(crate) const QUAT: u16 = 0x1000; // 8B quat w,x,y,z (only if SEND_ORIENTATION)
+    }
+}
 
 /// Input-frame event type, at byte offset 2 of every report.
 pub(crate) mod event_type {

@@ -19,7 +19,7 @@ const COMMANDS_HELP: &str = "\
 Commands (run in sequence; put --socket/-h/-V first):
   status                show engine status (state, staged input/output, profiles, globals)
   list-devices          list the enumerated devices (id, kind, transport, slot)
-  input <spec>          stage input: auto | dongle | wired | <device-id> | host:port
+  input <spec>          stage input: auto | dongle | wired | bt | <device-id> | host:port
   output <spec>         stage output: local | host:port
   main <file.ron>       load + apply a Main profile
   fallback <file.ron>   load + apply a Fallback profile

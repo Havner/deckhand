@@ -1,7 +1,7 @@
 //! Layer 2: the unified, normalized snapshot (PLAN §1.5).
 
-use crate::buttons::{Axis, Buttons, GordonButtons, NeptuneButtons};
-use crate::report::{BatteryRaw, GordonReport, NeptuneReport, RawReport};
+use crate::buttons::{Axis, Buttons, GordonBleButtons, GordonButtons, NeptuneButtons};
+use crate::report::{BatteryRaw, GordonBleReport, GordonReport, NeptuneReport, RawReport};
 use crate::value::{Quati, Timestamp, TrackPad, Vec2, Vec3i};
 
 #[cfg(feature = "serde")]
@@ -27,6 +27,9 @@ impl Report {
     pub(crate) fn decode(raw: &RawReport, timestamp: Timestamp) -> Report {
         match raw {
             RawReport::Gordon(g) => Report::State(ControllerState::from_gordon(g, timestamp)),
+            RawReport::GordonBle(g) => {
+                Report::State(ControllerState::from_gordon_ble(g, timestamp))
+            }
             RawReport::Neptune(n) => Report::State(ControllerState::from_neptune(n, timestamp)),
             RawReport::Connected => Report::Connected,
             RawReport::Disconnected => Report::Disconnected,
@@ -123,6 +126,40 @@ impl ControllerState {
                 pos: norm_stick(&g.right_pad),
                 pressure: 0.0,
                 touched: b.contains(GordonButtons::RPAD_TOUCH),
+            },
+            accel: g.accel.clone(),
+            gyro: gordon_gyro(&g.gyro),
+            orientation: g.orientation.clone(),
+        }
+    }
+
+    /// Convert a Gordon **Bluetooth** snapshot to a unified snapshot.
+    ///
+    /// Reuses USB Gordon's normalization (`gordon_gyro`, `norm_u8`, `norm_stick`)
+    /// verbatim — the raw IMU frame is identical (HW-verified, PLAN §1.9), so the
+    /// same gyro y-negation applies. Differs from `from_gordon` only in the wire
+    /// shape: BLE reports **separate** left stick and pad (no multiplex), so both
+    /// fold 1:1. (Dpad works like USB — synthesized from left-pad directional clicks,
+    /// HW-verified over BT.)
+    fn from_gordon_ble(g: &GordonBleReport, timestamp: Timestamp) -> Self {
+        let b = &g.buttons;
+        ControllerState {
+            seq: g.seq,
+            timestamp,
+            buttons: map_gordon_ble_buttons(b),
+            left_trigger: norm_u8(g.left_trigger),
+            right_trigger: norm_u8(g.right_trigger),
+            left_stick: norm_stick(&g.left_stick),
+            right_stick: Vec2::default(), // Gordon has no right stick
+            left_pad: TrackPad {
+                pos: norm_stick(&g.left_pad),
+                pressure: 0.0, // Gordon pads report no pressure
+                touched: b.contains(GordonBleButtons::LPAD_TOUCH),
+            },
+            right_pad: TrackPad {
+                pos: norm_stick(&g.right_pad),
+                pressure: 0.0,
+                touched: b.contains(GordonBleButtons::RPAD_TOUCH),
             },
             accel: g.accel.clone(),
             gyro: gordon_gyro(&g.gyro),
@@ -242,6 +279,45 @@ fn map_gordon_buttons(g: &GordonButtons) -> Buttons {
         g.contains(GordonButtons::LSTICK_PRESS),
         Buttons::LSTICK_PRESS,
     );
+    out
+}
+
+/// Fold Gordon's **Bluetooth** button bits into the unified [`Buttons`] superset.
+///
+/// Simpler than the USB fold: BLE has no left multiplex (pad click / stick press
+/// are distinct bits), so no touch-gating is needed. The SC's grips map to L4/R4
+/// (matching USB Gordon). Trigger full-pulls (`RT`/`LT`) and bumpers (`RB`/`LB`)
+/// map to `R2`/`L2` and `R1`/`L1`. Dpad works like USB — synthesized from left-pad
+/// directional clicks, HW-verified over BT (see [`GordonBleButtons`]).
+fn map_gordon_ble_buttons(g: &GordonBleButtons) -> Buttons {
+    let mut out = Buttons::empty();
+    let mut set = |cond: bool, flag: Buttons| {
+        if cond {
+            out |= flag;
+        }
+    };
+    set(g.contains(GordonBleButtons::A), Buttons::A);
+    set(g.contains(GordonBleButtons::B), Buttons::B);
+    set(g.contains(GordonBleButtons::X), Buttons::X);
+    set(g.contains(GordonBleButtons::Y), Buttons::Y);
+    set(g.contains(GordonBleButtons::DPAD_UP), Buttons::DPAD_UP);
+    set(g.contains(GordonBleButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
+    set(g.contains(GordonBleButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
+    set(g.contains(GordonBleButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
+    set(g.contains(GordonBleButtons::RB), Buttons::R1);
+    set(g.contains(GordonBleButtons::LB), Buttons::L1);
+    set(g.contains(GordonBleButtons::RT), Buttons::R2);
+    set(g.contains(GordonBleButtons::LT), Buttons::L2);
+    set(g.contains(GordonBleButtons::LGRIP), Buttons::L4);
+    set(g.contains(GordonBleButtons::RGRIP), Buttons::R4);
+    set(g.contains(GordonBleButtons::BACK), Buttons::VIEW);
+    set(g.contains(GordonBleButtons::START), Buttons::MENU);
+    set(g.contains(GordonBleButtons::STEAM), Buttons::STEAM);
+    set(g.contains(GordonBleButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    set(g.contains(GordonBleButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
+    set(g.contains(GordonBleButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
+    set(g.contains(GordonBleButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
+    set(g.contains(GordonBleButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
     out
 }
 

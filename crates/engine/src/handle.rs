@@ -84,7 +84,8 @@ impl FromStr for DeviceSelect {
             "auto" | "a" => Ok(DeviceSelect::Auto),
             "dongle" | "d" => Ok(DeviceSelect::Transport(Transport::UsbDongle)),
             "wired" | "w" => Ok(DeviceSelect::Transport(Transport::UsbWired)),
-            _ => Err(format!("unrecognized input '{s}' (want auto|dongle|wired|<id>)")),
+            "bt" | "b" => Ok(DeviceSelect::Transport(Transport::Bluetooth)),
+            _ => Err(format!("unrecognized input '{s}' (want auto|dongle|wired|bt|<id>)")),
         }
     }
 }
@@ -109,7 +110,7 @@ impl FromStr for Input {
         if let Ok(addr) = s.parse::<SocketAddr>() {
             return Ok(Input::Network(addr));
         }
-        Err(format!("unrecognized input '{s}' (want auto|dongle|wired|<id>|host:port)"))
+        Err(format!("unrecognized input '{s}' (want auto|dongle|wired|bt|<id>|host:port)"))
     }
 }
 
@@ -532,9 +533,16 @@ mod tests {
     /// `Display` emits what `FromStr` accepts, for every `Input`/`Output` the daemon reports.
     #[test]
     fn input_output_round_trip() {
-        for spec in
-            ["auto", "dongle", "wired", "gordon:dongle:1:", "gordon:wired:2:ABC", "127.0.0.1:9000"]
-        {
+        for spec in [
+            "auto",
+            "dongle",
+            "wired",
+            "bt",
+            "gordon:dongle:1:",
+            "gordon:wired:2:ABC",
+            "gordon:bt:-1:c4:2f:2a:f5:13:bb",
+            "127.0.0.1:9000",
+        ] {
             let parsed: Input = spec.parse().unwrap();
             assert_eq!(parsed.to_string().parse::<Input>().unwrap().to_string(), parsed.to_string());
             assert_eq!(parsed.to_string(), spec);
