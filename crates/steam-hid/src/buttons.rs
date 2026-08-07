@@ -1,8 +1,11 @@
 //! Button and axis taxonomy (PLAN §1.4, §1.5).
 //!
 //! [`Buttons`] (bitflags) and [`Button`] (one variant per bit) are two views of
-//! the same unified superset. [`GordonButtons`] / [`NeptuneButtons`] are the raw
-//! per-device wire bitfields, folded into the unified set during conversion.
+//! the same unified superset. [`GordonButtons`] / [`GordonBleButtons`] /
+//! [`NeptuneButtons`] are the raw per-device wire bitfields, folded into the
+//! unified set during conversion. All four share one naming scheme (PLAN §1.4):
+//! `LB/RB` bumpers, `LT/RT` trigger full-pulls, `LGRIP/RGRIP` (+ `LGRIP2/RGRIP2`
+//! on the Deck) back buttons, `View/Menu` the two small top buttons.
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -22,14 +25,14 @@ bitflags::bitflags! {
         const DPAD_DOWN    = 1 << 5;
         const DPAD_LEFT    = 1 << 6;
         const DPAD_RIGHT   = 1 << 7;
-        const L1           = 1 << 8;
-        const R1           = 1 << 9;
-        const L2           = 1 << 10;
-        const R2           = 1 << 11;
-        const L4           = 1 << 12;
-        const R4           = 1 << 13;
-        const L5           = 1 << 14;
-        const R5           = 1 << 15;
+        const LB           = 1 << 8;  // left bumper
+        const RB           = 1 << 9;  // right bumper
+        const LT           = 1 << 10; // left trigger full-pull
+        const RT           = 1 << 11; // right trigger full-pull
+        const LGRIP        = 1 << 12; // left back grip
+        const RGRIP        = 1 << 13; // right back grip
+        const LGRIP2       = 1 << 14; // left back grip 2 (Deck)
+        const RGRIP2       = 1 << 15; // right back grip 2 (Deck)
         const VIEW         = 1 << 16;
         const MENU         = 1 << 17;
         const STEAM        = 1 << 18;
@@ -52,10 +55,10 @@ bitflags::bitflags! {
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct GordonButtons: u32 {
         // buttons0
-        const R2           = 1 << 0;
-        const L2           = 1 << 1;
-        const R1           = 1 << 2;
-        const L1           = 1 << 3;
+        const RT           = 1 << 0; // right trigger full-pull
+        const LT           = 1 << 1; // left trigger full-pull
+        const RB           = 1 << 2;
+        const LB           = 1 << 3;
         const Y            = 1 << 4;
         const B            = 1 << 5;
         const X            = 1 << 6;
@@ -68,9 +71,9 @@ bitflags::bitflags! {
         const VIEW         = 1 << 12; // BTN_SELECT — Valve "View" (kernel "menu left")
         const STEAM        = 1 << 13;
         const MENU         = 1 << 14; // BTN_START — Valve "Menu" (kernel "menu right")
-        const L4           = 1 << 15;
+        const LGRIP        = 1 << 15;
         // buttons2
-        const R4           = 1 << 16;
+        const RGRIP        = 1 << 16;
         const LPAD_PRESS   = 1 << 17;
         const RPAD_PRESS   = 1 << 18;
         const LPAD_TOUCH   = 1 << 19;
@@ -83,13 +86,12 @@ bitflags::bitflags! {
 bitflags::bitflags! {
     /// Raw Gordon **Bluetooth** button bits (PLAN §1.4).
     ///
-    /// The BLE compact input report's button word has bit **positions identical to
-    /// the USB [`GordonButtons`]** layout — only the *names* differ in the SDL/
-    /// sc-controller reference (RT=R2, RB=R1, BACK=View, START=Menu, LGRIP=L4,
-    /// RGRIP=R4, C=Steam); it's kept as its own type for that BLE-native naming.
-    /// Unlike USB there is no left multiplex (pad/stick are separate blocks), so
-    /// `LPAD_PRESS`/`LSTICK_PRESS` are independent. Folded into the unified set by
-    /// `map_gordon_ble_buttons`.
+    /// Bit **positions and names are identical to the USB [`GordonButtons`]** layout
+    /// (the SDL/sc-controller reference happens to name them the same way we do:
+    /// `LB/RB`, `LT/RT`, `LGRIP/RGRIP`, plus `View/Menu`). Kept as its own type only
+    /// because BLE is parsed/accumulated separately; folded into the unified set by
+    /// `map_gordon_ble_buttons`. Unlike USB there is no left multiplex (pad/stick are
+    /// separate blocks), so `LPAD_PRESS`/`LSTICK_PRESS` are independent.
     ///
     /// The dpad bits (8..11) are wired the same as USB and **HW-verified over BT**: the
     /// SC synthesizes them from left-pad directional clicks, firing alongside
@@ -97,10 +99,10 @@ bitflags::bitflags! {
     #[derive(Debug, Clone, PartialEq, Eq, Default)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct GordonBleButtons: u32 {
-        const RT           = 1 << 0; // right trigger full-pull → R2
-        const LT           = 1 << 1; // left trigger full-pull  → L2
-        const RB           = 1 << 2; // → R1
-        const LB           = 1 << 3; // → L1
+        const RT           = 1 << 0; // right trigger full-pull
+        const LT           = 1 << 1; // left trigger full-pull
+        const RB           = 1 << 2;
+        const LB           = 1 << 3;
         const Y            = 1 << 4;
         const B            = 1 << 5;
         const X            = 1 << 6;
@@ -110,11 +112,11 @@ bitflags::bitflags! {
         const DPAD_RIGHT   = 1 << 9;
         const DPAD_LEFT    = 1 << 10;
         const DPAD_DOWN    = 1 << 11;
-        const BACK         = 1 << 12; // Valve "View" (BTN_SELECT)
+        const VIEW         = 1 << 12; // Valve "View" (BTN_SELECT)
         const STEAM        = 1 << 13;
-        const START        = 1 << 14; // Valve "Menu" (BTN_START)
-        const LGRIP        = 1 << 15; // → L4
-        const RGRIP        = 1 << 16; // → R4
+        const MENU         = 1 << 14; // Valve "Menu" (BTN_START)
+        const LGRIP        = 1 << 15;
+        const RGRIP        = 1 << 16;
         const LPAD_PRESS   = 1 << 17;
         const RPAD_PRESS   = 1 << 18;
         const LPAD_TOUCH   = 1 << 19;
@@ -130,10 +132,10 @@ bitflags::bitflags! {
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct NeptuneButtons: u64 {
         // buttons0
-        const R2           = 1 << 0;
-        const L2           = 1 << 1;
-        const R1           = 1 << 2;
-        const L1           = 1 << 3;
+        const RT           = 1 << 0; // right trigger full-pull
+        const LT           = 1 << 1; // left trigger full-pull
+        const RB           = 1 << 2;
+        const LB           = 1 << 3;
         const Y            = 1 << 4;
         const B            = 1 << 5;
         const X            = 1 << 6;
@@ -146,9 +148,9 @@ bitflags::bitflags! {
         const VIEW         = 1 << 12;
         const STEAM        = 1 << 13;
         const MENU         = 1 << 14;
-        const L5           = 1 << 15;
+        const LGRIP2       = 1 << 15;
         // buttons2
-        const R5           = 1 << 16;
+        const RGRIP2       = 1 << 16;
         const LPAD_PRESS   = 1 << 17;
         const RPAD_PRESS   = 1 << 18;
         const LPAD_TOUCH   = 1 << 19;
@@ -157,8 +159,8 @@ bitflags::bitflags! {
         // buttons3
         const RSTICK_PRESS = 1 << 26; // bit 2 of byte 3
         // buttons5 (byte 0x0D → bits 40..)
-        const L4           = 1 << 41;
-        const R4           = 1 << 42;
+        const LGRIP        = 1 << 41;
+        const RGRIP        = 1 << 42;
         const LSTICK_TOUCH = 1 << 46;
         const RSTICK_TOUCH = 1 << 47;
         // buttons6 (byte 0x0E → bits 48..)
@@ -167,6 +169,10 @@ bitflags::bitflags! {
 }
 
 /// A single unified button (one variant per [`Buttons`] bit).
+///
+/// `LB/RB/LT/RT` are deliberately the same short abbreviations as the [`Buttons`]
+/// bitflags (hence the `upper_case_acronyms` allow); the grips use `LGrip`/`LGrip2`.
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[non_exhaustive]
@@ -179,14 +185,14 @@ pub enum Button {
     DpadDown,
     DpadLeft,
     DpadRight,
-    L1,
-    R1,
-    L2,
-    R2,
-    L4,
-    R4,
-    L5,
-    R5,
+    LB,
+    RB,
+    LT,
+    RT,
+    LGrip,
+    RGrip,
+    LGrip2,
+    RGrip2,
     View,
     Menu,
     Steam,
@@ -213,14 +219,14 @@ impl Button {
             Button::DpadDown => Buttons::DPAD_DOWN,
             Button::DpadLeft => Buttons::DPAD_LEFT,
             Button::DpadRight => Buttons::DPAD_RIGHT,
-            Button::L1 => Buttons::L1,
-            Button::R1 => Buttons::R1,
-            Button::L2 => Buttons::L2,
-            Button::R2 => Buttons::R2,
-            Button::L4 => Buttons::L4,
-            Button::R4 => Buttons::R4,
-            Button::L5 => Buttons::L5,
-            Button::R5 => Buttons::R5,
+            Button::LB => Buttons::LB,
+            Button::RB => Buttons::RB,
+            Button::LT => Buttons::LT,
+            Button::RT => Buttons::RT,
+            Button::LGrip => Buttons::LGRIP,
+            Button::RGrip => Buttons::RGRIP,
+            Button::LGrip2 => Buttons::LGRIP2,
+            Button::RGrip2 => Buttons::RGRIP2,
             Button::View => Buttons::VIEW,
             Button::Menu => Buttons::MENU,
             Button::Steam => Buttons::STEAM,
@@ -246,14 +252,14 @@ impl Button {
         Button::DpadDown,
         Button::DpadLeft,
         Button::DpadRight,
-        Button::L1,
-        Button::R1,
-        Button::L2,
-        Button::R2,
-        Button::L4,
-        Button::R4,
-        Button::L5,
-        Button::R5,
+        Button::LB,
+        Button::RB,
+        Button::LT,
+        Button::RT,
+        Button::LGrip,
+        Button::RGrip,
+        Button::LGrip2,
+        Button::RGrip2,
         Button::View,
         Button::Menu,
         Button::Steam,

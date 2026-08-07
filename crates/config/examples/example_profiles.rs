@@ -278,7 +278,7 @@ pub fn desktop_profile() -> ConfigDoc {
     );
     // Right trigger full-pull
     base.insert(
-        InputSource::RightFullPull,
+        InputSource::RightTriggerFull,
         SourceBinding::None,
     );
 
@@ -306,7 +306,7 @@ pub fn desktop_profile() -> ConfigDoc {
     );
     // Left trigger full-pull
     base.insert(
-        InputSource::LeftFullPull,
+        InputSource::LeftTriggerFull,
         SourceBinding::None,
     );
 
@@ -670,7 +670,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         },
     );
     base.insert(
-        InputSource::RightFullPull,
+        InputSource::RightTriggerFull,
         SourceBinding::None,
     );
     // Left trigger → gamepad left trigger axis (no soft-pull button).
@@ -685,7 +685,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         },
     );
     base.insert(
-        InputSource::LeftFullPull,
+        InputSource::LeftTriggerFull,
         SourceBinding::None,
     );
 
@@ -822,7 +822,7 @@ pub fn cp2077_profile() -> ConfigDoc {
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
-                    gaters: vec![InputSource::LeftFullPull],
+                    gaters: vec![InputSource::LeftTriggerFull],
                 },
                 ..Default::default()
             },
@@ -1008,7 +1008,7 @@ pub fn control_profile() -> ConfigDoc {
         },
     );
     base.insert(
-        InputSource::RightFullPull,
+        InputSource::RightTriggerFull,
         SourceBinding::None,
     );
 
@@ -1034,7 +1034,7 @@ pub fn control_profile() -> ConfigDoc {
         },
     );
     base.insert(
-        InputSource::LeftFullPull,
+        InputSource::LeftTriggerFull,
         SourceBinding::None,
     );
 
@@ -1217,7 +1217,7 @@ pub fn control_profile() -> ConfigDoc {
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
-                    gaters: vec![InputSource::LeftFullPull],
+                    gaters: vec![InputSource::LeftTriggerFull],
                 },
                 ..Default::default()
             },
@@ -1364,7 +1364,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         },
     );
     base.insert(
-        InputSource::RightFullPull,
+        InputSource::RightTriggerFull,
         SourceBinding::None,
     );
     // Left trigger → gamepad left trigger axis (no soft-pull button).
@@ -1379,7 +1379,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         },
     );
     base.insert(
-        InputSource::LeftFullPull,
+        InputSource::LeftTriggerFull,
         SourceBinding::None,
     );
 
@@ -1516,7 +1516,7 @@ pub fn system_shock_profile() -> ConfigDoc {
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
-                    gaters: vec![InputSource::LeftFullPull],
+                    gaters: vec![InputSource::LeftTriggerFull],
                 },
                 ..Default::default()
             },

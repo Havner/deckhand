@@ -125,13 +125,13 @@ impl Bridge {
             gp(GamepadButton::B, held(Buttons::B)),
             gp(GamepadButton::X, held(Buttons::X)),
             gp(GamepadButton::Y, held(Buttons::Y)),
-            gp(GamepadButton::LeftBumper, held(Buttons::L1)),
-            gp(GamepadButton::RightBumper, held(Buttons::R1)),
+            gp(GamepadButton::LeftBumper, held(Buttons::LB)),
+            gp(GamepadButton::RightBumper, held(Buttons::RB)),
             gp(GamepadButton::Back, held(Buttons::VIEW)),
             gp(GamepadButton::Start, held(Buttons::MENU)),
             gp(GamepadButton::Guide, held(Buttons::STEAM)),
-            gp(GamepadButton::LeftStick, held(Buttons::L4)), // left back grip
-            gp(GamepadButton::RightStick, held(Buttons::R4)), // right back grip
+            gp(GamepadButton::LeftStick, held(Buttons::LGRIP)), // left back grip
+            gp(GamepadButton::RightStick, held(Buttons::RGRIP)), // right back grip
             OutputEvent::Key(Key::L, held(Buttons::LSTICK_PRESS)), // stick click → key L
             // triggers (1:1)
             ax(GamepadAxis::LeftTrigger, s.left_trigger),

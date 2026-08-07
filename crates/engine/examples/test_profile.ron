@@ -47,7 +47,7 @@
                 Gyro: GyroToMouse(settings: (
                     output: Cursor,
                     invert: (y: true),
-                    activation: (mode: HoldToEnable, gaters: [LeftFullPull]),
+                    activation: (mode: HoldToEnable, gaters: [LeftTriggerFull]),
                 )),
             },
             // Mode-shift: while the right pad is clicked, the left stick drives the RIGHT stick,

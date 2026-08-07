@@ -319,7 +319,7 @@ mod tests {
             smoothing: Some(OneEuroFilter { min_cutoff: 1.0, beta: 0.5 }),
             activation: Activation {
                 mode: ActivationMode::HoldToEnable,
-                gaters: vec![InputSource::LeftFullPull],
+                gaters: vec![InputSource::LeftTriggerFull],
             },
             ..Default::default()
         };

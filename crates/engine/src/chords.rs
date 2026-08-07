@@ -141,7 +141,7 @@ mod tests {
         let mut c = Chords::new(&chords, false);
 
         // Both held → Fallback, both consumed.
-        let out = c.eval(&chords, &frame(Buttons::STEAM | Buttons::R4));
+        let out = c.eval(&chords, &frame(Buttons::STEAM | Buttons::RGRIP));
         assert_eq!(out.role, Role::Fallback);
         assert!(out.consumed.contains(&InputSource::Steam) && out.consumed.contains(&InputSource::RightGrip));
 
@@ -155,7 +155,7 @@ mod tests {
     fn toggle_chord_latches_on_each_engage() {
         let chords = vec![toggle_chord(vec![InputSource::Steam, InputSource::RightGrip])];
         let mut c = Chords::new(&chords, false);
-        let both = || frame(Buttons::STEAM | Buttons::R4);
+        let both = || frame(Buttons::STEAM | Buttons::RGRIP);
         let none = || frame(Buttons::empty());
 
         assert_eq!(c.eval(&chords, &both()).role, Role::Fallback); // press → latch on
@@ -172,7 +172,7 @@ mod tests {
             action: GlobalAction::CommandExecute { command: "true".into(), args: vec!["x".into()] },
         }];
         let mut c = Chords::new(&chords, false);
-        let both = || frame(Buttons::STEAM | Buttons::R4);
+        let both = || frame(Buttons::STEAM | Buttons::RGRIP);
 
         // Engage → one exec req (command + args), buttons consumed, role untouched (stays Main).
         let out = c.eval(&chords, &both());
@@ -198,8 +198,8 @@ mod tests {
         let chords = vec![to_fb, to_main];
         let mut c = Chords::new(&chords, false); // boot in Main
 
-        let fb = || frame(Buttons::STEAM | Buttons::R4);
-        let main = || frame(Buttons::VIEW | Buttons::L4);
+        let fb = || frame(Buttons::STEAM | Buttons::RGRIP);
+        let main = || frame(Buttons::VIEW | Buttons::LGRIP);
         let none = || frame(Buttons::empty());
 
         assert_eq!(c.eval(&chords, &fb()).role, Role::Fallback); // engage SetFallback → latch
@@ -214,7 +214,7 @@ mod tests {
     fn no_chords_is_always_active() {
         let chords: Vec<GlobalChord> = vec![];
         let mut c = Chords::new(&chords, false);
-        let out = c.eval(&chords, &frame(Buttons::STEAM | Buttons::R4));
+        let out = c.eval(&chords, &frame(Buttons::STEAM | Buttons::RGRIP));
         assert_eq!(out.role, Role::Main);
         assert!(out.consumed.is_empty());
     }
@@ -227,7 +227,7 @@ mod tests {
         let mut c = Chords::new(&chords, true);
         assert_eq!(c.eval(&chords, &frame(Buttons::empty())).role, Role::Fallback); // idle → stays
         assert!(c.fallback_base());
-        assert_eq!(c.eval(&chords, &frame(Buttons::STEAM | Buttons::R4)).role, Role::Main); // toggle
+        assert_eq!(c.eval(&chords, &frame(Buttons::STEAM | Buttons::RGRIP)).role, Role::Main); // toggle
         assert!(!c.fallback_base());
     }
 
@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn consumed_buttons_are_masked_from_the_frame() {
         // The loop masks the consumed buttons so profile bindings don't also see them.
-        let f = frame(Buttons::STEAM | Buttons::R4 | Buttons::L1);
+        let f = frame(Buttons::STEAM | Buttons::RGRIP | Buttons::LB);
         let masked = f.masked(&[InputSource::Steam, InputSource::RightGrip]);
         assert!(!masked.button(&InputSource::Steam));
         assert!(!masked.button(&InputSource::RightGrip));

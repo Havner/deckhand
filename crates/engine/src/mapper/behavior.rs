@@ -841,7 +841,7 @@ mod tests {
             &binding,
             &InputSource::LeftStick,
             ControllerState {
-                buttons: Buttons::L4,
+                buttons: Buttons::LGRIP,
                 left_stick: Vec2 { x: 1.0, y: 0.0 },
                 ..Default::default()
             },

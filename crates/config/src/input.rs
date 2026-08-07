@@ -34,8 +34,8 @@ pub enum InputSource {
     // --- standalone buttons (hardware bits) ---
     LeftBumper,    // L1
     RightBumper,   // R1
-    LeftFullPull,  // L2 full-pull hardware bit
-    RightFullPull, // R2 full-pull hardware bit
+    LeftTriggerFull,  // L2 full-pull hardware bit
+    RightTriggerFull, // R2 full-pull hardware bit
     LeftGrip,      // L4
     RightGrip,     // R4
     LeftGrip2,     // L5 (Neptune)
@@ -90,7 +90,7 @@ impl InputSource {
             LeftTrigger | RightTrigger => SourceKind::Trigger,
             Gyro => SourceKind::Gyro,
             // Everything else is a standalone button.
-            LeftBumper | RightBumper | LeftFullPull | RightFullPull | LeftGrip | RightGrip
+            LeftBumper | RightBumper | LeftTriggerFull | RightTriggerFull | LeftGrip | RightGrip
             | LeftGrip2 | RightGrip2 | View | Menu | Steam | QuickAccess | LeftStickClick
             | RightStickClick | LeftPadClick | RightPadClick | LeftPadTouch | RightPadTouch => {
                 SourceKind::Button
@@ -104,11 +104,11 @@ impl InputSource {
     pub fn side(&self) -> Side {
         use InputSource::*;
         match self {
-            FaceButtons | RightPad | RightStick | RightTrigger | RightBumper | RightFullPull
+            FaceButtons | RightPad | RightStick | RightTrigger | RightBumper | RightTriggerFull
             | RightGrip | RightGrip2 | RightStickClick | RightPadClick | RightPadTouch
             | Menu | QuickAccess => Side::Right,
             // DPad, all Left*, View, Steam, Gyro → Left.
-            DPad | LeftPad | LeftStick | LeftTrigger | Gyro | LeftBumper | LeftFullPull
+            DPad | LeftPad | LeftStick | LeftTrigger | Gyro | LeftBumper | LeftTriggerFull
             | LeftGrip | LeftGrip2 | View | Steam | LeftStickClick | LeftPadClick
             | LeftPadTouch => {
                 Side::Left
@@ -129,8 +129,8 @@ impl InputSource {
         InputSource::Gyro,
         InputSource::LeftBumper,
         InputSource::RightBumper,
-        InputSource::LeftFullPull,
-        InputSource::RightFullPull,
+        InputSource::LeftTriggerFull,
+        InputSource::RightTriggerFull,
         InputSource::LeftGrip,
         InputSource::RightGrip,
         InputSource::LeftGrip2,
@@ -208,7 +208,7 @@ mod tests {
     fn sides_and_kinds() {
         assert_eq!(InputSource::FaceButtons.kind(), SourceKind::ButtonGroup);
         assert_eq!(InputSource::LeftPad.kind(), SourceKind::Pad);
-        assert_eq!(InputSource::RightFullPull.kind(), SourceKind::Button);
+        assert_eq!(InputSource::RightTriggerFull.kind(), SourceKind::Button);
         assert_eq!(InputSource::FaceButtons.side(), Side::Right);
         assert_eq!(InputSource::DPad.side(), Side::Left);
         assert_eq!(InputSource::Steam.side(), Side::Left);

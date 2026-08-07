@@ -94,7 +94,7 @@ impl LogicalFrame {
     }
 
     /// Analog pull of a **trigger** source, `0.0..=1.0`. Zero for other sources. (The digital
-    /// full-pull is a separate `LeftFullPull`/`RightFullPull` button — see [`Self::button`].)
+    /// full-pull is a separate `LeftTriggerFull`/`RightTriggerFull` button — see [`Self::button`].)
     pub fn trigger(&self, source: &InputSource) -> f32 {
         match source {
             InputSource::LeftTrigger => self.state.left_trigger,
@@ -118,14 +118,14 @@ impl LogicalFrame {
 fn button_flag(source: &InputSource) -> Option<Buttons> {
     use InputSource as I;
     Some(match source {
-        I::LeftBumper => Buttons::L1,
-        I::RightBumper => Buttons::R1,
-        I::LeftFullPull => Buttons::L2,
-        I::RightFullPull => Buttons::R2,
-        I::LeftGrip => Buttons::L4,
-        I::RightGrip => Buttons::R4,
-        I::LeftGrip2 => Buttons::L5,
-        I::RightGrip2 => Buttons::R5,
+        I::LeftBumper => Buttons::LB,
+        I::RightBumper => Buttons::RB,
+        I::LeftTriggerFull => Buttons::LT,
+        I::RightTriggerFull => Buttons::RT,
+        I::LeftGrip => Buttons::LGRIP,
+        I::RightGrip => Buttons::RGRIP,
+        I::LeftGrip2 => Buttons::LGRIP2,
+        I::RightGrip2 => Buttons::RGRIP2,
         // Valve labels, unified across crates: View = left/select, Menu = right/start.
         I::View => Buttons::VIEW,
         I::Menu => Buttons::MENU,
@@ -183,9 +183,9 @@ mod tests {
 
     #[test]
     fn standalone_buttons_and_group_members() {
-        let f = frame_with(Buttons::L1 | Buttons::Y | Buttons::L2, |_| {});
+        let f = frame_with(Buttons::LB | Buttons::Y | Buttons::LT, |_| {});
         assert!(f.button(&InputSource::LeftBumper)); // L1
-        assert!(f.button(&InputSource::LeftFullPull)); // L2
+        assert!(f.button(&InputSource::LeftTriggerFull)); // L2
         assert!(!f.button(&InputSource::RightBumper)); // R1 unset
         assert!(f.group_member(&InputSource::FaceButtons, &Dir::Up)); // Y
         assert!(!f.group_member(&InputSource::FaceButtons, &Dir::Down)); // A unset

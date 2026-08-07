@@ -363,11 +363,11 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Press L1 → key down.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Hold → no new events.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 1);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 1);
         assert!(out.is_empty());
 
         // Release → key up.
@@ -385,7 +385,7 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Hold L1 → key A is applied (down).
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Device gone → release_all emits the release without any input change.
@@ -412,7 +412,7 @@ mod tests {
             },
         )]);
         let mut m = Mapper::new(&program);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::R1), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::RB), 0);
         // Sorted (BTreeSet) → deterministic order; both go down.
         assert_eq!(
             out.iter().filter(|e| matches!(e, OutputEvent::Key(_, true))).count(),
@@ -431,7 +431,7 @@ mod tests {
             },
         )]);
         let mut m = Mapper::new(&program);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L4), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP), 0);
         assert_eq!(out, vec![OutputEvent::GamepadButton(GamepadButton::A, true)]);
     }
 
@@ -449,7 +449,7 @@ mod tests {
             },
         )]);
         let mut m = Mapper::new(&program);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
         assert!(out.is_empty());
     }
 
@@ -481,18 +481,18 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Hold L1 on base until the Long arms → A down at t=300.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 300);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 300);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Swap to the layer (still holding L1). Winning binding changed → fresh activator state:
         // A releases, and the layer's Long has NOT armed yet (press_start reset to now).
         m.force_layer(LayerId::new(0));
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 320);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 320);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
 
         // Only after another 250 ms of holding does the layer's Long fire → B.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 600);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600);
         assert_eq!(out, vec![OutputEvent::Key(Key::B, true)]);
     }
 
@@ -525,14 +525,14 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Base only → A.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Activate the layer (a real AddLayer does this in S8's tests; here force it for the
         // resolution check): release first so applied levels are clean, then B should win.
         let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 1);
         m.force_layer(LayerId::new(0));
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 2);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 2);
         assert_eq!(out, vec![OutputEvent::Key(Key::B, true)]);
     }
 
@@ -544,12 +544,12 @@ mod tests {
         let prog_b = program_with([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::B)))]);
         let mut m = Mapper::new(&prog_a);
 
-        let out = run(&mut m, &prog_a, &frame(steam_hid::Buttons::L1), 0);
+        let out = run(&mut m, &prog_a, &frame(steam_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Switch to program B (still holding L1) and tick B: A up, B down in one reconcile.
         m.switch_program(&prog_b);
-        let out = run(&mut m, &prog_b, &frame(steam_hid::Buttons::L1), 4);
+        let out = run(&mut m, &prog_b, &frame(steam_hid::Buttons::LB), 4);
         assert!(down(&out, Key::B) && out.contains(&OutputEvent::Key(Key::A, false)));
     }
 
@@ -568,14 +568,14 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Press L4 + L1 together: this tick the layer isn't active yet, so L1 does nothing.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L4 | steam_hid::Buttons::L1), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP | steam_hid::Buttons::LB), 0);
         assert!(out.is_empty());
         // Next tick the layer is active → L1 → A.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L4 | steam_hid::Buttons::L1), 4);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP | steam_hid::Buttons::LB), 4);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
         // Release L4 (the hold's node) but keep L1: the layer drops next tick, A releases.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 8);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 12);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 8);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 12);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
     }
 
@@ -593,15 +593,15 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Press L1: layer arms, no output yet.
-        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0).is_empty());
+        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0).is_empty());
         // Now L1 is shadowed by the layer → X down, and it stays down while L1 is held (stable,
         // no flicker) — the HoldLayer command no longer fires but the hold latches to L1.
         assert_eq!(
-            run(&mut m, &program, &frame(steam_hid::Buttons::L1), 4),
+            run(&mut m, &program, &frame(steam_hid::Buttons::LB), 4),
             vec![OutputEvent::Key(Key::X, true)]
         );
-        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::L1), 8).is_empty()); // held, stable
-        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::L1), 12).is_empty());
+        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::LB), 8).is_empty()); // held, stable
+        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::LB), 12).is_empty());
         // Release L1 → X releases, layer drops.
         assert_eq!(
             run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 16),
@@ -620,12 +620,12 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Base active: L1 → A.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Activate the None layer while still holding L1 → A is released, nothing new.
         m.force_layer(LayerId::new(0));
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 4);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 4);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
     }
 
@@ -638,7 +638,7 @@ mod tests {
         )]);
         let mut m = Mapper::new(&program);
         m.force_layer(LayerId::new(0));
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 0);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]); // base A, not shadowed
     }
 
@@ -665,13 +665,13 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Arm both holds (press L4 + L5).
-        let held = steam_hid::Buttons::L4 | steam_hid::Buttons::L5;
+        let held = steam_hid::Buttons::LGRIP | steam_hid::Buttons::LGRIP2;
         let _ = run(&mut m, &program, &frame(held.clone()), 0);
         // Now press R1 + R4 too: layer 1 wins R1 (B), layer 0 supplies R4 (C), no A.
         let out = run(
             &mut m,
             &program,
-            &frame(held | steam_hid::Buttons::R1 | steam_hid::Buttons::R4),
+            &frame(held | steam_hid::Buttons::RB | steam_hid::Buttons::RGRIP),
             4,
         );
         assert!(down(&out, Key::B) && down(&out, Key::C));
@@ -691,19 +691,19 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Tap L4 → AddLayer. Layer persists after release.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::L4), 0);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP), 0);
         let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 100);
         // L1 now → A (layer active though L4 long released).
         assert_eq!(
-            run(&mut m, &program, &frame(steam_hid::Buttons::L1), 200),
+            run(&mut m, &program, &frame(steam_hid::Buttons::LB), 200),
             vec![OutputEvent::Key(Key::A, true)]
         );
         let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 300);
 
         // Tap R4 → RemoveLayer. Now L1 is unbound (base has no L1) → nothing.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::R4), 400);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 400);
         let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 500);
-        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::L1), 600).is_empty());
+        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600).is_empty());
     }
 
     #[test]
@@ -723,16 +723,16 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // In set0, add layer0, confirm L1 → A.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::L4), 0);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP), 0);
         let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 100);
-        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::L1), 200), Key::A));
+        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::LB), 200), Key::A));
         let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 300);
 
         // Tap Menu → ChangeActionSet(1): next tick we're on set1, layer stack cleared.
         let _ = run(&mut m, &program, &frame(steam_hid::Buttons::MENU), 400);
         let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 500);
         // L1 → B now (set1), and the old layer0's A is gone.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::L1), 600);
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600);
         assert!(down(&out, Key::B) && !down(&out, Key::A));
     }
 }
