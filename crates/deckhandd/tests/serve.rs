@@ -61,6 +61,52 @@ fn daemon_serves_control_requests() {
     assert!(!sock.exists(), "socket file was not cleaned up");
 }
 
+/// Regression (PLAN §4.4, thread-per-connection): a client that connects and keeps its connection
+/// **open and idle** — as the daemon-mode UI does with its persistent command connection — must not
+/// wedge the accept loop. A second client has to be served promptly while the first still holds on.
+#[test]
+fn concurrent_clients_are_served() {
+    let sock =
+        std::env::temp_dir().join(format!("deckhandd-concurrent-{}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&sock);
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_deckhandd"))
+        .env("DECKHAND_SOCKET", &sock)
+        .env("RUST_LOG", "warn")
+        .spawn()
+        .expect("spawn deckhandd");
+
+    assert!(wait_for(|| sock.exists(), Duration::from_secs(5)), "daemon never bound the socket");
+
+    // First client: connect, issue a request, then keep the connection open and idle.
+    let mut held = Client::connect_path(&sock).expect("connect held");
+    assert!(matches!(held.call(&Request::Status).unwrap(), Response::Status(_)));
+
+    // Second client, on another thread: it must be served even though `held` is still open. Run it
+    // off-thread with a timeout so a regression (the accept loop wedged) fails the test instead of
+    // hanging it.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let sock2 = sock.clone();
+    std::thread::spawn(move || {
+        let served = Client::connect_path(&sock2)
+            .and_then(|mut c| c.call(&Request::Status))
+            .map(|r| matches!(r, Response::Status(_)))
+            .unwrap_or(false);
+        let _ = tx.send(served);
+    });
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(5)),
+        Ok(true),
+        "second client was not served while the first held its connection open",
+    );
+
+    // Cleanup: the held connection can still drive shutdown.
+    assert!(matches!(held.call(&Request::Shutdown).unwrap(), Response::Ok));
+    drop(held);
+    let status = wait_child(&mut child, Duration::from_secs(5)).expect("daemon should exit");
+    assert!(status.success(), "daemon exited with {status:?}");
+}
+
 fn wait_for(mut cond: impl FnMut() -> bool, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {

@@ -126,9 +126,11 @@ impl Daemon {
         }
     }
 
-    /// Full teardown (releases hardware → lizard restored, pad unplugged).
-    pub fn shutdown(self) -> engine::Result<()> {
-        self.engine.shutdown()
+    /// Release hardware (→ lizard restored, pad unplugged). Takes `&mut self` (not `self`) so the
+    /// engine can live behind the serve loop's `Arc<Mutex<Daemon>>` and be shut down in place after
+    /// the accept loop ends.
+    pub fn shutdown(&mut self) -> engine::Result<()> {
+        self.engine.stop()
     }
 }
 

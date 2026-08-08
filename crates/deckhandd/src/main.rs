@@ -14,8 +14,8 @@ mod inhibit;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use clap::Parser;
 use config::{ConfigDoc, GlobalConfig};
@@ -212,8 +212,14 @@ fn resolve_socket(over: Option<&str>) -> SocketTarget {
 /// Ctrl-C/SIGTERM. `target` is the socket's path/name (for logging + the Ctrl-C wake); `systemd`
 /// selects the socket-activation lifecycle — signal `sd-notify` readiness, and leave the socket
 /// file for systemd to reap (no [`cleanup_socket`]).
+///
+/// Each accepted connection is served on its **own thread** over a shared `Arc<Mutex<Daemon>>`
+/// (PLAN §4.4): a request briefly locks the engine, so multiple clients — a UI holding a persistent
+/// command connection, an event-stream subscriber, and an occasional `deckhandctl` — are served
+/// concurrently and a long-lived connection never wedges the others. Engine access stays serialized
+/// by the mutex (handling is fast; the mapping loop runs on its own threads regardless).
 fn serve(
-    mut daemon: Daemon,
+    daemon: Daemon,
     server: Server,
     target: SocketTarget,
     systemd: bool,
@@ -228,6 +234,7 @@ fn serve(
     }
 
     let running = Arc::new(AtomicBool::new(true));
+    let daemon = Arc::new(Mutex::new(daemon));
     {
         let running = running.clone();
         let target = target.clone();
@@ -242,49 +249,21 @@ fn serve(
         if !running.load(Ordering::Relaxed) {
             break;
         }
-        let mut conn = match conn {
+        let conn = match conn {
             Ok(c) => c,
             Err(e) => {
                 log::warn!("accept: {e}");
                 continue;
             }
         };
-        // Request/reply is served one connection at a time (each is short: connect → request →
-        // reply → close). A `Subscribe` is the exception — a long-lived event stream — so it's
-        // handed to its own thread and the accept loop moves on (D7).
-        let mut shutdown = false;
-        loop {
-            match conn.recv() {
-                Ok(Some(Request::Shutdown)) => {
-                    let _ = conn.reply(&Response::Ok);
-                    log::info!("shutdown requested by client");
-                    shutdown = true;
-                    break;
-                }
-                Ok(Some(Request::Subscribe)) => {
-                    log::info!("client subscribed to the event stream");
-                    spawn_monitor(conn, daemon.subscribe()); // moves conn onto its own thread
-                    break;
-                }
-                Ok(Some(req)) => {
-                    let resp = daemon.handle(req);
-                    if let Err(e) = conn.reply(&resp) {
-                        log::warn!("reply: {e}");
-                        break;
-                    }
-                }
-                Ok(None) => break, // client closed the connection
-                Err(e) => {
-                    log::warn!("recv: {e}");
-                    break;
-                }
-            }
-        }
-        if shutdown || !running.load(Ordering::Relaxed) {
-            break;
-        }
+        let daemon = daemon.clone();
+        let running = running.clone();
+        let target = target.clone();
+        std::thread::spawn(move || serve_conn(conn, daemon, running, target));
     }
 
+    // Accept loop ended (Shutdown or Ctrl-C/SIGTERM). Detached per-connection threads exit with the
+    // process; we release hardware here so lizard/pad are restored on a clean exit.
     if systemd {
         // The socket is systemd's — leave the file in place; just tell systemd we're going down.
         #[cfg(target_os = "linux")]
@@ -294,10 +273,50 @@ fn serve(
         cleanup_socket(&target);
     }
     log::info!("shutting down — releasing controller and unplugging virtual pad");
-    if let Err(e) = daemon.shutdown() {
+    if let Err(e) = daemon.lock().expect("daemon mutex poisoned").shutdown() {
         log::warn!("shutdown: {e}");
     }
     Ok(())
+}
+
+/// Serve one client connection to completion (its own thread). Runs the request/reply loop, locking
+/// the shared engine per request; a `Subscribe` turns this thread into the client's event pump, and
+/// a `Shutdown` flips `running` and wakes the accept loop so the daemon exits.
+fn serve_conn(
+    mut conn: Conn,
+    daemon: Arc<Mutex<Daemon>>,
+    running: Arc<AtomicBool>,
+    target: SocketTarget,
+) {
+    loop {
+        match conn.recv() {
+            Ok(Some(Request::Shutdown)) => {
+                let _ = conn.reply(&Response::Ok);
+                log::info!("shutdown requested by client");
+                running.store(false, Ordering::Relaxed);
+                wake(&target); // unblock the accept loop so it observes !running and exits
+                break;
+            }
+            Ok(Some(Request::Subscribe)) => {
+                log::info!("client subscribed to the event stream");
+                let stream = daemon.lock().expect("daemon mutex poisoned").subscribe();
+                monitor(conn, stream); // runs the event stream on this thread until the client goes
+                break;
+            }
+            Ok(Some(req)) => {
+                let resp = daemon.lock().expect("daemon mutex poisoned").handle(req);
+                if let Err(e) = conn.reply(&resp) {
+                    log::warn!("reply: {e}");
+                    break;
+                }
+            }
+            Ok(None) => break, // client closed the connection
+            Err(e) => {
+                log::warn!("recv: {e}");
+                break;
+            }
+        }
+    }
 }
 
 /// Wake the blocking accept loop by opening (and dropping) a throwaway connection to our socket.
@@ -328,17 +347,15 @@ fn cleanup_socket(target: &Path) {
 #[cfg(windows)]
 fn cleanup_socket(_target: &str) {}
 
-/// Stream engine events to a subscribed client on its own thread (D7) until the engine goes away
-/// (all senders dropped → `recv` returns `None`) or the client disconnects (a send fails). Detached:
-/// on daemon shutdown the engine drops, the stream ends, and the thread exits with the process.
-fn spawn_monitor(mut conn: Conn, stream: EventStream) {
-    std::thread::spawn(move || {
-        while let Some(ev) = stream.recv() {
-            if conn.send_event(&to_wire_event(ev)).is_err() {
-                break; // client gone
-            }
+/// Stream engine events to a subscribed client (D7) until the engine goes away (all senders dropped
+/// → `recv` returns `None`) or the client disconnects (a send fails). Called from the connection's
+/// own serve thread, which it takes over for the stream's lifetime.
+fn monitor(mut conn: Conn, stream: EventStream) {
+    while let Some(ev) = stream.recv() {
+        if conn.send_event(&to_wire_event(ev)).is_err() {
+            break; // client gone
         }
-    });
+    }
 }
 
 /// Bind the control socket at `path`, with a stale-socket / single-instance dance: if the file
