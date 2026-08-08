@@ -473,13 +473,23 @@ impl Engine {
             [] => Err(Error::NotReady("no matching controller found")),
             [info] => Ok(manager.open(info)?),
             many => {
-                // Poll each candidate slot **once** (200 ms) and take the first that streams — no
-                // multi-try retry. `start()` is synchronous, so probing powered-off slots repeatedly
-                // (was 8×) blocked the caller for seconds and froze a sync UI. One poll/slot fails
-                // fast; a powered-on controller streams within it. If a slow-to-stream unit is ever
-                // missed, lengthen this single poll rather than re-adding retries.
+                // Walk candidates in enumerate order (same order as `deckhandctl list-devices`) and
+                // take the first usable one — but *how* usable is judged differs by transport:
+                //
+                // - **Dongle:** the receiver exposes phantom slots 1..4 whether or not a controller
+                //   is paired/on, so we must **poll** each to find the live one. USB streams input
+                //   by default (pre-config), so a powered-on slot answers the poll; a dead slot
+                //   doesn't and is skipped. `start()` is synchronous — keep the poll short so a
+                //   powered-off dongle doesn't freeze a sync caller (the UI).
+                // - **Non-dongle (wired/bt):** enumerated only when actually present, and it does
+                //   **not** stream until the reader configures it (`set_lizard_mode`/`set_gyro`), so
+                //   a pre-config poll would see nothing (this is why BT was skipped under Auto). Open
+                //   it directly and take it — like the single-candidate case.
                 for info in many {
                     let mut device = manager.open(info)?;
+                    if info.transport != Transport::UsbDongle {
+                        return Ok(device);
+                    }
                     if matches!(
                         device.poll_raw(Duration::from_millis(200))?,
                         Some(RawReport::Gordon(_) | RawReport::Neptune(_) | RawReport::Connected)
