@@ -2,7 +2,10 @@
 # See PLAN.md for the full design; build order is steam-hid first.
 [workspace]
 resolver = "3"
-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl"]
+members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl", "crates/ui-test-common", "crates/ui-test-iced"]
+# The `ui-test-*` UI-toolkit bake-off crates pull heavy GUI deps and are opt-in
+# (`cargo build -p ui-test-iced`). Keep them out of a plain workspace `cargo build`.
+default-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl"]
 
 [workspace.package]
 edition = "2024"
@@ -47,3 +50,8 @@ interprocess = "2"
 # (`listen_fds()` → adopt the LISTEN_FDS socket) + `sd-notify` readiness (`READY=1`). Pure
 # Rust, zero transitive deps; small but proven (fits the dependency policy). Linux-only use.
 sd-notify = "0.5"
+# UI-toolkit bake-off (`ui-test-*`): a Rust-native retained-mode GUI (Elm architecture) —
+# the reference implementation ports cleanly to gtk4/Qt later. rfd = native file dialogs
+# (cross-platform), shared by every toolkit for the profile-path pickers.
+iced = "0.14"
+rfd = "0.17"

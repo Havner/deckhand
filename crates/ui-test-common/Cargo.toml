@@ -1,0 +1,12 @@
+[package]
+name = "ui-test-common"
+edition.workspace = true
+license.workspace = true
+publish = false
+version.workspace = true
+
+[dependencies]
+ipc = { path = "../ipc" }
+config = { path = "../config" }
+serde.workspace = true
+ron.workspace = true

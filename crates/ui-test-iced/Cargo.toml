@@ -1,0 +1,17 @@
+[package]
+name = "ui-test-iced"
+edition.workspace = true
+license.workspace = true
+publish = false
+version.workspace = true
+
+[[bin]]
+name = "deckhand-ui-iced"
+path = "src/main.rs"
+
+[dependencies]
+ui-test-common = { path = "../ui-test-common" }
+ipc = { path = "../ipc" }
+config = { path = "../config" }
+iced.workspace = true
+rfd.workspace = true
