@@ -86,11 +86,9 @@ impl Daemon {
                 Err(e) => Response::Error(e),
             },
             Request::Status => Response::Status(self.status_info()),
-            // Shutdown + Subscribe are intercepted by the serve loop (they change how the connection
-            // is served); if one reaches here it's a no-op ack / a `_` catch below.
-            Request::Shutdown => Response::Ok,
-            // `Request` is #[non_exhaustive]; a future variant this daemon predates (Subscribe is
-            // handled by the serve loop, so it never lands here).
+            // `Shutdown` and `Subscribe` are intercepted by the serve loop (they change how the
+            // connection is served), so they never reach here — the catch-all covers them along with
+            // any future `#[non_exhaustive]` variant this daemon predates.
             _ => Response::Error("unsupported request".into()),
         }
     }
