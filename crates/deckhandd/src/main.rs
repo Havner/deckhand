@@ -49,9 +49,8 @@ struct Args {
     /// Acquire hardware and start immediately (defaults a missing -i/-o to auto/local).
     #[arg(short, long)]
     start: bool,
-    /// Keep the session awake while running (Linux only). Useful when forwarding a controller over
-    /// the network: the compositor sees no local input and would otherwise blank/suspend. Holds a
-    /// freedesktop ScreenSaver inhibitor (unprivileged, session bus).
+    /// Keep the session awake while running (Linux only). Holds a freedesktop
+    /// ScreenSaver inhibitor.
     #[arg(short = 'p', long)]
     prevent_sleep: bool,
     /// Control socket path (Unix) / pipe name (Windows). Overrides $DECKHAND_SOCKET and the default.
