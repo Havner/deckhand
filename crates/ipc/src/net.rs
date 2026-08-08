@@ -97,6 +97,21 @@ impl Server {
         Ok(Server { listener: ListenerOptions::new().name(name).create_sync()? })
     }
 
+    /// Adopt an **already-bound, listening** `UnixListener` — the systemd socket-activation path
+    /// (`LISTEN_FDS`): systemd binds the socket, the daemon lifts the passed fd into a
+    /// `UnixListener` and hands it here. Unlike [`bind_path`](Server::bind_path) this never touches
+    /// the filesystem, so it does no stale-socket dance and — because the interprocess listener
+    /// carries **no reclaim name** — never unlinks the socket file on drop (systemd owns its
+    /// lifecycle). The `LISTEN_FDS`/`fd → UnixListener` step (the only `unsafe`) stays in the
+    /// daemon, keeping this boundary safe.
+    #[cfg(unix)]
+    pub fn from_unix_listener(listener: std::os::unix::net::UnixListener) -> Self {
+        // std UnixListener → interprocess uds Listener (default reclaim = none, so Drop won't
+        // unlink) → the generic local_socket::Listener that `Server` holds.
+        let uds: interprocess::os::unix::uds_local_socket::Listener = listener.into();
+        Server { listener: Listener::from(uds) }
+    }
+
     /// Iterate accepted client connections. Each item is one [`Conn`].
     pub fn incoming(&self) -> impl Iterator<Item = io::Result<Conn>> + '_ {
         self.listener.incoming().map(|r| r.map(|stream| Conn { stream }))

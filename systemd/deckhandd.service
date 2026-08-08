@@ -1,0 +1,12 @@
+[Unit]
+Description=deckhand controller-mapping daemon
+Requires=deckhandd.socket
+After=deckhandd.socket
+
+[Service]
+Type=notify
+ExecStart=%h/.local/bin/deckhandd --systemd --verbose
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

@@ -24,6 +24,9 @@ ctrlc = { workspace = true, features = ["termination"] }
 # DE-provided, headless (a bus call — no X/Wayland). Linux only.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
+# `--systemd`: adopt the socket-activation fd (`LISTEN_FDS`) and signal readiness (`sd-notify
+# READY=1`) for a `Type=notify` user unit. Linux only (the Windows-service path is separate).
+sd-notify.workspace = true
 
 [features]
 default = ["vigem"]

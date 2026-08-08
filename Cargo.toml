@@ -43,3 +43,7 @@ postcard = { version = "1", features = ["use-std"] }
 # Cross-platform local sockets (Unix domain sockets / Windows named pipes) for the
 # daemon control socket — one sync API, no async/tokio (PLAN §4.4).
 interprocess = "2"
+# systemd integration for `deckhandd --systemd` (Linux, user session): socket activation
+# (`listen_fds()` → adopt the LISTEN_FDS socket) + `sd-notify` readiness (`READY=1`). Pure
+# Rust, zero transitive deps; small but proven (fits the dependency policy). Linux-only use.
+sd-notify = "0.5"

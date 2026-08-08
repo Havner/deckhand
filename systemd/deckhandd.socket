@@ -1,0 +1,11 @@
+[Unit]
+Description=deckhand control socket
+
+[Socket]
+ListenStream=%t/deckhand.sock
+Accept=no
+SocketMode=0600
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

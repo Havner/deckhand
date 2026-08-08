@@ -59,6 +59,9 @@ struct Args {
     /// Control socket path (Unix) / pipe name (Windows). Overrides $DECKHAND_SOCKET and the default.
     #[arg(short = 'k', long, value_name = "PATH")]
     socket: Option<String>,
+    /// Run under systemd socket activation (Linux user unit).
+    #[arg(long)]
+    systemd: bool,
     /// Increase log verbosity: -v info, -vv debug, -vvv trace (default warn). RUST_LOG overrides.
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -77,8 +80,14 @@ impl Args {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(args.log_level()))
-        .init();
+    let mut logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(args.log_level()));
+    // Under systemd the journal already timestamps every line — drop env_logger's own to avoid
+    // duplicating it.
+    if args.systemd {
+        logger.format_timestamp(None);
+    }
+    logger.init();
 
     // Hold a sleep/idle inhibitor for the daemon's lifetime (best-effort). Kept in a binding so it
     // lives across `serve` and releases on a clean exit.
@@ -133,7 +142,52 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    serve(daemon, resolve_socket(args.socket.as_deref()))
+    // In systemd mode the server is *adopted* from the LISTEN_FDS socket (its real bound path comes
+    // back too, for the log + the Ctrl-C self-connect wake); otherwise we bind our own here and the
+    // target is the resolved `--socket`/default.
+    let (server, target) = if args.systemd {
+        adopt_systemd_socket()?
+    } else {
+        let target = resolve_socket(args.socket.as_deref());
+        (bind_socket(&target)?, target)
+    };
+
+    serve(daemon, server, target, args.systemd)
+}
+
+/// Adopt the listening control socket systemd passed via `LISTEN_FDS` (socket activation), plus its
+/// real bound path (from `getsockname`, for logging + the shutdown wake). The fd is validated + set
+/// close-on-exec by [`sd_notify::listen_fds`]; we require **exactly one**. The daemon never binds or
+/// removes this socket — systemd owns its lifecycle. Linux only.
+#[cfg(target_os = "linux")]
+fn adopt_systemd_socket() -> Result<(Server, SocketTarget), Box<dyn Error>> {
+    use std::os::fd::FromRawFd;
+    use std::os::unix::net::UnixListener;
+
+    let mut fds = sd_notify::listen_fds().map_err(|e| format!("--systemd: reading LISTEN_FDS: {e}"))?;
+    let fd = fds.next().ok_or(
+        "--systemd: no socket passed by systemd (LISTEN_FDS unset). Start via deckhandd.socket, \
+         or a service with Requires=deckhandd.socket",
+    )?;
+    if fds.next().is_some() {
+        return Err("--systemd: more than one socket passed by systemd; expected exactly one".into());
+    }
+    // SAFETY: `fd` is the listening AF_UNIX socket systemd bound and handed us; nothing else owns
+    // it, and `listen_fds` already set it close-on-exec.
+    let listener = unsafe { UnixListener::from_raw_fd(fd) };
+    // Use the socket's actual bound path (not the default name) so the wake self-connect reaches
+    // *this* socket regardless of the unit's ListenStream; fall back to the default if unnamed.
+    let target = listener
+        .local_addr()
+        .ok()
+        .and_then(|a| a.as_pathname().map(Path::to_path_buf))
+        .unwrap_or_else(|| resolve_socket(None));
+    Ok((Server::from_unix_listener(listener), target))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn adopt_systemd_socket() -> Result<(Server, SocketTarget), Box<dyn Error>> {
+    Err("--systemd is only supported on Linux".into())
 }
 
 /// The socket the daemon serves, resolved from `--socket` (`SocketTarget` is a filesystem path on
@@ -154,11 +208,24 @@ fn resolve_socket(over: Option<&str>) -> SocketTarget {
     over.map(str::to_string).unwrap_or_else(|| ipc::DEFAULT_PIPE_NAME.to_string())
 }
 
-/// Bind the control socket and run the accept/serve loop until Shutdown or Ctrl-C/SIGTERM. A bind
-/// failure is **fatal** (propagated).
-fn serve(mut daemon: Daemon, target: SocketTarget) -> Result<(), Box<dyn Error>> {
-    let server = bind_socket(&target)?;
+/// Run the accept/serve loop on an already-bound (or systemd-adopted) `server` until Shutdown or
+/// Ctrl-C/SIGTERM. `target` is the socket's path/name (for logging + the Ctrl-C wake); `systemd`
+/// selects the socket-activation lifecycle — signal `sd-notify` readiness, and leave the socket
+/// file for systemd to reap (no [`cleanup_socket`]).
+fn serve(
+    mut daemon: Daemon,
+    server: Server,
+    target: SocketTarget,
+    systemd: bool,
+) -> Result<(), Box<dyn Error>> {
     log::info!("listening on {}", display_target(&target));
+
+    // Tell systemd we're ready to accept (Type=notify). Only reachable on Linux (adopt errors
+    // elsewhere), so the sd-notify call is Linux-gated.
+    #[cfg(target_os = "linux")]
+    if systemd && let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Ready]) {
+        log::warn!("sd_notify READY: {e}");
+    }
 
     let running = Arc::new(AtomicBool::new(true));
     {
@@ -218,7 +285,14 @@ fn serve(mut daemon: Daemon, target: SocketTarget) -> Result<(), Box<dyn Error>>
         }
     }
 
-    cleanup_socket(&target);
+    if systemd {
+        // The socket is systemd's — leave the file in place; just tell systemd we're going down.
+        #[cfg(target_os = "linux")]
+        let _ = sd_notify::notify(&[sd_notify::NotifyState::Stopping]);
+    } else {
+        // We created the socket file — remove it.
+        cleanup_socket(&target);
+    }
     log::info!("shutting down — releasing controller and unplugging virtual pad");
     if let Err(e) = daemon.shutdown() {
         log::warn!("shutdown: {e}");

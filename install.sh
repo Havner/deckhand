@@ -19,3 +19,22 @@ mkdir -p "$comp_dir"
 cp completions/deckhandd.bash "$comp_dir/deckhandd.bash"
 ln -sf deckhandd.bash "$comp_dir/deckhandctl.bash"
 echo "installed bash completions into $comp_dir"
+
+# systemd user units (Linux). Installed but NOT enabled. The service's ExecStart is rewritten to
+# the just-installed binary so a non-default $CARGO_INSTALL_ROOT still works. `deckhandd.socket`
+# listens on $XDG_RUNTIME_DIR/deckhand.sock (matching the daemon/client default), so an
+# un-configured deckhandctl connects there.
+#
+# Enable EITHER lazy socket activation OR the always-on service — not both (the service pulls the
+# socket in via Requires=):
+#   systemctl --user enable --now deckhandd.socket   # lazy: first deckhandctl call starts the daemon
+#   systemctl --user enable --now deckhandd.service   # always-on: daemon runs from login
+unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+mkdir -p "$unit_dir"
+sed "s|^ExecStart=.*|ExecStart=$root/bin/deckhandd --systemd --verbose|" \
+    systemd/deckhandd.service > "$unit_dir/deckhandd.service"
+cp systemd/deckhandd.socket "$unit_dir/deckhandd.socket"
+echo "installed systemd user units into $unit_dir (not enabled)"
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload 2>/dev/null || true
+fi
