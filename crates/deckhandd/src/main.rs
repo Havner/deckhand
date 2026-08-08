@@ -28,6 +28,9 @@ use daemon::{Daemon, format_diags, to_wire_event};
 #[derive(Parser)]
 #[command(name = "deckhandd", version, about)]
 struct Args {
+    /// List available devices and quit (the one non-persistent option — no socket is served).
+    #[arg(short = 'l', long)]
+    list_devices: bool,
     /// Main profile (RON) → applied to the Main role.
     #[arg(short, long, value_name = "RON")]
     main: Option<PathBuf>,
@@ -87,6 +90,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let mut daemon = Daemon::new();
+
+    // --- --list-devices: the one non-persistent option — enumerate, print (same format as
+    // `deckhandctl list-devices`), and quit before any seeding or socket is served. -------------
+    if args.list_devices {
+        return match daemon.devices() {
+            Ok(ids) => {
+                print_devices(&ids);
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        };
+    }
 
     // --- CLI seeding: pass-through — apply only what was given (PLAN §4.4). ------------------
     if let Some(p) = &args.main {
@@ -295,4 +310,16 @@ fn load_globals(path: &Path) -> Result<GlobalConfig, Box<dyn Error>> {
 
 fn cli_err(e: String) -> Box<dyn Error> {
     e.into()
+}
+
+/// Print the enumerated device ids to stdout, one per line (same format as `deckhandctl
+/// list-devices`).
+fn print_devices(ids: &[String]) {
+    if ids.is_empty() {
+        println!("no devices");
+        return;
+    }
+    for id in ids {
+        println!("{id}");
+    }
 }

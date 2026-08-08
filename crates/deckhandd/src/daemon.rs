@@ -47,6 +47,15 @@ impl Daemon {
         self.engine.start()
     }
 
+    /// Enumerate the currently-attached devices as their stable `DeviceId` strings — shared by the
+    /// CLI `--list-devices` and the `ListDevices` request. `Err` is a human-readable reason.
+    pub fn devices(&mut self) -> Result<Vec<String>, String> {
+        self.engine
+            .devices()
+            .map(|list| list.iter().map(|i| i.id().to_string()).collect())
+            .map_err(|e| e.to_string())
+    }
+
     /// Handle one control request. `Shutdown` is dealt with by the caller (it stops the serve
     /// loop); here it is a no-op `Ok` so the client still gets an acknowledgement.
     pub fn handle(&mut self, req: Request) -> Response {
@@ -72,9 +81,9 @@ impl Daemon {
                 Ok(()) => Response::Ok,
                 Err(e) => Response::Error(e.to_string()),
             },
-            Request::ListDevices => match self.engine.devices() {
-                Ok(list) => Response::Devices(list.iter().map(|i| i.id().to_string()).collect()),
-                Err(e) => Response::Error(e.to_string()),
+            Request::ListDevices => match self.devices() {
+                Ok(list) => Response::Devices(list),
+                Err(e) => Response::Error(e),
             },
             Request::Status => Response::Status(self.status_info()),
             // Shutdown + Subscribe are intercepted by the serve loop (they change how the connection
