@@ -473,15 +473,18 @@ impl Engine {
             [] => Err(Error::NotReady("no matching controller found")),
             [info] => Ok(manager.open(info)?),
             many => {
+                // Poll each candidate slot **once** (200 ms) and take the first that streams — no
+                // multi-try retry. `start()` is synchronous, so probing powered-off slots repeatedly
+                // (was 8×) blocked the caller for seconds and froze a sync UI. One poll/slot fails
+                // fast; a powered-on controller streams within it. If a slow-to-stream unit is ever
+                // missed, lengthen this single poll rather than re-adding retries.
                 for info in many {
                     let mut device = manager.open(info)?;
-                    for _ in 0..8 {
-                        if matches!(
-                            device.poll_raw(Duration::from_millis(200))?,
-                            Some(RawReport::Gordon(_) | RawReport::Neptune(_) | RawReport::Connected)
-                        ) {
-                            return Ok(device);
-                        }
+                    if matches!(
+                        device.poll_raw(Duration::from_millis(200))?,
+                        Some(RawReport::Gordon(_) | RawReport::Neptune(_) | RawReport::Connected)
+                    ) {
+                        return Ok(device);
                     }
                 }
                 Err(Error::NotReady("no matching controller streamed"))
