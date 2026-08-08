@@ -250,6 +250,17 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
+    // Quick access button → system_keys layer
+    base.insert(
+        InputSource::QuickAccess,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
+                settings: Default::default(),
+            }],
+        },
+    );
 
     // ----- TRIGGERS -----
 
@@ -655,6 +666,17 @@ pub fn cp2077_profile() -> ConfigDoc {
             }],
         },
     );
+    // Quick access button → system_keys layer
+    base.insert(
+        InputSource::QuickAccess,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
+                settings: Default::default(),
+            }],
+        },
+    );
 
     // ----- TRIGGERS -----
 
@@ -975,6 +997,17 @@ pub fn control_profile() -> ConfigDoc {
     // Steam button → system_keys layer
     base.insert(
         InputSource::Steam,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Quick access button → system_keys layer
+    base.insert(
+        InputSource::QuickAccess,
         SourceBinding::Button {
             commands: vec![Command {
                 activator: Activator::Regular,
@@ -1349,6 +1382,17 @@ pub fn system_shock_profile() -> ConfigDoc {
             }],
         },
     );
+    // Quick access button → system_keys layer
+    base.insert(
+        InputSource::QuickAccess,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
+                settings: Default::default(),
+            }],
+        },
+    );
 
     // ----- TRIGGERS -----
 
@@ -1572,13 +1616,25 @@ pub fn globals() -> GlobalConfig {
         master_rumble: 100,
         chords: vec![
             GlobalChord {
-                buttons: vec![InputSource::Steam, InputSource::Menu],
+                buttons: vec![InputSource::Steam, InputSource::RightGrip],
                 action: GlobalAction::SwitchProfile {
                     mode: SwitchMode::SetMain,
                 },
             },
             GlobalChord {
-                buttons: vec![InputSource::Steam, InputSource::View],
+                buttons: vec![InputSource::QuickAccess, InputSource::RightGrip],
+                action: GlobalAction::SwitchProfile {
+                    mode: SwitchMode::SetMain,
+                },
+            },
+            GlobalChord {
+                buttons: vec![InputSource::Steam, InputSource::LeftGrip],
+                action: GlobalAction::SwitchProfile {
+                    mode: SwitchMode::SetFallback,
+                },
+            },
+            GlobalChord {
+                buttons: vec![InputSource::QuickAccess, InputSource::LeftGrip],
                 action: GlobalAction::SwitchProfile {
                     mode: SwitchMode::SetFallback,
                 },
