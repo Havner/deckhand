@@ -1,11 +1,12 @@
 //! Button and axis taxonomy (PLAN §1.4, §1.5).
 //!
 //! [`Buttons`] (bitflags) and [`Button`] (one variant per bit) are two views of
-//! the same unified superset. [`GordonButtons`] / [`GordonBleButtons`] /
-//! [`NeptuneButtons`] are the raw per-device wire bitfields, folded into the
-//! unified set during conversion. All four share one naming scheme (PLAN §1.4):
-//! `LB/RB` bumpers, `LT/RT` trigger full-pulls, `LGRIP/RGRIP` (+ `LGRIP2/RGRIP2`
-//! on the Deck) back buttons, `View/Menu` the two small top buttons.
+//! the same unified superset. [`GordonButtons`] / [`NeptuneButtons`] are the raw
+//! per-device wire bitfields, folded into the unified set during conversion —
+//! Gordon over **USB and Bluetooth share [`GordonButtons`]** (same bit layout).
+//! They share one naming scheme (PLAN §1.4): `LB/RB` bumpers, `LT/RT` trigger
+//! full-pulls, `LGRIP/RGRIP` (+ `LGRIP2/RGRIP2` on the Deck) back buttons,
+//! `View/Menu` the two small top buttons.
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,12 @@ bitflags::bitflags! {
 bitflags::bitflags! {
     /// Raw Gordon (original Steam Controller) button bits, packed as
     /// `buttons0 | buttons1 << 8 | buttons2 << 16` (PLAN §1.4).
+    ///
+    /// Shared by **USB and Bluetooth** Gordon — identical bit layout; over BLE the
+    /// same bits arrive in the compact input's button chunk. `dpad` (bits 8..11) is
+    /// firmware-synthesized from left-pad directional clicks on both transports.
+    /// `LPAD_AND_JOY` and the shared left-click bit are USB-wire multiplex artifacts
+    /// resolved in `parse_gordon` (never set over BLE).
     #[derive(Debug, Clone, PartialEq, Eq, Default)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct GordonButtons: u32 {
@@ -80,48 +87,6 @@ bitflags::bitflags! {
         const RPAD_TOUCH   = 1 << 20;
         const LSTICK_PRESS = 1 << 22;
         const LPAD_AND_JOY = 1 << 23;
-    }
-}
-
-bitflags::bitflags! {
-    /// Raw Gordon **Bluetooth** button bits (PLAN §1.4).
-    ///
-    /// Bit **positions and names are identical to the USB [`GordonButtons`]** layout
-    /// (the SDL/sc-controller reference happens to name them the same way we do:
-    /// `LB/RB`, `LT/RT`, `LGRIP/RGRIP`, plus `View/Menu`). Kept as its own type only
-    /// because BLE is parsed/accumulated separately; folded into the unified set by
-    /// `map_gordon_ble_buttons`. Unlike USB there is no left multiplex (pad/stick are
-    /// separate blocks), so `LPAD_PRESS`/`LSTICK_PRESS` are independent.
-    ///
-    /// The dpad bits (8..11) are wired the same as USB and **HW-verified over BT**: the
-    /// SC synthesizes them from left-pad directional clicks, firing alongside
-    /// `LPAD_TOUCH`/`LPAD_PRESS` exactly as on USB Gordon.
-    #[derive(Debug, Clone, PartialEq, Eq, Default)]
-    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-    pub struct GordonBleButtons: u32 {
-        const RT           = 1 << 0; // right trigger full-pull
-        const LT           = 1 << 1; // left trigger full-pull
-        const RB           = 1 << 2;
-        const LB           = 1 << 3;
-        const Y            = 1 << 4;
-        const B            = 1 << 5;
-        const X            = 1 << 6;
-        const A            = 1 << 7;
-        // bits 8..11: dpad — synthesized from left-pad directional clicks (HW-verified).
-        const DPAD_UP      = 1 << 8;
-        const DPAD_RIGHT   = 1 << 9;
-        const DPAD_LEFT    = 1 << 10;
-        const DPAD_DOWN    = 1 << 11;
-        const VIEW         = 1 << 12; // Valve "View" (BTN_SELECT)
-        const STEAM        = 1 << 13;
-        const MENU         = 1 << 14; // Valve "Menu" (BTN_START)
-        const LGRIP        = 1 << 15;
-        const RGRIP        = 1 << 16;
-        const LPAD_PRESS   = 1 << 17;
-        const RPAD_PRESS   = 1 << 18;
-        const LPAD_TOUCH   = 1 << 19;
-        const RPAD_TOUCH   = 1 << 20;
-        const LSTICK_PRESS = 1 << 22;
     }
 }
 

@@ -1,7 +1,7 @@
 //! Layer 2: the unified, normalized snapshot (PLAN §1.5).
 
-use crate::buttons::{Axis, Buttons, GordonBleButtons, GordonButtons, NeptuneButtons};
-use crate::report::{BatteryRaw, GordonBleReport, GordonReport, NeptuneReport, RawReport};
+use crate::buttons::{Axis, Buttons, GordonButtons, NeptuneButtons};
+use crate::report::{BatteryRaw, GordonReport, NeptuneReport, RawReport};
 use crate::value::{Quati, Timestamp, TrackPad, Vec2, Vec3i};
 
 #[cfg(feature = "serde")]
@@ -27,9 +27,6 @@ impl Report {
     pub(crate) fn decode(raw: &RawReport, timestamp: Timestamp) -> Report {
         match raw {
             RawReport::Gordon(g) => Report::State(ControllerState::from_gordon(g, timestamp)),
-            RawReport::GordonBle(g) => {
-                Report::State(ControllerState::from_gordon_ble(g, timestamp))
-            }
             RawReport::Neptune(n) => Report::State(ControllerState::from_neptune(n, timestamp)),
             RawReport::Connected => Report::Connected,
             RawReport::Disconnected => Report::Disconnected,
@@ -133,40 +130,6 @@ impl ControllerState {
         }
     }
 
-    /// Convert a Gordon **Bluetooth** snapshot to a unified snapshot.
-    ///
-    /// Reuses USB Gordon's normalization (`gordon_gyro`, `norm_u8`, `norm_stick`)
-    /// verbatim — the raw IMU frame is identical (HW-verified, PLAN §1.9), so the
-    /// same gyro y-negation applies. Differs from `from_gordon` only in the wire
-    /// shape: BLE reports **separate** left stick and pad (no multiplex), so both
-    /// fold 1:1. (Dpad works like USB — synthesized from left-pad directional clicks,
-    /// HW-verified over BT.)
-    fn from_gordon_ble(g: &GordonBleReport, timestamp: Timestamp) -> Self {
-        let b = &g.buttons;
-        ControllerState {
-            seq: g.seq,
-            timestamp,
-            buttons: map_gordon_ble_buttons(b),
-            left_trigger: norm_u8(g.left_trigger),
-            right_trigger: norm_u8(g.right_trigger),
-            left_stick: norm_stick(&g.left_stick),
-            right_stick: Vec2::default(), // Gordon has no right stick
-            left_pad: TrackPad {
-                pos: norm_stick(&g.left_pad),
-                pressure: 0.0, // Gordon pads report no pressure
-                touched: b.contains(GordonBleButtons::LPAD_TOUCH),
-            },
-            right_pad: TrackPad {
-                pos: norm_stick(&g.right_pad),
-                pressure: 0.0,
-                touched: b.contains(GordonBleButtons::RPAD_TOUCH),
-            },
-            accel: g.accel.clone(),
-            gyro: gordon_gyro(&g.gyro),
-            orientation: g.orientation.clone(),
-        }
-    }
-
     /// Convert a Neptune (Steam Deck) wire frame to a unified snapshot.
     ///
     /// The Deck reports **separate** stick/pad fields (no Gordon multiplex) and
@@ -241,6 +204,10 @@ fn norm_stick(v: &crate::value::Vec2i) -> Vec2 {
 }
 
 /// Fold Gordon's per-device button bits into the unified [`Buttons`] superset.
+///
+/// Serves **both** USB and Bluetooth Gordon (they share [`GordonButtons`]). It's a
+/// plain 1:1 fold: the USB left-click multiplex is already resolved in `parse_gordon`,
+/// and BLE has none, so no touch-gating happens here.
 fn map_gordon_buttons(g: &GordonButtons) -> Buttons {
     let mut out = Buttons::empty();
     let mut set = |cond: bool, flag: Buttons| {
@@ -265,59 +232,13 @@ fn map_gordon_buttons(g: &GordonButtons) -> Buttons {
     set(g.contains(GordonButtons::VIEW), Buttons::VIEW);
     set(g.contains(GordonButtons::MENU), Buttons::MENU);
     set(g.contains(GordonButtons::STEAM), Buttons::STEAM);
-    // Left multiplex (PLAN §1.4/§1.9): the left click bit is shared — it also sets
-    // on a left-stick click. Disambiguate on left touch: it's a pad press only when
-    // the pad is actually touched; a stick click surfaces as LSTICK_PRESS alone.
-    set(
-        g.contains(GordonButtons::LPAD_PRESS) && g.contains(GordonButtons::LPAD_TOUCH),
-        Buttons::LPAD_PRESS,
-    );
+    // Pad/stick clicks arrive already de-multiplexed (parse_gordon resolves the USB
+    // shared left-click bit; BLE has no multiplex), so this is a plain 1:1 fold.
+    set(g.contains(GordonButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
     set(g.contains(GordonButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
     set(g.contains(GordonButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
     set(g.contains(GordonButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
-    set(
-        g.contains(GordonButtons::LSTICK_PRESS),
-        Buttons::LSTICK_PRESS,
-    );
-    out
-}
-
-/// Fold Gordon's **Bluetooth** button bits into the unified [`Buttons`] superset.
-///
-/// Simpler than the USB fold: BLE has no left multiplex (pad click / stick press
-/// are distinct bits), so no touch-gating is needed. The SC's grips map to L4/R4
-/// (matching USB Gordon). Trigger full-pulls (`RT`/`LT`) and bumpers (`RB`/`LB`)
-/// map to `R2`/`L2` and `R1`/`L1`. Dpad works like USB — synthesized from left-pad
-/// directional clicks, HW-verified over BT (see [`GordonBleButtons`]).
-fn map_gordon_ble_buttons(g: &GordonBleButtons) -> Buttons {
-    let mut out = Buttons::empty();
-    let mut set = |cond: bool, flag: Buttons| {
-        if cond {
-            out |= flag;
-        }
-    };
-    set(g.contains(GordonBleButtons::A), Buttons::A);
-    set(g.contains(GordonBleButtons::B), Buttons::B);
-    set(g.contains(GordonBleButtons::X), Buttons::X);
-    set(g.contains(GordonBleButtons::Y), Buttons::Y);
-    set(g.contains(GordonBleButtons::DPAD_UP), Buttons::DPAD_UP);
-    set(g.contains(GordonBleButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
-    set(g.contains(GordonBleButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
-    set(g.contains(GordonBleButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
-    set(g.contains(GordonBleButtons::RB), Buttons::RB);
-    set(g.contains(GordonBleButtons::LB), Buttons::LB);
-    set(g.contains(GordonBleButtons::RT), Buttons::RT);
-    set(g.contains(GordonBleButtons::LT), Buttons::LT);
-    set(g.contains(GordonBleButtons::LGRIP), Buttons::LGRIP);
-    set(g.contains(GordonBleButtons::RGRIP), Buttons::RGRIP);
-    set(g.contains(GordonBleButtons::VIEW), Buttons::VIEW);
-    set(g.contains(GordonBleButtons::MENU), Buttons::MENU);
-    set(g.contains(GordonBleButtons::STEAM), Buttons::STEAM);
-    set(g.contains(GordonBleButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
-    set(g.contains(GordonBleButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
-    set(g.contains(GordonBleButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
-    set(g.contains(GordonBleButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
-    set(g.contains(GordonBleButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
+    set(g.contains(GordonButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
     out
 }
 
@@ -368,24 +289,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn left_stick_click_is_not_a_pad_press() {
-        // Stick click shares the LPAD_PRESS bit but has no LPAD_TOUCH.
+    fn gordon_button_fold_is_1to1() {
+        // The left-click multiplex is resolved upstream (parse_gordon, tested there),
+        // so the fold is a plain 1:1 map — a clean pad click stays a pad click, and
+        // the renamed grip bit flows through.
         let g = GordonReport {
-            buttons: GordonButtons::LPAD_PRESS | GordonButtons::LSTICK_PRESS,
-            ..Default::default()
-        };
-        let s = ControllerState::from_gordon(&g, Timestamp::default());
-        assert!(s.buttons.contains(Buttons::LSTICK_PRESS));
-        assert!(!s.buttons.contains(Buttons::LPAD_PRESS));
-    }
-
-    #[test]
-    fn touched_pad_click_is_a_pad_press() {
-        let g = GordonReport {
-            buttons: GordonButtons::LPAD_PRESS | GordonButtons::LPAD_TOUCH,
+            buttons: GordonButtons::LPAD_PRESS | GordonButtons::LPAD_TOUCH | GordonButtons::LGRIP,
             ..Default::default()
         };
         let s = ControllerState::from_gordon(&g, Timestamp::default());
         assert!(s.buttons.contains(Buttons::LPAD_PRESS));
+        assert!(s.buttons.contains(Buttons::LPAD_TOUCH));
+        assert!(s.buttons.contains(Buttons::LGRIP));
+        assert!(!s.buttons.contains(Buttons::LSTICK_PRESS));
     }
 }

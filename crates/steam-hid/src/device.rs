@@ -265,7 +265,7 @@ struct BleState {
     /// Next segment number expected (resets to 0 on a completed/!ordered packet).
     expected_seg: usize,
     /// Accumulated controller state (only-changed chunks arrive per packet).
-    acc: report::GordonBleReport,
+    acc: report::GordonReport,
     /// Synthesized sequence counter, bumped per input snapshot.
     seq: u32,
 }
@@ -275,7 +275,7 @@ impl BleState {
         BleState {
             assembled: [0u8; protocol::ble::SEGMENT_PAYLOAD * protocol::ble::MAX_SEGMENTS],
             expected_seg: 0,
-            acc: report::GordonBleReport::default(),
+            acc: report::GordonReport::default(),
             seq: 0,
         }
     }
@@ -424,7 +424,7 @@ impl Device {
             if report::apply_gordon_ble(&mut ble_state.acc, &assembled[..len]) {
                 ble_state.seq = ble_state.seq.wrapping_add(1);
                 ble_state.acc.seq = ble_state.seq;
-                return Ok(Some(RawReport::GordonBle(ble_state.acc.clone())));
+                return Ok(Some(RawReport::Gordon(ble_state.acc.clone())));
             }
             // Non-input (status) packet — keep reading within the timeout budget.
         }

@@ -4,7 +4,7 @@
 //! a lifecycle frame — so [`RawReport`] carries both. Field offsets follow PLAN
 //! §1.4 and are **unverified on hardware** (PLAN §1.9).
 
-use crate::buttons::{GordonBleButtons, GordonButtons, NeptuneButtons};
+use crate::buttons::{GordonButtons, NeptuneButtons};
 use crate::error::{Error, Result};
 use crate::protocol::{REPORT_LEN, ble, event_type, wireless};
 use crate::value::{Quati, Vec2i, Vec3i};
@@ -17,11 +17,10 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[non_exhaustive]
 pub enum RawReport {
-    /// Original Steam Controller input (`0x01`).
+    /// Original Steam Controller input — USB (`0x01`) or, accumulated from the
+    /// Bluetooth delta stream, a full [`GordonReport`] snapshot (both transports
+    /// converge on the same report; see `parse_gordon` / `apply_gordon_ble`).
     Gordon(GordonReport),
-    /// Original Steam Controller input over **Bluetooth** — a full snapshot
-    /// accumulated from the BLE delta stream (see [`GordonBleReport`]).
-    GordonBle(GordonBleReport),
     /// Steam Deck input (`0x09`).
     Neptune(NeptuneReport),
     /// A wireless controller connected (`0x03`, payload `0x02`).
@@ -43,21 +42,27 @@ pub struct BatteryRaw {
     pub charge_percent: u8,
 }
 
-/// Original Steam Controller (Gordon) input fields (PLAN §1.4).
+/// Original Steam Controller (Gordon) input fields — **USB and Bluetooth** (PLAN §1.4).
 ///
+/// Both transports converge on this one report: `parse_gordon` decodes the USB
+/// 64-byte frame, `apply_gordon_ble` accumulates the BLE delta stream, and both
+/// emit a clean snapshot with `buttons` already de-multiplexed (see `parse_gordon`).
 /// Battery is not here — it arrives out-of-band as [`RawReport::Battery`] (`0x04`).
 /// (The inline `GCInput @0x3E` field the C# reads was verified vestigial — always
 /// `0` on the dongle — so it is not decoded; PLAN §1.9.)
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct GordonReport {
+    /// Frame sequence; wire-provided on USB, synthesized on BLE (which carries none).
     pub seq: u32,
     pub buttons: GordonButtons,
     pub left_trigger: u8,
     pub right_trigger: u8,
-    /// Left stick position (shares `0x10` with the pad — see `parse`).
+    /// Left stick position. On **USB** the stick and pad multiplex onto `0x10`, so
+    /// only the *untouched-pad* one is live per frame (resolved in `parse_gordon`);
+    /// on **BLE** stick and pad are separate chunks, both always live.
     pub left_stick: Vec2i,
-    /// Left pad position (shares `0x10` with the stick — see `parse`).
+    /// Left pad position (see [`left_stick`](Self::left_stick) for the USB multiplex).
     pub left_pad: Vec2i,
     pub right_pad: Vec2i,
     pub accel: Vec3i,
@@ -65,34 +70,11 @@ pub struct GordonReport {
     /// aligned with `accel`: pitch/roll/yaw). Left as the device sends it — the raw
     /// `y` (roll) channel is inverted vs. a right-handed frame; the sign is corrected
     /// only in [`ControllerState`] (`gordon_gyro`, PLAN §1.9). The C# `gyaw`/`groll`
-    /// field names are transposed; the offsets here are correct.
+    /// field names are transposed; the offsets here are correct. BLE raw IMU is
+    /// identical to USB (HW-verified), so the same correction applies.
     pub gyro: Vec3i,
-    pub orientation: Quati,
-}
-
-/// Original Steam Controller (Gordon) input over **Bluetooth** (PLAN §1.4).
-///
-/// The BLE wire is a *delta* stream — each packet carries only the chunks that
-/// changed — so this struct is the **accumulated** state, updated in place by
-/// [`apply_gordon_ble`] and emitted as a full snapshot per input packet. Unlike
-/// USB Gordon there is **no left multiplex**: `left_stick` and `left_pad` are
-/// distinct, always-current fields. IMU raw values match USB Gordon exactly
-/// (HW-verified, PLAN §1.9), so the same `gordon_gyro` correction applies during
-/// conversion. `seq` is synthesized (the wire carries no sequence number). The
-/// `orientation` quaternion chunk is only present if `SEND_ORIENTATION` is enabled;
-/// we don't enable it, so it stays default (unused downstream — PLAN §1.9).
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct GordonBleReport {
-    pub seq: u32,
-    pub buttons: GordonBleButtons,
-    pub left_trigger: u8,
-    pub right_trigger: u8,
-    pub left_stick: Vec2i,
-    pub left_pad: Vec2i,
-    pub right_pad: Vec2i,
-    pub accel: Vec3i,
-    pub gyro: Vec3i,
+    /// Fused orientation quaternion. USB sends it every frame; on BLE it's an optional
+    /// chunk we don't enable (`SEND_ORIENTATION` off), so it stays default there.
     pub orientation: Quati,
 }
 
@@ -167,18 +149,29 @@ pub(crate) fn parse(buf: &[u8]) -> Result<RawReport> {
     }
 }
 
-/// Decode a Gordon input frame (PLAN §1.4 offsets).
+/// Decode a Gordon **USB** input frame (PLAN §1.4 offsets).
 ///
-/// The left pad and analog stick share `lpad_x/y` (`0x10`), disambiguated by
-/// `LPAD_TOUCH`: the pad when touched, the stick when not. Verified on **both** the
-/// wireless dongle and wired — `0x36` is *not* the stick (0 on wireless, small noise
-/// on wired) and `LPAD_AND_JOY` is unused. (PLAN §1.4.)
+/// The USB wire multiplexes the left pad and analog stick two ways; both are fully
+/// resolved **here** so the emitted [`GordonReport`] is clean (matching the BLE path,
+/// which has no multiplex — see `apply_gordon_ble`):
+/// - **coordinates:** pad and stick share `lpad_x/y` (`0x10`), disambiguated by
+///   `LPAD_TOUCH` — the pad when touched, the stick when not. Verified on **both** the
+///   wireless dongle and wired (`0x36` is *not* the stick — 0 on wireless, small noise
+///   on wired — and `LPAD_AND_JOY` is unused). PLAN §1.4/§1.9.
+/// - **click bit:** `LPAD_PRESS` fires for both a pad click *and* a stick click; a
+///   stick click has no `LPAD_TOUCH` (and already sets `LSTICK_PRESS`), so drop the
+///   spurious `LPAD_PRESS` when the pad isn't touched. After this, `LPAD_PRESS` means
+///   a pad click and `LSTICK_PRESS` a stick click, unambiguously.
 fn parse_gordon(b: &[u8]) -> GordonReport {
-    let buttons = GordonButtons::from_bits_truncate(
+    let mut buttons = GordonButtons::from_bits_truncate(
         b[0x08] as u32 | (b[0x09] as u32) << 8 | (b[0x0A] as u32) << 16,
     );
+    let left_touched = buttons.contains(GordonButtons::LPAD_TOUCH);
+    if buttons.contains(GordonButtons::LPAD_PRESS) && !left_touched {
+        buttons.remove(GordonButtons::LPAD_PRESS); // was a stick click, not a pad click
+    }
     let left_raw = vec2i_at(b, 0x10);
-    let (left_pad, left_stick) = if buttons.contains(GordonButtons::LPAD_TOUCH) {
+    let (left_pad, left_stick) = if left_touched {
         (left_raw, Vec2i::default())
     } else {
         (Vec2i::default(), left_raw)
@@ -209,7 +202,7 @@ fn parse_gordon(b: &[u8]) -> GordonReport {
 /// bytes in ascending bit order. Only `State` reports carry input; on anything
 /// else (e.g. a `Status`/battery report) `acc` is left untouched. Returns `true`
 /// if an input state was applied (caller bumps `seq` and emits a snapshot).
-pub(crate) fn apply_gordon_ble(acc: &mut GordonBleReport, payload: &[u8]) -> bool {
+pub(crate) fn apply_gordon_ble(acc: &mut GordonReport, payload: &[u8]) -> bool {
     if payload.len() < 2 || (payload[0] & 0x0F) != ble::report_type::STATE {
         return false;
     }
@@ -229,7 +222,7 @@ pub(crate) fn apply_gordon_ble(acc: &mut GordonBleReport, payload: &[u8]) -> boo
 
     use ble::chunk;
     if mask & chunk::BUTTON1 != 0 && let Some(o) = take(3) {
-        acc.buttons = GordonBleButtons::from_bits_truncate(
+        acc.buttons = GordonButtons::from_bits_truncate(
             payload[o] as u32 | (payload[o + 1] as u32) << 8 | (payload[o + 2] as u32) << 16,
         );
     }
@@ -314,6 +307,7 @@ fn parse_neptune(b: &[u8]) -> NeptuneReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buttons::GordonButtons;
     use crate::protocol::{event_type, wireless};
 
     fn frame_buf(event: u8) -> [u8; REPORT_LEN] {
@@ -333,6 +327,29 @@ mod tests {
 
         let b = frame_buf(event_type::BATTERY);
         assert!(matches!(parse(&b).unwrap(), RawReport::Battery(_)));
+    }
+
+    /// parse_gordon resolves the USB left-click multiplex: a stick click (shares the
+    /// `LPAD_PRESS` bit, no `LPAD_TOUCH`) must not surface as a pad press.
+    #[test]
+    fn parse_gordon_demuxes_stick_click() {
+        let mut b = frame_buf(event_type::INPUT_DATA);
+        let word = (GordonButtons::LPAD_PRESS | GordonButtons::LSTICK_PRESS).bits();
+        b[0x08..0x0B].copy_from_slice(&word.to_le_bytes()[..3]);
+        let RawReport::Gordon(g) = parse(&b).unwrap() else { panic!("expected Gordon") };
+        assert!(g.buttons.contains(GordonButtons::LSTICK_PRESS));
+        assert!(!g.buttons.contains(GordonButtons::LPAD_PRESS));
+    }
+
+    /// A genuine pad click (`LPAD_PRESS` with `LPAD_TOUCH`) survives de-multiplexing.
+    #[test]
+    fn parse_gordon_keeps_touched_pad_click() {
+        let mut b = frame_buf(event_type::INPUT_DATA);
+        let word = (GordonButtons::LPAD_PRESS | GordonButtons::LPAD_TOUCH).bits();
+        b[0x08..0x0B].copy_from_slice(&word.to_le_bytes()[..3]);
+        let RawReport::Gordon(g) = parse(&b).unwrap() else { panic!("expected Gordon") };
+        assert!(g.buttons.contains(GordonButtons::LPAD_PRESS));
+        assert!(g.buttons.contains(GordonButtons::LPAD_TOUCH));
     }
 
     #[test]
