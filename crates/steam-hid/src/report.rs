@@ -157,17 +157,26 @@ pub(crate) fn parse(buf: &[u8]) -> Result<RawReport> {
 /// - **coordinates:** pad and stick share `lpad_x/y` (`0x10`), disambiguated by
 ///   `LPAD_TOUCH` — the pad when touched, the stick when not. Verified on **both** the
 ///   wireless dongle and wired (`0x36` is *not* the stick — 0 on wireless, small noise
-///   on wired — and `LPAD_AND_JOY` is unused). PLAN §1.4/§1.9.
-/// - **click bit:** `LPAD_PRESS` fires for both a pad click *and* a stick click; a
-///   stick click has no `LPAD_TOUCH` (and already sets `LSTICK_PRESS`), so drop the
-///   spurious `LPAD_PRESS` when the pad isn't touched. After this, `LPAD_PRESS` means
-///   a pad click and `LSTICK_PRESS` a stick click, unambiguously.
+///   on wired). When pad + stick are used **together** the firmware sets `LPAD_AND_JOY`
+///   and *flickers* `LPAD_TOUCH` frame-to-frame to tag which the coord belongs to (the
+///   per-frame tag is why the coord split still keys on `LPAD_TOUCH` alone). PLAN §1.9.
+/// - **click bit:** `LPAD_PRESS` fires for both a pad click *and* a stick click (HW-
+///   verified). It's a real pad click only when the pad is *engaged* — touched, **or**
+///   `LPAD_AND_JOY` set (so a pad click survives the `LPAD_TOUCH` flicker during
+///   simultaneous use). Otherwise it's a stick click (which already sets `LSTICK_PRESS`),
+///   so drop the spurious `LPAD_PRESS`. After this, `LPAD_PRESS` means a pad click and
+///   `LSTICK_PRESS` a stick click, unambiguously.
+/// - **touch bit:** reported as *engaged* too (`LPAD_TOUCH || LPAD_AND_JOY`) so the touch
+///   *button* stays steady through the axis-tag flicker during simultaneous use. (The
+///   pad *position* still can't be sampled every frame — that's a single-field wire
+///   limit, PLAN §1.9 — but the buttons are clean.)
 fn parse_gordon(b: &[u8]) -> GordonReport {
     let mut buttons = GordonButtons::from_bits_truncate(
         b[0x08] as u32 | (b[0x09] as u32) << 8 | (b[0x0A] as u32) << 16,
     );
     let left_touched = buttons.contains(GordonButtons::LPAD_TOUCH);
-    if buttons.contains(GordonButtons::LPAD_PRESS) && !left_touched {
+    let left_engaged = left_touched || buttons.contains(GordonButtons::LPAD_AND_JOY);
+    if buttons.contains(GordonButtons::LPAD_PRESS) && !left_engaged {
         buttons.remove(GordonButtons::LPAD_PRESS); // was a stick click, not a pad click
     }
     let left_raw = vec2i_at(b, 0x10);
@@ -176,6 +185,12 @@ fn parse_gordon(b: &[u8]) -> GordonReport {
     } else {
         (Vec2i::default(), left_raw)
     };
+    // Touch *button*: report it steady while the pad is engaged. In simultaneous
+    // pad+stick use the wire flickers LPAD_TOUCH as the per-frame axis tag (with
+    // LPAD_AND_JOY held set), so the raw bit toggles though the finger never leaves.
+    // The axis split above already consumed the raw per-frame tag; only the emitted
+    // button is normalized. Matches kernel `BTN_THUMB = lpad_touched || lpad_and_joy`.
+    buttons.set(GordonButtons::LPAD_TOUCH, left_engaged);
     GordonReport {
         seq: u32_at(b, 0x04),
         buttons,
@@ -350,6 +365,34 @@ mod tests {
         let RawReport::Gordon(g) = parse(&b).unwrap() else { panic!("expected Gordon") };
         assert!(g.buttons.contains(GordonButtons::LPAD_PRESS));
         assert!(g.buttons.contains(GordonButtons::LPAD_TOUCH));
+    }
+
+    /// Simultaneous pad+stick use: the firmware sets `LPAD_AND_JOY` and flickers
+    /// `LPAD_TOUCH`; a pad click must survive an off-flicker frame (gated on AND_JOY,
+    /// not touch alone) — HW-verified on the dongle.
+    #[test]
+    fn parse_gordon_keeps_pad_click_via_and_joy() {
+        let mut b = frame_buf(event_type::INPUT_DATA);
+        // pad click + stick click, LPAD_TOUCH momentarily 0 but LPAD_AND_JOY set.
+        let word = (GordonButtons::LPAD_PRESS
+            | GordonButtons::LSTICK_PRESS
+            | GordonButtons::LPAD_AND_JOY)
+            .bits();
+        b[0x08..0x0B].copy_from_slice(&word.to_le_bytes()[..3]);
+        let RawReport::Gordon(g) = parse(&b).unwrap() else { panic!("expected Gordon") };
+        assert!(g.buttons.contains(GordonButtons::LPAD_PRESS)); // kept via AND_JOY
+        assert!(g.buttons.contains(GordonButtons::LSTICK_PRESS));
+    }
+
+    /// Touch *button* stays steady during simultaneous use: on a stick-tag frame the raw
+    /// LPAD_TOUCH is 0, but LPAD_AND_JOY is set, so the reported touch is true (no flicker).
+    #[test]
+    fn parse_gordon_touch_steady_via_and_joy() {
+        let mut b = frame_buf(event_type::INPUT_DATA);
+        let word = (GordonButtons::LSTICK_PRESS | GordonButtons::LPAD_AND_JOY).bits();
+        b[0x08..0x0B].copy_from_slice(&word.to_le_bytes()[..3]);
+        let RawReport::Gordon(g) = parse(&b).unwrap() else { panic!("expected Gordon") };
+        assert!(g.buttons.contains(GordonButtons::LPAD_TOUCH)); // steady via AND_JOY
     }
 
     #[test]
