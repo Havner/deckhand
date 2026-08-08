@@ -4,7 +4,7 @@ use iced::widget::{
     Space, button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text,
     text_input,
 };
-use iced::{Center, Color, Element, Fill, Theme};
+use iced::{Background, Center, Color, Element, Fill, Theme};
 use ipc::RunState;
 use ui_test_common::{Category, INPUT_PRESETS, OUTPUT_PRESETS};
 
@@ -82,7 +82,38 @@ fn sidebar(app: &App) -> Element<'_, Message> {
         .spacing(8.0)
         .width(Fill);
 
-    container(col).width(180.0).height(Fill).style(container::secondary).into()
+    container(col).width(180.0).height(Fill).style(panel_style).into()
+}
+
+/// On a **dark** theme, each RGB channel of the `secondary` background is divided by this to darken
+/// a panel while keeping the theme's tint. Light themes keep the plain `secondary` preset.
+const DARK_PANEL_DIVISOR: f32 = 5.0;
+
+/// Shared panel background (sidebar + the Buttons cards): the theme's `secondary` container style,
+/// but darkened on dark themes (the palette's `is_dark` flag — the same signal that drives the window
+/// decorations). Keeps the tint so each theme's panels still read as *its* color, just darker.
+fn panel_style(theme: &Theme) -> container::Style {
+    let mut style = container::secondary(theme);
+    // Light themes: keep the preset (its secondary text is already readable).
+    if !theme.extended_palette().is_dark {
+        return style;
+    }
+    // Dark themes: darken the secondary background, and force the theme's primary (light) text
+    // color — the `secondary` preset picks dark text for its light base, which is unreadable once
+    // the background is darkened.
+    let darkened = match &style.background {
+        Some(Background::Color(c)) => Some(Color::from_rgb(
+            c.r / DARK_PANEL_DIVISOR,
+            c.g / DARK_PANEL_DIVISOR,
+            c.b / DARK_PANEL_DIVISOR,
+        )),
+        _ => None,
+    };
+    if let Some(c) = darkened {
+        style.background = Some(Background::Color(c));
+    }
+    style.text_color = Some(theme.palette().text);
+    style
 }
 
 /// One sidebar entry; the selected one gets the primary style.
@@ -275,7 +306,7 @@ fn gear() -> Element<'static, Message> {
 
 /// Wrap a row as a padded card so the groups read like the Steam UI's list rows.
 fn card<'a>(inner: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-    container(inner).padding(10.0).width(Fill).style(container::secondary).into()
+    container(inner).padding(10.0).width(Fill).style(panel_style).into()
 }
 
 /// A placeholder for the profile-edit categories, not part of this toolkit test.
