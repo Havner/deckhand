@@ -2,7 +2,7 @@
 # See PLAN.md for the full design; build order is steam-hid first.
 [workspace]
 resolver = "3"
-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl", "crates/ui-test-common", "crates/ui-test-iced", "crates/ui-test-egui"]
+members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl", "crates/ui-test-common", "crates/ui-test-iced", "crates/ui-test-egui", "crates/ui-test-qt"]
 # The `ui-test-*` UI-toolkit bake-off crates pull heavy GUI deps and are opt-in
 # (`cargo build -p ui-test-iced`). Keep them out of a plain workspace `cargo build`.
 default-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl"]
