@@ -5,17 +5,12 @@
 
 # --- shared data -------------------------------------------------------------
 
-# Input source spec: keywords plus the common device ids. A device id is
-# shape:transport:interface:serial (e.g. gordon:dongle:1:) — serial is free-form, so we offer
-# the usual prefixes and let the user finish the serial (usually empty).
-#   shape     := gordon | neptune
-#   transport := dongle | wired
-#   interface := 1-9
-#   serial    := anything
-_deckhand_input_specs="auto dongle wired \
-gordon:wired:1: \
-gordon:dongle:1: gordon:dongle:2: gordon:dongle:3: gordon:dongle:4: \
-neptune:wired:1:"
+# Input source spec: static selection keywords. Concrete device ids are added live at completion
+# time from the one-shot `deckhandd --list-devices` (no daemon/socket needed) — see _deckhand_input.
+#   auto | dongle | wired | bt  — policy selectors
+#   a device id is shape:transport:interface:serial (gordon|neptune : dongle|wired|bt : iface :
+#   serial; bt uses interface -1 and the MAC as serial), e.g. gordon:dongle:1: or gordon:bt:-1:<mac>
+_deckhand_input_keywords="auto dongle wired bt"
 
 # Output sink spec.
 _deckhand_output_specs="local"
@@ -62,9 +57,16 @@ _deckhand_socket() {
     compopt -o filenames 2>/dev/null
 }
 
-# Complete an input spec (keywords + common device ids), colons handled.
+# Complete an input spec: static keywords plus the live device ids from `deckhandd --list-devices`
+# (the one-shot enumerate — no socket/daemon needed). Colons handled. The enumerate is best-effort:
+# skipped if deckhandd isn't on PATH, and only colon-bearing lines are kept (drops the "no devices"
+# message and any stray output).
 _deckhand_input() {
-    COMPREPLY=( $(compgen -W "$_deckhand_input_specs" -- "$cur") )
+    local ids=""
+    if command -v deckhandd >/dev/null 2>&1; then
+        ids=$(deckhandd --list-devices 2>/dev/null | grep ':')
+    fi
+    COMPREPLY=( $(compgen -W "$_deckhand_input_keywords $ids" -- "$cur") )
     _deckhand_ltrim_colon
 }
 
@@ -74,7 +76,7 @@ _deckhandd() {
     local cur prev words cword
     _deckhand_get_words
 
-    local opts="-m --main -f --fallback -g --globals -i --input -o --output \
+    local opts="-l --list-devices -m --main -f --fallback -g --globals -i --input -o --output \
 -k --socket -p --prevent-sleep -s --start -v --verbose -h --help -V --version"
 
     # Value completion for the option that takes one.
