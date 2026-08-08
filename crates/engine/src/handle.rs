@@ -230,14 +230,14 @@ impl Engine {
 
     /// Stage the input source (Local only for now). Applied at the next `start()`.
     pub fn set_input(&mut self, input: Input) {
-        log::debug!("set_input: {input} (staged for next start)");
+        log::info!("set_input: {input} (staged for next start)");
         self.input = input;
         self.events.emit(EngineEvent::InputStaged(self.input.clone()));
     }
 
     /// Stage the output target (Local only for now). Applied at the next `start()`.
     pub fn set_output(&mut self, output: Output) {
-        log::debug!("set_output: {output} (staged for next start)");
+        log::info!("set_output: {output} (staged for next start)");
         self.output = output;
         self.events.emit(EngineEvent::OutputStaged(self.output.clone()));
     }
