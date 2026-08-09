@@ -159,6 +159,15 @@ impl LinkClient {
         }
     }
 
+    /// The shared "waiting" flag (device transport gone → `WaitingForDevice`), for
+    /// `Runtime::is_waiting` / `status()`.
+    pub(crate) fn detached(&self) -> Arc<AtomicBool> {
+        match self {
+            LinkClient::Local(c) => c.detached.clone(),
+            LinkClient::Network(c) => c.detached(),
+        }
+    }
+
     /// Dial a remote server (client/forwarder role) — the handle wires this to `set_output(Network)`.
     pub(crate) fn connect(server: std::net::SocketAddr) -> std::io::Result<LinkClient> {
         Ok(LinkClient::Network(net::NetClient::connect(server)?))
@@ -232,15 +241,17 @@ impl LinkServer {
         }
     }
 
-    /// Bind for a remote client (server role). Returns the server end plus the `control_tx` for the
-    /// server's *own* handle (merged with the client's wire config — the two-feeder `control_rx`).
-    /// The handle wires this to `set_input(Network)`.
+    /// Bind for a remote client (server role). Returns the server end, the `control_tx` for the
+    /// server's *own* handle (merged with the client's wire config — the two-feeder `control_rx`),
+    /// and the shared detached flag (true while no client is connected → `Runtime::is_waiting`). The
+    /// handle wires the `control_tx` to `set_input(Network)`.
     pub(crate) fn bind(
         addr: std::net::SocketAddr,
-    ) -> std::io::Result<(LinkServer, Sender<Control>)> {
+    ) -> std::io::Result<(LinkServer, Sender<Control>, Arc<AtomicBool>)> {
         let net = net::NetServer::bind(addr)?;
         let control_tx = net.control_tx().clone();
-        Ok((LinkServer::Network(NetworkServer { net }), control_tx))
+        let detached = net.detached();
+        Ok((LinkServer::Network(NetworkServer { net }), control_tx, detached))
     }
 }
 
@@ -286,7 +297,7 @@ mod tests {
     /// (i.e. the reader/mapper-facing methods dispatch to the network adapter).
     #[test]
     fn network_link_dispatches_through_the_enum() {
-        let (server, _ctl) = LinkServer::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let (server, _ctl, _detached) = LinkServer::bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let addr = match &server {
             LinkServer::Network(s) => s.net.addr(),
             _ => unreachable!(),

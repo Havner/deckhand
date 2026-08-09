@@ -143,10 +143,11 @@ impl Runtime {
         events: EventSink,
     ) -> Result<Runtime> {
         let running = Arc::new(AtomicBool::new(true));
-        // The client has no local mapper, so no `WaitingForDevice` of its own (slice 5).
-        let detached = Arc::new(AtomicBool::new(false));
         let link = LinkClient::connect(addr)?;
         let control_tx = link.control_tx().cloned().expect("a network client has a control uplink");
+        // The reader flags this (its shared link flag) on device-loss, so `is_waiting()`/`status()`
+        // report `WaitingForDevice` — matching the `State` event the reader emits.
+        let detached = link.detached();
         let reader = spawn_reader(device, pinned_id, cfg, link, running.clone(), events);
         Ok(Runtime { running, detached, control_tx, reader: Some(reader), mapper: None })
     }
@@ -164,9 +165,9 @@ impl Runtime {
         events: EventSink,
     ) -> Result<Runtime> {
         let running = Arc::new(AtomicBool::new(true));
-        // Slice 5 will track link state → `WaitingForDevice`; for now a single connection stays up.
-        let detached = Arc::new(AtomicBool::new(false));
-        let (link, control_tx) = LinkServer::bind(addr)?;
+        // `detached` is the server link's shared flag: true while no client is connected, so
+        // `is_waiting()`/`status()` report `WaitingForDevice` (matching the mapper's event).
+        let (link, control_tx, detached) = LinkServer::bind(addr)?;
         let mapper = spawn_mapper(sink, main, fallback, globals, link, running.clone(), events);
         Ok(Runtime { running, detached, control_tx, reader: None, mapper: Some(mapper) })
     }

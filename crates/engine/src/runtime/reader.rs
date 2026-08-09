@@ -120,7 +120,7 @@ fn read_session(
             }
             Ok(None) => {} // timeout — no frame this cycle
             Err(e) => {
-                log::warn!("controller read error ({e}) — binding lost, waiting for device");
+                log::warn!("controller read error ({e}) — waiting for device");
                 return Ok(SessionEnd::TransportGone);
             }
         }

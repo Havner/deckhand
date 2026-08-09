@@ -44,8 +44,9 @@ const UDP_BUF: usize = 2048;
 struct ServerShared {
     running: AtomicBool,
     /// True when no client is connected — before the first `Hello` and between reconnects. The
-    /// mapper's cue for `WaitingForDevice` (read via [`NetServer::is_detached`]; wired in slice 5b).
-    detached: AtomicBool,
+    /// mapper's cue for `WaitingForDevice`; shared with the `Runtime` (via [`NetServer::detached`])
+    /// so `Runtime::is_waiting` / `status()` reflect it too.
+    detached: Arc<AtomicBool>,
     /// The client's UDP return address, learned from the first frame datagram (for the back-channel).
     client_udp: Mutex<Option<SocketAddr>>,
     /// A clone of the accepted TCP stream, so `Drop` can `shutdown` it to unblock the reader thread.
@@ -88,7 +89,7 @@ impl NetServer {
         let (click_tx, click_rx) = unbounded::<Click>();
         let shared = Arc::new(ServerShared {
             running: AtomicBool::new(true),
-            detached: AtomicBool::new(true), // no client yet
+            detached: Arc::new(AtomicBool::new(true)), // no client yet
             client_udp: Mutex::new(None),
             tcp: Mutex::new(None),
         });
@@ -135,6 +136,10 @@ impl NetServer {
     /// True while no client is connected (before the first connect, and between reconnects).
     pub(super) fn is_detached(&self) -> bool {
         self.shared.detached.load(Ordering::SeqCst)
+    }
+    /// A shared handle to the detached flag, for `Runtime::is_waiting` / `status()`.
+    pub(super) fn detached(&self) -> Arc<AtomicBool> {
+        self.shared.detached.clone()
     }
     pub(super) fn rumble_tx(&self) -> &Sender<RumbleCmd> {
         &self.rumble_tx
@@ -309,10 +314,11 @@ fn server_backchannel(
 
 struct ClientShared {
     running: AtomicBool,
-    /// True while the local device is present. The reader clears it on device-loss (`detach`) and
-    /// sets it on reacquire (`reattach`); the uplink thread only (re)dials while it's true, so a
-    /// device outage drops the link (→ server `WaitingForDevice`) instead of reconnecting to nothing.
-    device_present: AtomicBool,
+    /// True while the local device is gone. The reader sets it on device-loss (`detach`) and clears
+    /// it on reacquire (`reattach`); the uplink thread only (re)dials while it's *false*, so a device
+    /// outage drops the link (→ server `WaitingForDevice`) instead of reconnecting to nothing. Shared
+    /// with the `Runtime` (via [`NetClient::detached`]) so `is_waiting`/`status()` report it too.
+    detached: Arc<AtomicBool>,
     tcp: Mutex<Option<TcpStream>>,
 }
 
@@ -354,7 +360,7 @@ impl NetClient {
         let (click_tx, click_rx) = unbounded::<Click>();
         let shared = Arc::new(ClientShared {
             running: AtomicBool::new(true),
-            device_present: AtomicBool::new(true),
+            detached: Arc::new(AtomicBool::new(false)), // device present at connect
             tcp: Mutex::new(Some(tcp.try_clone()?)),
         });
 
@@ -387,7 +393,7 @@ impl NetClient {
     /// The local device went away → drop the connection so the server sees link-down (→
     /// `WaitingForDevice`), and don't reconnect until the device returns.
     pub(super) fn detach(&self) {
-        self.shared.device_present.store(false, Ordering::SeqCst);
+        self.shared.detached.store(true, Ordering::SeqCst);
         if let Some(tcp) = self.shared.tcp.lock().unwrap().as_ref() {
             let _ = tcp.shutdown(std::net::Shutdown::Both);
         }
@@ -395,8 +401,14 @@ impl NetClient {
 
     /// The device returned → let the uplink thread re-dial the server.
     pub(super) fn reattach(&self) -> bool {
-        self.shared.device_present.store(true, Ordering::SeqCst);
+        self.shared.detached.store(false, Ordering::SeqCst);
         true
+    }
+
+    /// A shared handle to the "waiting" flag (local device gone), for `Runtime::is_waiting` /
+    /// `status()`.
+    pub(super) fn detached(&self) -> Arc<AtomicBool> {
+        self.shared.detached.clone()
     }
 }
 
@@ -436,7 +448,7 @@ fn client_uplink(
             if !shared.running.load(Ordering::SeqCst) {
                 return;
             }
-            if !shared.device_present.load(Ordering::SeqCst) {
+            if shared.detached.load(Ordering::SeqCst) {
                 thread::sleep(POLL); // device gone — nothing to forward, don't reconnect yet
                 continue;
             }
@@ -478,7 +490,7 @@ fn pump(
         if !shared.running.load(Ordering::SeqCst) {
             return PumpEnd::Stop;
         }
-        if !shared.device_present.load(Ordering::SeqCst) {
+        if shared.detached.load(Ordering::SeqCst) {
             return PumpEnd::Broke; // device gone → drop the link (re-dial gated until it returns)
         }
         select! {
