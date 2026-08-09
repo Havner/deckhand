@@ -35,8 +35,21 @@ pub struct AppSettings {
     pub load_fallback: bool,
     /// Path to the Fallback profile RON (meaningful only when `load_fallback`).
     pub fallback_path: String,
+    /// Re-stage the last-used input/output (`last_input`/`last_output`) on connect.
+    pub restore_io: bool,
     /// Start the engine (acquire hardware + run the mapping loop) on connect.
     pub start_engine: bool,
+
+    // --- Not shown in the UI (persisted at the end). ---
+    /// Last window size, saved on hide/quit and restored when the window (re)opens.
+    pub window_width: u32,
+    pub window_height: u32,
+    /// The last input/output spec set from the UI (restored on connect when `restore_io`).
+    pub last_input: String,
+    pub last_output: String,
+    /// The last host:port typed into the network input/output popup (prefills it next time).
+    pub last_input_network: String,
+    pub last_output_network: String,
 }
 
 impl Default for AppSettings {
@@ -51,7 +64,14 @@ impl Default for AppSettings {
             main_path: String::new(),
             load_fallback: false,
             fallback_path: String::new(),
+            restore_io: false,
             start_engine: false,
+            window_width: 1024,
+            window_height: 768,
+            last_input: String::new(),
+            last_output: String::new(),
+            last_input_network: String::new(),
+            last_output_network: String::new(),
         }
     }
 }

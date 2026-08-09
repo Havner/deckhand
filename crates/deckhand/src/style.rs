@@ -40,6 +40,17 @@ pub fn muted_text(theme: &Theme) -> text::Style {
     text::Style { color: Some(theme.palette().background.strong.color) }
 }
 
+/// A dimmed, theme-tinted backdrop for the modal overlay: the theme's background darkened toward
+/// black and made translucent, so the content behind reads as greyed out.
+pub fn scrim(theme: &Theme) -> container::Style {
+    let base = theme.palette().background.base.color;
+    let c = Color { r: base.r * 0.3, g: base.g * 0.3, b: base.b * 0.3, a: 0.7 };
+    container::Style {
+        background: Some(Background::Color(c)),
+        ..container::transparent(theme)
+    }
+}
+
 /// On a **dark** theme, each RGB channel of the `secondary` background is divided by this to darken
 /// a panel while keeping the theme's tint. Light themes keep the plain `secondary` preset.
 const DARK_PANEL_DIVISOR: f32 = 5.0;

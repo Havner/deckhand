@@ -24,8 +24,8 @@ use std::hash::{Hash, Hasher};
 use daemon::{Client, DaemonUpdate, Shared, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::window;
-use iced::{Subscription, Task, Theme};
-use ipc::{Event, ProfileRole, StatusSnapshot};
+use iced::{Size, Subscription, Task, Theme};
+use ipc::{Event, ProfileRole, RunState, StatusSnapshot};
 use nav::Category;
 use settings::AppSettings;
 
@@ -35,6 +35,27 @@ pub const INPUT_PRESETS: &[&str] = &["auto", "dongle", "wired", "bt"];
 
 /// Preset output selections (`host:port` is typed, not listed).
 pub const OUTPUT_PRESETS: &[&str] = &["local"];
+
+/// The sentinel pick-list entry that opens the network (`host:port`) popup instead of staging a
+/// value directly.
+pub const NETWORK_OPTION: &str = "<network>";
+
+/// Widget id of the network popup's text field (so it can be focused when the popup opens).
+pub const NETWORK_FIELD_ID: &str = "network-host";
+
+/// Which selector the network popup is editing.
+#[derive(Debug, Clone, Copy)]
+pub enum IoTarget {
+    Input,
+    Output,
+}
+
+/// The network input/output modal: which selector it targets and the current `host:port` text.
+#[derive(Debug, Clone)]
+pub struct Popup {
+    pub target: IoTarget,
+    pub text: String,
+}
 
 fn main() -> iced::Result {
     // The UI-managed daemon handle, shared with the connect loop (populated when we launch a daemon)
@@ -88,6 +109,8 @@ pub struct App {
     hidden: bool,
     /// The live tray, when enabled and successfully started (`None` = no tray).
     tray: Option<tray::Tray>,
+    /// The network input/output modal, when open.
+    popup: Option<Popup>,
 }
 
 /// Everything the view can emit.
@@ -119,15 +142,22 @@ pub enum Message {
     FallbackPathChanged(String),
     BrowseMain,
     BrowseFallback,
+    /// Restore last input/output on connect.
+    ToggleRestoreIo(bool),
     /// Tray settings.
     ToggleUseTray(bool),
     ToggleCloseToTray(bool),
     ToggleStartHidden(bool),
+    /// Network (`host:port`) input/output popup.
+    PopupTextChanged(String),
+    PopupConfirm,
+    PopupCancel,
     /// Window lifecycle: open captures the id; a close *request* (WM button) is intercepted for
-    /// close-to-tray; closed clears the id.
+    /// close-to-tray; closed clears the id; resize tracks the size to persist.
     WindowOpened(window::Id),
     CloseRequested(window::Id),
     WindowClosed(window::Id),
+    WindowResized(Size),
     /// A tray menu item was clicked.
     TrayMenu(tray::MenuAction),
     /// Theme selection (any built-in iced theme).
@@ -162,7 +192,55 @@ impl App {
             window: None,
             hidden: want_hidden && tray.is_some(),
             tray,
+            popup: None,
         }
+    }
+
+    /// The engine's current run state, or `None` when disconnected.
+    fn run_state(&self) -> Option<RunState> {
+        self.status.as_ref().map(|s| s.state)
+    }
+
+    /// Whether the engine is started (not idle) — the condition for restarting it on an input/output
+    /// change.
+    fn engine_started(&self) -> bool {
+        matches!(self.run_state(), Some(RunState::Running | RunState::WaitingForDevice))
+    }
+
+    /// Stage a new input spec: remember it as the last input, and apply it — restarting the engine
+    /// if it's already running (staged input only takes effect at start).
+    fn apply_input(&mut self, spec: String) -> Task<Message> {
+        self.settings.last_input = spec.clone();
+        self.save_settings();
+        let restart = self.engine_started();
+        self.cmd_task(move |c| {
+            c.set_input(spec)?;
+            if restart {
+                c.stop()?;
+                c.start()?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Stage a new output spec (see [`apply_input`](Self::apply_input)).
+    fn apply_output(&mut self, spec: String) -> Task<Message> {
+        self.settings.last_output = spec.clone();
+        self.save_settings();
+        let restart = self.engine_started();
+        self.cmd_task(move |c| {
+            c.set_output(spec)?;
+            if restart {
+                c.stop()?;
+                c.start()?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Persist the current window size (called on hide / quit, not on every resize).
+    fn persist_window_size(&mut self) {
+        self.save_settings();
     }
 
     /// Open the main window, routing its id back as [`Message::WindowOpened`]. `exit_on_close_request`
@@ -170,8 +248,9 @@ impl App {
     /// close-to-tray vs quit) instead of iced auto-closing the window — in daemon mode an auto-close
     /// would just leave the app running with no window and no way to have intercepted it.
     fn open_window(&self) -> Task<Message> {
+        let size = Size::new(self.settings.window_width as f32, self.settings.window_height as f32);
         let settings =
-            window::Settings { exit_on_close_request: false, ..window::Settings::default() };
+            window::Settings { exit_on_close_request: false, size, ..window::Settings::default() };
         window::open(settings).1.map(Message::WindowOpened)
     }
 
@@ -184,6 +263,7 @@ impl App {
             t.set_label(hidden);
         }
         if hidden {
+            self.persist_window_size();
             match self.window.take() {
                 Some(id) => window::close(id),
                 None => Task::none(),
@@ -207,10 +287,53 @@ impl App {
                 return self.refresh_task();
             }
             Message::Refresh => return self.refresh_task(),
-            Message::Start => return self.cmd_task(|c| c.start()),
-            Message::Stop => return self.cmd_task(|c| c.stop()),
-            Message::InputSelected(spec) => return self.cmd_task(move |c| c.set_input(spec)),
-            Message::OutputSelected(spec) => return self.cmd_task(move |c| c.set_output(spec)),
+            // Start/Stop also re-enumerate devices + refresh status, as if Refresh was clicked too.
+            Message::Start => {
+                return Task::batch([self.cmd_task(|c| c.start()), self.refresh_task()]);
+            }
+            Message::Stop => {
+                return Task::batch([self.cmd_task(|c| c.stop()), self.refresh_task()]);
+            }
+            Message::InputSelected(spec) => {
+                if spec == NETWORK_OPTION {
+                    let text = self.settings.last_input_network.clone();
+                    self.popup = Some(Popup { target: IoTarget::Input, text });
+                    return iced::widget::operation::focus(NETWORK_FIELD_ID);
+                }
+                return self.apply_input(spec);
+            }
+            Message::OutputSelected(spec) => {
+                if spec == NETWORK_OPTION {
+                    let text = self.settings.last_output_network.clone();
+                    self.popup = Some(Popup { target: IoTarget::Output, text });
+                    return iced::widget::operation::focus(NETWORK_FIELD_ID);
+                }
+                return self.apply_output(spec);
+            }
+            // Network popup edits.
+            Message::PopupTextChanged(t) => {
+                if let Some(p) = &mut self.popup {
+                    p.text = t;
+                }
+            }
+            Message::PopupConfirm => {
+                if let Some(p) = self.popup.take() {
+                    let spec = p.text.trim().to_string();
+                    if !spec.is_empty() {
+                        return match p.target {
+                            IoTarget::Input => {
+                                self.settings.last_input_network = spec.clone();
+                                self.apply_input(spec)
+                            }
+                            IoTarget::Output => {
+                                self.settings.last_output_network = spec.clone();
+                                self.apply_output(spec)
+                            }
+                        };
+                    }
+                }
+            }
+            Message::PopupCancel => self.popup = None,
 
             // --- window + tray arms (may drive a window Task) ---
             Message::WindowOpened(id) => self.window = Some(id),
@@ -221,16 +344,25 @@ impl App {
                     self.window = None;
                 }
             }
+            Message::WindowResized(size) => {
+                // In-memory only; flushed to disk on hide/quit.
+                self.settings.window_width = size.width as u32;
+                self.settings.window_height = size.height as u32;
+            }
             Message::CloseRequested(_id) => {
                 if self.settings.close_to_tray && self.tray.is_some() {
                     return self.set_hidden(true);
                 }
+                self.persist_window_size();
                 return iced::exit();
             }
             Message::TrayMenu(tray::MenuAction::ToggleWindow) => {
                 return self.set_hidden(!self.hidden);
             }
-            Message::TrayMenu(tray::MenuAction::Quit) => return iced::exit(),
+            Message::TrayMenu(tray::MenuAction::Quit) => {
+                self.persist_window_size();
+                return iced::exit();
+            }
             Message::ToggleUseTray(v) => {
                 self.settings.use_tray = v;
                 self.save_settings();
@@ -258,6 +390,10 @@ impl App {
             }
             Message::ToggleStartHidden(v) => {
                 self.settings.start_hidden = v;
+                self.save_settings();
+            }
+            Message::ToggleRestoreIo(v) => {
+                self.settings.restore_io = v;
                 self.save_settings();
             }
             Message::Navigate(c) => self.category = c,
@@ -354,6 +490,7 @@ impl App {
             // close-request (WM button) and closed (id cleanup) here.
             window::close_requests().map(Message::CloseRequested),
             window::close_events().map(Message::WindowClosed),
+            window::resize_events().map(|(_id, size)| Message::WindowResized(size)),
             Subscription::run_with((), tray_events),
         ])
     }

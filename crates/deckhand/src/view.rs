@@ -1,23 +1,63 @@
 //! The iced widget layer: the four-region window and the per-category screens.
 
 use iced::widget::{
-    Space, button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text,
-    text_input,
+    Space, button, center, checkbox, column, container, mouse_area, opaque, pick_list, progress_bar,
+    row, scrollable, stack, text, text_input,
 };
 use iced::{Center, Element, Fill, Theme};
 use ipc::RunState;
 
 use crate::nav::Category;
-use crate::{App, INPUT_PRESETS, Message, OUTPUT_PRESETS, style};
+use crate::{App, INPUT_PRESETS, IoTarget, Message, NETWORK_OPTION, OUTPUT_PRESETS, Popup, style};
 
-/// The whole window: top bar / (sidebar + content) / bottom bar.
+/// The whole window: top bar / (sidebar + content) / bottom bar, with the network popup layered on
+/// top as a modal when open.
 pub fn view(app: &App) -> Element<'_, Message> {
-    column![
+    let base: Element<'_, Message> = column![
         top_bar(app),
         row![sidebar(app), content(app)].height(Fill),
         bottom_bar(app),
     ]
+    .into();
+    match &app.popup {
+        Some(popup) => modal(base, popup),
+        None => base,
+    }
+}
+
+/// Layer the network popup over the base as a modal: a dimmed, input-blocking backdrop (click it to
+/// cancel) with the card centered on top.
+fn modal<'a>(base: Element<'a, Message>, popup: &'a Popup) -> Element<'a, Message> {
+    stack![
+        base,
+        opaque(
+            mouse_area(center(opaque(popup_card(popup))).style(style::scrim))
+                .on_press(Message::PopupCancel)
+        )
+    ]
     .into()
+}
+
+/// The network-spec card: a `host:port` field (Enter confirms) + Cancel / OK.
+fn popup_card(popup: &Popup) -> Element<'_, Message> {
+    let title = match popup.target {
+        IoTarget::Input => "Network input",
+        IoTarget::Output => "Network output",
+    };
+    let field = text_input("host:port", &popup.text)
+        .id(crate::NETWORK_FIELD_ID)
+        .on_input(Message::PopupTextChanged)
+        .on_submit(Message::PopupConfirm)
+        .padding(6.0);
+    let buttons = row![
+        button(text("Cancel")).style(button::danger).on_press(Message::PopupCancel),
+        Space::new().width(Fill),
+        button(text("OK")).style(button::success).on_press(Message::PopupConfirm),
+    ]
+    .align_y(Center);
+
+    let card = column![text(title).size(18.0), field, buttons].spacing(12.0);
+    container(card).padding(16.0).width(320.0).style(container::rounded_box).into()
 }
 
 /// Full-width daemon bar: Start/Stop/Connect on the left, input/output pickers on the right.
@@ -34,19 +74,24 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     ]
     .spacing(8.0);
 
-    // Input presets + the daemon's live device ids.
+    // Input presets + the daemon's live device ids + the `<network>` entry (opens the host:port
+    // popup). A staged network spec shows in the box even though it isn't a listed option.
     let mut inputs: Vec<String> = INPUT_PRESETS.iter().map(|s| s.to_string()).collect();
     inputs.extend(app.devices.iter().cloned());
+    inputs.push(NETWORK_OPTION.to_string());
     let selected_input = app.status.as_ref().map(|s| s.input.clone());
     let input_pick = pick_list(selected_input, inputs, String::clone)
         .on_select(Message::InputSelected)
-        .placeholder("input");
+        .placeholder("input")
+        .width(200.0);
 
-    let outputs: Vec<String> = OUTPUT_PRESETS.iter().map(|s| s.to_string()).collect();
+    let mut outputs: Vec<String> = OUTPUT_PRESETS.iter().map(|s| s.to_string()).collect();
+    outputs.push(NETWORK_OPTION.to_string());
     let selected_output = app.status.as_ref().map(|s| s.output.clone());
     let output_pick = pick_list(selected_output, outputs, String::clone)
         .on_select(Message::OutputSelected)
-        .placeholder("output");
+        .placeholder("output")
+        .width(200.0);
 
     // Manual device re-enumeration (no USB hotplug).
     let refresh = button(text("⟳")).on_press(Message::Refresh);
@@ -149,6 +194,9 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
         Message::FallbackPathChanged,
         Message::BrowseFallback,
     );
+    let restore_io = checkbox(s.restore_io)
+        .label("Restore last input/output on connect")
+        .on_toggle(Message::ToggleRestoreIo);
     let start_engine = checkbox(s.start_engine)
         .label("Start the engine on connect")
         .on_toggle(Message::ToggleStartEngine);
@@ -166,6 +214,7 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
         main_row,
         load_fb,
         fb_row,
+        restore_io,
         start_engine,
     ]
     .spacing(10.0)

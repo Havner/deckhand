@@ -265,6 +265,16 @@ fn run_on_connect(socket: Option<&str>, s: &AppSettings, on: &mut dyn FnMut(Daem
     }
     // Step 5 (unconditional): push the app's saved global config. TODO: the UI owns no persisted
     // GlobalConfig yet — once it does, send it here, e.g. `report(on, cmd.set_globals(...))`.
+
+    // Restore the last-used input/output (before start, so they take effect at start).
+    if s.restore_io {
+        if !s.last_input.is_empty() {
+            report(on, cmd.set_input(s.last_input.clone()));
+        }
+        if !s.last_output.is_empty() {
+            report(on, cmd.set_output(s.last_output.clone()));
+        }
+    }
     if s.start_engine {
         report(on, cmd.start());
     }
