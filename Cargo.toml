@@ -2,7 +2,11 @@
 # See PLAN.md for the full design; build order is steam-hid first.
 [workspace]
 resolver = "3"
-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl", "crates/deckhand", "crates/ui-test-common", "crates/ui-test-iced", "crates/ui-test-egui", "crates/ui-test-qt", "crates/ui-test-gtk"]
+members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl", "crates/deckhand"]
+# The `ui-test-*` toolkit bake-off crates are detached from the workspace so they don't constrain its
+# resolution (e.g. ui-test-egui's eframe needs a newer web-sys than git iced's pinned =0.3.85). They
+# stay on disk, built standalone (`cd crates/ui-test-iced && cargo run`).
+exclude = ["crates/ui-test-common", "crates/ui-test-iced", "crates/ui-test-egui", "crates/ui-test-qt", "crates/ui-test-gtk"]
 # The real UI (`deckhand`, iced) and the `ui-test-*` bake-off crates pull heavy GUI deps and are
 # opt-in (`cargo build -p deckhand`). Keep them out of a plain workspace `cargo build` for now.
 default-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl"]
@@ -50,10 +54,12 @@ interprocess = "2"
 # (`listen_fds()` → adopt the LISTEN_FDS socket) + `sd-notify` readiness (`READY=1`). Pure
 # Rust, zero transitive deps; small but proven (fits the dependency policy). Linux-only use.
 sd-notify = "0.5"
-# UI-toolkit bake-off (`ui-test-*`): a Rust-native retained-mode GUI (Elm architecture) —
-# the reference implementation ports cleanly to gtk4/Qt later. rfd = native file dialogs
-# (cross-platform), shared by every toolkit for the profile-path pickers.
-iced = "0.14"
+# iced (Rust-native retained-mode GUI, Elm architecture) — the real UI toolkit. Pinned to git
+# 0.15-dev, NOT 0.14: on Wayland, 0.14 corrupts the wl_data_device/clipboard when a window is closed
+# and reopened (our hide-to-tray), crashing with a "data_offer" protocol error; fixed on main by the
+# new wl-clipboard-rs backend (verified: 200 close/reopen cycles clean). The `ui-test-iced` prototype
+# stays on 0.14 (pinned in its own manifest). rfd = native file dialogs, shared for the path pickers.
+iced = { git = "https://github.com/iced-rs/iced", rev = "d188d6fa" }
 # egui via its `eframe` framework (immediate-mode) — the second bake-off toolkit. Contrast to
 # iced: no message/task loop; redraw every frame + push off-thread work over channels + repaint.
 eframe = "0.36"
@@ -63,3 +69,13 @@ rfd = "0.17"
 gtk4 = "0.11"
 # Thread → glib-main-loop bridge for the gtk build (drained via spawn_future_local): async MPMC channel.
 async-channel = "2"
+# System-tray icon + menu for the real UI (the chosen companion crate — no toolkit ships one). Runs
+# on its own event-loop thread (gtk3 on Linux, win32 on Windows); events arrive via its global
+# channels. Linux needs system libs: gtk3 + libappindicator (or libayatana). `libxdo` feature dropped
+# — it's only for the predefined Copy/Cut/Paste menu items we don't use.
+tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
+# gtk3-rs: only to init + run the glib/gtk3 loop on the tray thread (tray-icon is gtk3-based on
+# Linux). Not a UI toolkit here — iced owns the UI; this is Linux-only tray plumbing.
+gtk = { version = "0.18", package = "gtk" }
+# Decode the bundled tray-icon PNG to RGBA for tray-icon's `Icon::from_rgba` (image-rs, small).
+png = "0.17"

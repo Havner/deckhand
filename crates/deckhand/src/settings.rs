@@ -18,6 +18,13 @@ pub struct AppSettings {
     /// The UI theme, stored by **name** (e.g. `Dark`, `Dracula`) — one of iced's built-in themes,
     /// falling back to the default when the name is empty/unknown.
     pub theme: String,
+    /// Show a system-tray icon. Master switch for the two options below.
+    pub use_tray: bool,
+    /// Close-to-tray: a window close request hides the window instead of quitting (needs `use_tray`).
+    pub close_to_tray: bool,
+    /// Start with the window hidden in the tray (needs `use_tray`; takes effect next launch). Not a
+    /// minimize — the window is created hidden, not minimized to the taskbar.
+    pub start_hidden: bool,
     /// Launch the daemon if it isn't running when the UI tries to connect.
     pub start_daemon: bool,
     /// Load the Main profile on connect.
@@ -36,6 +43,9 @@ impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
             theme: "Dark".to_string(),
+            use_tray: false,
+            close_to_tray: false,
+            start_hidden: false,
             start_daemon: false,
             load_main: false,
             main_path: String::new(),

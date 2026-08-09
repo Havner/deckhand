@@ -38,12 +38,15 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     let mut inputs: Vec<String> = INPUT_PRESETS.iter().map(|s| s.to_string()).collect();
     inputs.extend(app.devices.iter().cloned());
     let selected_input = app.status.as_ref().map(|s| s.input.clone());
-    let input_pick = pick_list(inputs, selected_input, Message::InputSelected).placeholder("input");
+    let input_pick = pick_list(selected_input, inputs, String::clone)
+        .on_select(Message::InputSelected)
+        .placeholder("input");
 
     let outputs: Vec<String> = OUTPUT_PRESETS.iter().map(|s| s.to_string()).collect();
     let selected_output = app.status.as_ref().map(|s| s.output.clone());
-    let output_pick =
-        pick_list(outputs, selected_output, Message::OutputSelected).placeholder("output");
+    let output_pick = pick_list(selected_output, outputs, String::clone)
+        .on_select(Message::OutputSelected)
+        .placeholder("output");
 
     // Manual device re-enumeration (no USB hotplug).
     let refresh = button(text("⟳")).on_press(Message::Refresh);
@@ -112,10 +115,22 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
 
     let theme_pick = row![
         text("Theme:").size(14.0),
-        pick_list(Theme::ALL, Some(app.active_theme()), Message::SetTheme),
+        pick_list(Some(app.active_theme()), Theme::ALL, |t: &Theme| t.to_string())
+            .on_select(Message::SetTheme),
     ]
     .spacing(8.0)
     .align_y(Center);
+
+    // Tray: the master toggle plus two options greyed out until it's on.
+    let use_tray = checkbox(s.use_tray)
+        .label("Enable the system tray icon")
+        .on_toggle(Message::ToggleUseTray);
+    let mut close_to_tray = checkbox(s.close_to_tray).label("Close to tray (hide instead of quit)");
+    let mut start_hidden = checkbox(s.start_hidden).label("Start hidden in the tray");
+    if s.use_tray {
+        close_to_tray = close_to_tray.on_toggle(Message::ToggleCloseToTray);
+        start_hidden = start_hidden.on_toggle(Message::ToggleStartHidden);
+    }
 
     let launch = checkbox(s.start_daemon)
         .label("Launch the daemon if not running on connect attempt")
@@ -141,6 +156,9 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
     column![
         section_header("UI"),
         theme_pick,
+        use_tray,
+        close_to_tray,
+        start_hidden,
         Space::new().height(8.0),
         section_header("Daemon"),
         launch,
@@ -254,7 +272,8 @@ fn group_header(title: &'static str) -> Element<'static, Message> {
 fn behavior_row() -> Element<'static, Message> {
     let options =
         vec!["Button Pad".to_string(), "Lorem Ipsum".to_string(), "Dolor Sit Amet".to_string()];
-    let combo = pick_list(options, Some("Button Pad".to_string()), |_| Message::Ignored);
+    let combo = pick_list(Some("Button Pad".to_string()), options, String::clone)
+        .on_select(|_| Message::Ignored);
     let inner = row![text("Behavior"), Space::new().width(Fill), combo, gear()]
         .spacing(12.0)
         .align_y(Center);

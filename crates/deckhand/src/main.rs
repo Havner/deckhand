@@ -16,12 +16,14 @@ mod daemon;
 mod nav;
 mod settings;
 mod style;
+mod tray;
 mod view;
 
 use std::hash::{Hash, Hasher};
 
 use daemon::{Client, DaemonUpdate, Shared, run_event_loop};
 use iced::futures::stream::BoxStream;
+use iced::window;
 use iced::{Subscription, Task, Theme};
 use ipc::{Event, ProfileRole, StatusSnapshot};
 use nav::Category;
@@ -38,16 +40,24 @@ fn main() -> iced::Result {
     // The UI-managed daemon handle, shared with the connect loop (populated when we launch a daemon)
     // and retained here so we can stop it on exit.
     let daemon = daemon::shared();
+
+    // A `daemon` (not `application`): it survives with zero windows, so hide-to-tray can actually
+    // CLOSE the window (the only way to hide on Wayland — winit can't toggle visibility there) and
+    // reopen it to show. Boot opens the initial window unless we're starting hidden into the tray.
     let boot = {
         let daemon = daemon.clone();
-        move || App::new(daemon.clone())
+        move || {
+            let app = App::new(daemon.clone());
+            let task = if app.hidden { Task::none() } else { app.open_window() };
+            (app, task)
+        }
     };
-    let result = iced::application(boot, App::update, App::view)
+    let result = iced::daemon(boot, App::update, App::view)
         .title("deckhand")
         .subscription(App::subscription)
-        .theme(App::active_theme)
+        .theme(|app: &App, _window| app.active_theme())
         .run();
-    // Window closed: stop the daemon we launched (if any) before the process exits.
+    // App exited: stop the daemon we launched (if any) before the process exits.
     daemon::shutdown_managed(&daemon);
     result
 }
@@ -72,6 +82,12 @@ pub struct App {
     /// The UI-managed daemon handle (shared with the connect loop); drives launch-on-connect and
     /// stop-on-exit.
     daemon: Shared,
+    /// The main window's id while open, captured on open (needed to close it). `None` when hidden.
+    window: Option<window::Id>,
+    /// Whether the window is currently hidden in the tray (no window open).
+    hidden: bool,
+    /// The live tray, when enabled and successfully started (`None` = no tray).
+    tray: Option<tray::Tray>,
 }
 
 /// Everything the view can emit.
@@ -103,6 +119,17 @@ pub enum Message {
     FallbackPathChanged(String),
     BrowseMain,
     BrowseFallback,
+    /// Tray settings.
+    ToggleUseTray(bool),
+    ToggleCloseToTray(bool),
+    ToggleStartHidden(bool),
+    /// Window lifecycle: open captures the id; a close *request* (WM button) is intercepted for
+    /// close-to-tray; closed clears the id.
+    WindowOpened(window::Id),
+    CloseRequested(window::Id),
+    WindowClosed(window::Id),
+    /// A tray menu item was clicked.
+    TrayMenu(tray::MenuAction),
     /// Theme selection (any built-in iced theme).
     SetTheme(Theme),
     /// A no-op for unwired mockup widgets (the Buttons tab).
@@ -111,15 +138,60 @@ pub enum Message {
 
 impl App {
     fn new(daemon: Shared) -> Self {
+        let settings = AppSettings::load();
+        let want_hidden = settings.use_tray && settings.start_hidden;
+        // Start the tray if enabled. We only *actually* start hidden if it came up — otherwise
+        // there'd be no way to restore the window.
+        let (tray, error) = if settings.use_tray {
+            match tray::Tray::enable(want_hidden) {
+                Ok(t) => (Some(t), None),
+                Err(e) => (None, Some(format!("tray: {e}"))),
+            }
+        } else {
+            (None, None)
+        };
         App {
-            settings: AppSettings::load(),
+            settings,
             socket: None,
             connected: false,
             status: None,
             devices: Vec::new(),
             category: Category::Settings,
-            error: None,
+            error,
             daemon,
+            window: None,
+            hidden: want_hidden && tray.is_some(),
+            tray,
+        }
+    }
+
+    /// Open the main window, routing its id back as [`Message::WindowOpened`]. `exit_on_close_request`
+    /// is off so the WM close button reaches our [`Message::CloseRequested`] handler (which decides
+    /// close-to-tray vs quit) instead of iced auto-closing the window — in daemon mode an auto-close
+    /// would just leave the app running with no window and no way to have intercepted it.
+    fn open_window(&self) -> Task<Message> {
+        let settings =
+            window::Settings { exit_on_close_request: false, ..window::Settings::default() };
+        window::open(settings).1.map(Message::WindowOpened)
+    }
+
+    /// Hide or show the window, and retitle the tray's Show/Hide item. Hiding **closes** the window
+    /// (unmapping the surface — the only way to hide on Wayland, where winit can't toggle
+    /// visibility); showing opens a fresh one.
+    fn set_hidden(&mut self, hidden: bool) -> Task<Message> {
+        self.hidden = hidden;
+        if let Some(t) = &self.tray {
+            t.set_label(hidden);
+        }
+        if hidden {
+            match self.window.take() {
+                Some(id) => window::close(id),
+                None => Task::none(),
+            }
+        } else if self.window.is_none() {
+            self.open_window()
+        } else {
+            Task::none()
         }
     }
 
@@ -140,7 +212,54 @@ impl App {
             Message::InputSelected(spec) => return self.cmd_task(move |c| c.set_input(spec)),
             Message::OutputSelected(spec) => return self.cmd_task(move |c| c.set_output(spec)),
 
+            // --- window + tray arms (may drive a window Task) ---
+            Message::WindowOpened(id) => self.window = Some(id),
+            Message::WindowClosed(id) => {
+                // Only clear if it's the current window (a stale close from a prior hide could
+                // otherwise wipe a freshly reopened window's id).
+                if self.window == Some(id) {
+                    self.window = None;
+                }
+            }
+            Message::CloseRequested(_id) => {
+                if self.settings.close_to_tray && self.tray.is_some() {
+                    return self.set_hidden(true);
+                }
+                return iced::exit();
+            }
+            Message::TrayMenu(tray::MenuAction::ToggleWindow) => {
+                return self.set_hidden(!self.hidden);
+            }
+            Message::TrayMenu(tray::MenuAction::Quit) => return iced::exit(),
+            Message::ToggleUseTray(v) => {
+                self.settings.use_tray = v;
+                self.save_settings();
+                if v {
+                    match tray::Tray::enable(self.hidden) {
+                        Ok(t) => {
+                            self.tray = Some(t);
+                            self.error = None;
+                        }
+                        Err(e) => self.error = Some(format!("tray: {e}")),
+                    }
+                } else if let Some(t) = self.tray.take() {
+                    t.disable();
+                    // Without a tray we can't restore a hidden window — show it.
+                    if self.hidden {
+                        return self.set_hidden(false);
+                    }
+                }
+            }
+
             // --- arms that only mutate state (fall through to Task::none()) ---
+            Message::ToggleCloseToTray(v) => {
+                self.settings.close_to_tray = v;
+                self.save_settings();
+            }
+            Message::ToggleStartHidden(v) => {
+                self.settings.start_hidden = v;
+                self.save_settings();
+            }
             Message::Navigate(c) => self.category = c,
             Message::Daemon(DaemonUpdate::Disconnected) => {
                 self.connected = false;
@@ -219,16 +338,24 @@ impl App {
             .unwrap_or(Theme::Dark)
     }
 
-    fn view(&self) -> iced::Element<'_, Message> {
+    fn view(&self, _window: window::Id) -> iced::Element<'_, Message> {
         view::view(self)
     }
 
-    /// The event-stream subscription, keyed on the socket so it stays alive for the app's life. The
+    /// The app's subscriptions: the daemon event stream, window open/close events, and tray menu
+    /// clicks. The daemon sub is keyed on the socket so it stays alive for the app's life; the
     /// managed-daemon handle rides along in the data but is excluded from its identity (see
     /// [`SubData`]) so the subscription isn't restarted every render.
     fn subscription(&self) -> Subscription<Message> {
         let data = SubData { socket: self.socket.clone(), managed: self.daemon.clone() };
-        Subscription::run_with(data, daemon_events)
+        Subscription::batch([
+            Subscription::run_with(data, daemon_events),
+            // Window ids come from mapping `window::open`'s task (see `open_window`), so we only need
+            // close-request (WM button) and closed (id cleanup) here.
+            window::close_requests().map(Message::CloseRequested),
+            window::close_events().map(Message::WindowClosed),
+            Subscription::run_with((), tray_events),
+        ])
     }
 
     /// Fetch a fresh status snapshot on a short-lived connection off the render thread.
@@ -328,6 +455,31 @@ fn daemon_events(data: &SubData) -> BoxStream<'static, Message> {
         });
         while let Some(update) = rx.next().await {
             if output.send(Message::Daemon(update)).await.is_err() {
+                break;
+            }
+        }
+    })
+    .boxed()
+}
+
+/// Forward tray menu clicks into the app. The tray's menu callbacks send [`tray::MenuAction`]s on a
+/// process-global channel; a thread blocks on that receiver and bridges each into a
+/// [`Message::TrayMenu`].
+fn tray_events(_: &()) -> BoxStream<'static, Message> {
+    use iced::futures::StreamExt;
+    iced::stream::channel(16, move |mut output: iced::futures::channel::mpsc::Sender<Message>| async move {
+        use iced::futures::{SinkExt, StreamExt};
+        let (tx, mut rx) = iced::futures::channel::mpsc::unbounded();
+        std::thread::spawn(move || {
+            let events = tray::menu_receiver();
+            while let Ok(action) = events.recv() {
+                if tx.unbounded_send(action).is_err() {
+                    break;
+                }
+            }
+        });
+        while let Some(action) = rx.next().await {
+            if output.send(Message::TrayMenu(action)).await.is_err() {
                 break;
             }
         }

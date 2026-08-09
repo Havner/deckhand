@@ -16,28 +16,28 @@ use iced::{Background, Color, Theme};
 
 /// Text in the palette's **success** color (green-ish) — e.g. the "connected" dot.
 pub fn success_text(theme: &Theme) -> text::Style {
-    text::Style { color: Some(theme.palette().success) }
+    text::Style { color: Some(theme.palette().success.base.color) }
 }
 
 /// Text in the palette's **danger** color (red-ish) — e.g. the "disconnected" dot, error messages.
 pub fn danger_text(theme: &Theme) -> text::Style {
-    text::Style { color: Some(theme.palette().danger) }
+    text::Style { color: Some(theme.palette().danger.base.color) }
 }
 
 /// Text in the palette's **primary** color — the "X button" glyph (nominally blue).
 pub fn primary_text(theme: &Theme) -> text::Style {
-    text::Style { color: Some(theme.palette().primary) }
+    text::Style { color: Some(theme.palette().primary.base.color) }
 }
 
 /// Text in the palette's **warning** color — the "Y button" glyph (nominally yellow).
 pub fn warning_text(theme: &Theme) -> text::Style {
-    text::Style { color: Some(theme.palette().warning) }
+    text::Style { color: Some(theme.palette().warning.base.color) }
 }
 
 /// Muted/"inactive" text — a strong background tone rather than the foreground text color, so it
 /// reads as subtle against surrounding text (e.g. the status-bar separators). Tracks the theme.
 pub fn muted_text(theme: &Theme) -> text::Style {
-    text::Style { color: Some(theme.extended_palette().background.strong.color) }
+    text::Style { color: Some(theme.palette().background.strong.color) }
 }
 
 /// On a **dark** theme, each RGB channel of the `secondary` background is divided by this to darken
@@ -51,7 +51,7 @@ const DARK_PANEL_DIVISOR: f32 = 5.0;
 pub fn panel(theme: &Theme) -> container::Style {
     let mut style = container::secondary(theme);
     // Light themes: keep the preset (its secondary text is already readable).
-    if !theme.extended_palette().is_dark {
+    if !theme.palette().is_dark {
         return style;
     }
     // Dark themes: darken the secondary background, and force the theme's primary (light) text
@@ -64,6 +64,6 @@ pub fn panel(theme: &Theme) -> container::Style {
             c.b / DARK_PANEL_DIVISOR,
         )));
     }
-    style.text_color = Some(theme.palette().text);
+    style.text_color = Some(theme.palette().background.base.text);
     style
 }

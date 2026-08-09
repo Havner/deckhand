@@ -16,3 +16,12 @@ iced.workspace = true
 rfd.workspace = true
 serde.workspace = true
 ron.workspace = true
+# Menu-action channel between the tray (its own thread) and the app subscription.
+crossbeam-channel.workspace = true
+
+# Linux tray: ksni (pure-Rust StatusNotifierItem over D-Bus, no gtk). async-io keeps it
+# runtime-agnostic (our app has no Tokio runtime); png decodes the bundled icon. Windows/macOS will
+# use tray-icon's native backends (a follow-up).
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3.6", default-features = false, features = ["blocking", "async-io"] }
+png.workspace = true
