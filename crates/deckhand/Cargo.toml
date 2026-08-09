@@ -1,0 +1,18 @@
+[package]
+name = "deckhand"
+edition.workspace = true
+license.workspace = true
+publish = false
+version.workspace = true
+
+[[bin]]
+name = "deckhand"
+path = "src/main.rs"
+
+[dependencies]
+ipc = { path = "../ipc" }
+config = { path = "../config" }
+iced.workspace = true
+rfd.workspace = true
+serde.workspace = true
+ron.workspace = true

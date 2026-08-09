@@ -1331,6 +1331,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "deckhand"
+version = "0.0.0"
+dependencies = [
+ "config",
+ "iced",
+ "ipc",
+ "rfd",
+ "ron",
+ "serde",
+]
+
+[[package]]
 name = "deckhandctl"
 version = "0.0.0"
 dependencies = [
