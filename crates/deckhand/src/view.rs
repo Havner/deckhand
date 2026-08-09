@@ -2,7 +2,7 @@
 
 use config::StartProfile;
 use iced::widget::{
-    Space, button, center, checkbox, column, container, mouse_area, opaque, pick_list, row,
+    Space, button, center, checkbox, column, container, mouse_area, opaque, pick_list, row, rule,
     scrollable, slider, stack, text, text_input,
 };
 use iced::{Center, Element, Fill, Theme};
@@ -100,14 +100,16 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     // Manual device re-enumeration (no USB hotplug).
     let refresh = button(text("⟳")).on_press(Message::Refresh);
 
+    // Everything right-aligned (I/O selectors then the Start/Stop group); the left is left free for
+    // buttons added later.
     let bar = row![
-        controls,
         Space::new().width(Fill),
         refresh,
         text("Input:").size(13.0),
         input_pick,
         text("Output:").size(13.0),
         output_pick,
+        controls,
     ]
     .spacing(8.0)
     .align_y(Center)
@@ -116,10 +118,11 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     container(bar).style(container::dark).width(Fill).into()
 }
 
-/// Left sidebar: profile-edit categories up top, app-level (Settings/Globals) pinned at the bottom.
+/// Left sidebar: Profiles at the top, a separator, then the profile-editor categories; app-level
+/// (Globals/Settings) pinned at the bottom.
 fn sidebar(app: &App) -> Element<'_, Message> {
-    let mut top = column![].spacing(4.0);
-    for &c in Category::PROFILE {
+    let mut top = column![nav_button(app, Category::Profiles), rule::horizontal(1)].spacing(4.0);
+    for &c in Category::EDITOR {
         top = top.push(nav_button(app, c));
     }
     let mut bottom = column![].spacing(4.0);
@@ -149,12 +152,19 @@ fn nav_button(app: &App, c: Category) -> Element<'static, Message> {
 /// The scrollable content pane; swaps entirely on the selected category.
 fn content(app: &App) -> Element<'_, Message> {
     let inner: Element<'_, Message> = match app.category {
+        Category::Profiles => profiles_screen(app),
         Category::Buttons => buttons_screen(),
         Category::Settings => settings_screen(app),
         Category::Globals => globals_screen(app),
         other => stub_screen(other),
     };
     scrollable(container(inner).padding(16.0).width(Fill)).width(Fill).height(Fill).into()
+}
+
+/// Profiles screen — profile management (load-for-edit, send-to-daemon). Empty for now; the rows
+/// (selector, role/edit buttons, name + rumble) land in the next step.
+fn profiles_screen(_app: &App) -> Element<'_, Message> {
+    column![text("Profiles").size(24.0)].spacing(10.0).into()
 }
 
 /// Settings screen — a **UI** section (theme) and a **Daemon** section (the on-connect behaviour +
