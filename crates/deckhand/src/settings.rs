@@ -13,30 +13,35 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
-    /// Start the daemon if it isn't running when the UI launches.
-    pub start_daemon: bool,
-    /// Load the Main profile on start.
-    pub load_main: bool,
-    /// Path to the Main profile RON (meaningful only when `load_main`).
-    pub main_path: String,
-    /// Load the Fallback profile on start.
-    pub load_fallback: bool,
-    /// Path to the Fallback profile RON (meaningful only when `load_fallback`).
-    pub fallback_path: String,
+    // Field order mirrors the Settings screen (UI section first, then Daemon), so the serialized
+    // file reads top-to-bottom the same as the UI.
     /// The UI theme, stored by **name** (e.g. `Dark`, `Dracula`) — one of iced's built-in themes,
     /// falling back to the default when the name is empty/unknown.
     pub theme: String,
+    /// Launch the daemon if it isn't running when the UI tries to connect.
+    pub start_daemon: bool,
+    /// Load the Main profile on connect.
+    pub load_main: bool,
+    /// Path to the Main profile RON (meaningful only when `load_main`).
+    pub main_path: String,
+    /// Load the Fallback profile on connect.
+    pub load_fallback: bool,
+    /// Path to the Fallback profile RON (meaningful only when `load_fallback`).
+    pub fallback_path: String,
+    /// Start the engine (acquire hardware + run the mapping loop) on connect.
+    pub start_engine: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
+            theme: "Dark".to_string(),
             start_daemon: false,
             load_main: false,
             main_path: String::new(),
             load_fallback: false,
             fallback_path: String::new(),
-            theme: "Dark".to_string(),
+            start_engine: false,
         }
     }
 }

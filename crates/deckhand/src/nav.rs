@@ -24,8 +24,9 @@ impl Category {
     pub const PROFILE: &'static [Category] =
         &[Category::Buttons, Category::Triggers, Category::Joysticks, Category::Trackpads, Category::Gyro];
 
-    /// The application-level categories pinned at the bottom of the sidebar.
-    pub const APP: &'static [Category] = &[Category::Settings, Category::Globals];
+    /// The application-level categories pinned at the bottom of the sidebar (Settings sits at the
+    /// very bottom, Globals above it).
+    pub const APP: &'static [Category] = &[Category::Globals, Category::Settings];
 
     /// The sidebar label.
     pub fn label(self) -> &'static str {

@@ -27,12 +27,10 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     let start = matches!(state, Some(RunState::Idle)).then_some(Message::Start);
     let stop = matches!(state, Some(RunState::Running | RunState::WaitingForDevice))
         .then_some(Message::Stop);
-    let connect = (!app.connected).then_some(Message::Connect);
 
     let controls = row![
         button(text("Start")).on_press_maybe(start).style(button::success),
         button(text("Stop")).on_press_maybe(stop).style(button::danger),
-        button(text("Connect")).on_press_maybe(connect),
     ]
     .spacing(8.0);
 
@@ -47,7 +45,7 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     let output_pick =
         pick_list(outputs, selected_output, Message::OutputSelected).placeholder("output");
 
-    // Manual device re-enumeration (no USB hotplug). Default style → blue, matching Connect.
+    // Manual device re-enumeration (no USB hotplug).
     let refresh = button(text("⟳")).on_press(Message::Refresh);
 
     let bar = row![
@@ -107,27 +105,10 @@ fn content(app: &App) -> Element<'_, Message> {
     scrollable(container(inner).padding(16.0).width(Fill)).width(Fill).height(Fill).into()
 }
 
-/// Settings screen — the two start toggles + the two profile paths (each path greyed when its
-/// toggle is off).
+/// Settings screen — a **UI** section (theme) and a **Daemon** section (the on-connect behaviour +
+/// the two profile paths, each path greyed when its toggle is off).
 fn settings_screen(app: &App) -> Element<'_, Message> {
     let s = &app.settings;
-    let start = checkbox(s.start_daemon)
-        .label("Start the daemon if not running on application start")
-        .on_toggle(Message::ToggleStartDaemon);
-    let load_main = checkbox(s.load_main)
-        .label("Load the main profile on start")
-        .on_toggle(Message::ToggleLoadMain);
-    let main_row =
-        path_row(&s.main_path, s.load_main, Message::MainPathChanged, Message::BrowseMain);
-    let load_fb = checkbox(s.load_fallback)
-        .label("Load the fallback profile on start")
-        .on_toggle(Message::ToggleLoadFallback);
-    let fb_row = path_row(
-        &s.fallback_path,
-        s.load_fallback,
-        Message::FallbackPathChanged,
-        Message::BrowseFallback,
-    );
 
     let theme_pick = row![
         text("Theme:").size(14.0),
@@ -136,20 +117,46 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
     .spacing(8.0)
     .align_y(Center);
 
+    let launch = checkbox(s.start_daemon)
+        .label("Launch the daemon if not running on connect attempt")
+        .on_toggle(Message::ToggleStartDaemon);
+    let load_main = checkbox(s.load_main)
+        .label("Load the main profile on connect")
+        .on_toggle(Message::ToggleLoadMain);
+    let main_row =
+        path_row(&s.main_path, s.load_main, Message::MainPathChanged, Message::BrowseMain);
+    let load_fb = checkbox(s.load_fallback)
+        .label("Load the fallback profile on connect")
+        .on_toggle(Message::ToggleLoadFallback);
+    let fb_row = path_row(
+        &s.fallback_path,
+        s.load_fallback,
+        Message::FallbackPathChanged,
+        Message::BrowseFallback,
+    );
+    let start_engine = checkbox(s.start_engine)
+        .label("Start the engine on connect")
+        .on_toggle(Message::ToggleStartEngine);
+
     column![
-        text("Settings").size(24.0),
-        text("Application settings — stored separately from the daemon.").size(13.0),
+        section_header("UI"),
+        theme_pick,
         Space::new().height(8.0),
-        start,
+        section_header("Daemon"),
+        launch,
         load_main,
         main_row,
         load_fb,
         fb_row,
-        Space::new().height(8.0),
-        theme_pick,
+        start_engine,
     ]
     .spacing(10.0)
     .into()
+}
+
+/// A settings section title, styled like the screen's big headings.
+fn section_header(title: &'static str) -> Element<'static, Message> {
+    text(title).size(24.0).into()
 }
 
 /// A profile-path row: text field + Browse button, both inert (greyed) when `enabled` is false.

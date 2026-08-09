@@ -18,7 +18,9 @@ mod settings;
 mod style;
 mod view;
 
-use daemon::{Client, DaemonUpdate, run_event_loop};
+use std::hash::{Hash, Hasher};
+
+use daemon::{Client, DaemonUpdate, Shared, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::{Subscription, Task, Theme};
 use ipc::{Event, ProfileRole, StatusSnapshot};
@@ -33,11 +35,21 @@ pub const INPUT_PRESETS: &[&str] = &["auto", "dongle", "wired", "bt"];
 pub const OUTPUT_PRESETS: &[&str] = &["local"];
 
 fn main() -> iced::Result {
-    iced::application(App::new, App::update, App::view)
+    // The UI-managed daemon handle, shared with the connect loop (populated when we launch a daemon)
+    // and retained here so we can stop it on exit.
+    let daemon = daemon::shared();
+    let boot = {
+        let daemon = daemon.clone();
+        move || App::new(daemon.clone())
+    };
+    let result = iced::application(boot, App::update, App::view)
         .title("deckhand")
         .subscription(App::subscription)
         .theme(App::active_theme)
-        .run()
+        .run();
+    // Window closed: stop the daemon we launched (if any) before the process exits.
+    daemon::shutdown_managed(&daemon);
+    result
 }
 
 /// The whole application state (Elm-architecture `State`).
@@ -57,6 +69,9 @@ pub struct App {
     category: Category,
     /// Last error, surfaced in the status bar.
     error: Option<String>,
+    /// The UI-managed daemon handle (shared with the connect loop); drives launch-on-connect and
+    /// stop-on-exit.
+    daemon: Shared,
 }
 
 /// Everything the view can emit.
@@ -67,7 +82,6 @@ pub enum Message {
     /// An update from the event-stream subscription.
     Daemon(DaemonUpdate),
     /// Top-bar daemon controls.
-    Connect,
     Start,
     Stop,
     /// Re-enumerate devices + refresh status (no USB hotplug — this is the manual trigger).
@@ -82,6 +96,7 @@ pub enum Message {
     CmdDone(Result<(), String>),
     /// Settings-screen edits.
     ToggleStartDaemon(bool),
+    ToggleStartEngine(bool),
     ToggleLoadMain(bool),
     ToggleLoadFallback(bool),
     MainPathChanged(String),
@@ -95,7 +110,7 @@ pub enum Message {
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(daemon: Shared) -> Self {
         App {
             settings: AppSettings::load(),
             socket: None,
@@ -104,6 +119,7 @@ impl App {
             devices: Vec::new(),
             category: Category::Settings,
             error: None,
+            daemon,
         }
     }
 
@@ -118,7 +134,7 @@ impl App {
                 self.error = None;
                 return self.refresh_task();
             }
-            Message::Connect | Message::Refresh => return self.refresh_task(),
+            Message::Refresh => return self.refresh_task(),
             Message::Start => return self.cmd_task(|c| c.start()),
             Message::Stop => return self.cmd_task(|c| c.stop()),
             Message::InputSelected(spec) => return self.cmd_task(move |c| c.set_input(spec)),
@@ -132,10 +148,11 @@ impl App {
                 self.devices.clear();
             }
             Message::Daemon(DaemonUpdate::Event(ev)) => self.apply_event(ev),
-            Message::StatusFetched(Ok(s)) => {
-                self.status = Some(s);
-                self.error = None;
-            }
+            Message::Daemon(DaemonUpdate::Error(e)) => self.error = Some(e),
+            // Seeding status must NOT clear the error: the seed is dispatched by the same
+            // `Connected` that precedes the on-connect setup, so clearing here would wipe a setup
+            // error (bad profile path, start refused) the instant the async seed lands.
+            Message::StatusFetched(Ok(s)) => self.status = Some(s),
             Message::StatusFetched(Err(e)) => {
                 self.status = None;
                 self.error = Some(e);
@@ -149,6 +166,10 @@ impl App {
 
             Message::ToggleStartDaemon(v) => {
                 self.settings.start_daemon = v;
+                self.save_settings();
+            }
+            Message::ToggleStartEngine(v) => {
+                self.settings.start_engine = v;
                 self.save_settings();
             }
             Message::ToggleLoadMain(v) => {
@@ -202,9 +223,12 @@ impl App {
         view::view(self)
     }
 
-    /// The event-stream subscription, keyed on the socket so it stays alive for the app's life.
+    /// The event-stream subscription, keyed on the socket so it stays alive for the app's life. The
+    /// managed-daemon handle rides along in the data but is excluded from its identity (see
+    /// [`SubData`]) so the subscription isn't restarted every render.
     fn subscription(&self) -> Subscription<Message> {
-        Subscription::run_with(self.socket.clone(), daemon_events)
+        let data = SubData { socket: self.socket.clone(), managed: self.daemon.clone() };
+        Subscription::run_with(data, daemon_events)
     }
 
     /// Fetch a fresh status snapshot on a short-lived connection off the render thread.
@@ -273,17 +297,34 @@ impl App {
     }
 }
 
-/// The event-stream builder handed to `Subscription::run_with` (a plain fn pointer — it captures
-/// nothing but the socket it is given). Spawns the blocking [`run_event_loop`] on a thread and
-/// bridges its callback into iced's async output via an unbounded channel.
-fn daemon_events(socket: &Option<String>) -> BoxStream<'static, Message> {
+/// The data handed to the daemon-events subscription: the socket override plus the managed-daemon
+/// handle. Its [`Hash`] covers only the socket — that is the subscription's identity, so the handle
+/// (cloned fresh every render) never restarts the loop. The builder is a plain `fn` pointer that
+/// can't capture, so the handle has to travel in the data.
+#[derive(Clone)]
+struct SubData {
+    socket: Option<String>,
+    managed: Shared,
+}
+
+impl Hash for SubData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.socket.hash(state);
+    }
+}
+
+/// The event-stream builder handed to `Subscription::run_with`. Spawns the blocking
+/// [`run_event_loop`] on a thread and bridges its callback into iced's async output via an unbounded
+/// channel.
+fn daemon_events(data: &SubData) -> BoxStream<'static, Message> {
     use iced::futures::StreamExt;
-    let socket = socket.clone();
+    let socket = data.socket.clone();
+    let managed = data.managed.clone();
     iced::stream::channel(64, move |mut output: iced::futures::channel::mpsc::Sender<Message>| async move {
         use iced::futures::{SinkExt, StreamExt};
         let (tx, mut rx) = iced::futures::channel::mpsc::unbounded();
         std::thread::spawn(move || {
-            run_event_loop(socket, move |u| tx.unbounded_send(u).is_ok());
+            run_event_loop(socket, managed, move |u| tx.unbounded_send(u).is_ok());
         });
         while let Some(update) = rx.next().await {
             if output.send(Message::Daemon(update)).await.is_err() {
