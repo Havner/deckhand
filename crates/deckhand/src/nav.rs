@@ -2,8 +2,7 @@
 //!
 //! Mirrors the Steam Deck configurator's layout (per-input-type categories up top), plus the two
 //! **application-level** entries pinned at the bottom (Settings, Globals). The profile-edit
-//! categories are still stubs; Settings is fully wired, Globals is laid out but not wired
-//! (widgets-only) pending the real config-editing UI.
+//! categories are still stubs; Settings and Globals are both fully wired.
 
 /// A sidebar entry / content screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

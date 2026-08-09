@@ -107,7 +107,7 @@ pub fn settings_path() -> PathBuf {
 }
 
 #[cfg(unix)]
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     if let Some(x) = std::env::var_os("XDG_CONFIG_HOME") {
         return PathBuf::from(x);
     }
@@ -117,6 +117,6 @@ fn config_dir() -> PathBuf {
 }
 
 #[cfg(windows)]
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
 }

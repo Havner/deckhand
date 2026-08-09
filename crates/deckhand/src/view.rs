@@ -1,14 +1,18 @@
 //! The iced widget layer: the four-region window and the per-category screens.
 
+use config::StartProfile;
 use iced::widget::{
-    Space, button, center, checkbox, column, container, mouse_area, opaque, pick_list, progress_bar,
-    row, scrollable, stack, text, text_input,
+    Space, button, center, checkbox, column, container, mouse_area, opaque, pick_list, row,
+    scrollable, slider, stack, text, text_input,
 };
 use iced::{Center, Element, Fill, Theme};
 use ipc::RunState;
 
 use crate::nav::Category;
-use crate::{App, INPUT_PRESETS, IoTarget, Message, NETWORK_OPTION, OUTPUT_PRESETS, Popup, style};
+use crate::{
+    App, IDLE_TIMEOUT_MINUTES, INPUT_PRESETS, IoTarget, Message, NETWORK_OPTION, OUTPUT_PRESETS,
+    Popup, style,
+};
 
 /// The whole window: top bar / (sidebar + content) / bottom bar, with the network popup layered on
 /// top as a modal when open.
@@ -244,29 +248,98 @@ fn path_row<'a>(
     row![input, btn].spacing(8.0).align_y(Center).into()
 }
 
-/// Globals screen — laid out for the widget preview; reads the daemon's current globals but is not
-/// wired to change them yet.
+/// Globals screen — a live editor over the UI-owned [`GlobalConfig`](config::GlobalConfig). Every
+/// edit persists to `globals.ron` and ships to the daemon (`App::apply_globals`); this always renders
+/// `app.globals` (the source of truth), never the daemon's status snapshot. Chords aren't editable
+/// yet (that lands with the profile editor) — only their count is shown.
 fn globals_screen(app: &App) -> Element<'_, Message> {
-    let mut col = column![
-        text("Globals").size(24.0),
-        text("Global engine config — widget preview; not wired to edit yet.").size(13.0),
-        Space::new().height(8.0),
-    ]
-    .spacing(10.0);
+    let g = &app.globals;
 
-    if let Some(status) = &app.status {
-        let g = &status.globals;
-        col = col
-            .push(text(format!("Start profile: {:?}", g.start_profile)))
-            .push(text(format!("Master rumble: {}%", g.master_rumble)))
-            .push(progress_bar(0.0..=100.0, g.master_rumble as f32))
-            .push(text(format!("LED brightness: {}", opt_pct(g.led_brightness))))
-            .push(text(format!("Idle timeout: {}", opt_secs(g.idle_timeout))))
-            .push(text(format!("Chords: {}", g.chords.len())));
+    // Start profile: Main / Fallback. The label closure supplies the display strings, so the enum
+    // needs no `Display` impl.
+    let start = row![
+        glabel("Start profile:"),
+        pick_list(
+            Some(g.start_profile.clone()),
+            vec![StartProfile::Main, StartProfile::Fallback],
+            |p: &StartProfile| match p {
+                StartProfile::Main => "Main",
+                StartProfile::Fallback => "Fallback",
+            }
+            .to_string(),
+        )
+        .on_select(Message::GlobalsStartProfile)
+        .width(160.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+
+    // Master rumble: a 0–100% slider with a live readout.
+    let master = row![
+        glabel("Master rumble:"),
+        slider(0..=100u8, g.master_rumble, Message::GlobalsMasterRumble),
+        pct_text(Some(g.master_rumble)),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+
+    // LED brightness: an `Option` — the checkbox gates a 0–100% slider. When off it's the same
+    // slider widget (identical geometry) but styled inert and non-interactive, so `None` reads as
+    // "leave default" without the jarring size change a different widget would cause.
+    let led_on = g.led_brightness.is_some();
+    let led_val = g.led_brightness.unwrap_or(crate::DEFAULT_LED_BRIGHTNESS);
+    let led_bar: Element<'_, Message> = if led_on {
+        slider(0..=100u8, led_val, Message::GlobalsLedBrightness).into()
     } else {
-        col = col.push(text("Connect to the daemon to view its globals."));
+        slider(0..=100u8, led_val, |_| Message::Ignored).style(style::disabled_slider).into()
+    };
+    let led = row![
+        glabel("LED brightness:"),
+        checkbox(led_on).on_toggle(Message::GlobalsLedEnabled),
+        led_bar,
+        pct_text(led_on.then_some(led_val)),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+
+    // Idle timeout: an `Option` — the checkbox gates a minutes combobox (values stored as seconds).
+    let idle_on = g.idle_timeout.is_some();
+    let idle_min = g.idle_timeout.map(|s| s / 60).unwrap_or(crate::DEFAULT_IDLE_TIMEOUT / 60);
+    let mut idle_combo = pick_list(
+        idle_on.then_some(idle_min),
+        IDLE_TIMEOUT_MINUTES.to_vec(),
+        |m: &u16| format!("{m} minutes"),
+    )
+    .placeholder("default")
+    .width(160.0);
+    if idle_on {
+        idle_combo = idle_combo.on_select(|m| Message::GlobalsIdleTimeout(m * 60));
     }
-    col.into()
+    let idle = row![
+        glabel("Idle timeout:"),
+        checkbox(idle_on).on_toggle(Message::GlobalsIdleEnabled),
+        idle_combo,
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+
+    // Chords: count only — editing is deferred to the profile editor (the count still round-trips
+    // through the file/daemon untouched).
+    let chords = row![glabel("Chords:"), text(format!("{}", g.chords.len()))]
+        .spacing(12.0)
+        .align_y(Center);
+
+    column![start, master, led, idle, chords].spacing(16.0).into()
+}
+
+/// A fixed-width row label for the Globals screen, so the controls line up in a column.
+fn glabel(s: &'static str) -> Element<'static, Message> {
+    text(s).width(140.0).into()
+}
+
+/// A fixed-width trailing percentage readout (`None` → "default"), keeping the sliders aligned.
+fn pct_text(v: Option<u8>) -> Element<'static, Message> {
+    text(v.map(|x| format!("{x}%")).unwrap_or_else(|| "default".into())).width(60.0).into()
 }
 
 /// A mockup of the Steam-Deck-style **Buttons** screen — grouped input rows, each with a per-input
@@ -400,12 +473,4 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
 
 fn sep() -> Element<'static, Message> {
     text("│").size(13.0).style(style::muted_text).into()
-}
-
-fn opt_pct(v: Option<u8>) -> String {
-    v.map(|x| format!("{x}%")).unwrap_or_else(|| "default".into())
-}
-
-fn opt_secs(v: Option<u16>) -> String {
-    v.map(|x| format!("{x}s")).unwrap_or_else(|| "default".into())
 }

@@ -181,6 +181,13 @@ fn apply_control(
             *globals = *g;
             // Preserve the current role base across the swap — `start_profile` is start-only.
             *chords = Chords::new(&globals.chords, chords.fallback_base());
+            // REVISIT (globals): a live SetGlobals only takes effect for master_rumble + chords
+            // here. `led_brightness`/`idle_timeout` live in the reader's `DeviceCfg` (built once at
+            // start, re-applied on each `Connected`), so changing them via SetGlobals does NOT push
+            // to the hardware until the next start/reconnect. To make LED/idle live too, the new
+            // values must reach the reader (e.g. thread them through the link so the reader re-runs
+            // its apply). The UI can't work around this itself — it only sends SetGlobals. Part of a
+            // broader globals rework (see the UI Globals screen).
             false
         }
         Ok(Control::Stop) | Err(_) => true,

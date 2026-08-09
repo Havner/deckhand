@@ -11,7 +11,7 @@
 //! `text(...).style(...)` and re-resolve against whatever theme iced passes — no need to thread the
 //! theme through the view functions.
 
-use iced::widget::{container, text};
+use iced::widget::{container, slider, text};
 use iced::{Background, Color, Theme};
 
 /// Text in the palette's **success** color (green-ish) — e.g. the "connected" dot.
@@ -49,6 +49,18 @@ pub fn scrim(theme: &Theme) -> container::Style {
         background: Some(Background::Color(c)),
         ..container::transparent(theme)
     }
+}
+
+/// A muted, **inactive-looking** slider — used for the LED-brightness bar when its checkbox is off,
+/// so the control keeps the exact same geometry (rail + handle) as the live slider but reads as
+/// disabled. Recolors iced's default slider from `primary` to a flat `background.strong` tone; the
+/// incoming status is ignored (there's no meaningful hover/drag on an inert control).
+pub fn disabled_slider(theme: &Theme, _status: slider::Status) -> slider::Style {
+    let muted = theme.palette().background.strong.color;
+    let mut style = slider::default(theme, slider::Status::Active);
+    style.rail.backgrounds = (muted.into(), muted.into());
+    style.handle.background = muted.into();
+    style
 }
 
 /// On a **dark** theme, each RGB channel of the `secondary` background is divided by this to darken

@@ -13,6 +13,7 @@
 //! still stubs pending the real config-editing UI.
 
 mod daemon;
+mod globals;
 mod nav;
 mod settings;
 mod style;
@@ -21,6 +22,7 @@ mod view;
 
 use std::hash::{Hash, Hasher};
 
+use config::{GlobalConfig, StartProfile};
 use daemon::{Client, DaemonUpdate, Shared, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::window;
@@ -35,6 +37,16 @@ pub const INPUT_PRESETS: &[&str] = &["auto", "dongle", "wired", "bt"];
 
 /// Preset output selections (`host:port` is typed, not listed).
 pub const OUTPUT_PRESETS: &[&str] = &["local"];
+
+/// Value `led_brightness` snaps to when its checkbox is first enabled (mid-range).
+pub const DEFAULT_LED_BRIGHTNESS: u8 = 50;
+
+/// Value `idle_timeout` snaps to when its checkbox is first enabled — 5 minutes (the shortest
+/// offered option). In **seconds**, matching [`GlobalConfig::idle_timeout`].
+pub const DEFAULT_IDLE_TIMEOUT: u16 = 300;
+
+/// The idle-timeout options offered in the Globals combobox, in **minutes**.
+pub const IDLE_TIMEOUT_MINUTES: &[u16] = &[5, 10, 15];
 
 /// The sentinel pick-list entry that opens the network (`host:port`) popup instead of staging a
 /// value directly.
@@ -87,6 +99,10 @@ fn main() -> iced::Result {
 pub struct App {
     /// The UI's own settings (Settings screen), persisted separately from the daemon.
     settings: AppSettings,
+    /// The UI-owned global (engine) config — the Globals screen's source of truth. Loaded from
+    /// `globals.ron` at boot and kept in lock-step with that file and the daemon (see
+    /// [`globals`] and [`Self::apply_globals`]).
+    globals: GlobalConfig,
     /// Socket/pipe override (`None` = default). Identifies the event subscription and seeds the
     /// short-lived per-command connections opened on the executor thread.
     socket: Option<String>,
@@ -144,6 +160,14 @@ pub enum Message {
     BrowseFallback,
     /// Restore last input/output on connect.
     ToggleRestoreIo(bool),
+    /// Globals-screen edits. Each mutates the UI-owned `globals`, then persists it and ships it to
+    /// the daemon ([`App::apply_globals`]). The two `Option` fields toggle via the `*Enabled` pair.
+    GlobalsStartProfile(StartProfile),
+    GlobalsMasterRumble(u8),
+    GlobalsLedEnabled(bool),
+    GlobalsLedBrightness(u8),
+    GlobalsIdleEnabled(bool),
+    GlobalsIdleTimeout(u16),
     /// Tray settings.
     ToggleUseTray(bool),
     ToggleCloseToTray(bool),
@@ -182,6 +206,7 @@ impl App {
         };
         App {
             settings,
+            globals: globals::load(),
             socket: None,
             connected: false,
             status: None,
@@ -236,6 +261,18 @@ impl App {
             }
             Ok(())
         })
+    }
+
+    /// Persist the UI-owned globals to `globals.ron` and ship them to the daemon. Called after every
+    /// Globals-screen edit — the file, the in-memory copy, and the daemon stay in lock-step (the
+    /// daemon's echoed `GlobalConfigSet` re-lands the identical value in [`Self::apply_event`], a
+    /// harmless no-op).
+    fn apply_globals(&mut self) -> Task<Message> {
+        if let Err(e) = globals::save(&self.globals) {
+            self.error = Some(format!("save globals: {e}"));
+        }
+        let g = self.globals.clone();
+        self.cmd_task(move |c| c.set_globals(g))
     }
 
     /// Persist the current window size (called on hide / quit, not on every resize).
@@ -310,6 +347,33 @@ impl App {
                 }
                 return self.apply_output(spec);
             }
+            // Globals edits: mutate the in-memory config, then persist + push to the daemon. The
+            // two Option fields default to a sensible value when their checkbox is switched on.
+            Message::GlobalsStartProfile(p) => {
+                self.globals.start_profile = p;
+                return self.apply_globals();
+            }
+            Message::GlobalsMasterRumble(v) => {
+                self.globals.master_rumble = v;
+                return self.apply_globals();
+            }
+            Message::GlobalsLedEnabled(on) => {
+                self.globals.led_brightness = on.then_some(DEFAULT_LED_BRIGHTNESS);
+                return self.apply_globals();
+            }
+            Message::GlobalsLedBrightness(v) => {
+                self.globals.led_brightness = Some(v);
+                return self.apply_globals();
+            }
+            Message::GlobalsIdleEnabled(on) => {
+                self.globals.idle_timeout = on.then_some(DEFAULT_IDLE_TIMEOUT);
+                return self.apply_globals();
+            }
+            Message::GlobalsIdleTimeout(secs) => {
+                self.globals.idle_timeout = Some(secs);
+                return self.apply_globals();
+            }
+
             // Network popup edits.
             Message::PopupTextChanged(t) => {
                 if let Some(p) = &mut self.popup {
@@ -536,6 +600,15 @@ impl App {
     /// Ignored until the first snapshot has seeded `status` (the seed, fetched after subscribe, is
     /// itself absolute, so nothing is missed).
     fn apply_event(&mut self, ev: Event) {
+        // A global-config change (our own echoed push, or another client's `SetGlobals`) syncs the
+        // UI-owned copy and the file regardless of seed state — the Globals screen reads
+        // `self.globals`, and the three (file / UI / daemon) stay in lock-step.
+        if let Event::GlobalConfigSet(g) = &ev {
+            self.globals = g.clone();
+            if let Err(e) = globals::save(&self.globals) {
+                self.error = Some(format!("save globals: {e}"));
+            }
+        }
         let Some(status) = self.status.as_mut() else { return };
         match ev {
             Event::State(s) => status.state = s,

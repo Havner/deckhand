@@ -89,6 +89,11 @@ impl Client {
         expect_ok(self.call(Request::SetOutput(spec))?)
     }
 
+    /// Replace the daemon's global config (rumble master, boot role, LED/idle, chords).
+    pub fn set_globals(&mut self, globals: config::GlobalConfig) -> io::Result<()> {
+        expect_ok(self.call(Request::SetGlobals(Box::new(globals)))?)
+    }
+
     /// Acquire hardware and start the mapping loop.
     pub fn start(&mut self) -> io::Result<()> {
         expect_ok(self.call(Request::Start)?)
@@ -195,8 +200,7 @@ const RETRY: Duration = Duration::from_millis(1000);
 ///    marked managed, never double-spawned), else just retry next tick.
 /// 3. Once connected: load the Main profile from its path (empty path → clear the role).
 /// 4. Same for the Fallback profile.
-/// 5. Push the app's saved global config (unconditional). *Not implemented yet* — the UI owns no
-///    globals; see the placeholder in [`run_on_connect`].
+/// 5. Push the app's saved global config (unconditional), read fresh from `globals.ron`.
 /// 6. Start the engine when *Start the engine* is set.
 ///
 /// Steps 3–6 run on a **separate** command connection (subscribe is terminal) and are best-effort —
@@ -263,8 +267,9 @@ fn run_on_connect(socket: Option<&str>, s: &AppSettings, on: &mut dyn FnMut(Daem
     if s.load_fallback {
         apply_profile(&mut cmd, ProfileRole::Fallback, &s.fallback_path, on);
     }
-    // Step 5 (unconditional): push the app's saved global config. TODO: the UI owns no persisted
-    // GlobalConfig yet — once it does, send it here, e.g. `report(on, cmd.set_globals(...))`.
+    // Step 5 (unconditional): push the app's saved global config, read fresh from disk (the UI
+    // owns it — see `crate::globals`; it stays in lock-step with the file and the daemon).
+    report(on, cmd.set_globals(crate::globals::load()));
 
     // Restore the last-used input/output (before start, so they take effect at start).
     if s.restore_io {
