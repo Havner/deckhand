@@ -15,6 +15,7 @@
 mod daemon;
 mod nav;
 mod settings;
+mod style;
 mod view;
 
 use daemon::{Client, DaemonUpdate, run_event_loop};

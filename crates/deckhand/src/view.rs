@@ -4,11 +4,11 @@ use iced::widget::{
     Space, button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text,
     text_input,
 };
-use iced::{Background, Center, Color, Element, Fill, Theme};
+use iced::{Center, Element, Fill, Theme};
 use ipc::RunState;
 
 use crate::nav::Category;
-use crate::{App, INPUT_PRESETS, Message, OUTPUT_PRESETS};
+use crate::{App, INPUT_PRESETS, Message, OUTPUT_PRESETS, style};
 
 /// The whole window: top bar / (sidebar + content) / bottom bar.
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -82,38 +82,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
         .spacing(8.0)
         .width(Fill);
 
-    container(col).width(180.0).height(Fill).style(panel_style).into()
-}
-
-/// On a **dark** theme, each RGB channel of the `secondary` background is divided by this to darken
-/// a panel while keeping the theme's tint. Light themes keep the plain `secondary` preset.
-const DARK_PANEL_DIVISOR: f32 = 5.0;
-
-/// Shared panel background (sidebar + the Buttons cards): the theme's `secondary` container style,
-/// but darkened on dark themes (the palette's `is_dark` flag — the same signal that drives the window
-/// decorations). Keeps the tint so each theme's panels still read as *its* color, just darker.
-fn panel_style(theme: &Theme) -> container::Style {
-    let mut style = container::secondary(theme);
-    // Light themes: keep the preset (its secondary text is already readable).
-    if !theme.extended_palette().is_dark {
-        return style;
-    }
-    // Dark themes: darken the secondary background, and force the theme's primary (light) text
-    // color — the `secondary` preset picks dark text for its light base, which is unreadable once
-    // the background is darkened.
-    let darkened = match &style.background {
-        Some(Background::Color(c)) => Some(Color::from_rgb(
-            c.r / DARK_PANEL_DIVISOR,
-            c.g / DARK_PANEL_DIVISOR,
-            c.b / DARK_PANEL_DIVISOR,
-        )),
-        _ => None,
-    };
-    if let Some(c) = darkened {
-        style.background = Some(Background::Color(c));
-    }
-    style.text_color = Some(theme.palette().text);
-    style
+    container(col).width(180.0).height(Fill).style(style::panel).into()
 }
 
 /// One sidebar entry; the selected one gets the primary style.
@@ -230,19 +199,15 @@ fn globals_screen(app: &App) -> Element<'_, Message> {
 /// gear, and a group behavior picker — purely to preview the widgets + scrolling. Nothing is wired
 /// (all interactions send [`Message::Ignored`]).
 fn buttons_screen() -> Element<'static, Message> {
-    // Xbox face-button colors (A green, B red, X blue, Y yellow).
-    let green = Color::from_rgb(0.30, 0.78, 0.40);
-    let red = Color::from_rgb(0.86, 0.30, 0.30);
-    let blue = Color::from_rgb(0.25, 0.55, 0.95);
-    let yellow = Color::from_rgb(0.95, 0.80, 0.25);
-
+    // Xbox face-button glyphs, colored from theme roles (A green→success, B red→danger,
+    // X blue→primary, Y yellow→warning) so they track the theme like everything else.
     let face = column![
         group_header("Face Buttons"),
         behavior_row(),
-        input_row(Some(green), "A Button"),
-        input_row(Some(red), "B Button"),
-        input_row(Some(blue), "X Button"),
-        input_row(Some(yellow), "Y Button"),
+        input_row(Some(style::success_text), "A Button"),
+        input_row(Some(style::danger_text), "B Button"),
+        input_row(Some(style::primary_text), "X Button"),
+        input_row(Some(style::warning_text), "Y Button"),
     ]
     .spacing(8.0);
 
@@ -289,11 +254,15 @@ fn behavior_row() -> Element<'static, Message> {
     card(inner)
 }
 
-/// One input row: an optional colored glyph, the input name, and a gear on the right.
-fn input_row(dot: Option<Color>, label: &'static str) -> Element<'static, Message> {
+/// One input row: an optional colored glyph (a theme-role text style), the input name, and a gear
+/// on the right.
+fn input_row(
+    dot: Option<fn(&Theme) -> text::Style>,
+    label: &'static str,
+) -> Element<'static, Message> {
     let mut r = row![].spacing(12.0).align_y(Center);
-    if let Some(c) = dot {
-        r = r.push(text("●").size(16.0).color(c));
+    if let Some(role) = dot {
+        r = r.push(text("●").size(16.0).style(role));
     }
     let inner = r.push(text(label)).push(Space::new().width(Fill)).push(gear());
     card(inner)
@@ -306,7 +275,7 @@ fn gear() -> Element<'static, Message> {
 
 /// Wrap a row as a padded card so the groups read like the Steam UI's list rows.
 fn card<'a>(inner: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-    container(inner).padding(10.0).width(Fill).style(panel_style).into()
+    container(inner).padding(10.0).width(Fill).style(style::panel).into()
 }
 
 /// A placeholder for the profile-edit categories, not part of this toolkit test.
@@ -321,12 +290,13 @@ fn stub_screen(c: Category) -> Element<'static, Message> {
 
 /// Full-width status bar from the engine status (device bound, profiles, chord count, …).
 fn bottom_bar(app: &App) -> Element<'_, Message> {
-    let (dot, label) = if app.connected {
-        (Color::from_rgb(0.30, 0.78, 0.40), "connected") // green, matching Start
+    // Dot color from theme roles: success (green, matching Start) / danger (red, matching Stop).
+    let (dot, label): (fn(&Theme) -> text::Style, _) = if app.connected {
+        (style::success_text, "connected")
     } else {
-        (Color::from_rgb(0.86, 0.30, 0.30), "disconnected") // red, matching Stop
+        (style::danger_text, "disconnected")
     };
-    let conn = row![text("●").size(13.0).color(dot), text(label).size(13.0)]
+    let conn = row![text("●").size(13.0).style(dot), text(label).size(13.0)]
         .spacing(6.0)
         .align_y(Center);
     let mut bar = row![conn].spacing(10.0).align_y(Center).padding(8.0);
@@ -345,16 +315,16 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
             .push(text(format!("chords: {}", s.globals.chords.len())).size(13.0));
     }
     if let Some(err) = &app.error {
-        bar = bar.push(Space::new().width(Fill)).push(
-            text(format!("⚠ {err}")).size(13.0).color(Color::from_rgb(0.86, 0.30, 0.30)), // red
-        );
+        bar = bar
+            .push(Space::new().width(Fill))
+            .push(text(format!("⚠ {err}")).size(13.0).style(style::danger_text));
     }
 
     container(bar).style(container::dark).width(Fill).into()
 }
 
 fn sep() -> Element<'static, Message> {
-    text("·").size(13.0).into()
+    text("│").size(13.0).style(style::muted_text).into()
 }
 
 fn opt_pct(v: Option<u8>) -> String {
