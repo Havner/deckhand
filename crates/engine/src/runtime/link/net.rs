@@ -33,6 +33,10 @@ use super::wire::{self, Downlink, FramePacket, PROTOCOL_VERSION, Uplink};
 const POLL: Duration = Duration::from_millis(200);
 /// How often the client sends a TCP keep-alive `Ping` (to detect a dead server promptly).
 const PING_INTERVAL: Duration = Duration::from_millis(1000);
+/// Bound on a TCP connect so an unreachable/no-route host fails fast instead of blocking on the OS
+/// SYN timeout (~2 min) — which would otherwise wedge the daemon (the `Start` handler holds the
+/// engine lock) and stall shutdown. A refused host already returns immediately.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 /// Max UDP datagram we'll accept (a `ControllerState` is well under this; guards the recv buffer).
 const UDP_BUF: usize = 2048;
 
@@ -324,7 +328,7 @@ struct ClientShared {
 
 /// (Re)dial the server: connect TCP and send `Hello`.
 fn dial(server: SocketAddr) -> io::Result<TcpStream> {
-    let mut tcp = TcpStream::connect(server)?;
+    let mut tcp = TcpStream::connect_timeout(&server, CONNECT_TIMEOUT)?;
     wire::write_frame(&mut tcp, &Uplink::Hello { version: PROTOCOL_VERSION })?;
     Ok(tcp)
 }
