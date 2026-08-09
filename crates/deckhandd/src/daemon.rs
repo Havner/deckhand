@@ -178,7 +178,7 @@ pub fn to_wire_event(ev: EngineEvent) -> Event {
         EngineEvent::ControllerConnected => Event::ControllerConnected,
         EngineEvent::ControllerDisconnected => Event::ControllerDisconnected,
         EngineEvent::BatteryChanged { percent } => Event::Battery { percent: Some(percent) },
-        EngineEvent::BindingLost => Event::BindingLost,
+        EngineEvent::BindingRemoved => Event::BindingRemoved,
         EngineEvent::BindingAcquired(id) => Event::BindingAcquired(id.to_string()),
         EngineEvent::State(s) => Event::State(run_state(s)),
         EngineEvent::InputStaged(i) => Event::InputStaged(i.to_string()),

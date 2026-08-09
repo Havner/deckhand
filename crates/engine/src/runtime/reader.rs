@@ -13,6 +13,7 @@ use steam_hid::{Device, DeviceId, DeviceKind, HapticPulse, HapticStyle, Manager,
 
 use crate::Result;
 use crate::event::{EngineEvent, EventSink};
+use crate::handle::Status;
 
 use super::link::LinkClient;
 use super::{Click, DeviceCfg, RumbleCmd};
@@ -29,9 +30,12 @@ enum SessionEnd {
 }
 
 /// The reader thread. Reads until the session ends; on transport-gone it [`LinkClient::detach`]es
-/// (which flags `WaitingForDevice` and disconnects the mapper's frames) + emits `BindingLost`, waits
-/// for the pinned `DeviceId` to reappear (its own `Manager`), reopens it, and [`LinkClient::reattach`]es
-/// (mint a fresh session behind the link) so the mapper resumes on the same virtual pad.
+/// (which flags `WaitingForDevice` and disconnects the mapper's frames) + emits
+/// `State(WaitingForDevice)`, waits for the pinned `DeviceId` to reappear (its own `Manager`), reopens
+/// it, and [`LinkClient::reattach`]es (mint a fresh session behind the link) so the mapper resumes on
+/// the same virtual pad. The device stays pinned across the outage, so no binding event fires — the
+/// run-state edges (which cover the client/server-split case where reader and mapper live on
+/// different machines) are the only signal.
 pub(super) fn run_reader(
     mut device: Device,
     pinned_id: DeviceId,
@@ -53,7 +57,7 @@ pub(super) fn run_reader(
         // Transport gone. `detach` flags it and drops the session's device-side ends so the mapper's
         // `frame_rx` disconnects and it enters the waiting phase (release_all + WaitingForDevice).
         link.detach();
-        events.emit(EngineEvent::BindingLost);
+        events.emit(EngineEvent::State(Status::WaitingForDevice));
         drop(device);
 
         let mgr = manager.get_or_insert_with(|| Manager::new().expect("hidapi context for reacquire"));
@@ -61,10 +65,12 @@ pub(super) fn run_reader(
             return Ok(()); // stopped while waiting
         };
 
-        // Reacquired: emit the device-specific `BindingAcquired`, then `reattach` mints a fresh
-        // session and hands the mapper its ends; the mapper swaps, emits `State(Running)`, and
-        // resumes the connected phase (the pad never left).
-        events.emit(EngineEvent::BindingAcquired(pinned_id.clone()));
+        // Reacquired: emit `State(Running)` (the device stays pinned, so no `BindingAcquired`), then
+        // `reattach` mints a fresh session and hands the mapper its ends; the mapper swaps, emits its
+        // own `State(Running)`, and resumes the connected phase (the pad never left). The duplicate
+        // edge is idempotent locally and is the sole run-state signal on the reader's machine when
+        // reader and mapper are split across the network.
+        events.emit(EngineEvent::State(Status::Running));
         if !link.reattach() {
             return Ok(()); // mapper gone
         }

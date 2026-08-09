@@ -392,6 +392,7 @@ impl Engine {
             log::info!("stopping: releasing device (→ lizard) and virtual pad");
             rt.stop()?;
             self.bound = None;
+            self.events.emit(EngineEvent::BindingRemoved);
             self.events.emit(EngineEvent::State(Status::Idle));
         }
         Ok(())

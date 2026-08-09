@@ -199,7 +199,7 @@ impl Ui {
         let Some(s) = st.status.as_mut() else { return };
         match ev {
             Event::State(x) => s.state = x,
-            Event::BindingLost => s.state = RunState::WaitingForDevice,
+            Event::BindingRemoved => s.bound = None,
             Event::BindingAcquired(id) => s.bound = Some(id),
             Event::InputStaged(i) => s.input = i,
             Event::OutputStaged(o) => s.output = o,

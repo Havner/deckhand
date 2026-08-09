@@ -9,7 +9,7 @@ mod view;
 
 use iced::futures::stream::BoxStream;
 use iced::{Subscription, Task, Theme};
-use ipc::{Event, ProfileRole, RunState, StatusSnapshot};
+use ipc::{Event, ProfileRole, StatusSnapshot};
 use ui_test_common::{AppSettings, Category, Client, DaemonUpdate, run_event_loop};
 
 fn main() -> iced::Result {
@@ -231,7 +231,7 @@ impl App {
         let Some(status) = self.status.as_mut() else { return };
         match ev {
             Event::State(s) => status.state = s,
-            Event::BindingLost => status.state = RunState::WaitingForDevice,
+            Event::BindingRemoved => status.bound = None,
             Event::BindingAcquired(id) => status.bound = Some(id),
             Event::InputStaged(i) => status.input = i,
             Event::OutputStaged(o) => status.output = o,

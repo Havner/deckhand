@@ -6,7 +6,7 @@
 //! invokables to request changes. Toolkit-independent bits come from `ui-test-common`.
 
 use cxx_qt_lib::{QString, QStringList};
-use ipc::{Event, ProfileRole, RunState};
+use ipc::{Event, ProfileRole};
 use ui_test_common::{AppSettings, Client, DaemonUpdate, INPUT_PRESETS, OUTPUT_PRESETS, run_event_loop};
 
 #[cxx_qt::bridge]
@@ -264,9 +264,7 @@ fn apply_update(mut b: Pin<&mut Bridge>, u: DaemonUpdate) {
 fn apply_event(mut b: Pin<&mut Bridge>, ev: Event) {
     match ev {
         Event::State(s) => b.as_mut().set_state_text(QString::from(format!("{s:?}").as_str())),
-        Event::BindingLost => {
-            b.as_mut().set_state_text(QString::from(format!("{:?}", RunState::WaitingForDevice).as_str()))
-        }
+        Event::BindingRemoved => b.as_mut().set_bound_text(QString::from("—")),
         Event::BindingAcquired(id) => b.as_mut().set_bound_text(QString::from(id.as_str())),
         Event::InputStaged(i) => b.as_mut().set_input(QString::from(i.as_str())),
         Event::OutputStaged(o) => b.as_mut().set_output(QString::from(o.as_str())),

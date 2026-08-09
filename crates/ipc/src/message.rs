@@ -111,9 +111,10 @@ pub enum Event {
     ControllerDisconnected,
     /// Battery percentage (wireless only; `None` when unknown).
     Battery { percent: Option<u8> },
-    /// The bound device's transport went away (engine now `WaitingForDevice`).
-    BindingLost,
-    /// A device was (re)acquired, by id.
+    /// The binding was torn down (engine stopped, nothing bound; → `Idle`). Brackets
+    /// `BindingAcquired`; a transport outage does not emit this (surfaces as `WaitingForDevice`).
+    BindingRemoved,
+    /// A device was acquired as the bound input at start, by id. Not re-emitted on reacquire.
     BindingAcquired(String),
     /// The run state changed.
     State(RunState),

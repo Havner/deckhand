@@ -226,7 +226,7 @@ fn fmt_event(ev: &Event) -> String {
         Event::ControllerDisconnected => "controller disconnected".into(),
         Event::Battery { percent: Some(p) } => format!("battery: {p}%"),
         Event::Battery { percent: None } => "battery: unknown".into(),
-        Event::BindingLost => "binding lost (waiting for device)".into(),
+        Event::BindingRemoved => "binding removed".into(),
         Event::BindingAcquired(id) => format!("binding acquired: {id}"),
         Event::State(s) => format!("state: {s:?}"),
         Event::InputStaged(i) => format!("input staged: {i}"),

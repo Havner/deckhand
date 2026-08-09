@@ -26,9 +26,13 @@ pub enum EngineEvent {
     ControllerDisconnected,
     /// The bound controller's battery charge changed, in percent.
     BatteryChanged { percent: u8 },
-    /// The bound device's transport went away; the engine is now waiting to reacquire it (D5).
-    BindingLost,
-    /// A device was (re)acquired as the bound input (D5/D6).
+    /// The binding was torn down: the engine stopped and no device is bound any more (→ `Idle`).
+    /// Brackets [`BindingAcquired`](Self::BindingAcquired) — together they track the bound-device
+    /// lifetime so subscribers stay consistent with `status().bound`. A transport outage does **not**
+    /// emit this (the device stays pinned); that surfaces as `State(WaitingForDevice)`.
+    BindingRemoved,
+    /// A device was acquired as the bound input at `start()` (D5/D6). Not re-emitted on reacquire
+    /// after a transport outage — that surfaces as `State(Running)`.
     BindingAcquired(DeviceId),
     /// The engine run-state changed.
     State(Status),
