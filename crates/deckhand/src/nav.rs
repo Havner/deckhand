@@ -20,6 +20,7 @@ pub enum Category {
     Joysticks,
     Trackpads,
     Gyro,
+    Rumble,
     // Application-level (bottom band).
     Globals,
     Settings,
@@ -35,6 +36,7 @@ impl Category {
         Category::Joysticks,
         Category::Trackpads,
         Category::Gyro,
+        Category::Rumble,
     ];
 
     /// The application-level categories pinned at the bottom of the sidebar (Settings at the very
@@ -56,6 +58,7 @@ impl Category {
             Category::Joysticks => "Joysticks",
             Category::Trackpads => "Trackpads",
             Category::Gyro => "Gyro",
+            Category::Rumble => "Rumble",
             Category::Globals => "Globals",
             Category::Settings => "Settings",
         }

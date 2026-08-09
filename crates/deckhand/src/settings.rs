@@ -25,6 +25,10 @@ pub struct AppSettings {
     /// Start with the window hidden in the tray (needs `use_tray`; takes effect next launch). Not a
     /// minimize — the window is created hidden, not minimized to the taskbar.
     pub start_hidden: bool,
+    /// Use a custom profiles directory instead of the default (`<config>/deckhand/profiles`).
+    pub use_custom_profile_dir: bool,
+    /// The custom profiles directory (meaningful only when `use_custom_profile_dir`).
+    pub custom_profile_dir: String,
     /// Launch the daemon if it isn't running when the UI tries to connect.
     pub start_daemon: bool,
     /// Load the Main profile on connect.
@@ -59,6 +63,8 @@ impl Default for AppSettings {
             use_tray: false,
             close_to_tray: false,
             start_hidden: false,
+            use_custom_profile_dir: false,
+            custom_profile_dir: String::new(),
             start_daemon: false,
             load_main: false,
             main_path: String::new(),

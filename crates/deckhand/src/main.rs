@@ -15,14 +15,16 @@
 mod daemon;
 mod globals;
 mod nav;
+mod profiles;
 mod settings;
 mod style;
 mod tray;
 mod view;
 
 use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 
-use config::{GlobalConfig, StartProfile};
+use config::{ConfigDoc, GlobalConfig, StartProfile};
 use daemon::{Client, DaemonUpdate, Shared, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::window;
@@ -86,7 +88,7 @@ fn main() -> iced::Result {
         }
     };
     let result = iced::daemon(boot, App::update, App::view)
-        .title("deckhand")
+        .title(App::title)
         .subscription(App::subscription)
         .theme(|app: &App, _window| app.active_theme())
         .run();
@@ -95,10 +97,30 @@ fn main() -> iced::Result {
     result
 }
 
+/// A profile loaded into the **editor**: the file it came from (edits save back here) and the parsed
+/// document. Its presence is the UI's central macro-state (see [`App::editing`]).
+struct Editing {
+    path: PathBuf,
+    doc: ConfigDoc,
+}
+
 /// The whole application state (Elm-architecture `State`).
 pub struct App {
     /// The UI's own settings (Settings screen), persisted separately from the daemon.
     settings: AppSettings,
+    /// The UI's central macro-state: a profile loaded **for editing**, or not. The whole app has
+    /// exactly two modes — **no profile loaded** (`None`: the profile-editor sidebar tabs are
+    /// disabled; only profile *management*, Globals, Settings, and the daemon controls work) and
+    /// **a profile loaded** (`Some`: the editor tabs are active and the title bar shows the path).
+    /// Editing is entirely local to the UI — it is separate from whatever profiles are applied to
+    /// the daemon's roles.
+    editing: Option<Editing>,
+    /// The `.ron` file names in the active profiles directory, for the Profiles combobox. Refreshed
+    /// on demand and when the directory setting changes.
+    profile_files: Vec<String>,
+    /// The Profiles combobox selection: a bare filename from `profile_files`, or a full path chosen
+    /// via the disk picker (`None` until the user picks). Resolved by [`App::selected_profile_path`].
+    selected_profile: Option<String>,
     /// The UI-owned global (engine) config — the Globals screen's source of truth. Loaded from
     /// `globals.ron` at boot and kept in lock-step with that file and the daemon (see
     /// [`globals`] and [`Self::apply_globals`]).
@@ -160,6 +182,24 @@ pub enum Message {
     BrowseFallback,
     /// Restore last input/output on connect.
     ToggleRestoreIo(bool),
+    /// Custom-profiles-directory setting (Settings screen).
+    ToggleCustomProfileDir(bool),
+    CustomProfileDirChanged(String),
+    BrowseCustomProfileDir,
+    /// Profiles screen: re-scan the directory, pick a listed file, or browse for one off-disk.
+    ProfileRefresh,
+    ProfileSelected(String),
+    ProfileBrowse,
+    /// Send the *selected* (on-disk) profile to a daemon role (Profiles-page Set-as-Main/Fallback).
+    SendProfile(ProfileRole),
+    /// Clear a daemon role (Profiles-page Clear-Main/Fallback).
+    ClearProfile(ProfileRole),
+    /// Send the *loaded* (in-memory, being-edited) profile to a role (top-bar Main/Fallback).
+    SendEditingProfile(ProfileRole),
+    /// Load the selected profile into the editor (Edit button) / rename it / unload it.
+    EditProfile,
+    ProfileNameChanged(String),
+    UnloadProfile,
     /// Globals-screen edits. Each mutates the UI-owned `globals`, then persists it and ships it to
     /// the daemon ([`App::apply_globals`]). The two `Option` fields toggle via the `*Enabled` pair.
     GlobalsStartProfile(StartProfile),
@@ -204,8 +244,14 @@ impl App {
         } else {
             (None, None)
         };
+        // Make sure the profiles directory exists so listing/saving there just works.
+        let _ = profiles::ensure_dir(&settings);
+        let profile_files = profiles::list(&settings);
         App {
             settings,
+            editing: None,
+            profile_files,
+            selected_profile: None,
             globals: globals::load(),
             socket: None,
             connected: false,
@@ -273,6 +319,47 @@ impl App {
         }
         let g = self.globals.clone();
         self.cmd_task(move |c| c.set_globals(g))
+    }
+
+    /// The window title: `deckhand`, or `deckhand: <path>` while a profile is loaded for editing.
+    fn title(&self, _window: window::Id) -> String {
+        match &self.editing {
+            Some(ed) => format!("deckhand: {}", ed.path.display()),
+            None => "deckhand".to_string(),
+        }
+    }
+
+    /// Whether a profile is currently loaded for editing (the editor-tabs-active macro-state).
+    fn is_editing(&self) -> bool {
+        self.editing.is_some()
+    }
+
+    /// The loaded profile's name, if any (for the Profiles name field).
+    fn editing_name(&self) -> &str {
+        self.editing.as_ref().map(|e| e.doc.name.as_str()).unwrap_or("")
+    }
+
+    /// Recreate + re-list the profiles directory after a directory-setting change.
+    fn refresh_profile_dir(&mut self) {
+        let _ = profiles::ensure_dir(&self.settings);
+        self.profile_files = profiles::list(&self.settings);
+    }
+
+    /// Resolve the Profiles combobox selection to a path: a bare filename joins the active profiles
+    /// directory; an absolute path (from the disk picker) is used as-is.
+    fn selected_profile_path(&self) -> Option<PathBuf> {
+        let sel = self.selected_profile.as_ref()?;
+        let p = Path::new(sel);
+        Some(if p.is_absolute() { p.to_path_buf() } else { profiles::dir(&self.settings).join(sel) })
+    }
+
+    /// Save the loaded profile back to the file it was loaded from (after a name/... edit).
+    fn save_editing(&mut self) {
+        if let Some(ed) = &self.editing
+            && let Err(e) = profiles::save(&ed.path, &ed.doc)
+        {
+            self.error = Some(format!("save profile: {e}"));
+        }
     }
 
     /// Persist the current window size (called on hide / quit, not on every resize).
@@ -460,6 +547,76 @@ impl App {
                 self.settings.restore_io = v;
                 self.save_settings();
             }
+
+            // --- profiles: directory setting + management (select / send / edit) ---
+            Message::ToggleCustomProfileDir(v) => {
+                self.settings.use_custom_profile_dir = v;
+                self.save_settings();
+                self.refresh_profile_dir();
+            }
+            Message::CustomProfileDirChanged(p) => {
+                self.settings.custom_profile_dir = p;
+                self.save_settings();
+                self.refresh_profile_dir();
+            }
+            Message::BrowseCustomProfileDir => {
+                if let Some(p) = pick_folder() {
+                    self.settings.custom_profile_dir = p;
+                    self.save_settings();
+                    self.refresh_profile_dir();
+                }
+            }
+            Message::ProfileRefresh => self.profile_files = profiles::list(&self.settings),
+            Message::ProfileSelected(name) => self.selected_profile = Some(name),
+            Message::ProfileBrowse => {
+                if let Some(p) = pick_ron() {
+                    self.selected_profile = Some(p);
+                }
+            }
+            Message::SendProfile(role) => {
+                let Some(path) = self.selected_profile_path() else {
+                    self.error = Some("no profile selected".into());
+                    return Task::none();
+                };
+                return self.cmd_task(move |c| {
+                    let doc = profiles::load(&path).map_err(std::io::Error::other)?;
+                    c.apply(role, Some(Box::new(doc)))
+                });
+            }
+            Message::ClearProfile(role) => return self.cmd_task(move |c| c.apply(role, None)),
+            Message::SendEditingProfile(role) => {
+                let Some(ed) = &self.editing else { return Task::none() };
+                let doc = ed.doc.clone();
+                return self.cmd_task(move |c| c.apply(role, Some(Box::new(doc))));
+            }
+            Message::EditProfile => {
+                let Some(path) = self.selected_profile_path() else {
+                    self.error = Some("no profile selected".into());
+                    return Task::none();
+                };
+                match profiles::load(&path) {
+                    Ok(doc) => {
+                        // Stay on the Profiles page; loading just enables the editor tabs.
+                        self.editing = Some(Editing { path, doc });
+                        self.error = None;
+                    }
+                    Err(e) => self.error = Some(e),
+                }
+            }
+            Message::ProfileNameChanged(name) => {
+                if let Some(ed) = &mut self.editing {
+                    ed.doc.name = name;
+                    self.save_editing();
+                }
+            }
+            Message::UnloadProfile => {
+                self.editing = None;
+                // Leave any now-disabled editor tab for the management page.
+                if self.category.is_editor() {
+                    self.category = nav::Category::Profiles;
+                }
+            }
+
             Message::Navigate(c) => self.category = c,
             Message::Daemon(DaemonUpdate::Disconnected) => {
                 self.connected = false;
@@ -703,4 +860,9 @@ fn pick_ron() -> Option<String> {
         .add_filter("RON profile", &["ron"])
         .pick_file()
         .map(|p| p.display().to_string())
+}
+
+/// Open a native folder-picker dialog (blocking); returns the chosen directory as a string.
+fn pick_folder() -> Option<String> {
+    rfd::FileDialog::new().pick_folder().map(|p| p.display().to_string())
 }

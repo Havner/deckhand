@@ -6,7 +6,7 @@ use iced::widget::{
     scrollable, slider, stack, text, text_input,
 };
 use iced::{Center, Element, Fill, Theme};
-use ipc::RunState;
+use ipc::{ProfileRole, RunState};
 
 use crate::nav::Category;
 use crate::{
@@ -100,9 +100,26 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     // Manual device re-enumeration (no USB hotplug).
     let refresh = button(text("⟳")).on_press(Message::Refresh);
 
-    // Everything right-aligned (I/O selectors then the Start/Stop group); the left is left free for
-    // buttons added later.
+    // Left side: the loaded profile's name + Main/Fallback, which send the **in-memory** edited
+    // profile to a role (distinct from the Profiles page, which sends the selected on-disk file).
+    // Shown only while a profile is loaded for editing.
+    let editing: Element<'_, Message> = if app.is_editing() {
+        row![
+            text(app.editing_name()).size(13.0),
+            sep(),
+            button(text("Main")).style(button::success).on_press(Message::SendEditingProfile(ProfileRole::Main)),
+            button(text("Fallback")).style(button::primary).on_press(Message::SendEditingProfile(ProfileRole::Fallback)),
+        ]
+        .spacing(8.0)
+        .align_y(Center)
+        .into()
+    } else {
+        Space::new().into()
+    };
+
+    // Editing controls on the left; I/O selectors + Start/Stop group right-aligned.
     let bar = row![
+        editing,
         Space::new().width(Fill),
         refresh,
         text("Input:").size(13.0),
@@ -138,21 +155,23 @@ fn sidebar(app: &App) -> Element<'_, Message> {
     container(col).width(180.0).height(Fill).style(style::panel).into()
 }
 
-/// One sidebar entry; the selected one gets the primary style.
+/// One sidebar entry; the selected one gets the primary style. Profile-editor categories are
+/// disabled (no `on_press` → iced greys them) until a profile is loaded for editing.
 fn nav_button(app: &App, c: Category) -> Element<'static, Message> {
+    let enabled = !c.is_editor() || app.is_editing();
     let style = if app.category == c { button::primary } else { button::text };
-    button(text(c.label()))
-        .width(Fill)
-        .padding(8.0)
-        .on_press(Message::Navigate(c))
-        .style(style)
-        .into()
+    let mut btn = button(text(c.label())).width(Fill).padding(8.0).style(style);
+    if enabled {
+        btn = btn.on_press(Message::Navigate(c));
+    }
+    btn.into()
 }
 
 /// The scrollable content pane; swaps entirely on the selected category.
 fn content(app: &App) -> Element<'_, Message> {
     let inner: Element<'_, Message> = match app.category {
         Category::Profiles => profiles_screen(app),
+        Category::ActionSets => action_sets_screen(app),
         Category::Buttons => buttons_screen(),
         Category::Settings => settings_screen(app),
         Category::Globals => globals_screen(app),
@@ -161,10 +180,57 @@ fn content(app: &App) -> Element<'_, Message> {
     scrollable(container(inner).padding(16.0).width(Fill)).width(Fill).height(Fill).into()
 }
 
-/// Profiles screen — profile management (load-for-edit, send-to-daemon). Empty for now; the rows
-/// (selector, role/edit buttons, name + rumble) land in the next step.
-fn profiles_screen(_app: &App) -> Element<'_, Message> {
-    column![text("Profiles").size(24.0)].spacing(10.0).into()
+/// Profiles screen — profile *management*: pick a profile (from the directory or off-disk), then
+/// send it to / clear a daemon role, or load it for editing / unload it.
+fn profiles_screen(app: &App) -> Element<'_, Message> {
+    // Row 1: refresh + a wide combobox of the directory's files + an off-disk picker. A picked file
+    // shows as its full path even though it isn't one of the listed (filename-only) options.
+    let refresh = button(text("⟳")).on_press(Message::ProfileRefresh);
+    let combo = pick_list(app.selected_profile.clone(), app.profile_files.clone(), String::clone)
+        .on_select(Message::ProfileSelected)
+        .placeholder("select a profile")
+        .width(Fill);
+    let disk = button(text("Select from disk")).style(button::secondary).on_press(Message::ProfileBrowse);
+    let row1 = row![refresh, combo, disk].spacing(8.0).align_y(Center);
+
+    // A 2×3 grid of equal-width action buttons. `on` gates the button (no `on_press` → greyed).
+    let cell = |label, style: fn(&Theme, button::Status) -> button::Style, msg, on: bool| {
+        let b = button(text(label).center()).width(Fill).style(style);
+        if on { b.on_press(msg) } else { b }
+    };
+    let has_sel = app.selected_profile.is_some();
+    let loaded = app.is_editing();
+    // Top row: act on the **selected on-disk** profile (need a selection).
+    let grid_top = row![
+        cell("Set as Main", button::success, Message::SendProfile(ProfileRole::Main), has_sel),
+        cell("Set as Fallback", button::primary, Message::SendProfile(ProfileRole::Fallback), has_sel),
+        cell("Edit profile", button::secondary, Message::EditProfile, has_sel),
+    ]
+    .spacing(8.0);
+    // Bottom row: clear a role (always available) / unload the loaded profile (needs one loaded).
+    let grid_bot = row![
+        cell("Clear Main", button::danger, Message::ClearProfile(ProfileRole::Main), true),
+        cell("Clear Fallback", button::danger, Message::ClearProfile(ProfileRole::Fallback), true),
+        cell("Unload profile", button::danger, Message::UnloadProfile, loaded),
+    ]
+    .spacing(8.0);
+
+    column![section_header("Profiles"), row1, grid_top, grid_bot].spacing(12.0).into()
+}
+
+/// Action Sets screen — the first bit of the profile editor. For now just the profile's name (moved
+/// here from Profiles). Reachable only while a profile is loaded, so the field is always live.
+fn action_sets_screen(app: &App) -> Element<'_, Message> {
+    let name = row![
+        text("Profile name").width(140.0),
+        text_input("profile name", app.editing_name())
+            .on_input(Message::ProfileNameChanged)
+            .width(Fill),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+    let profile = column![group_header("Profile"), name].spacing(8.0);
+    column![section_header("Action Sets"), profile].spacing(20.0).into()
 }
 
 /// Settings screen — a **UI** section (theme) and a **Daemon** section (the on-connect behaviour +
@@ -191,18 +257,36 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
         start_hidden = start_hidden.on_toggle(Message::ToggleStartHidden);
     }
 
+    // Custom profiles directory: a toggle plus a path row greyed out until it's on.
+    let use_custom_dir = checkbox(s.use_custom_profile_dir)
+        .label("Use a custom profile directory")
+        .on_toggle(Message::ToggleCustomProfileDir);
+    let custom_dir_row = path_row(
+        "profiles directory",
+        &s.custom_profile_dir,
+        s.use_custom_profile_dir,
+        Message::CustomProfileDirChanged,
+        Message::BrowseCustomProfileDir,
+    );
+
     let launch = checkbox(s.start_daemon)
         .label("Launch the daemon if not running on connect attempt")
         .on_toggle(Message::ToggleStartDaemon);
     let load_main = checkbox(s.load_main)
         .label("Load the main profile on connect")
         .on_toggle(Message::ToggleLoadMain);
-    let main_row =
-        path_row(&s.main_path, s.load_main, Message::MainPathChanged, Message::BrowseMain);
+    let main_row = path_row(
+        "path to .ron file",
+        &s.main_path,
+        s.load_main,
+        Message::MainPathChanged,
+        Message::BrowseMain,
+    );
     let load_fb = checkbox(s.load_fallback)
         .label("Load the fallback profile on connect")
         .on_toggle(Message::ToggleLoadFallback);
     let fb_row = path_row(
+        "path to .ron file",
         &s.fallback_path,
         s.load_fallback,
         Message::FallbackPathChanged,
@@ -216,13 +300,16 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
         .on_toggle(Message::ToggleStartEngine);
 
     column![
-        section_header("UI"),
+        section_header("Settings"),
+        group_header("UI"),
         theme_pick,
         use_tray,
         close_to_tray,
         start_hidden,
+        use_custom_dir,
+        custom_dir_row,
         Space::new().height(8.0),
-        section_header("Daemon"),
+        group_header("Daemon"),
         launch,
         load_main,
         main_row,
@@ -235,19 +322,20 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-/// A settings section title, styled like the screen's big headings.
+/// A screen's big title (e.g. "Settings", "Buttons") — the largest heading on a page.
 fn section_header(title: &'static str) -> Element<'static, Message> {
     text(title).size(24.0).into()
 }
 
-/// A profile-path row: text field + Browse button, both inert (greyed) when `enabled` is false.
+/// A path row: text field + Browse button, both inert (greyed) when `enabled` is false.
 fn path_row<'a>(
+    placeholder: &'a str,
     path: &'a str,
     enabled: bool,
     on_change: fn(String) -> Message,
     browse: Message,
 ) -> Element<'a, Message> {
-    let mut input = text_input("path to .ron file", path).width(Fill);
+    let mut input = text_input(placeholder, path).width(Fill);
     if enabled {
         input = input.on_input(on_change);
     }
@@ -339,7 +427,7 @@ fn globals_screen(app: &App) -> Element<'_, Message> {
         .spacing(12.0)
         .align_y(Center);
 
-    column![start, master, led, idle, chords].spacing(16.0).into()
+    column![section_header("Globals"), start, master, led, idle, chords].spacing(16.0).into()
 }
 
 /// A fixed-width row label for the Globals screen, so the controls line up in a column.
@@ -392,10 +480,11 @@ fn buttons_screen() -> Element<'static, Message> {
     ]
     .spacing(8.0);
 
-    column![text("Buttons").size(24.0), face, bumpers, dpad, system].spacing(20.0).into()
+    column![section_header("Buttons"), face, bumpers, dpad, system].spacing(20.0).into()
 }
 
-/// A group section title.
+/// A sub-group heading within a screen (e.g. "UI", "Face Buttons", "Profile") — the smaller
+/// subtitle under a [`section_header`].
 fn group_header(title: &'static str) -> Element<'static, Message> {
     text(title).size(18.0).into()
 }
@@ -439,7 +528,7 @@ fn card<'a>(inner: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
 /// A placeholder for the profile-edit categories, not part of this toolkit test.
 fn stub_screen(c: Category) -> Element<'static, Message> {
     column![
-        text(c.label()).size(24.0),
+        section_header(c.label()),
         text("Profile-edit screen — stubbed for the toolkit test.").size(13.0),
     ]
     .spacing(10.0)
