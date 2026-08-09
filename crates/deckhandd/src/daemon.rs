@@ -21,7 +21,7 @@ impl Daemon {
 
     /// Apply an already-compiled program to a role (the CLI seed path compiles up front).
     pub fn apply(&mut self, role: Role, program: Program) {
-        self.engine.apply(program, role);
+        self.engine.apply(Some(program), role);
     }
 
     /// Stage the input from a spec string (`auto|dongle|wired|bt|<device-id>|host:port`). Shared by
@@ -60,7 +60,7 @@ impl Daemon {
     /// loop); here it is a no-op `Ok` so the client still gets an acknowledgement.
     pub fn handle(&mut self, req: Request) -> Response {
         match req {
-            Request::Apply { role, config } => self.apply_config(role, *config),
+            Request::Apply { role, config } => self.apply_config(role, config.map(|c| *c)),
             Request::SetGlobals(g) => {
                 self.set_globals(*g);
                 Response::Ok
@@ -100,8 +100,13 @@ impl Daemon {
     }
 
     /// Compile a shipped `ConfigDoc` and, iff it has no errors, apply it — else reject with the
-    /// diagnostics (client ships config, daemon compiles; PLAN §4.4).
-    fn apply_config(&mut self, role: ProfileRole, config: ConfigDoc) -> Response {
+    /// diagnostics (client ships config, daemon compiles; PLAN §4.4). `config: None` **clears** the
+    /// role (reverts it to `None` so the other role takes over live).
+    fn apply_config(&mut self, role: ProfileRole, config: Option<ConfigDoc>) -> Response {
+        let Some(config) = config else {
+            self.engine.apply(None, role_of(role));
+            return Response::Ok;
+        };
         match compile(&config) {
             Ok(program) => {
                 self.apply(role_of(role), program);

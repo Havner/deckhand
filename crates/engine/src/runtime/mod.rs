@@ -63,8 +63,9 @@ impl DeviceCfg {
 /// A control message to the mapping loop, from the `Engine` handle (live hot-swap). Device
 /// reattach after an outage (D6) is **not** here — it goes through the [`link`] seam.
 pub(crate) enum Control {
-    /// Replace one role's program (main↔fallback), re-seeding the mapper if it's in use.
-    Apply { program: Box<Program>, role: Role },
+    /// Replace one role's program (main↔fallback), or clear it (`program: None`), re-seeding the
+    /// mapper if the affected role is the one live.
+    Apply { program: Option<Box<Program>>, role: Role },
     /// Replace the global config (master rumble + chords).
     SetGlobals(Box<GlobalConfig>),
     /// Stop the loop (the running flag also gates it; this just wakes the `select!`).

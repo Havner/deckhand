@@ -165,11 +165,13 @@ fn apply_control(
 ) -> bool {
     match msg {
         Ok(Control::Apply { program, role: target }) => {
+            let program = program.map(|p| *p); // `None` clears the role
             match target {
-                Role::Main => *main = Some(*program),
-                Role::Fallback => *fallback = Some(*program),
+                Role::Main => *main = program,
+                Role::Fallback => *fallback = program,
             }
-            // Re-seed the mapper only if the applied role is the one currently live.
+            // Re-seed the mapper only if the applied role is the one currently live — on a clear this
+            // resolves through `program_for` to the other role (e.g. main→fallback).
             if *role == target {
                 mapper.switch_program(program_for(role, main, fallback));
             }

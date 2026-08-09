@@ -232,7 +232,7 @@ fn serve_connection(
                 }
                 Uplink::Ping => {} // keep-alive — no-op (its arrival keeps this read loop live)
                 Uplink::Apply { program, role } => {
-                    let _ = control_tx.send(Control::Apply { program: Box::new(program), role });
+                    let _ = control_tx.send(Control::Apply { program: program.map(Box::new), role });
                 }
                 Uplink::SetGlobals(g) => {
                     let _ = control_tx.send(Control::SetGlobals(Box::new(g)));
@@ -498,7 +498,7 @@ fn pump(
             },
             recv(control_rx) -> m => {
                 let msg = match m {
-                    Ok(Control::Apply { program, role }) => Uplink::Apply { program: *program, role },
+                    Ok(Control::Apply { program, role }) => Uplink::Apply { program: program.map(|p| *p), role },
                     Ok(Control::SetGlobals(g)) => Uplink::SetGlobals(*g),
                     Ok(Control::Stop) => return PumpEnd::Stop, // local stop
                     Err(_) => return PumpEnd::Stop,

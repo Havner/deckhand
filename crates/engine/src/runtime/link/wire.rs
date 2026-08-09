@@ -47,8 +47,9 @@ pub(super) enum Uplink {
     /// A keep-alive so the client detects a dead server over the otherwise-idle TCP link (`State`
     /// frames ride UDP). The server no-ops it.
     Ping,
-    /// Apply a compiled program to a role (main↔fallback), like the local `Control::Apply`.
-    Apply { program: Program, role: Role },
+    /// Apply a compiled program to a role (main↔fallback), or clear it (`program: None`), like the
+    /// local `Control::Apply`.
+    Apply { program: Option<Program>, role: Role },
     /// Replace the global config (master rumble, chords, ...).
     SetGlobals(GlobalConfig),
     /// A device lifecycle event — `Connected` / `Disconnected` / `Battery` (never `State`). Merged
@@ -153,11 +154,20 @@ mod tests {
     #[test]
     fn program_survives_the_tcp_frame_codec() {
         // The decisive slice-1/2 proof: a full compiled Program round-trips over the wire.
-        let msg = Uplink::Apply { program: sample_program(), role: Role::Main };
+        let msg = Uplink::Apply { program: Some(sample_program()), role: Role::Main };
         let mut buf = Vec::new();
         write_frame(&mut buf, &msg).unwrap();
         let back: Option<Uplink> = read_frame(&mut buf.as_slice()).unwrap();
         assert_eq!(back, Some(msg));
+    }
+
+    #[test]
+    fn clear_role_survives_the_tcp_frame_codec() {
+        // A clear (`program: None`) round-trips too, so clearing a role propagates to the server.
+        let msg = Uplink::Apply { program: None, role: Role::Main };
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &msg).unwrap();
+        assert_eq!(read_frame::<Uplink>(&mut buf.as_slice()).unwrap(), Some(msg));
     }
 
     #[test]
@@ -177,7 +187,7 @@ mod tests {
     fn multiple_frames_decode_independently() {
         let msgs = [
             Uplink::Event(Report::Connected),
-            Uplink::Apply { program: sample_program(), role: Role::Fallback },
+            Uplink::Apply { program: Some(sample_program()), role: Role::Fallback },
             Uplink::SetGlobals(GlobalConfig::default()),
         ];
         let mut buf = Vec::new();

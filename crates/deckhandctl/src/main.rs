@@ -21,8 +21,8 @@ Commands (run in sequence; put --socket/-h/-V first):
   list-devices          list the enumerated devices (id, kind, transport, slot)
   input <spec>          stage input: auto | dongle | wired | bt | <device-id> | host:port
   output <spec>         stage output: local | host:port
-  main <file.ron>       load + apply a Main profile
-  fallback <file.ron>   load + apply a Fallback profile
+  main <file.ron>       load + apply a Main profile (empty string clears it: reverts to Fallback)
+  fallback <file.ron>   load + apply a Fallback profile (empty string clears it)
   globals <file.ron>    load + apply the global config
   start                 acquire hardware and start the mapping loop
   stop                  stop the mapping loop (release hardware, keep config)
@@ -59,6 +59,18 @@ enum Step {
 /// Build a request/reply step with its display label.
 fn call(label: &str, req: Request) -> Step {
     Step::Call { label: label.to_string(), req }
+}
+
+/// Build an `Apply` step for a profile role. An **empty** argument (`main ""`) clears the role
+/// (`config: None`), so the other role takes over live; otherwise the path is loaded and shipped.
+fn call_apply(role: ProfileRole, cmd: &str, tokens: &[String], i: &mut usize) -> Result<Step, String> {
+    let p = take_arg(tokens, i, cmd)?;
+    let (label, config) = if p.is_empty() {
+        (format!("{cmd} (clear)"), None)
+    } else {
+        (format!("{cmd} {p}"), Some(Box::new(load_doc(&p)?)))
+    };
+    Ok(call(&label, Request::Apply { role, config }))
 }
 
 fn main() -> ExitCode {
@@ -128,22 +140,8 @@ fn parse_steps(tokens: &[String]) -> Result<Vec<Step>, String> {
                 let a = take_arg(tokens, &mut i, "output")?;
                 call(&format!("output {a}"), Request::SetOutput(a))
             }
-            "main" => {
-                let p = take_arg(tokens, &mut i, "main")?;
-                let doc = load_doc(&p)?;
-                call(&format!("main {p}"), Request::Apply {
-                    role: ProfileRole::Main,
-                    config: Box::new(doc),
-                })
-            }
-            "fallback" => {
-                let p = take_arg(tokens, &mut i, "fallback")?;
-                let doc = load_doc(&p)?;
-                call(&format!("fallback {p}"), Request::Apply {
-                    role: ProfileRole::Fallback,
-                    config: Box::new(doc),
-                })
-            }
+            "main" => call_apply(ProfileRole::Main, "main", tokens, &mut i)?,
+            "fallback" => call_apply(ProfileRole::Fallback, "fallback", tokens, &mut i)?,
             "globals" => {
                 let p = take_arg(tokens, &mut i, "globals")?;
                 let g = load_globals(&p)?;

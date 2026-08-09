@@ -244,19 +244,27 @@ impl Engine {
 
     // --- live-or-staged config ---------------------------------------------------------
 
-    /// Apply a program to a role. Retained (survives stop/start); hot-swapped live if running.
-    pub fn apply(&mut self, program: Program, role: Role) {
+    /// Apply a program to a role, or **clear** it (`program: None` reverts the role to `None`, so the
+    /// other role resolves live via [`program_for`](crate::runtime) — clearing `main` reactivates
+    /// `fallback`). Retained (survives stop/start); hot-swapped live if running.
+    pub fn apply(&mut self, program: Option<Program>, role: Role) {
         let mode = if self.runtime.is_some() { "live hot-swap" } else { "staged" };
-        log::info!("apply: program '{}' → {role:?} ({mode})", program.meta.name);
-        let name = program.meta.name.clone();
+        let name = program.as_ref().map(|p| p.meta.name.clone());
+        match &name {
+            Some(n) => log::info!("apply: program '{n}' → {role:?} ({mode})"),
+            None => log::info!("apply: clear {role:?} ({mode})"),
+        }
         match role {
-            Role::Main => self.main = Some(program.clone()),
-            Role::Fallback => self.fallback = Some(program.clone()),
+            Role::Main => self.main = program.clone(),
+            Role::Fallback => self.fallback = program.clone(),
         }
         if let Some(rt) = &self.runtime {
-            let _ = rt.control().send(Control::Apply { program: Box::new(program), role: role.clone() });
+            let _ = rt.control().send(Control::Apply {
+                program: program.map(Box::new),
+                role: role.clone(),
+            });
         }
-        self.events.emit(EngineEvent::ProfileSet { role, name: Some(name) });
+        self.events.emit(EngineEvent::ProfileSet { role, name });
     }
 
     /// Set the global config (master rumble + chords). Retained; hot-swapped live if running.
@@ -375,12 +383,12 @@ impl Engine {
         if let Some(m) = &self.main {
             let _ = rt
                 .control()
-                .send(Control::Apply { program: Box::new(m.clone()), role: Role::Main });
+                .send(Control::Apply { program: Some(Box::new(m.clone())), role: Role::Main });
         }
         if let Some(f) = &self.fallback {
             let _ = rt
                 .control()
-                .send(Control::Apply { program: Box::new(f.clone()), role: Role::Fallback });
+                .send(Control::Apply { program: Some(Box::new(f.clone())), role: Role::Fallback });
         }
         let _ = rt.control().send(Control::SetGlobals(Box::new(self.globals.clone())));
     }

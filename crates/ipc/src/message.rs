@@ -20,10 +20,11 @@ pub enum ProfileRole {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {
-    /// Apply a profile to a role. The daemon **compiles** the shipped `ConfigDoc`; on failure it
-    /// replies [`Response::Diagnostics`] (not applied), on success [`Response::Ok`]. Boxed to keep
-    /// the enum small.
-    Apply { role: ProfileRole, config: Box<ConfigDoc> },
+    /// Apply a profile to a role, or **clear** it (`config: None` → the role reverts to `None`, so
+    /// the other role takes over live — clearing `main` reactivates `fallback`). The daemon
+    /// **compiles** a shipped `ConfigDoc`; on failure it replies [`Response::Diagnostics`] (not
+    /// applied), on success [`Response::Ok`]. Boxed to keep the enum small.
+    Apply { role: ProfileRole, config: Option<Box<ConfigDoc>> },
     /// Replace the global config (rumble master, chords, boot role, …).
     SetGlobals(Box<GlobalConfig>),
     /// Stage the input source — spec string `dongle|wired|<device-id>|host:port` (the daemon
