@@ -71,14 +71,32 @@ pub struct Popup {
     pub text: String,
 }
 
+/// Whether the platform's window-hide (winit `set_visible(false)`, via [`window::Mode::Hidden`])
+/// actually hides the window rather than no-opping. True on Windows, macOS, and X11; false on
+/// **Wayland**, whose winit backend ignores visibility toggles — there we destroy/recreate the surface
+/// instead (see [`App::set_hidden`]). Detected by the presence of a Wayland display: when
+/// `WAYLAND_DISPLAY` is set winit defaults to its Wayland backend. A false "Wayland" verdict only
+/// downgrades to the (correct, slower) close/reopen path, so this conservative check is safe.
+fn native_window_hide() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("WAYLAND_DISPLAY").is_none()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
 fn main() -> iced::Result {
     // The UI-managed daemon handle, shared with the connect loop (populated when we launch a daemon)
     // and retained here so we can stop it on exit.
     let daemon = daemon::shared();
 
-    // A `daemon` (not `application`): it survives with zero windows, so hide-to-tray can actually
-    // CLOSE the window (the only way to hide on Wayland — winit can't toggle visibility there) and
-    // reopen it to show. Boot opens the initial window unless we're starting hidden into the tray.
+    // A `daemon` (not `application`): it survives with zero windows. That's required for the Wayland
+    // hide-to-tray path, which must CLOSE the window (winit can't toggle visibility there; see
+    // `set_hidden`) and reopen it to show — and it also lets us boot straight into the tray with no
+    // window at all. Boot opens the initial window unless we're starting hidden into the tray.
     let boot = {
         let daemon = daemon.clone();
         move || {
@@ -143,7 +161,9 @@ pub struct App {
     daemon: Shared,
     /// The main window's id while open, captured on open (needed to close it). `None` when hidden.
     window: Option<window::Id>,
-    /// Whether the window is currently hidden in the tray (no window open).
+    /// Whether the window is currently hidden in the tray. On the native-hide path (Windows/macOS/X11)
+    /// the window stays alive while hidden (just `Mode::Hidden`), so `window` remains `Some`; on
+    /// Wayland it is actually closed, so `window` is `None`. See [`Self::set_hidden`].
     hidden: bool,
     /// The live tray, when enabled and successfully started (`None` = no tray).
     tray: Option<tray::Tray>,
@@ -411,24 +431,38 @@ impl App {
         window::open(settings).1.map(Message::WindowOpened)
     }
 
-    /// Hide or show the window, and retitle the tray's Show/Hide item. Hiding **closes** the window
-    /// (unmapping the surface — the only way to hide on Wayland, where winit can't toggle
-    /// visibility); showing opens a fresh one.
+    /// Hide or show the window, and retitle the tray's Show/Hide item.
+    ///
+    /// Two strategies, picked by [`native_window_hide`]. Where winit's `set_visible` works — **Windows,
+    /// macOS, X11** — we keep the window (and its live GPU surface) and just toggle its
+    /// [`Mode`](window::Mode) between `Hidden` and `Windowed`, so `self.window` stays `Some` while
+    /// hidden and showing is instant. On **Wayland** winit can't toggle visibility, so there we
+    /// **close** the window on hide (unmapping the surface — `self.window` goes `None`) and open a
+    /// fresh one on show. A wrong guess only ever falls back to the slower close/reopen, never breaks.
     fn set_hidden(&mut self, hidden: bool) -> Task<Message> {
         self.hidden = hidden;
         if let Some(t) = &self.tray {
             t.set_label(hidden);
         }
-        if hidden {
-            self.persist_window_size();
-            match self.window.take() {
-                Some(id) => window::close(id),
-                None => Task::none(),
+        let native = native_window_hide();
+        match (hidden, self.window) {
+            // Fast path: a live window we can hide/show in place without a surface rebuild.
+            (true, Some(id)) if native => {
+                self.persist_window_size();
+                window::set_mode(id, window::Mode::Hidden)
             }
-        } else if self.window.is_none() {
-            self.open_window()
-        } else {
-            Task::none()
+            (false, Some(id)) if native => window::set_mode(id, window::Mode::Windowed),
+            // Wayland hide: destroy the surface (no working visibility toggle).
+            (true, Some(id)) => {
+                self.persist_window_size();
+                self.window = None;
+                window::close(id)
+            }
+            // Show with no live window: (re)create it — the Wayland show path, and the first show
+            // after a hidden boot on every platform.
+            (false, None) => self.open_window(),
+            // Already in the requested state (hidden with no window / shown with a live window).
+            _ => Task::none(),
         }
     }
 
