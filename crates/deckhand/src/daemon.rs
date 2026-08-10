@@ -321,6 +321,14 @@ fn spawn_daemon(socket: Option<&str>, managed: &Shared, on: &mut dyn FnMut(Daemo
     if let Some(s) = socket {
         cmd.arg("--socket").arg(s);
     }
+    // The UI is a GUI-subsystem app with no console (see main.rs), so spawning the console-subsystem
+    // daemon would otherwise pop a fresh console window for it. `CREATE_NO_WINDOW` runs it headless.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     match cmd.spawn() {
         Ok(c) => m.child = Some(c),
         Err(e) => {

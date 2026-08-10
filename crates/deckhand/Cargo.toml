@@ -18,23 +18,35 @@ serde.workspace = true
 ron.workspace = true
 # Menu-action channel between the tray (its own thread) and the app subscription.
 crossbeam-channel.workspace = true
+# Decodes the bundled deckhand.png to RGBA for the window icon (all platforms) and each tray backend's
+# icon. Pure Rust, so it's a plain dep rather than per-target.
+png.workspace = true
 
 # Linux tray: ksni (pure-Rust StatusNotifierItem over D-Bus, no gtk). async-io keeps it
-# runtime-agnostic (our app has no Tokio runtime); png decodes the bundled icon. (tray-icon's Linux
-# backend pulls gtk3/libappindicator, which shares process-global display state with iced/wgpu.)
+# runtime-agnostic (our app has no Tokio runtime). (tray-icon's Linux backend pulls
+# gtk3/libappindicator, which shares process-global display state with iced/wgpu.)
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3.6", default-features = false, features = ["blocking", "async-io"] }
-png.workspace = true
 
 # Windows tray: tray-icon's native win32 backend (no gtk, zero system deps). It needs a thread with a
 # running Win32 message loop; we give it a dedicated one (the `windows` crate provides the pump).
 # `default-features = false` drops the Linux-only gtk/libxdo features — the win32 backend is always
-# built off-Linux. png decodes the bundled icon to RGBA for `Icon::from_rgba`.
+# built off-Linux.
 [target.'cfg(target_os = "windows")'.dependencies]
 tray-icon = { version = "0.24", default-features = false }
-png.workspace = true
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Threading",
+    # LoadLibraryW/GetProcAddress — reach the undocumented uxtheme exports that make the native tray
+    # context menu follow the Windows dark/light setting (see tray.rs).
+    "Win32_System_LibraryLoader",
 ] }
+
+# Embed the app icon into the .exe (taskbar / titlebar / Explorer). `build.rs` derives a multi-size
+# .ico from the same assets/deckhand.png the Linux install ships, so the PNG stays the single source:
+# png decodes it, ico assembles the sizes, winresource compiles + links the resource.
+[target.'cfg(target_os = "windows")'.build-dependencies]
+png.workspace = true
+ico = "0.4"
+winresource = "0.1"

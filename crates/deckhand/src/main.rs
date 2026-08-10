@@ -12,6 +12,12 @@
 //! Scaffolded from the `ui-test-iced` bake-off prototype (PLAN §5.2); the profile-edit screens are
 //! still stubs pending the real config-editing UI.
 
+// Windows: build as a GUI app (subsystem `windows`) so launching never spawns a console window. This
+// is a tray/GUI binary — it has no CLI output worth a console (errors surface in the status bar);
+// the daemon/ctl tools stay console apps. Costs stdout/stderr, so there's no console logging even in
+// debug — acceptable for the UI.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod daemon;
 mod globals;
 mod nav;
@@ -69,6 +75,42 @@ pub enum IoTarget {
 pub struct Popup {
     pub target: IoTarget,
     pub text: String,
+}
+
+/// Decode a PNG to straight RGBA8 with its dimensions. Shared by [`window_icon`] and the platform
+/// tray backends' icon loaders (see [`tray`]). Returns `None` (icon simply omitted) rather than
+/// failing on a missing/unsupported image.
+pub(crate) fn decode_png_rgba(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let mut reader = png::Decoder::new(bytes).read_info().ok()?;
+    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    if info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    let px = &buf[..info.buffer_size()];
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => px.to_vec(),
+        png::ColorType::Rgb => {
+            let mut v = Vec::with_capacity(info.width as usize * info.height as usize * 4);
+            for c in px.chunks_exact(3) {
+                v.extend_from_slice(&[c[0], c[1], c[2], 255]);
+            }
+            v
+        }
+        _ => return None,
+    };
+    Some((rgba, info.width, info.height))
+}
+
+/// The window icon (title bar + running taskbar entry), decoded from the bundled `deckhand.png`. This
+/// is the winit **window** icon — distinct from the `.exe`'s embedded resource (which Explorer and the
+/// pinned/shortcut entry use): while the app runs, the title bar and taskbar show the *window* icon,
+/// so without this they fall back to a generic one. Cross-platform (ignored on Wayland, which icons
+/// windows via the `.desktop` entry). Best-effort — `None` yields the default icon.
+fn window_icon() -> Option<iced::window::Icon> {
+    static PNG: &[u8] = include_bytes!("../assets/deckhand.png");
+    let (rgba, w, h) = decode_png_rgba(PNG)?;
+    iced::window::icon::from_rgba(rgba, w, h).ok()
 }
 
 /// Whether the platform's window-hide (winit `set_visible(false)`, via [`window::Mode::Hidden`])
@@ -417,9 +459,14 @@ impl App {
     /// would just leave the app running with no window and no way to have intercepted it.
     fn open_window(&self) -> Task<Message> {
         let size = Size::new(self.settings.window_width as f32, self.settings.window_height as f32);
+        // `mut` is used only by the Linux `application_id` block below.
         #[allow(unused_mut)]
-        let mut settings =
-            window::Settings { exit_on_close_request: false, size, ..window::Settings::default() };
+        let mut settings = window::Settings {
+            exit_on_close_request: false,
+            size,
+            icon: window_icon(),
+            ..window::Settings::default()
+        };
         // Tie the window to our installed `.desktop` file (basename `deckhand`) via the app id
         // (Wayland app_id / X11 WM_CLASS). Without it the compositor can't map the surface to the
         // desktop entry, so it shows no name/icon — e.g. GNOME's "<app> Is Not Responding" dialog

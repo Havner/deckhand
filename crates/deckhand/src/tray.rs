@@ -121,34 +121,17 @@ mod imp {
         }
     }
 
-    /// Decode the bundled tray PNG to a ksni [`Icon`](ksni::Icon) (ARGB32, network byte order).
-    /// Returns `None` (tray shows without an icon) rather than failing if the image is
-    /// missing/unsupported.
+    /// Decode the bundled tray PNG to a ksni [`Icon`](ksni::Icon). Returns `None` (tray shows without
+    /// an icon) rather than failing if the image is missing/unsupported.
     fn load_icon() -> Option<ksni::Icon> {
         static PNG: &[u8] = include_bytes!("../assets/tray-icon.png");
-        let mut reader = png::Decoder::new(PNG).read_info().ok()?;
-        let mut buf = vec![0u8; reader.output_buffer_size()];
-        let info = reader.next_frame(&mut buf).ok()?;
-        if info.bit_depth != png::BitDepth::Eight {
-            return None;
+        let (rgba, w, h) = crate::decode_png_rgba(PNG)?;
+        // ksni wants ARGB per pixel (network byte order); our source is straight RGBA.
+        let mut data = Vec::with_capacity(rgba.len());
+        for c in rgba.chunks_exact(4) {
+            data.extend_from_slice(&[c[3], c[0], c[1], c[2]]);
         }
-        let px = &buf[..info.buffer_size()];
-        // Source is RGB(A)8; ksni wants ARGB per pixel (network byte order).
-        let mut data = Vec::with_capacity(info.width as usize * info.height as usize * 4);
-        match info.color_type {
-            png::ColorType::Rgba => {
-                for c in px.chunks_exact(4) {
-                    data.extend_from_slice(&[c[3], c[0], c[1], c[2]]);
-                }
-            }
-            png::ColorType::Rgb => {
-                for c in px.chunks_exact(3) {
-                    data.extend_from_slice(&[255, c[0], c[1], c[2]]);
-                }
-            }
-            _ => return None,
-        }
-        Some(ksni::Icon { width: info.width as i32, height: info.height as i32, data })
+        Some(ksni::Icon { width: w as i32, height: h as i32, data })
     }
 }
 
@@ -161,10 +144,12 @@ mod imp {
     use tray_icon::menu::{Menu, MenuEvent, MenuItem};
     use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
     use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     use windows::Win32::System::Threading::GetCurrentThreadId;
     use windows::Win32::UI::WindowsAndMessaging::{
         DispatchMessageW, GetMessageW, MSG, PostThreadMessageW, TranslateMessage, WM_APP,
     };
+    use windows::core::{PCSTR, w};
 
     use super::{MenuAction, channel, toggle_label};
 
@@ -179,15 +164,17 @@ mod imp {
     const WM_TRAY_LABEL: u32 = WM_APP + 1;
     const WM_TRAY_QUIT: u32 = WM_APP + 2;
 
-    /// Install the menu + icon event handlers exactly once. tray-icon/muda store them in a `OnceCell`,
-    /// so only the first `set_event_handler` wins (later calls — including re-enabling the tray — are
-    /// silently ignored) and clearing them is impossible. That's fine: our closures capture nothing but
-    /// the process-global [`channel`], so a single permanent install correctly serves every tray the
-    /// app creates over its lifetime, and teardown just drops the icon (no handler to remove).
-    static HANDLERS: Once = Once::new();
+    /// Process-once init: install the menu + icon event handlers, and opt the process into the system
+    /// menu theme. tray-icon/muda store the handlers in a `OnceCell`, so only the first
+    /// `set_event_handler` wins (later calls — including re-enabling the tray — are silently ignored)
+    /// and clearing them is impossible. That's fine: our closures capture nothing but the
+    /// process-global [`channel`], so a single permanent install correctly serves every tray the app
+    /// creates over its lifetime, and teardown just drops the icon (no handler to remove).
+    static INIT: Once = Once::new();
 
-    fn install_handlers() {
-        HANDLERS.call_once(|| {
+    fn init_once() {
+        INIT.call_once(|| {
+            follow_system_menu_theme();
             MenuEvent::set_event_handler(Some(|ev: MenuEvent| {
                 let action = match ev.id.0.as_str() {
                     ID_QUIT => MenuAction::Quit,
@@ -203,6 +190,32 @@ mod imp {
                 }
             }));
         });
+    }
+
+    /// Make tray-icon's **context menu** follow the Windows dark/light setting. That menu is a native
+    /// `TrackPopupMenu` popup, which muda's `MenuTheme` does NOT reach (it themes only menu *bars*), so
+    /// its colors come from the process's preferred app mode — light by default. We flip that with the
+    /// undocumented uxtheme exports `SetPreferredAppMode` (ordinal 135) + `FlushMenuThemes` (136), the
+    /// standard recipe for dark Win32 menus on Windows 10 1903+/11. `AllowDark` = follow the system
+    /// (dark only when the user's theme is dark). All best-effort: on older Windows the ordinals are
+    /// absent and the menu simply stays light.
+    fn follow_system_menu_theme() {
+        /// `PreferredAppMode::AllowDark` — honor the system dark/light setting.
+        const ALLOW_DARK: i32 = 1;
+        unsafe {
+            let Ok(uxtheme) = LoadLibraryW(w!("uxtheme.dll")) else {
+                return;
+            };
+            // Both exports are ordinal-only (unnamed): #135 SetPreferredAppMode, #136 FlushMenuThemes.
+            if let Some(p) = GetProcAddress(uxtheme, PCSTR(135 as *const u8)) {
+                let set_preferred_app_mode: extern "system" fn(i32) -> i32 = std::mem::transmute(p);
+                set_preferred_app_mode(ALLOW_DARK);
+            }
+            if let Some(p) = GetProcAddress(uxtheme, PCSTR(136 as *const u8)) {
+                let flush_menu_themes: extern "system" fn() = std::mem::transmute(p);
+                flush_menu_themes();
+            }
+        }
     }
 
     /// Build the menu + tray icon on the current (message-loop) thread. Returns the live icon (drop =
@@ -232,7 +245,7 @@ mod imp {
     /// error back to [`Tray::enable`], then pump the Win32 message loop until `WM_TRAY_QUIT`. The
     /// `TrayIcon` drops on the way out, removing the icon from the tray.
     fn run(hidden: bool, ready: mpsc::Sender<Result<u32, String>>) {
-        install_handlers();
+        init_once();
         // `_tray` is the RAII guard: it must stay bound for the loop's lifetime — dropping it removes
         // the icon from the tray.
         let (_tray, toggle) = match build(hidden) {
@@ -333,29 +346,12 @@ mod imp {
         }
     }
 
-    /// Decode the bundled tray PNG to an [`Icon`] (straight RGBA8, as `from_rgba` wants). Returns
-    /// `None` (tray shows without an icon) rather than failing if the image is missing/unsupported.
+    /// Decode the bundled tray PNG to a tray-icon [`Icon`] (straight RGBA8, as `from_rgba` wants).
+    /// Returns `None` (tray shows without an icon) rather than failing if the image is missing.
     fn load_icon() -> Option<Icon> {
         static PNG: &[u8] = include_bytes!("../assets/tray-icon.png");
-        let mut reader = png::Decoder::new(PNG).read_info().ok()?;
-        let mut buf = vec![0u8; reader.output_buffer_size()];
-        let info = reader.next_frame(&mut buf).ok()?;
-        if info.bit_depth != png::BitDepth::Eight {
-            return None;
-        }
-        let px = &buf[..info.buffer_size()];
-        let rgba: Vec<u8> = match info.color_type {
-            png::ColorType::Rgba => px.to_vec(),
-            png::ColorType::Rgb => {
-                let mut v = Vec::with_capacity(info.width as usize * info.height as usize * 4);
-                for c in px.chunks_exact(3) {
-                    v.extend_from_slice(&[c[0], c[1], c[2], 255]);
-                }
-                v
-            }
-            _ => return None,
-        };
-        Icon::from_rgba(rgba, info.width, info.height).ok()
+        let (rgba, w, h) = crate::decode_png_rgba(PNG)?;
+        Icon::from_rgba(rgba, w, h).ok()
     }
 }
 

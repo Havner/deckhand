@@ -11,14 +11,16 @@ cargo install --path crates/deckhandd  --root "$root" --force "$@"
 cargo install --path crates/deckhandctl --root "$root" --force
 echo "installed deckhandd + deckhandctl into $root/bin"
 
-# Everything below is Linux-only (the UI app + its desktop integration, bash completions, systemd
-# units). On Windows/macOS this script installs just the two command-line tools above.
-[ "$(uname -s)" = Linux ] || exit 0
-
 # The deckhand UI app, into the same $root/bin as the tools (it's a workspace member but not a
-# default-member, so it's addressed by path). No backend features — it's a thin daemon client.
+# default-member, so it's addressed by path). No backend features — it's a thin daemon client. On
+# Windows the built .exe carries its own embedded icon and runs as a GUI app (no console window).
 cargo install --path crates/deckhand --root "$root" --force
 echo "installed deckhand (UI) into $root/bin"
+
+# All three binaries above install on every platform. Everything below is Linux-only desktop
+# integration for the UI (its .desktop entry + themed icon, bash completions, systemd user units), so
+# on Windows/macOS the script stops here.
+[ "$(uname -s)" = Linux ] || exit 0
 
 # Desktop entry + icon so the UI shows up in the app launcher. The icon goes into the hicolor
 # theme at its native 512×512 size; the .desktop's `Icon=deckhand` resolves to it by name.
