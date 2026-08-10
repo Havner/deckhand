@@ -133,17 +133,23 @@ pub struct Managed {
 
 /// A handle to the [`Managed`] daemon, shared between the connect-loop thread and `main` (which owns
 /// the UI-exit teardown).
-pub type Shared = Arc<Mutex<Managed>>;
+pub type Handle = Arc<Mutex<Managed>>;
 
-/// Create an empty [`Shared`] handle (no daemon launched yet, not quitting).
-pub fn shared() -> Shared {
+/// Create an empty [`Handle`] (no daemon launched yet, not quitting).
+pub fn handle() -> Handle {
     Arc::new(Mutex::new(Managed::default()))
+}
+
+/// Whether the UI currently owns a launched daemon child — i.e. we started it and will shut it down
+/// on exit. Drives the "managed" vs plain "connected" status label.
+pub fn is_managed(managed: &Handle) -> bool {
+    managed.lock().unwrap().child.is_some()
 }
 
 /// On UI exit, gracefully stop the daemon we launched (if any). Flags `quitting` and takes the child
 /// atomically so the loop can't spawn a replacement mid-exit; then asks the daemon to exit over IPC
 /// and reaps it. A daemon we did *not* launch is left running.
-pub fn shutdown_managed(managed: &Shared) {
+pub fn shutdown_managed(managed: &Handle) {
     let child = {
         let mut m = managed.lock().unwrap();
         m.quitting = true;
@@ -205,7 +211,7 @@ const RETRY: Duration = Duration::from_millis(1000);
 ///
 /// Steps 3–6 run on a **separate** command connection (subscribe is terminal) and are best-effort —
 /// each failure is reported as [`DaemonUpdate::Error`] and the sequence continues.
-pub fn run_event_loop(socket: Option<String>, managed: Shared, mut on: impl FnMut(DaemonUpdate) -> bool) {
+pub fn run_event_loop(socket: Option<String>, managed: Handle, mut on: impl FnMut(DaemonUpdate) -> bool) {
     loop {
         // Step 0: honor a quitting UI, and reap a managed daemon that died on us. Same lock as the
         // UI-exit path, so we never relaunch once teardown has started.
@@ -311,7 +317,7 @@ fn apply_profile(
 /// daemon we launched is still alive (step 0 has already reaped any dead one, so `child.is_some()`
 /// here means it's alive — just-launched and still binding; the connect retries next tick). The
 /// lock is held across the spawn so the UI-exit path adopts the fresh child rather than orphaning it.
-fn spawn_daemon(socket: Option<&str>, managed: &Shared, on: &mut dyn FnMut(DaemonUpdate) -> bool) {
+fn spawn_daemon(socket: Option<&str>, managed: &Handle, on: &mut dyn FnMut(DaemonUpdate) -> bool) {
     let mut m = managed.lock().unwrap();
     if m.quitting || m.child.is_some() {
         return;

@@ -13,7 +13,7 @@ use ipc::{ProfileRole, RunState};
 use crate::nav::Category;
 use crate::{
     App, IDLE_TIMEOUT_MINUTES, INPUT_PRESETS, IoTarget, Message, NETWORK_OPTION, OUTPUT_PRESETS,
-    Popup, style,
+    Popup, daemon, style,
 };
 
 /// The whole window: top bar / (sidebar + content) / bottom bar, with the network popup layered on
@@ -627,8 +627,11 @@ fn stub_screen(c: Category) -> Element<'static, Message> {
 /// Full-width status bar from the engine status (device bound, profiles, chord count, …).
 fn bottom_bar(app: &App) -> Element<'_, Message> {
     // Dot color from theme roles: success (green, matching Start) / danger (red, matching Stop).
+    // "managed" (green dot) when the UI launched the daemon and will shut it down on exit; a plain
+    // externally-started daemon reads "connected".
     let (dot, label): (fn(&Theme) -> text::Style, _) = if app.connected {
-        (style::success_text, "connected")
+        let label = if daemon::is_managed(&app.daemon) { "managed" } else { "connected" };
+        (style::success_text, label)
     } else {
         (style::danger_text, "disconnected")
     };

@@ -31,7 +31,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use config::{ConfigDoc, GlobalConfig, StartProfile};
-use daemon::{Client, DaemonUpdate, Shared, run_event_loop};
+use daemon::{Client, DaemonUpdate, Handle, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::window;
 use iced::{Size, Subscription, Task, Theme};
@@ -133,7 +133,7 @@ fn native_window_hide() -> bool {
 fn main() -> iced::Result {
     // The UI-managed daemon handle, shared with the connect loop (populated when we launch a daemon)
     // and retained here so we can stop it on exit.
-    let daemon = daemon::shared();
+    let daemon = daemon::handle();
 
     // A `daemon` (not `application`): it survives with zero windows. That's required for the Wayland
     // hide-to-tray path, which must CLOSE the window (winit can't toggle visibility there; see
@@ -200,7 +200,7 @@ pub struct App {
     error: Option<String>,
     /// The UI-managed daemon handle (shared with the connect loop); drives launch-on-connect and
     /// stop-on-exit.
-    daemon: Shared,
+    daemon: Handle,
     /// The main window's id while open, captured on open (needed to close it). `None` when hidden.
     window: Option<window::Id>,
     /// Whether the window is currently hidden in the tray. On the native-hide path (Windows/macOS/X11)
@@ -316,7 +316,7 @@ pub enum Message {
 }
 
 impl App {
-    fn new(daemon: Shared) -> Self {
+    fn new(daemon: Handle) -> Self {
         let settings = AppSettings::load();
         let want_hidden = settings.use_tray && settings.start_hidden;
         // Start the tray if enabled. We only *actually* start hidden if it came up — otherwise
@@ -1022,7 +1022,7 @@ impl App {
 #[derive(Clone)]
 struct SubData {
     socket: Option<String>,
-    managed: Shared,
+    managed: Handle,
 }
 
 impl Hash for SubData {
