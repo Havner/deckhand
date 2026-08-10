@@ -3,12 +3,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl", "crates/deckhand"]
-# The `ui-test-*` toolkit bake-off crates are detached from the workspace so they don't constrain its
-# resolution (e.g. ui-test-egui's eframe needs a newer web-sys than git iced's pinned =0.3.85). They
-# stay on disk, built standalone (`cd crates/ui-test-iced && cargo run`).
-exclude = ["crates/ui-test-common", "crates/ui-test-iced", "crates/ui-test-egui", "crates/ui-test-qt", "crates/ui-test-gtk"]
-# The real UI (`deckhand`, iced) and the `ui-test-*` bake-off crates pull heavy GUI deps and are
-# opt-in (`cargo build -p deckhand`). Keep them out of a plain workspace `cargo build` for now.
+# The real UI (`deckhand`, iced) pulls heavy GUI deps and is opt-in (`cargo build -p deckhand`);
+# keep it out of a plain workspace `cargo build` for now.
 default-members = ["crates/vocab", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl"]
 
 [workspace.package]
