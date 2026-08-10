@@ -112,6 +112,12 @@ pub fn settings_path() -> PathBuf {
     dir.join("settings.ron")
 }
 
+/// The deckhand config directory: `<config>/deckhand` (holds `settings.ron` and the default
+/// `profiles/` dir). The profiles-directory Browse dialog starts here.
+pub(crate) fn deckhand_dir() -> PathBuf {
+    config_dir().join("deckhand")
+}
+
 #[cfg(unix)]
 pub(crate) fn config_dir() -> PathBuf {
     if let Some(x) = std::env::var_os("XDG_CONFIG_HOME") {

@@ -207,11 +207,14 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
     };
     let selector = column![row1, caption].spacing(4.0);
 
-    // A 2×3 grid of equal-width action buttons. `on` gates the button (no `on_press` → greyed).
+    // A 2×4 grid of equal-width action buttons. `on` gates the button (no `on_press` → greyed).
+    // A short fixed gap between the left pair (role assign/clear) and the right pair (duplicate/
+    // create · edit/unload) visually groups the two halves without a full empty column.
     let cell = |label, style: fn(&Theme, button::Status) -> button::Style, msg, on: bool| {
         let b = button(text(label).center()).width(Fill).style(style);
         if on { b.on_press(msg) } else { b }
     };
+    let gap = || Space::new().width(24.0);
     let has_sel = app.selected_profile.is_some();
     let loaded = app.is_editing();
     // What the daemon currently has on each role (by profile *name*, from status); `None` when a
@@ -221,17 +224,22 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
         .as_ref()
         .map(|s| (s.main.clone(), s.fallback.clone()))
         .unwrap_or((None, None));
-    // Top row: act on the **selected on-disk** profile (need a selection).
+    // Top row: act on the **selected on-disk** profile (need a selection) · Duplicate it · Edit it.
     let grid_top = row![
         cell("Set file as Main", button::success, Message::SendProfile(ProfileRole::Main), has_sel),
         cell("Set file as Fallback", button::primary, Message::SendProfile(ProfileRole::Fallback), has_sel),
+        gap(),
+        cell("Duplicate", button::secondary, Message::ProfileDuplicate, has_sel),
         cell("Edit profile", button::secondary, Message::EditProfile, has_sel),
     ]
     .spacing(8.0);
-    // Bottom row: clear a role (only when that role has a profile) / unload the loaded profile.
+    // Bottom row: clear a role (only when that role has a profile) · Create new (always) · unload
+    // the loaded profile.
     let grid_bot = row![
         cell("Clear Main", button::secondary, Message::ClearProfile(ProfileRole::Main), main.is_some()),
         cell("Clear Fallback", button::secondary, Message::ClearProfile(ProfileRole::Fallback), fallback.is_some()),
+        gap(),
+        cell("Create new", button::secondary, Message::ProfileCreateNew, true),
         cell("Unload profile", button::danger, Message::UnloadProfile, loaded),
     ]
     .spacing(8.0);

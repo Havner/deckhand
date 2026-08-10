@@ -190,6 +190,10 @@ pub enum Message {
     ProfileRefresh,
     ProfileSelected(String),
     ProfileBrowse,
+    /// Duplicate the selected profile / create a new empty profile (Profiles-page grid). Both open
+    /// a save dialog in the active profiles dir, then mark the new file as selected.
+    ProfileDuplicate,
+    ProfileCreateNew,
     /// Send the *selected* (on-disk) profile to a daemon role (Profiles-page Set-as-Main/Fallback).
     SendProfile(ProfileRole),
     /// Clear a daemon role (Profiles-page Clear-Main/Fallback).
@@ -560,7 +564,7 @@ impl App {
                 self.refresh_profile_dir();
             }
             Message::BrowseCustomProfileDir => {
-                if let Some(p) = pick_folder() {
+                if let Some(p) = pick_folder(&settings::deckhand_dir()) {
                     self.settings.custom_profile_dir = p;
                     self.save_settings();
                     self.refresh_profile_dir();
@@ -569,8 +573,36 @@ impl App {
             Message::ProfileRefresh => self.profile_files = profiles::list(&self.settings),
             Message::ProfileSelected(name) => self.selected_profile = Some(name),
             Message::ProfileBrowse => {
-                if let Some(p) = pick_ron() {
+                if let Some(p) = pick_ron(&profiles::dir(&self.settings)) {
                     self.selected_profile = Some(p);
+                }
+            }
+            Message::ProfileDuplicate => {
+                let Some(src) = self.selected_profile_path() else {
+                    self.error = Some("no profile selected".into());
+                    return Task::none();
+                };
+                if let Some(dest) = save_ron(&profiles::dir(&self.settings), "duplicated.ron") {
+                    match std::fs::copy(&src, &dest) {
+                        Ok(_) => {
+                            self.selected_profile = Some(dest.display().to_string());
+                            self.profile_files = profiles::list(&self.settings);
+                            self.error = None;
+                        }
+                        Err(e) => self.error = Some(format!("duplicate profile: {e}")),
+                    }
+                }
+            }
+            Message::ProfileCreateNew => {
+                if let Some(dest) = save_ron(&profiles::dir(&self.settings), "profile.ron") {
+                    match profiles::save(&dest, &new_profile()) {
+                        Ok(_) => {
+                            self.selected_profile = Some(dest.display().to_string());
+                            self.profile_files = profiles::list(&self.settings);
+                            self.error = None;
+                        }
+                        Err(e) => self.error = Some(format!("create profile: {e}")),
+                    }
                 }
             }
             Message::SendProfile(role) => {
@@ -665,13 +697,13 @@ impl App {
                 self.save_settings();
             }
             Message::BrowseMain => {
-                if let Some(p) = pick_ron() {
+                if let Some(p) = pick_ron(&profiles::dir(&self.settings)) {
                     self.settings.main_path = p;
                     self.save_settings();
                 }
             }
             Message::BrowseFallback => {
-                if let Some(p) = pick_ron() {
+                if let Some(p) = pick_ron(&profiles::dir(&self.settings)) {
                     self.settings.fallback_path = p;
                     self.save_settings();
                 }
@@ -854,15 +886,42 @@ fn tray_events(_: &()) -> BoxStream<'static, Message> {
     .boxed()
 }
 
-/// Open a native "pick a .ron file" dialog (blocking); returns the chosen path as a string.
-fn pick_ron() -> Option<String> {
+/// Open a native "pick a .ron file" dialog (blocking) rooted at `start_dir`; returns the chosen
+/// path as a string.
+fn pick_ron(start_dir: &Path) -> Option<String> {
     rfd::FileDialog::new()
         .add_filter("RON profile", &["ron"])
+        .set_directory(start_dir)
         .pick_file()
         .map(|p| p.display().to_string())
 }
 
-/// Open a native folder-picker dialog (blocking); returns the chosen directory as a string.
-fn pick_folder() -> Option<String> {
-    rfd::FileDialog::new().pick_folder().map(|p| p.display().to_string())
+/// Open a native folder-picker dialog (blocking) rooted at `start_dir`; returns the chosen
+/// directory as a string.
+fn pick_folder(start_dir: &Path) -> Option<String> {
+    rfd::FileDialog::new().set_directory(start_dir).pick_folder().map(|p| p.display().to_string())
+}
+
+/// Open a native "save a .ron file" dialog (blocking) rooted at `start_dir` with `default_name`
+/// prefilled; returns the chosen destination path.
+fn save_ron(start_dir: &Path, default_name: &str) -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .add_filter("RON profile", &["ron"])
+        .set_directory(start_dir)
+        .set_file_name(default_name)
+        .save_file()
+}
+
+/// An empty profile skeleton for "Create new": one action set named `base`, no bindings.
+fn new_profile() -> ConfigDoc {
+    ConfigDoc {
+        version: 0,
+        name: "New profile".into(),
+        action_sets: vec![config::ActionSet {
+            name: "base".into(),
+            bindings: Default::default(),
+            layers: Vec::new(),
+        }],
+        rumble: Default::default(),
+    }
 }
