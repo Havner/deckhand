@@ -285,13 +285,24 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
     // copy-ability.
     let info = column![
         group_header("Additional information"),
-        body("Profiles can also be assigned or cleared straight to the daemon with the control tool:"),
+        body(
+            "The active profile (Main or Fallback) can be switched with chords (see the \
+             Globals page). If only one of the two is assigned, it is always active."
+        ),
+        body("Profiles can also be set or cleared directly with the daemon control tool:"),
         monospace("deckhandctl main \"PATH_TO_PROFILE\""),
         monospace("deckhandctl main \"\""),
         body(
             "This can enable automatic, per-game switching: some launchers run a script on game \
              launch and exit — for example Heroic's \"Scripts to run\" (before launch / after \
              exit) — so you can set a profile when a game starts and clear it when it quits."
+        ),
+        body(
+            "A handy setup is to assign a desktop profile as Fallback and leave Main empty. \
+             When a game launches, assign that game's profile as Main with the control tool; \
+             while playing, Main is active, but you can still switch to Fallback with chords \
+             when needed. When the game quits, clear Main and the desktop profile becomes \
+             active again."
         ),
     ]
     .spacing(6.0);
