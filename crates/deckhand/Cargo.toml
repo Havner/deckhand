@@ -20,8 +20,21 @@ ron.workspace = true
 crossbeam-channel.workspace = true
 
 # Linux tray: ksni (pure-Rust StatusNotifierItem over D-Bus, no gtk). async-io keeps it
-# runtime-agnostic (our app has no Tokio runtime); png decodes the bundled icon. Windows/macOS will
-# use tray-icon's native backends (a follow-up).
+# runtime-agnostic (our app has no Tokio runtime); png decodes the bundled icon. (tray-icon's Linux
+# backend pulls gtk3/libappindicator, which shares process-global display state with iced/wgpu.)
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3.6", default-features = false, features = ["blocking", "async-io"] }
 png.workspace = true
+
+# Windows tray: tray-icon's native win32 backend (no gtk, zero system deps). It needs a thread with a
+# running Win32 message loop; we give it a dedicated one (the `windows` crate provides the pump).
+# `default-features = false` drops the Linux-only gtk/libxdo features — the win32 backend is always
+# built off-Linux. png decodes the bundled icon to RGBA for `Icon::from_rgba`.
+[target.'cfg(target_os = "windows")'.dependencies]
+tray-icon = { version = "0.24", default-features = false }
+png.workspace = true
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
+] }
