@@ -284,7 +284,7 @@ pub enum Message {
     /// Load the selected profile into the editor (Edit button) / rename it / unload it.
     EditProfile,
     ProfileNameChanged(String),
-    UnloadProfile,
+    StopEditing,
     /// Globals-screen edits. Each mutates the UI-owned `globals`, then persists it and ships it to
     /// the daemon ([`App::apply_globals`]). The two `Option` fields toggle via the `*Enabled` pair.
     GlobalsStartProfile(StartProfile),
@@ -797,7 +797,7 @@ impl App {
                     self.save_editing();
                 }
             }
-            Message::UnloadProfile => {
+            Message::StopEditing => {
                 self.editing = None;
                 // Leave any now-disabled editor tab for the management page.
                 if self.category.is_editor() {

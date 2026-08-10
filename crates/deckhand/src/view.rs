@@ -257,7 +257,7 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
         cell("Set file as Fallback", button::primary, Message::SendProfile(ProfileRole::Fallback), has_sel),
         gap(),
         cell("Duplicate", button::secondary, Message::ProfileDuplicate, has_sel),
-        cell("Edit profile", button::secondary, Message::EditProfile, has_sel),
+        cell("Edit profile", button::warning, Message::EditProfile, has_sel),
     ]
     .spacing(8.0);
     // Bottom row: clear a role (only when that role has a profile) · Create new (always) · unload
@@ -267,7 +267,7 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
         cell("Clear Fallback", button::secondary, Message::ClearProfile(ProfileRole::Fallback), fallback.is_some()),
         gap(),
         cell("Create new", button::secondary, Message::ProfileCreateNew, true),
-        cell("Unload profile", button::danger, Message::UnloadProfile, loaded),
+        cell("Stop editing", button::warning, Message::StopEditing, loaded),
     ]
     .spacing(8.0);
 
