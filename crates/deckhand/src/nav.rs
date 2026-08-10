@@ -2,7 +2,7 @@
 //!
 //! Three bands, top to bottom:
 //! - **Profiles** — profile *management* (load-for-edit, send-to-daemon); always available.
-//! - a separator, then the **profile-editor** categories (Action Sets … Gyro) — these edit the
+//! - a separator, then the **profile-editor** categories (Profile … Gyro) — these edit the
 //!   currently-loaded profile, so they're disabled until one is loaded (see `App::editing`).
 //! - the **application-level** entries pinned at the bottom (Globals, Settings) — always available.
 //!
@@ -14,7 +14,7 @@ pub enum Category {
     // Profile management (top band).
     Profiles,
     // Profile-editor categories (middle band, below the separator; stub screens for now).
-    ActionSets,
+    Profile,
     Buttons,
     Triggers,
     Joysticks,
@@ -30,7 +30,7 @@ impl Category {
     /// The profile-editor categories, shown below the sidebar separator. These operate on the
     /// loaded profile, so they're greyed out until a profile is loaded for editing.
     pub const EDITOR: &'static [Category] = &[
-        Category::ActionSets,
+        Category::Profile,
         Category::Buttons,
         Category::Triggers,
         Category::Joysticks,
@@ -52,7 +52,7 @@ impl Category {
     pub fn label(self) -> &'static str {
         match self {
             Category::Profiles => "Profiles",
-            Category::ActionSets => "Action Sets",
+            Category::Profile => "Profile",
             Category::Buttons => "Buttons",
             Category::Triggers => "Triggers",
             Category::Joysticks => "Joysticks",

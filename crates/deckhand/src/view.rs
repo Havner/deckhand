@@ -31,6 +31,33 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
 }
 
+/// A screen's big title (e.g. "Settings", "Buttons") — the largest heading on a page.
+fn section_header<'a>(title: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    text(title).size(24.0).into()
+}
+
+/// A sub-group heading within a screen (e.g. "UI", "Face Buttons", "Profile") — the smaller
+/// subtitle under a [`section_header`].
+fn group_header<'a>(title: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    text(title).size(20.0).into()
+}
+
+/// Regular body copy inside a content screen (14 px) — the unified default text size for pure text
+/// (paragraphs, captions, readouts); not for control/combobox labels.
+fn body<'a>(fragment: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    text(fragment).size(13.0).into()
+}
+
+/// Small/secondary copy inside a content screen (12 px) — captions and hints. Same use as [`body`].
+fn small<'a>(fragment: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    text(fragment).size(12.0).into()
+}
+
+/// Monospaced copy (12 px) — command lines and other verbatim text. Same use as [`body`].
+fn monospace<'a>(fragment: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    text(fragment).size(12.0).font(iced::Font::MONOSPACE).into()
+}
+
 /// Layer the network popup over the base as a modal: a dimmed, input-blocking backdrop (click it to
 /// cancel) with the card centered on top.
 fn modal<'a>(base: Element<'a, Message>, popup: &'a Popup) -> Element<'a, Message> {
@@ -173,7 +200,7 @@ fn nav_button(app: &App, c: Category) -> Element<'static, Message> {
 fn content(app: &App) -> Element<'_, Message> {
     let inner: Element<'_, Message> = match app.category {
         Category::Profiles => profiles_screen(app),
-        Category::ActionSets => action_sets_screen(app),
+        Category::Profile => profile_screen(app),
         Category::Buttons => buttons_screen(),
         Category::Settings => settings_screen(app),
         Category::Globals => globals_screen(app),
@@ -202,8 +229,8 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
     // below act on" line (a placeholder when nothing is selected). Kept at the normal text color;
     // the small size alone reads as secondary (the muted role was near-invisible).
     let caption: Element<'_, Message> = match app.selected_profile_path() {
-        Some(p) => text(p.display().to_string()).size(12.0).into(),
-        None => text("no profile selected").size(12.0).into(),
+        Some(p) => small(p.display().to_string()),
+        None => small("no profile selected"),
     };
     let selector = column![row1, caption].spacing(4.0);
 
@@ -248,19 +275,36 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
     // "Set as …" would replace. Mirrors the bottom bar; `—` when empty/disconnected.
     let applied = column![
         group_header("Currently applied"),
-        text(format!("Main: {}", main.as_deref().unwrap_or("—"))).size(13.0),
-        text(format!("Fallback: {}", fallback.as_deref().unwrap_or("—"))).size(13.0),
+        body(format!("Main: {}", main.as_deref().unwrap_or("—"))),
+        body(format!("Fallback: {}", fallback.as_deref().unwrap_or("—"))),
     ]
     .spacing(4.0);
 
-    column![section_header("Profile Management"), selector, grid_top, grid_bot, applied]
+    // Point the user at the daemon control tool and the launcher-hook trick, so they know role
+    // assignment isn't UI-only. The two `deckhandctl` invocations are on their own lines for
+    // copy-ability.
+    let info = column![
+        group_header("Additional information"),
+        body("Profiles can also be assigned or cleared straight to the daemon with the control tool:"),
+        monospace("deckhandctl main \"PATH_TO_PROFILE\""),
+        monospace("deckhandctl main \"\""),
+        body(
+            "This can enable automatic, per-game switching: some launchers run a script on game \
+             launch and exit — for example Heroic's \"Scripts to run\" (before launch / after \
+             exit) — so you can set a profile when a game starts and clear it when it quits."
+        ),
+    ]
+    .spacing(6.0);
+
+    column![section_header("Profile Management"), selector, grid_top, grid_bot, applied, info]
         .spacing(16.0)
         .into()
 }
 
-/// Action Sets screen — the first bit of the profile editor. For now just the profile's name (moved
-/// here from Profiles). Reachable only while a profile is loaded, so the field is always live.
-fn action_sets_screen(app: &App) -> Element<'_, Message> {
+/// Profile screen — the top of the profile editor. For now just the profile's name; action sets and
+/// layers land here below it once implemented. Reachable only while a profile is loaded, so the
+/// field is always live.
+fn profile_screen(app: &App) -> Element<'_, Message> {
     let name = row![
         text("Profile name").width(140.0),
         text_input("profile name", app.editing_name())
@@ -269,8 +313,7 @@ fn action_sets_screen(app: &App) -> Element<'_, Message> {
     ]
     .spacing(12.0)
     .align_y(Center);
-    let profile = column![group_header("Profile"), name].spacing(8.0);
-    column![section_header("Action Sets"), profile].spacing(20.0).into()
+    column![section_header("Profile"), name].spacing(20.0).into()
 }
 
 /// Settings screen — a **UI** section (theme) and a **Daemon** section (the on-connect behaviour +
@@ -350,6 +393,7 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
         custom_dir_row,
         Space::new().height(8.0),
         group_header("Daemon"),
+        small("The options below are applied only on daemon connect — usually equivalent to application start."),
         launch,
         load_main,
         main_row,
@@ -360,11 +404,6 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
     ]
     .spacing(10.0)
     .into()
-}
-
-/// A screen's big title (e.g. "Settings", "Buttons") — the largest heading on a page.
-fn section_header(title: &'static str) -> Element<'static, Message> {
-    text(title).size(24.0).into()
 }
 
 /// A path row: text field + Browse button, both inert (greyed) when `enabled` is false.
@@ -467,7 +506,10 @@ fn globals_screen(app: &App) -> Element<'_, Message> {
         .spacing(12.0)
         .align_y(Center);
 
-    column![section_header("Global daemon settings"), start, master, led, idle, chords]
+    let note =
+        small("'Start profile', 'LED brightness' and 'Idle timeout' take effect only on engine start.");
+
+    column![section_header("Global daemon settings"), note, start, master, led, idle, chords]
         .spacing(16.0)
         .into()
 }
@@ -523,12 +565,6 @@ fn buttons_screen() -> Element<'static, Message> {
     .spacing(8.0);
 
     column![section_header("Buttons"), face, bumpers, dpad, system].spacing(20.0).into()
-}
-
-/// A sub-group heading within a screen (e.g. "UI", "Face Buttons", "Profile") — the smaller
-/// subtitle under a [`section_header`].
-fn group_header(title: &'static str) -> Element<'static, Message> {
-    text(title).size(18.0).into()
 }
 
 /// A group's "Behavior" selector (buttons only have Button Pad; the rest is filler) + a gear.
