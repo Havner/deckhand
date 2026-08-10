@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Deckhand
+GenericName=Controller Configurator
+Comment=Map Steam Controller and Steam Deck input to mouse, keyboard, and gamepad
+Exec=deckhand
+Icon=deckhand
+Terminal=false
+Categories=Utility;
+Keywords=controller;gamepad;steam;input;mapping;
