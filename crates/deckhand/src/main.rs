@@ -257,7 +257,7 @@ impl App {
             connected: false,
             status: None,
             devices: Vec::new(),
-            category: Category::Settings,
+            category: Category::Profiles,
             error,
             daemon,
             window: None,

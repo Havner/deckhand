@@ -107,8 +107,8 @@ fn top_bar(app: &App) -> Element<'_, Message> {
         row![
             text(app.editing_name()).size(13.0),
             sep(),
-            button(text("Main")).style(button::success).on_press(Message::SendEditingProfile(ProfileRole::Main)),
-            button(text("Fallback")).style(button::primary).on_press(Message::SendEditingProfile(ProfileRole::Fallback)),
+            button(text("Set as Main")).style(button::success).on_press(Message::SendEditingProfile(ProfileRole::Main)),
+            button(text("Set as Fallback")).style(button::primary).on_press(Message::SendEditingProfile(ProfileRole::Fallback)),
         ]
         .spacing(8.0)
         .align_y(Center)
@@ -202,8 +202,8 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
     let loaded = app.is_editing();
     // Top row: act on the **selected on-disk** profile (need a selection).
     let grid_top = row![
-        cell("Set as Main", button::success, Message::SendProfile(ProfileRole::Main), has_sel),
-        cell("Set as Fallback", button::primary, Message::SendProfile(ProfileRole::Fallback), has_sel),
+        cell("Set file as Main", button::success, Message::SendProfile(ProfileRole::Main), has_sel),
+        cell("Set file as Fallback", button::primary, Message::SendProfile(ProfileRole::Fallback), has_sel),
         cell("Edit profile", button::secondary, Message::EditProfile, has_sel),
     ]
     .spacing(8.0);
@@ -215,7 +215,7 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
     ]
     .spacing(8.0);
 
-    column![section_header("Profiles"), row1, grid_top, grid_bot].spacing(12.0).into()
+    column![section_header("Profile Management"), row1, grid_top, grid_bot].spacing(12.0).into()
 }
 
 /// Action Sets screen — the first bit of the profile editor. For now just the profile's name (moved
@@ -300,7 +300,7 @@ fn settings_screen(app: &App) -> Element<'_, Message> {
         .on_toggle(Message::ToggleStartEngine);
 
     column![
-        section_header("Settings"),
+        section_header("Application settings"),
         group_header("UI"),
         theme_pick,
         use_tray,
@@ -427,7 +427,9 @@ fn globals_screen(app: &App) -> Element<'_, Message> {
         .spacing(12.0)
         .align_y(Center);
 
-    column![section_header("Globals"), start, master, led, idle, chords].spacing(16.0).into()
+    column![section_header("Global daemon settings"), start, master, led, idle, chords]
+        .spacing(16.0)
+        .into()
 }
 
 /// A fixed-width row label for the Globals screen, so the controls line up in a column.
