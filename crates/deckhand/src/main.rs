@@ -149,6 +149,13 @@ pub struct App {
     tray: Option<tray::Tray>,
     /// The network input/output modal, when open.
     popup: Option<Popup>,
+    /// Whether a native file dialog is currently open. The pickers are async (they must be, or the
+    /// event loop hangs — see the picker helpers), so without this guard a user could spawn a stack
+    /// of dialogs. We parent each dialog to our window (modal on GNOME/most portals), but that alone
+    /// leaves a race between the click and the dialog appearing and isn't guaranteed on every
+    /// compositor — so we also refuse to open a second dialog while one is pending, and disable the
+    /// browse/duplicate/create controls in the view meanwhile.
+    dialog_open: bool,
 }
 
 /// Everything the view can emit.
@@ -203,8 +210,8 @@ pub enum Message {
     ProfileDuplicate,
     ProfileCreateNew,
     /// Async result of the duplicate/create save dialogs: `Ok(path)` = the new file was written
-    /// (select it + refresh the list), `Err` = the write failed. Cancellation resolves to
-    /// [`Message::Ignored`] instead, so this only ever carries a real outcome.
+    /// (select it + refresh the list), `Ok("")` = the dialog was cancelled (just release the guard),
+    /// `Err` = the write failed. Always released the dialog guard.
     ProfileWritten(Result<String, String>),
     /// Send the *selected* (on-disk) profile to a daemon role (Profiles-page Set-as-Main/Fallback).
     SendProfile(ProfileRole),
@@ -280,6 +287,7 @@ impl App {
             hidden: want_hidden && tray.is_some(),
             tray,
             popup: None,
+            dialog_open: false,
         }
     }
 
@@ -518,6 +526,9 @@ impl App {
                 // otherwise wipe a freshly reopened window's id).
                 if self.window == Some(id) {
                     self.window = None;
+                    // Defensive: a dialog parented to a now-gone window may never deliver its result
+                    // (window::run's callback won't fire), so release the guard rather than wedge it.
+                    self.dialog_open = false;
                 }
             }
             Message::WindowResized(size) => {
@@ -585,12 +596,15 @@ impl App {
                 self.refresh_profile_dir();
             }
             Message::BrowseCustomProfileDir => {
-                return Task::perform(
-                    pick_folder(&settings::deckhand_dir()),
-                    Message::CustomProfileDirPicked,
-                );
+                if self.dialog_open {
+                    return Task::none();
+                }
+                self.dialog_open = true;
+                let dir = settings::deckhand_dir();
+                return self.dialog(move |d| pick_folder(d, &dir)).map(Message::CustomProfileDirPicked);
             }
             Message::CustomProfileDirPicked(picked) => {
+                self.dialog_open = false;
                 if let Some(p) = picked {
                     self.settings.custom_profile_dir = p;
                     self.save_settings();
@@ -600,56 +614,72 @@ impl App {
             Message::ProfileRefresh => self.profile_files = profiles::list(&self.settings),
             Message::ProfileSelected(name) => self.selected_profile = Some(name),
             Message::ProfileBrowse => {
-                return Task::perform(
-                    pick_ron(&profiles::dir(&self.settings)),
-                    Message::ProfileBrowsePicked,
-                );
+                if self.dialog_open {
+                    return Task::none();
+                }
+                self.dialog_open = true;
+                let dir = profiles::dir(&self.settings);
+                return self.dialog(move |d| pick_ron(d, &dir)).map(Message::ProfileBrowsePicked);
             }
             Message::ProfileBrowsePicked(picked) => {
+                self.dialog_open = false;
                 if let Some(p) = picked {
                     self.selected_profile = Some(p);
                 }
             }
             Message::ProfileDuplicate => {
+                if self.dialog_open {
+                    return Task::none();
+                }
                 let Some(src) = self.selected_profile_path() else {
                     self.error = Some("no profile selected".into());
                     return Task::none();
                 };
-                let dialog = save_ron(&profiles::dir(&self.settings), "duplicated.ron");
+                self.dialog_open = true;
+                let dir = profiles::dir(&self.settings);
                 // The fs copy is trivial; do it in the task once the dialog resolves so cancellation
                 // (dialog → None) short-circuits to a no-op without touching state.
-                return Task::perform(
-                    async move {
-                        let Some(dest) = dialog.await else { return Message::Ignored };
+                return self.dialog(move |d| {
+                    let dialog = save_ron(d, &dir, "duplicated.ron");
+                    Box::pin(async move {
+                        let Some(dest) = dialog.await else { return Message::ProfileWritten(Ok(String::new())) };
                         match std::fs::copy(&src, &dest) {
                             Ok(_) => Message::ProfileWritten(Ok(dest.display().to_string())),
-                            Err(e) => {
-                                Message::ProfileWritten(Err(format!("duplicate profile: {e}")))
-                            }
+                            Err(e) => Message::ProfileWritten(Err(format!("duplicate profile: {e}"))),
                         }
-                    },
-                    |m| m,
-                );
+                    })
+                });
             }
             Message::ProfileCreateNew => {
-                let dialog = save_ron(&profiles::dir(&self.settings), "profile.ron");
-                return Task::perform(
-                    async move {
-                        let Some(dest) = dialog.await else { return Message::Ignored };
+                if self.dialog_open {
+                    return Task::none();
+                }
+                self.dialog_open = true;
+                let dir = profiles::dir(&self.settings);
+                return self.dialog(move |d| {
+                    let dialog = save_ron(d, &dir, "profile.ron");
+                    Box::pin(async move {
+                        let Some(dest) = dialog.await else { return Message::ProfileWritten(Ok(String::new())) };
                         match profiles::save(&dest, &new_profile()) {
                             Ok(_) => Message::ProfileWritten(Ok(dest.display().to_string())),
                             Err(e) => Message::ProfileWritten(Err(format!("create profile: {e}"))),
                         }
-                    },
-                    |m| m,
-                );
+                    })
+                });
             }
+            // Ok("") = the save dialog was cancelled: just release the guard, touch nothing.
             Message::ProfileWritten(Ok(path)) => {
-                self.selected_profile = Some(path);
-                self.profile_files = profiles::list(&self.settings);
-                self.error = None;
+                self.dialog_open = false;
+                if !path.is_empty() {
+                    self.selected_profile = Some(path);
+                    self.profile_files = profiles::list(&self.settings);
+                    self.error = None;
+                }
             }
-            Message::ProfileWritten(Err(e)) => self.error = Some(e),
+            Message::ProfileWritten(Err(e)) => {
+                self.dialog_open = false;
+                self.error = Some(e);
+            }
             Message::SendProfile(role) => {
                 let Some(path) = self.selected_profile_path() else {
                     self.error = Some("no profile selected".into());
@@ -742,24 +772,30 @@ impl App {
                 self.save_settings();
             }
             Message::BrowseMain => {
-                return Task::perform(
-                    pick_ron(&profiles::dir(&self.settings)),
-                    Message::MainPathPicked,
-                );
+                if self.dialog_open {
+                    return Task::none();
+                }
+                self.dialog_open = true;
+                let dir = profiles::dir(&self.settings);
+                return self.dialog(move |d| pick_ron(d, &dir)).map(Message::MainPathPicked);
             }
             Message::MainPathPicked(picked) => {
+                self.dialog_open = false;
                 if let Some(p) = picked {
                     self.settings.main_path = p;
                     self.save_settings();
                 }
             }
             Message::BrowseFallback => {
-                return Task::perform(
-                    pick_ron(&profiles::dir(&self.settings)),
-                    Message::FallbackPathPicked,
-                );
+                if self.dialog_open {
+                    return Task::none();
+                }
+                self.dialog_open = true;
+                let dir = profiles::dir(&self.settings);
+                return self.dialog(move |d| pick_ron(d, &dir)).map(Message::FallbackPathPicked);
             }
             Message::FallbackPathPicked(picked) => {
+                self.dialog_open = false;
                 if let Some(p) = picked {
                     self.settings.fallback_path = p;
                     self.save_settings();
@@ -839,6 +875,24 @@ impl App {
             async move { op(&mut Client::new(socket)).map_err(|e| e.to_string()) },
             Message::CmdDone,
         )
+    }
+
+    /// Dispatch a native file dialog off the render thread, parented (modal/transient-for) to our
+    /// window when we have one — `build` receives a fresh `AsyncFileDialog` (already `set_parent`-ed
+    /// when possible) and returns its pick future. Parenting needs the live window handle, which iced
+    /// only exposes on the main thread via [`window::run`]; we build the future there (cheap — no
+    /// portal call yet) and then await it on the executor with [`Task::then`], so the loop never
+    /// blocks. Callers set [`Self::dialog_open`] and map the result to a message themselves.
+    fn dialog<T: Send + 'static>(
+        &self,
+        build: impl FnOnce(rfd::AsyncFileDialog) -> DialogFut<T> + Send + 'static,
+    ) -> Task<T> {
+        match self.window {
+            Some(id) => window::run(id, move |w| build(rfd::AsyncFileDialog::new().set_parent(w)))
+                .then(|fut| Task::perform(fut, |x| x)),
+            // No window (hidden in tray) → nothing to parent to; run unparented.
+            None => Task::perform(build(rfd::AsyncFileDialog::new()), |x| x),
+        }
     }
 
     /// Apply one daemon event to the cached status in place. Events are absolute-valued and cover
@@ -943,34 +997,34 @@ fn tray_events(_: &()) -> BoxStream<'static, Message> {
     .boxed()
 }
 
+/// A boxed, `Send` dialog future — the shape [`App::dialog`] drives on iced's executor.
+type DialogFut<T> = std::pin::Pin<Box<dyn Future<Output = T> + Send>>;
+
 // The pickers are ASYNC on purpose. rfd's blocking dialogs `pollster::block_on` the XDG-portal
 // call on the *calling* thread; called from `update()` that thread is iced's event loop, so the
 // window stops answering the compositor's ping and GNOME declares it "Not Responding" (killing it
 // force-quits the app). The async variants run the portal work on rfd's own thread and hand back a
-// Send future, which we drive via `Task::perform` — the loop keeps pumping. Each returns a plain
-// future the caller feeds to a result `Message`.
+// Send future, which we drive via `Task::perform` — the loop keeps pumping. Each takes a `dlg` that
+// [`App::dialog`] has already parented to our window (so the dialog is modal/transient-for the app),
+// applies its filters, and returns the pick future for the caller's result `Message`.
 
-/// Open a native "pick a .ron file" dialog rooted at `start_dir`; resolves to the chosen path.
-fn pick_ron(start_dir: &Path) -> impl Future<Output = Option<String>> + use<> {
-    let dlg =
-        rfd::AsyncFileDialog::new().add_filter("RON profile", &["ron"]).set_directory(start_dir);
-    async move { dlg.pick_file().await.map(|h| h.path().display().to_string()) }
+/// Configure a pre-parented dialog to "pick a .ron file" rooted at `start_dir`; resolves to the path.
+fn pick_ron(dlg: rfd::AsyncFileDialog, start_dir: &Path) -> DialogFut<Option<String>> {
+    let dlg = dlg.add_filter("RON profile", &["ron"]).set_directory(start_dir);
+    Box::pin(async move { dlg.pick_file().await.map(|h| h.path().display().to_string()) })
 }
 
-/// Open a native folder-picker dialog rooted at `start_dir`; resolves to the chosen directory.
-fn pick_folder(start_dir: &Path) -> impl Future<Output = Option<String>> + use<> {
-    let dlg = rfd::AsyncFileDialog::new().set_directory(start_dir);
-    async move { dlg.pick_folder().await.map(|h| h.path().display().to_string()) }
+/// Configure a pre-parented dialog to pick a folder rooted at `start_dir`; resolves to the directory.
+fn pick_folder(dlg: rfd::AsyncFileDialog, start_dir: &Path) -> DialogFut<Option<String>> {
+    let dlg = dlg.set_directory(start_dir);
+    Box::pin(async move { dlg.pick_folder().await.map(|h| h.path().display().to_string()) })
 }
 
-/// Open a native "save a .ron file" dialog rooted at `start_dir` with `default_name` prefilled;
-/// resolves to the chosen destination path.
-fn save_ron(start_dir: &Path, default_name: &str) -> impl Future<Output = Option<PathBuf>> + use<> {
-    let dlg = rfd::AsyncFileDialog::new()
-        .add_filter("RON profile", &["ron"])
-        .set_directory(start_dir)
-        .set_file_name(default_name);
-    async move { dlg.save_file().await.map(|h| h.path().to_path_buf()) }
+/// Configure a pre-parented dialog to "save a .ron file" rooted at `start_dir` with `default_name`
+/// prefilled; resolves to the chosen destination path.
+fn save_ron(dlg: rfd::AsyncFileDialog, start_dir: &Path, default_name: &str) -> DialogFut<Option<PathBuf>> {
+    let dlg = dlg.add_filter("RON profile", &["ron"]).set_directory(start_dir).set_file_name(default_name);
+    Box::pin(async move { dlg.save_file().await.map(|h| h.path().to_path_buf()) })
 }
 
 /// An empty profile skeleton for "Create new": one action set named `base`, no bindings.
