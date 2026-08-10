@@ -1,5 +1,7 @@
 //! The iced widget layer: the four-region window and the per-category screens.
 
+use std::path::Path;
+
 use config::StartProfile;
 use iced::widget::{
     Space, button, center, checkbox, column, container, mouse_area, opaque, pick_list, row, rule,
@@ -183,15 +185,27 @@ fn content(app: &App) -> Element<'_, Message> {
 /// Profiles screen — profile *management*: pick a profile (from the directory or off-disk), then
 /// send it to / clear a daemon role, or load it for editing / unload it.
 fn profiles_screen(app: &App) -> Element<'_, Message> {
-    // Row 1: refresh + a wide combobox of the directory's files + an off-disk picker. A picked file
-    // shows as its full path even though it isn't one of the listed (filename-only) options.
+    // Row 1: refresh + a wide combobox of the directory's files + an off-disk picker. Every entry
+    // (listed file *or* a picked absolute path) renders as its basename to keep the control tidy; a
+    // caption below shows the full resolved path so the current selection is never ambiguous.
     let refresh = button(text("⟳")).on_press(Message::ProfileRefresh);
-    let combo = pick_list(app.selected_profile.clone(), app.profile_files.clone(), String::clone)
-        .on_select(Message::ProfileSelected)
-        .placeholder("select a profile")
-        .width(Fill);
+    let combo = pick_list(app.selected_profile.clone(), app.profile_files.clone(), |s: &String| {
+        Path::new(s).file_name().and_then(|n| n.to_str()).unwrap_or(s.as_str()).to_string()
+    })
+    .on_select(Message::ProfileSelected)
+    .placeholder("select a profile")
+    .width(Fill);
     let disk = button(text("Select from disk")).style(button::secondary).on_press(Message::ProfileBrowse);
     let row1 = row![refresh, combo, disk].spacing(8.0).align_y(Center);
+
+    // The full resolved path of the current selection — the unambiguous "this is what the buttons
+    // below act on" line (a placeholder when nothing is selected). Kept at the normal text color;
+    // the small size alone reads as secondary (the muted role was near-invisible).
+    let caption: Element<'_, Message> = match app.selected_profile_path() {
+        Some(p) => text(p.display().to_string()).size(12.0).into(),
+        None => text("no profile selected").size(12.0).into(),
+    };
+    let selector = column![row1, caption].spacing(4.0);
 
     // A 2×3 grid of equal-width action buttons. `on` gates the button (no `on_press` → greyed).
     let cell = |label, style: fn(&Theme, button::Status) -> button::Style, msg, on: bool| {
@@ -200,6 +214,13 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
     };
     let has_sel = app.selected_profile.is_some();
     let loaded = app.is_editing();
+    // What the daemon currently has on each role (by profile *name*, from status); `None` when a
+    // role is empty or the daemon is disconnected.
+    let (main, fallback) = app
+        .status
+        .as_ref()
+        .map(|s| (s.main.clone(), s.fallback.clone()))
+        .unwrap_or((None, None));
     // Top row: act on the **selected on-disk** profile (need a selection).
     let grid_top = row![
         cell("Set file as Main", button::success, Message::SendProfile(ProfileRole::Main), has_sel),
@@ -207,15 +228,26 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
         cell("Edit profile", button::secondary, Message::EditProfile, has_sel),
     ]
     .spacing(8.0);
-    // Bottom row: clear a role (always available) / unload the loaded profile (needs one loaded).
+    // Bottom row: clear a role (only when that role has a profile) / unload the loaded profile.
     let grid_bot = row![
-        cell("Clear Main", button::danger, Message::ClearProfile(ProfileRole::Main), true),
-        cell("Clear Fallback", button::danger, Message::ClearProfile(ProfileRole::Fallback), true),
+        cell("Clear Main", button::secondary, Message::ClearProfile(ProfileRole::Main), main.is_some()),
+        cell("Clear Fallback", button::secondary, Message::ClearProfile(ProfileRole::Fallback), fallback.is_some()),
         cell("Unload profile", button::danger, Message::UnloadProfile, loaded),
     ]
     .spacing(8.0);
 
-    column![section_header("Profile Management"), row1, grid_top, grid_bot].spacing(12.0).into()
+    // The role assignments, mirrored here so you have context while managing/editing — e.g. what
+    // "Set as …" would replace. Mirrors the bottom bar; `—` when empty/disconnected.
+    let applied = column![
+        group_header("Currently applied"),
+        text(format!("Main: {}", main.as_deref().unwrap_or("—"))).size(13.0),
+        text(format!("Fallback: {}", fallback.as_deref().unwrap_or("—"))).size(13.0),
+    ]
+    .spacing(4.0);
+
+    column![section_header("Profile Management"), selector, grid_top, grid_bot, applied]
+        .spacing(16.0)
+        .into()
 }
 
 /// Action Sets screen — the first bit of the profile editor. For now just the profile's name (moved
