@@ -180,20 +180,32 @@ pub enum Message {
     FallbackPathChanged(String),
     BrowseMain,
     BrowseFallback,
+    /// Results of the async path pickers (rfd dialogs run off the render thread). `None` = the
+    /// dialog was cancelled (no-op).
+    MainPathPicked(Option<String>),
+    FallbackPathPicked(Option<String>),
     /// Restore last input/output on connect.
     ToggleRestoreIo(bool),
     /// Custom-profiles-directory setting (Settings screen).
     ToggleCustomProfileDir(bool),
     CustomProfileDirChanged(String),
     BrowseCustomProfileDir,
+    /// Async result of the custom-profiles-dir picker. `None` = cancelled.
+    CustomProfileDirPicked(Option<String>),
     /// Profiles screen: re-scan the directory, pick a listed file, or browse for one off-disk.
     ProfileRefresh,
     ProfileSelected(String),
     ProfileBrowse,
+    /// Async result of the profile-browse picker. `None` = cancelled.
+    ProfileBrowsePicked(Option<String>),
     /// Duplicate the selected profile / create a new empty profile (Profiles-page grid). Both open
     /// a save dialog in the active profiles dir, then mark the new file as selected.
     ProfileDuplicate,
     ProfileCreateNew,
+    /// Async result of the duplicate/create save dialogs: `Ok(path)` = the new file was written
+    /// (select it + refresh the list), `Err` = the write failed. Cancellation resolves to
+    /// [`Message::Ignored`] instead, so this only ever carries a real outcome.
+    ProfileWritten(Result<String, String>),
     /// Send the *selected* (on-disk) profile to a daemon role (Profiles-page Set-as-Main/Fallback).
     SendProfile(ProfileRole),
     /// Clear a daemon role (Profiles-page Clear-Main/Fallback).
@@ -377,8 +389,17 @@ impl App {
     /// would just leave the app running with no window and no way to have intercepted it.
     fn open_window(&self) -> Task<Message> {
         let size = Size::new(self.settings.window_width as f32, self.settings.window_height as f32);
-        let settings =
+        #[allow(unused_mut)]
+        let mut settings =
             window::Settings { exit_on_close_request: false, size, ..window::Settings::default() };
+        // Tie the window to our installed `.desktop` file (basename `deckhand`) via the app id
+        // (Wayland app_id / X11 WM_CLASS). Without it the compositor can't map the surface to the
+        // desktop entry, so it shows no name/icon — e.g. GNOME's "<app> Is Not Responding" dialog
+        // renders an empty `""`. Linux-only: `application_id` exists only on the Linux settings.
+        #[cfg(target_os = "linux")]
+        {
+            settings.platform_specific.application_id = "deckhand".to_string();
+        }
         window::open(settings).1.map(Message::WindowOpened)
     }
 
@@ -564,7 +585,13 @@ impl App {
                 self.refresh_profile_dir();
             }
             Message::BrowseCustomProfileDir => {
-                if let Some(p) = pick_folder(&settings::deckhand_dir()) {
+                return Task::perform(
+                    pick_folder(&settings::deckhand_dir()),
+                    Message::CustomProfileDirPicked,
+                );
+            }
+            Message::CustomProfileDirPicked(picked) => {
+                if let Some(p) = picked {
                     self.settings.custom_profile_dir = p;
                     self.save_settings();
                     self.refresh_profile_dir();
@@ -573,7 +600,13 @@ impl App {
             Message::ProfileRefresh => self.profile_files = profiles::list(&self.settings),
             Message::ProfileSelected(name) => self.selected_profile = Some(name),
             Message::ProfileBrowse => {
-                if let Some(p) = pick_ron(&profiles::dir(&self.settings)) {
+                return Task::perform(
+                    pick_ron(&profiles::dir(&self.settings)),
+                    Message::ProfileBrowsePicked,
+                );
+            }
+            Message::ProfileBrowsePicked(picked) => {
+                if let Some(p) = picked {
                     self.selected_profile = Some(p);
                 }
             }
@@ -582,29 +615,41 @@ impl App {
                     self.error = Some("no profile selected".into());
                     return Task::none();
                 };
-                if let Some(dest) = save_ron(&profiles::dir(&self.settings), "duplicated.ron") {
-                    match std::fs::copy(&src, &dest) {
-                        Ok(_) => {
-                            self.selected_profile = Some(dest.display().to_string());
-                            self.profile_files = profiles::list(&self.settings);
-                            self.error = None;
+                let dialog = save_ron(&profiles::dir(&self.settings), "duplicated.ron");
+                // The fs copy is trivial; do it in the task once the dialog resolves so cancellation
+                // (dialog → None) short-circuits to a no-op without touching state.
+                return Task::perform(
+                    async move {
+                        let Some(dest) = dialog.await else { return Message::Ignored };
+                        match std::fs::copy(&src, &dest) {
+                            Ok(_) => Message::ProfileWritten(Ok(dest.display().to_string())),
+                            Err(e) => {
+                                Message::ProfileWritten(Err(format!("duplicate profile: {e}")))
+                            }
                         }
-                        Err(e) => self.error = Some(format!("duplicate profile: {e}")),
-                    }
-                }
+                    },
+                    |m| m,
+                );
             }
             Message::ProfileCreateNew => {
-                if let Some(dest) = save_ron(&profiles::dir(&self.settings), "profile.ron") {
-                    match profiles::save(&dest, &new_profile()) {
-                        Ok(_) => {
-                            self.selected_profile = Some(dest.display().to_string());
-                            self.profile_files = profiles::list(&self.settings);
-                            self.error = None;
+                let dialog = save_ron(&profiles::dir(&self.settings), "profile.ron");
+                return Task::perform(
+                    async move {
+                        let Some(dest) = dialog.await else { return Message::Ignored };
+                        match profiles::save(&dest, &new_profile()) {
+                            Ok(_) => Message::ProfileWritten(Ok(dest.display().to_string())),
+                            Err(e) => Message::ProfileWritten(Err(format!("create profile: {e}"))),
                         }
-                        Err(e) => self.error = Some(format!("create profile: {e}")),
-                    }
-                }
+                    },
+                    |m| m,
+                );
             }
+            Message::ProfileWritten(Ok(path)) => {
+                self.selected_profile = Some(path);
+                self.profile_files = profiles::list(&self.settings);
+                self.error = None;
+            }
+            Message::ProfileWritten(Err(e)) => self.error = Some(e),
             Message::SendProfile(role) => {
                 let Some(path) = self.selected_profile_path() else {
                     self.error = Some("no profile selected".into());
@@ -697,13 +742,25 @@ impl App {
                 self.save_settings();
             }
             Message::BrowseMain => {
-                if let Some(p) = pick_ron(&profiles::dir(&self.settings)) {
+                return Task::perform(
+                    pick_ron(&profiles::dir(&self.settings)),
+                    Message::MainPathPicked,
+                );
+            }
+            Message::MainPathPicked(picked) => {
+                if let Some(p) = picked {
                     self.settings.main_path = p;
                     self.save_settings();
                 }
             }
             Message::BrowseFallback => {
-                if let Some(p) = pick_ron(&profiles::dir(&self.settings)) {
+                return Task::perform(
+                    pick_ron(&profiles::dir(&self.settings)),
+                    Message::FallbackPathPicked,
+                );
+            }
+            Message::FallbackPathPicked(picked) => {
+                if let Some(p) = picked {
                     self.settings.fallback_path = p;
                     self.save_settings();
                 }
@@ -886,30 +943,34 @@ fn tray_events(_: &()) -> BoxStream<'static, Message> {
     .boxed()
 }
 
-/// Open a native "pick a .ron file" dialog (blocking) rooted at `start_dir`; returns the chosen
-/// path as a string.
-fn pick_ron(start_dir: &Path) -> Option<String> {
-    rfd::FileDialog::new()
-        .add_filter("RON profile", &["ron"])
-        .set_directory(start_dir)
-        .pick_file()
-        .map(|p| p.display().to_string())
+// The pickers are ASYNC on purpose. rfd's blocking dialogs `pollster::block_on` the XDG-portal
+// call on the *calling* thread; called from `update()` that thread is iced's event loop, so the
+// window stops answering the compositor's ping and GNOME declares it "Not Responding" (killing it
+// force-quits the app). The async variants run the portal work on rfd's own thread and hand back a
+// Send future, which we drive via `Task::perform` — the loop keeps pumping. Each returns a plain
+// future the caller feeds to a result `Message`.
+
+/// Open a native "pick a .ron file" dialog rooted at `start_dir`; resolves to the chosen path.
+fn pick_ron(start_dir: &Path) -> impl Future<Output = Option<String>> + use<> {
+    let dlg =
+        rfd::AsyncFileDialog::new().add_filter("RON profile", &["ron"]).set_directory(start_dir);
+    async move { dlg.pick_file().await.map(|h| h.path().display().to_string()) }
 }
 
-/// Open a native folder-picker dialog (blocking) rooted at `start_dir`; returns the chosen
-/// directory as a string.
-fn pick_folder(start_dir: &Path) -> Option<String> {
-    rfd::FileDialog::new().set_directory(start_dir).pick_folder().map(|p| p.display().to_string())
+/// Open a native folder-picker dialog rooted at `start_dir`; resolves to the chosen directory.
+fn pick_folder(start_dir: &Path) -> impl Future<Output = Option<String>> + use<> {
+    let dlg = rfd::AsyncFileDialog::new().set_directory(start_dir);
+    async move { dlg.pick_folder().await.map(|h| h.path().display().to_string()) }
 }
 
-/// Open a native "save a .ron file" dialog (blocking) rooted at `start_dir` with `default_name`
-/// prefilled; returns the chosen destination path.
-fn save_ron(start_dir: &Path, default_name: &str) -> Option<PathBuf> {
-    rfd::FileDialog::new()
+/// Open a native "save a .ron file" dialog rooted at `start_dir` with `default_name` prefilled;
+/// resolves to the chosen destination path.
+fn save_ron(start_dir: &Path, default_name: &str) -> impl Future<Output = Option<PathBuf>> + use<> {
+    let dlg = rfd::AsyncFileDialog::new()
         .add_filter("RON profile", &["ron"])
         .set_directory(start_dir)
-        .set_file_name(default_name)
-        .save_file()
+        .set_file_name(default_name);
+    async move { dlg.save_file().await.map(|h| h.path().to_path_buf()) }
 }
 
 /// An empty profile skeleton for "Create new": one action set named `base`, no bindings.
