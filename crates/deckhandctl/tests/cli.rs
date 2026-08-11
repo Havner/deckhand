@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 use std::thread;
 
-use ipc::{Event, Request, Response, RunState, Server, StatusSnapshot};
+use ipc::{Event, ProfileRole, Request, Response, RunState, Server, StatusSnapshot};
 
 #[test]
 fn ctl_drives_a_fake_daemon() {
@@ -27,8 +27,10 @@ fn ctl_drives_a_fake_daemon() {
                         output: "local".into(),
                         input: "dongle".into(),
                         bound: None,
+                        controller: Some(true),
                         main: Some("game".into()),
                         fallback: None,
+                        active: Some(ProfileRole::Main),
                         globals: Default::default(),
                     }),
                     Request::SetInput(spec) if spec == "gordon:dongle:1:" => Response::Ok,
@@ -80,7 +82,7 @@ fn ctl_monitor_streams_events() {
         for conn in server.incoming() {
             let mut conn = conn.expect("accept");
             if let Some(Request::Subscribe) = conn.recv().expect("recv") {
-                conn.send_event(&Event::ControllerConnected).expect("send");
+                conn.send_event(&Event::ControllerConnected(true)).expect("send");
                 conn.send_event(&Event::Battery { percent: Some(96) }).expect("send");
                 conn.send_event(&Event::State(RunState::Running)).expect("send");
                 return; // close → the client sees the stream end

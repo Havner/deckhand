@@ -20,10 +20,11 @@ use crate::program::Role;
 /// bug, not a silent no-op.
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
-    /// The bound controller connected (its dongle slot woke up / it powered on).
-    ControllerConnected,
-    /// The bound controller disconnected while its transport (the dongle) stayed alive.
-    ControllerDisconnected,
+    /// The bound controller's presence changed: `true` = connected, `false` = disconnected. On the
+    /// dongle this is the slot powering on/off while the transport stays alive; on wired/BT the
+    /// controller *is* the transport, so it's `true` for the whole session and `false` only when the
+    /// transport goes (→ `WaitingForDevice`). Carries the absolute value (seed-then-subscribe safe).
+    ControllerConnected(bool),
     /// The bound controller's battery charge changed, in percent.
     BatteryChanged { percent: u8 },
     /// The binding was torn down: the engine stopped and no device is bound any more (→ `Idle`).
@@ -36,6 +37,11 @@ pub enum EngineEvent {
     BindingAcquired(DeviceId),
     /// The engine run-state changed.
     State(Status),
+    /// The **live** role switched (the chord flipped main↔fallback, or the initial role at start).
+    /// Carries the absolute new role — the parallel of [`State`](Self::State) for the profile mode.
+    /// Distinct from [`ProfileSet`](Self::ProfileSet), which reports a program loaded *into* a slot;
+    /// this reports which slot is now *active*.
+    ActiveRole(Role),
     /// The **staged** input selection changed (takes effect at the next `start()`). Lets a client
     /// that connects to a running daemon stay in sync when another controls it on the side. Carries
     /// the absolute new value (not a delta), so it's safe to seed-then-subscribe race-free.
@@ -62,7 +68,9 @@ pub(crate) struct EventSink {
 impl EventSink {
     /// Emit an event: log it, then broadcast to all live subscribers (pruning any that dropped).
     pub(crate) fn emit(&self, ev: EngineEvent) {
-        log::info!("event: {ev:?}");
+        // Debug, not info: events fire per connect/role-switch/etc. and get noisy — `status`/`monitor`
+        // are the normal-usage surface for this.
+        log::debug!("event: {ev:?}");
         self.subs.lock().unwrap().retain(|tx| tx.send(ev.clone()).is_ok());
     }
 

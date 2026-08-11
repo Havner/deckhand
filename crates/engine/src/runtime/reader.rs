@@ -42,6 +42,7 @@ pub(super) fn run_reader(
     cfg: DeviceCfg,
     mut link: LinkClient,
     running: Arc<AtomicBool>,
+    connected: Arc<AtomicBool>,
     events: EventSink,
 ) -> Result<()> {
     // A separate `Manager` (own hidapi context) used only for reacquire enumeration/open — created
@@ -49,13 +50,16 @@ pub(super) fn run_reader(
     let mut manager: Option<Manager> = None;
 
     loop {
-        match read_session(&mut device, &cfg, &link, &running, &events)? {
+        match read_session(&mut device, &cfg, &link, &running, &connected, &events)? {
             SessionEnd::Stop => return Ok(()),
             SessionEnd::TransportGone => {}
         }
 
-        // Transport gone. `detach` flags it and drops the session's device-side ends so the mapper's
-        // `frame_rx` disconnects and it enters the waiting phase (release_all + WaitingForDevice).
+        // Transport gone → the controller is no longer present (all transports; on wired/BT this is
+        // the only disconnect signal). Publish it before the state edge below.
+        set_connected(&connected, &events, false);
+        // `detach` flags it and drops the session's device-side ends so the mapper's `frame_rx`
+        // disconnects and it enters the waiting phase (release_all + WaitingForDevice).
         link.detach();
         events.emit(EngineEvent::State(Status::WaitingForDevice));
         drop(device);
@@ -85,9 +89,17 @@ fn read_session(
     cfg: &DeviceCfg,
     link: &LinkClient,
     running: &AtomicBool,
+    connected: &AtomicBool,
     events: &EventSink,
 ) -> Result<SessionEnd> {
     apply_device_cfg(device, cfg);
+    // A live session means the controller is present — publish it. This is the ONLY "connected"
+    // signal on wired/BT (the controller *is* the transport). It's also needed on the dongle: the
+    // receiver sends a `Connected` report on the *first* open but NOT on a re-open of an
+    // already-on controller, so presuming here is what makes a second `start()` report connected.
+    // The cost is a brief `true`→`false` when a dongle slot is opened with the pad turned off (the
+    // receiver then reports `Disconnected`) — accepted: a correct settled state beats no state.
+    set_connected(connected, events, true);
     // Haptic strategy is per-device: the Deck (Neptune) has real motors driven by `0xeb`
     // (`rumble_cmd`, re-issued periodically — see below); Gordon has only trackpad actuators,
     // driven as a re-fired pulse train (`0x8f`, `haptic_pulse`).
@@ -103,10 +115,10 @@ fn read_session(
             Ok(Some(report)) => {
                 match &report {
                     Report::Connected => {
-                        events.emit(EngineEvent::ControllerConnected);
+                        set_connected(connected, events, true);
                         apply_device_cfg(device, cfg);
                     }
-                    Report::Disconnected => events.emit(EngineEvent::ControllerDisconnected),
+                    Report::Disconnected => set_connected(connected, events, false),
                     // Edge-triggered: the 0x04 report streams ~1 Hz, so only surface a change.
                     Report::Battery(b) if last_battery != Some(b.charge_percent) => {
                         events.emit(EngineEvent::BatteryChanged { percent: b.charge_percent });
@@ -177,6 +189,16 @@ fn read_session(
         }
     }
     Ok(SessionEnd::Stop)
+}
+
+/// Publish the controller-present state to the shared flag and emit
+/// [`EngineEvent::ControllerConnected`]. Store-before-emit so a concurrent `status()` never reads
+/// staler than the last event. **Always emits** — no change-detection: the caller sites are already
+/// genuine transitions (session start / a `Connected`/`Disconnected` report / transport-gone), and a
+/// rare duplicate (e.g. two `Connected` reports in a row) is a harmless absolute-valued repeat.
+fn set_connected(flag: &AtomicBool, events: &EventSink, connected: bool) {
+    flag.store(connected, Ordering::SeqCst);
+    events.emit(EngineEvent::ControllerConnected(connected));
 }
 
 /// Poll (~1 Hz) for the pinned device to reappear, then open it. `None` if `running` is cleared

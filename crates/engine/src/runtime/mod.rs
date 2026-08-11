@@ -101,6 +101,14 @@ pub(crate) struct Runtime {
     /// plugged, outputs neutral) but is `WaitingForDevice` (PLAN §4.3, D5). Shared with both
     /// `Link*` ends (the client sets it, the mapper reads it).
     detached: Arc<AtomicBool>,
+    /// Published by the reader: is the bound controller currently present? `Some` **iff a reader
+    /// runs** (local + client roles) — `None` in the server role (no local device). Read by
+    /// `status()`; the reader emits the matching `ControllerConnected(bool)` event on each change.
+    controller_connected: Option<Arc<AtomicBool>>,
+    /// Published by the mapper: is the live role the **fallback**? `Some` **iff a mapper runs**
+    /// (local + server roles) — `None` in the client role (the live role lives on the remote server).
+    /// Read by `status()`; the mapper emits the matching `ActiveRole` event on each change.
+    fallback_active: Option<Arc<AtomicBool>>,
     control_tx: Sender<Control>,
     reader: Option<JoinHandle<Result<()>>>,
     mapper: Option<JoinHandle<Result<()>>>,
@@ -125,10 +133,24 @@ impl Runtime {
         // The reader gets the client end, the mapper the server end; the handle keeps `control_tx`,
         // and `detached` is the shared `WaitingForDevice` flag (PLAN §6.1).
         let LocalLink { client, server, control_tx, detached } = link::local_link();
-        let reader = spawn_reader(device, pinned_id, cfg, client, running.clone(), events.clone());
-        let mapper =
-            spawn_mapper(sink, main, fallback, globals, server, running.clone(), events);
-        Runtime { running, detached, control_tx, reader: Some(reader), mapper: Some(mapper) }
+        // Both threads run locally → both readback flags are live.
+        let connected = Arc::new(AtomicBool::new(false));
+        let fallback_active = Arc::new(AtomicBool::new(false));
+        let reader = spawn_reader(
+            device, pinned_id, cfg, client, running.clone(), connected.clone(), events.clone(),
+        );
+        let mapper = spawn_mapper(
+            sink, main, fallback, globals, server, running.clone(), fallback_active.clone(), events,
+        );
+        Runtime {
+            running,
+            detached,
+            controller_connected: Some(connected),
+            fallback_active: Some(fallback_active),
+            control_tx,
+            reader: Some(reader),
+            mapper: Some(mapper),
+        }
     }
 
     /// **Client** role (output=Network): reader only — it reads the device and forwards frames to
@@ -148,8 +170,20 @@ impl Runtime {
         // The reader flags this (its shared link flag) on device-loss, so `is_waiting()`/`status()`
         // report `WaitingForDevice` — matching the `State` event the reader emits.
         let detached = link.detached();
-        let reader = spawn_reader(device, pinned_id, cfg, link, running.clone(), events);
-        Ok(Runtime { running, detached, control_tx, reader: Some(reader), mapper: None })
+        // Client role: a reader (→ `controller_connected`), but no local mapper (the live role is
+        // on the remote server, so `fallback_active` is `None`).
+        let connected = Arc::new(AtomicBool::new(false));
+        let reader =
+            spawn_reader(device, pinned_id, cfg, link, running.clone(), connected.clone(), events);
+        Ok(Runtime {
+            running,
+            detached,
+            controller_connected: Some(connected),
+            fallback_active: None,
+            control_tx,
+            reader: Some(reader),
+            mapper: None,
+        })
     }
 
     /// **Server** role (input=Network): mapper only — it binds `addr`, receives a remote client's
@@ -168,13 +202,40 @@ impl Runtime {
         // `detached` is the server link's shared flag: true while no client is connected, so
         // `is_waiting()`/`status()` report `WaitingForDevice` (matching the mapper's event).
         let (link, control_tx, detached) = LinkServer::bind(addr)?;
-        let mapper = spawn_mapper(sink, main, fallback, globals, link, running.clone(), events);
-        Ok(Runtime { running, detached, control_tx, reader: None, mapper: Some(mapper) })
+        // Server role: a mapper (→ `fallback_active`), but no local device/reader (input arrives from
+        // a remote client, so `controller_connected` is `None`).
+        let fallback_active = Arc::new(AtomicBool::new(false));
+        let mapper = spawn_mapper(
+            sink, main, fallback, globals, link, running.clone(), fallback_active.clone(), events,
+        );
+        Ok(Runtime {
+            running,
+            detached,
+            controller_connected: None,
+            fallback_active: Some(fallback_active),
+            control_tx,
+            reader: None,
+            mapper: Some(mapper),
+        })
     }
 
     /// True when the loop is up but the bound device's transport is gone (`WaitingForDevice`).
     pub(crate) fn is_waiting(&self) -> bool {
         self.detached.load(Ordering::SeqCst)
+    }
+
+    /// Whether the bound controller is currently present, or `None` if this role has no local reader
+    /// (server). Read by `status()`; kept in lock-step with the `ControllerConnected` event.
+    pub(crate) fn controller_connected(&self) -> Option<bool> {
+        self.controller_connected.as_ref().map(|f| f.load(Ordering::SeqCst))
+    }
+
+    /// The live role, or `None` if this role has no local mapper (client — the role lives on the
+    /// remote server). Read by `status()`; kept in lock-step with the `ActiveRole` event.
+    pub(crate) fn active_role(&self) -> Option<Role> {
+        self.fallback_active
+            .as_ref()
+            .map(|f| if f.load(Ordering::SeqCst) { Role::Fallback } else { Role::Main })
     }
 
     /// The control channel, for live `apply`/`set_globals` while running.
@@ -203,18 +264,20 @@ impl Runtime {
 }
 
 /// Spawn the reader thread (device side). Shared by the local + client roles.
+#[allow(clippy::too_many_arguments)]
 fn spawn_reader(
     device: Device,
     pinned_id: DeviceId,
     cfg: DeviceCfg,
     link: LinkClient,
     running: Arc<AtomicBool>,
+    connected: Arc<AtomicBool>,
     events: EventSink,
 ) -> JoinHandle<Result<()>> {
     thread::Builder::new()
         .name("deckhand-reader".into())
         .spawn(move || {
-            let result = run_reader(device, pinned_id, cfg, link, running, events);
+            let result = run_reader(device, pinned_id, cfg, link, running, connected, events);
             // A reader error would otherwise be invisible until stop() joins it — log it now.
             if let Err(ref e) = result {
                 log::error!("reader thread exited with error: {e}");
@@ -233,10 +296,13 @@ fn spawn_mapper(
     globals: GlobalConfig,
     link: LinkServer,
     running: Arc<AtomicBool>,
+    fallback_active: Arc<AtomicBool>,
     events: EventSink,
 ) -> JoinHandle<Result<()>> {
     thread::Builder::new()
         .name("deckhand-mapper".into())
-        .spawn(move || run_mapper(sink, main, fallback, globals, link, running, events))
+        .spawn(move || {
+            run_mapper(sink, main, fallback, globals, link, running, fallback_active, events)
+        })
         .expect("spawn mapper thread")
 }

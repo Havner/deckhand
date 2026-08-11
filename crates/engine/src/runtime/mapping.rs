@@ -35,11 +35,15 @@ pub(super) fn run_mapper(
     mut globals: GlobalConfig,
     mut link: LinkServer,
     running: Arc<AtomicBool>,
+    fallback_active: Arc<AtomicBool>,
     events: EventSink,
 ) -> Result<()> {
     let start = Instant::now();
     // Boot into the role named by `start_profile` (read once here — it's a start-only setting).
     let mut role = start_role(&globals);
+    // Publish the initial live role unconditionally so a subscriber can seed purely from the event
+    // (no need to derive it from `start_profile`); subsequent emits are on the chord switch only.
+    set_active(&fallback_active, &events, role.clone());
     let mut chords = Chords::new(&globals.chords, role == Role::Fallback);
     let mut mapper = Mapper::new(program_for(&role, &main, &fallback));
     let mut out: Vec<OutputEvent> = Vec::new();
@@ -62,6 +66,7 @@ pub(super) fn run_mapper(
                             let prog = program_for(&role, &main, &fallback);
                             log::info!("chord: switched to {role:?} — profile '{}' now active", prog.meta.name);
                             mapper.switch_program(prog);
+                            set_active(&fallback_active, &events, role.clone());
                         }
                         let masked = frame.masked(&outcome.consumed);
                         // CommandExecute chords: run each on its own thread so the loop never blocks.
@@ -296,6 +301,14 @@ fn spawn_command(exec: ExecReq) {
             Err(e) => log::warn!("chord: `{shown}` failed to spawn: {e}"),
         }
     });
+}
+
+/// Publish the live role to the shared flag (store-before-emit) and emit [`EngineEvent::ActiveRole`].
+/// Called with the initial role at loop start (always emitted) and on each chord switch (which only
+/// fires on a real change), so no dedup is needed here — every call is a genuine set.
+fn set_active(flag: &AtomicBool, events: &EventSink, role: Role) {
+    flag.store(role == Role::Fallback, Ordering::SeqCst);
+    events.emit(EngineEvent::ActiveRole(role));
 }
 
 /// The role the engine boots into, from `GlobalConfig::start_profile` (read once at loop start).

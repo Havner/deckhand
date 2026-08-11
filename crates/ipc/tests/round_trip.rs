@@ -5,7 +5,7 @@
 
 use std::thread;
 
-use ipc::{Client, Request, Response, RunState, Server, StatusSnapshot};
+use ipc::{Client, ProfileRole, Request, Response, RunState, Server, StatusSnapshot};
 
 #[test]
 fn client_server_round_trip() {
@@ -25,8 +25,10 @@ fn client_server_round_trip() {
                         output: "local".into(),
                         input: "dongle".into(),
                         bound: None,
+                        controller: Some(true),
                         main: Some("game".into()),
                         fallback: None,
+                        active: Some(ProfileRole::Main),
                         globals: Default::default(),
                     }),
                     Request::ListDevices => Response::Devices(vec!["gordon:dongle:1:".into()]),

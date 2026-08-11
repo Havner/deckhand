@@ -91,10 +91,17 @@ pub struct StatusSnapshot {
     /// the staged *selection* (possibly a policy like `auto`); this is what's actually in use, so a
     /// client connecting to a running daemon learns the current device.
     pub bound: Option<String>,
+    /// Whether the bound controller is currently present, or `None` when there's no local reader
+    /// (idle, or the network server role). On the dongle it can be `Some(false)` while `Running`.
+    pub controller: Option<bool>,
     /// Name of the loaded **Main** program, or `None` if none is applied.
     pub main: Option<String>,
     /// Name of the loaded **Fallback** program, or `None`.
     pub fallback: Option<String>,
+    /// The **live** role (which of main/fallback is active now), or `None` when there's no local
+    /// mapper (idle, or the network client role). Tracks live chord switches, unlike
+    /// `globals.start_profile`.
+    pub active: Option<ProfileRole>,
     /// The full global config (master rumble, chords, device toggles, `start_profile`). Sent whole
     /// so a connecting client seeds its complete view in one `Status` call; later changes arrive as
     /// [`Event::GlobalConfigSet`].
@@ -108,8 +115,8 @@ pub struct StatusSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Event {
-    ControllerConnected,
-    ControllerDisconnected,
+    /// The bound controller's presence changed (`true` = connected). Absolute value.
+    ControllerConnected(bool),
     /// Battery percentage (wireless only; `None` when unknown).
     Battery { percent: Option<u8> },
     /// The binding was torn down (engine stopped, nothing bound; → `Idle`). Brackets
@@ -119,6 +126,9 @@ pub enum Event {
     BindingAcquired(String),
     /// The run state changed.
     State(RunState),
+    /// The live role switched (chord flip, or the initial role at start). Absolute value — the
+    /// profile-mode parallel of [`State`](Self::State).
+    ActiveRole(ProfileRole),
     /// The staged input selection changed (spec string; takes effect at the next start).
     InputStaged(String),
     /// The staged output selection changed (spec string; takes effect at the next start).

@@ -220,13 +220,14 @@ fn run_monitor(client: &mut Client) -> ExitCode {
 /// A one-line human rendering of a pushed event.
 fn fmt_event(ev: &Event) -> String {
     match ev {
-        Event::ControllerConnected => "controller connected".into(),
-        Event::ControllerDisconnected => "controller disconnected".into(),
+        Event::ControllerConnected(true) => "controller connected".into(),
+        Event::ControllerConnected(false) => "controller disconnected".into(),
         Event::Battery { percent: Some(p) } => format!("battery: {p}%"),
         Event::Battery { percent: None } => "battery: unknown".into(),
         Event::BindingRemoved => "binding removed".into(),
         Event::BindingAcquired(id) => format!("binding acquired: {id}"),
         Event::State(s) => format!("state: {s:?}"),
+        Event::ActiveRole(r) => format!("active role: {r:?}"),
         Event::InputStaged(i) => format!("input staged: {i}"),
         Event::OutputStaged(o) => format!("output staged: {o}"),
         Event::ProfileSet { role, name } => {
@@ -279,14 +280,27 @@ fn print_response(label: &str, resp: Response) -> ExitCode {
 }
 
 fn print_status(s: &StatusSnapshot) {
-    println!("state:    {:?}", s.state);
-    println!("output:   {}", s.output);
-    println!("input:    {}", s.input);
-    println!("bound:    {}", s.bound.as_deref().unwrap_or("(none)"));
-    println!("main:     {}", s.main.as_deref().unwrap_or("(none)"));
-    println!("fallback: {}", s.fallback.as_deref().unwrap_or("(none)"));
+    // Labels padded to the width of the longest (`controller:`) so values line up in one column.
+    let controller = match s.controller {
+        Some(true) => "Connected",
+        Some(false) => "Disconnected",
+        None => "(none)",
+    };
+    let active = match s.active {
+        Some(ProfileRole::Main) => "Main",
+        Some(ProfileRole::Fallback) => "Fallback",
+        None => "(none)",
+    };
+    println!("state:      {:?}", s.state);
+    println!("output:     {}", s.output);
+    println!("input:      {}", s.input);
+    println!("bound:      {}", s.bound.as_deref().unwrap_or("(none)"));
+    println!("controller: {controller}");
+    println!("main:       {}", s.main.as_deref().unwrap_or("(none)"));
+    println!("fallback:   {}", s.fallback.as_deref().unwrap_or("(none)"));
+    println!("active:     {active}");
     println!(
-        "globals:  start={:?}, master_rumble={}%, {} chord(s)",
+        "globals:    start={:?}, master_rumble={}%, {} chord(s)",
         s.globals.start_profile,
         s.globals.master_rumble,
         s.globals.chords.len(),

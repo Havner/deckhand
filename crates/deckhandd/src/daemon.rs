@@ -123,8 +123,10 @@ impl Daemon {
             output: s.output.to_string(),
             input: s.input.to_string(),
             bound: s.bound.map(|id| id.to_string()),
+            controller: s.controller,
             main: s.main,
             fallback: s.fallback,
+            active: s.active.map(profile_role),
             globals: s.globals,
         }
     }
@@ -180,12 +182,12 @@ pub fn run_state(status: Status) -> RunState {
 /// is not `#[non_exhaustive]`, so a new variant is a compile error here until it's mapped.
 pub fn to_wire_event(ev: EngineEvent) -> Event {
     match ev {
-        EngineEvent::ControllerConnected => Event::ControllerConnected,
-        EngineEvent::ControllerDisconnected => Event::ControllerDisconnected,
+        EngineEvent::ControllerConnected(c) => Event::ControllerConnected(c),
         EngineEvent::BatteryChanged { percent } => Event::Battery { percent: Some(percent) },
         EngineEvent::BindingRemoved => Event::BindingRemoved,
         EngineEvent::BindingAcquired(id) => Event::BindingAcquired(id.to_string()),
         EngineEvent::State(s) => Event::State(run_state(s)),
+        EngineEvent::ActiveRole(r) => Event::ActiveRole(profile_role(r)),
         EngineEvent::InputStaged(i) => Event::InputStaged(i.to_string()),
         EngineEvent::OutputStaged(o) => Event::OutputStaged(o.to_string()),
         EngineEvent::ProfileSet { role, name } => Event::ProfileSet { role: profile_role(role), name },

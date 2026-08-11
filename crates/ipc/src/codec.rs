@@ -75,8 +75,10 @@ mod tests {
                 output: "local".into(),
                 input: "dongle".into(),
                 bound: None,
+                controller: None,
                 main: None,
                 fallback: None,
+                active: None,
                 globals: Default::default(),
             }),
         )

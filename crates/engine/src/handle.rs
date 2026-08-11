@@ -168,10 +168,18 @@ pub struct StatusInfo {
     /// connects to an already-running daemon learns what's bound. Stays set through
     /// `WaitingForDevice` (the device it's waiting to reacquire); cleared on `stop()`.
     pub bound: Option<DeviceId>,
+    /// Whether the bound controller is currently present (`Some(true)`/`Some(false)`), or `None` when
+    /// there's no local reader (idle, or the network server role). Distinct from `state`: on the
+    /// dongle the controller can power off (→ `Some(false)`) while the loop stays `Running`.
+    pub controller: Option<bool>,
     /// Name of the loaded **Main** program, or `None` if none is applied.
     pub main: Option<String>,
     /// Name of the loaded **Fallback** program, or `None`.
     pub fallback: Option<String>,
+    /// The **live** role — which of main/fallback is currently active — or `None` when there's no
+    /// local mapper (idle, or the network client role, where the role lives on the remote server).
+    /// Unlike `globals.start_profile` (the boot setting), this tracks live chord switches.
+    pub active: Option<Role>,
     /// The full global config (master rumble, chords, device toggles, `start_profile`). Included
     /// whole so a client connecting to a running daemon can seed its complete view in one call;
     /// subsequent changes arrive as `GlobalConfigSet` events. (`start_profile` here is the boot
@@ -412,18 +420,25 @@ impl Engine {
     /// staged input/output are typed and round-trip through their `Display`/`FromStr` form, so a
     /// caller can render them and pass the same string back to `set_input`/`set_output`.
     pub fn status(&self) -> StatusInfo {
-        let state = match &self.runtime {
-            None => Status::Idle,
-            Some(rt) if rt.is_waiting() => Status::WaitingForDevice,
-            Some(_) => Status::Running,
+        // `controller`/`active` come straight off the running threads' published flags (or `None`
+        // when idle / when the relevant thread isn't local to this role).
+        let (state, controller, active) = match &self.runtime {
+            None => (Status::Idle, None, None),
+            Some(rt) => {
+                let state =
+                    if rt.is_waiting() { Status::WaitingForDevice } else { Status::Running };
+                (state, rt.controller_connected(), rt.active_role())
+            }
         };
         StatusInfo {
             state,
             output: self.output.clone(),
             input: self.input.clone(),
             bound: self.bound.clone(),
+            controller,
             main: self.main.as_ref().map(|p| p.meta.name.clone()),
             fallback: self.fallback.as_ref().map(|p| p.meta.name.clone()),
+            active,
             globals: self.globals.clone(),
         }
     }
