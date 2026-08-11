@@ -272,11 +272,25 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
     .spacing(8.0);
 
     // The role assignments, mirrored here so you have context while managing/editing — e.g. what
-    // "Set as …" would replace. Mirrors the bottom bar; `—` when empty/disconnected.
+    // "Set as …" would replace. Mirrors the bottom bar; `—` when empty/disconnected. A green ▶ marks
+    // the **live** role (from `status.active`; literal — may sit on an empty role), in a fixed-width
+    // leading slot so both lines align; absent entirely when the engine is stopped (`active: None`).
+    let active = app.status.as_ref().and_then(|s| s.active);
+    let applied_row = |label: String, is_active: bool| -> Element<'_, Message> {
+        let glyph: Element<'_, Message> = if is_active {
+            text("▶").size(13.0).style(style::success_text).into()
+        } else {
+            Space::new().into()
+        };
+        row![container(glyph).width(14.0), body(label)].align_y(Center).into()
+    };
     let applied = column![
         group_header("Currently applied"),
-        body(format!("Main: {}", main.as_deref().unwrap_or("—"))),
-        body(format!("Fallback: {}", fallback.as_deref().unwrap_or("—"))),
+        applied_row(format!("Main: {}", main.as_deref().unwrap_or("—")), active == Some(ProfileRole::Main)),
+        applied_row(
+            format!("Fallback: {}", fallback.as_deref().unwrap_or("—")),
+            active == Some(ProfileRole::Fallback),
+        ),
     ]
     .spacing(4.0);
 
@@ -287,7 +301,10 @@ fn profiles_screen(app: &App) -> Element<'_, Message> {
         group_header("Additional information"),
         body(
             "The active profile (Main or Fallback) can be switched with chords (see the \
-             Globals page). If only one of the two is assigned, it is always active."
+             Globals page). If only one of the two is assigned, it is always active. The active \
+             role is tracked even while its slot is empty — the ▶ above marks it — so assigning a \
+             profile to the role that's currently active makes it take over the controller right \
+             away, rather than the other one continuing to drive."
         ),
         body("Profiles can also be set or cleared directly with the daemon control tool:"),
         monospace("deckhandctl main \"PATH_TO_PROFILE\""),
@@ -641,15 +658,29 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
     let mut bar = row![conn].spacing(10.0).align_y(Center).padding(8.0);
 
     if let Some(s) = &app.status {
+        // Controller-presence dot, left of the device id: green = connected, red = disconnected,
+        // and *no dot* when there's no local reader (`controller: None` — idle, or the network
+        // server role), so a stopped engine shows just "device: —".
+        let device: Element<'_, Message> = {
+            let id = text(format!("device: {}", s.bound.as_deref().unwrap_or("—"))).size(13.0);
+            match s.controller {
+                Some(present) => {
+                    let dot: fn(&Theme) -> text::Style =
+                        if present { style::success_text } else { style::danger_text };
+                    row![text("●").size(13.0).style(dot), id].spacing(6.0).align_y(Center).into()
+                }
+                None => id.into(),
+            }
+        };
         bar = bar
             .push(sep())
             .push(text(format!("state: {:?}", s.state)).size(13.0))
             .push(sep())
-            .push(text(format!("device: {}", s.bound.as_deref().unwrap_or("—"))).size(13.0))
+            .push(device)
             .push(sep())
-            .push(text(format!("main: {}", s.main.as_deref().unwrap_or("—"))).size(13.0))
+            .push(role_label("main", s.main.as_deref(), s.active == Some(ProfileRole::Main)))
             .push(sep())
-            .push(text(format!("fallback: {}", s.fallback.as_deref().unwrap_or("—"))).size(13.0))
+            .push(role_label("fallback", s.fallback.as_deref(), s.active == Some(ProfileRole::Fallback)))
             .push(sep())
             .push(text(format!("chords: {}", s.globals.chords.len())).size(13.0));
     }
@@ -664,4 +695,20 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
 
 fn sep() -> Element<'static, Message> {
     text("│").size(13.0).style(style::muted_text).into()
+}
+
+/// A bottom-bar profile slot — `"<name>: <profile>"` (or `—` when the role is unassigned/
+/// disconnected), with a green ▶ prefix when it's the **live** role. Literal: the arrow follows
+/// `status.active` verbatim (it can sit on an empty `—` when a chord/boot put us in an empty slot),
+/// per the design decision. Only one of main/fallback is ever active, so at most one arrow shows.
+fn role_label(name: &str, profile: Option<&str>, active: bool) -> Element<'static, Message> {
+    let label = text(format!("{name}: {}", profile.unwrap_or("—"))).size(13.0);
+    if active {
+        row![text("▶").size(13.0).style(style::success_text), label]
+            .spacing(4.0)
+            .align_y(Center)
+            .into()
+    } else {
+        label.into()
+    }
 }

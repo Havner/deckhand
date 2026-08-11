@@ -992,7 +992,17 @@ impl App {
         }
         let Some(status) = self.status.as_mut() else { return };
         match ev {
-            Event::State(s) => status.state = s,
+            Event::State(s) => {
+                status.state = s;
+                // Stop emits no ControllerConnected/ActiveRole (the reader/mapper just exit), so
+                // clear the live thread-state here to match a fresh status() reporting None when idle.
+                if s == RunState::Idle {
+                    status.controller = None;
+                    status.active = None;
+                }
+            }
+            Event::ControllerConnected(c) => status.controller = Some(c),
+            Event::ActiveRole(r) => status.active = Some(r),
             Event::BindingRemoved => status.bound = None,
             Event::BindingAcquired(id) => status.bound = Some(id),
             Event::InputStaged(i) => status.input = i,
@@ -1002,8 +1012,8 @@ impl App {
                 ProfileRole::Fallback => status.fallback = name,
             },
             Event::GlobalConfigSet(g) => status.globals = g,
-            // Controller presence + battery have no field in the bars (yet). `Event` is
-            // #[non_exhaustive], so a `_` covers these and any future variant.
+            // Battery has no field in the bars (yet). `Event` is #[non_exhaustive], so a `_` covers
+            // it and any future variant.
             _ => {}
         }
     }
