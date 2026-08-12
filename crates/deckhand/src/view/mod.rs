@@ -195,13 +195,9 @@ fn top_bar(app: &App) -> Element<'_, Message> {
 /// bands (Profile / per-input pages / Rumble, each split by a rule); app-level (Globals/Settings)
 /// pinned at the bottom.
 fn sidebar(app: &App) -> Element<'_, Message> {
-    // Profiles, then the double rule that separates daemon-management from the editor proper.
-    let mut top = column![
-        nav_button(app, Category::Profiles),
-        rule::horizontal(1),
-        rule::horizontal(1),
-    ]
-    .spacing(4.0);
+    // Profiles, a single rule, then a bigger gap separating daemon-management from the editor proper.
+    let mut top = column![nav_button(app, Category::Profiles), rule::horizontal(1)].spacing(4.0);
+    top = top.push(Space::new().height(50.0));
     // Editor bands, a single rule between each.
     for (i, band) in Category::EDITOR_BANDS.iter().enumerate() {
         if i > 0 {

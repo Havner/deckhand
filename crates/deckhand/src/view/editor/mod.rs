@@ -17,6 +17,10 @@ use super::{card, group_header, section_header, small};
 use crate::nav::{Category, InputGroup};
 use crate::{App, Message, style};
 
+/// Fixed width shared by a behaviour row's combobox and each input row's "Add command" button, so
+/// the right-hand controls line up down the page.
+const CMD_SLOT: f32 = 200.0;
+
 /// Profile screen — the top of the profile editor: the profile name (wired), then mockups of the
 /// action sets and layers that will live below it.
 pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
@@ -29,24 +33,28 @@ pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
     .spacing(12.0)
     .align_y(Center);
 
-    // Mockup — action sets + layers live below the name (not wired yet).
-    let base_set =
-        card(row![text("base"), Space::new().width(Fill), gear()].spacing(12.0).align_y(Center));
-    let action_sets = column![
+    // Mockup — action sets, each with its layers nested (indented) beneath it, like Steam; a set's
+    // gear will host "New layer". Not wired yet.
+    let header = row![
         group_header("Action Sets"),
-        small("Full-controller modes; one active at a time. Mockup — not wired yet."),
-        base_set,
+        Space::new().width(Fill),
+        button(text("?")).style(style::combo_button).on_press(Message::Ignored),
+    ]
+    .align_y(Center);
+    let set_card =
+        card(row![text("Default"), Space::new().width(Fill), gear()].spacing(12.0).align_y(Center));
+    let layer_card =
+        card(row![text("Layer"), Space::new().width(Fill), gear()].spacing(12.0).align_y(Center));
+    let layer_indented = row![Space::new().width(24.0), layer_card];
+    let action_sets = column![
+        header,
+        set_card,
+        layer_indented,
         button(text("+ Add action set")).style(button::secondary).on_press(Message::Ignored),
     ]
     .spacing(8.0);
-    let layers = column![
-        group_header("Layers"),
-        small("Stackable overlays on the active action set. Mockup — not wired yet."),
-        button(text("+ Add layer")).style(button::secondary).on_press(Message::Ignored),
-    ]
-    .spacing(8.0);
 
-    column![section_header("Profile"), name, action_sets, layers].spacing(20.0).into()
+    column![section_header("Profile"), name, action_sets].spacing(20.0).into()
 }
 
 /// A per-input editor page (Buttons/Triggers/Joysticks/Trackpads/Gyro), rendered from the category's
@@ -104,7 +112,9 @@ fn mock_primary(input: &InputSource) -> Element<'static, Message> {
     match input.kind() {
         SourceKind::Button => input_row(None, input_label(input)),
         SourceKind::ButtonGroup => button_group_mock(input),
-        kind => column![behavior_row(kind), input_row(None, input_label(input))].spacing(8.0).into(),
+        // Rich analog source: the group header already names it, so just its behaviour selector
+        // (its clicks/touches appear as sub-buttons below).
+        kind => behavior_row(kind),
     }
 }
 
@@ -134,8 +144,9 @@ fn button_group_mock(input: &InputSource) -> Element<'static, Message> {
 fn behavior_row(kind: SourceKind) -> Element<'static, Message> {
     let (selected, options) = behavior_choices(kind);
     let options: Vec<String> = options.iter().map(|s| s.to_string()).collect();
-    let combo =
-        pick_list(Some(selected.to_string()), options, String::clone).on_select(|_| Message::Ignored);
+    let combo = pick_list(Some(selected.to_string()), options, String::clone)
+        .on_select(|_| Message::Ignored)
+        .width(CMD_SLOT);
     let inner = row![text("Behavior"), Space::new().width(Fill), combo, gear()]
         .spacing(12.0)
         .align_y(Center);
@@ -165,13 +176,19 @@ fn input_row(
     if let Some(role) = dot {
         r = r.push(text("●").size(16.0).style(role));
     }
-    let inner = r.push(text(label)).push(Space::new().width(Fill)).push(gear());
+    // "Add command" fills the same slot + width as a behaviour row's combobox, so the right-hand
+    // controls line up down the page; it will open the output-selector modal. Then the gear.
+    let add_command = button(text("Add command").center())
+        .width(CMD_SLOT)
+        .style(style::combo_button)
+        .on_press(Message::Ignored);
+    let inner = r.push(text(label)).push(Space::new().width(Fill)).push(add_command).push(gear());
     card(inner)
 }
 
-/// An unwired settings/gear button.
+/// An unwired settings/gear button, colored to match the comboboxes on the same cards.
 fn gear() -> Element<'static, Message> {
-    button(text("⚙").size(16.0)).on_press(Message::Ignored).style(button::secondary).into()
+    button(text("⚙").size(16.0)).on_press(Message::Ignored).style(style::combo_button).into()
 }
 
 /// A human-readable label for an input, for the mock rows.

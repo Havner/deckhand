@@ -11,8 +11,8 @@
 //! `text(...).style(...)` and re-resolve against whatever theme iced passes — no need to thread the
 //! theme through the view functions.
 
-use iced::widget::{container, slider, text};
-use iced::{Background, Color, Theme};
+use iced::widget::{button, container, slider, text};
+use iced::{Background, Border, Color, Theme};
 
 /// Text in the palette's **success** color (green-ish) — e.g. the "connected" dot.
 pub fn success_text(theme: &Theme) -> text::Style {
@@ -61,6 +61,30 @@ pub fn disabled_slider(theme: &Theme, _status: slider::Status) -> slider::Style 
     style.rail.backgrounds = (muted.into(), muted.into());
     style.handle.background = muted.into();
     style
+}
+
+/// A button styled to match the default combobox (`pick_list`) sitting on our cards: the palette's
+/// `background.weak` fill + text and a `background.strong` hairline border — instead of the lighter
+/// `secondary.base` tone iced's `button::secondary` uses, which reads too pale on the darkened cards.
+/// Unifies the gear / "Add command" buttons with the behaviour combobox next to them. Hover
+/// highlights the border like an opened combobox; pressed dips the fill a shade.
+pub fn combo_button(theme: &Theme, status: button::Status) -> button::Style {
+    let palette = theme.palette();
+    let base = button::Style {
+        background: Some(Background::Color(palette.background.weak.color)),
+        text_color: palette.background.weak.text,
+        border: Border { radius: 2.0.into(), width: 1.0, color: palette.background.strong.color },
+        ..button::Style::default()
+    };
+    match status {
+        button::Status::Active | button::Status::Disabled => base,
+        button::Status::Hovered => {
+            button::Style { border: Border { color: palette.primary.strong.color, ..base.border }, ..base }
+        }
+        button::Status::Pressed => {
+            button::Style { background: Some(Background::Color(palette.background.weaker.color)), ..base }
+        }
+    }
 }
 
 /// On a **dark** theme, each RGB channel of the `secondary` background is divided by this to darken
