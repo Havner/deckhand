@@ -394,8 +394,8 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 0.75, y: 0.75 },
-                acceleration: Acceleration { factor: 0.03 },
+                sensitivity: Sensitivity { x: 0.5, y: 0.5 },
+                acceleration: Acceleration { factor: 0.06 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
                     beta: 0.5,

@@ -692,7 +692,10 @@ impl App {
                     self.refresh_profile_dir();
                 }
             }
-            Message::ProfileRefresh => self.profile_files = profiles::list(&self.settings),
+            Message::ProfileRefresh => {
+                self.profile_files = profiles::list(&self.settings);
+                self.selected_profile = None;
+            }
             Message::ProfileSelected(name) => self.selected_profile = Some(name),
             Message::ProfileBrowse => {
                 if self.dialog_open {
