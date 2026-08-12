@@ -29,16 +29,20 @@ pub enum Category {
 }
 
 impl Category {
-    /// The profile-editor categories, shown below the sidebar separator. These operate on the
-    /// loaded profile, so they're greyed out until a profile is loaded for editing.
-    pub const EDITOR: &'static [Category] = &[
-        Category::Profile,
-        Category::Buttons,
-        Category::Triggers,
-        Category::Joysticks,
-        Category::Trackpads,
-        Category::Gyro,
-        Category::Rumble,
+    /// The profile-editor categories, split into the sidebar's three bands (rendered with a rule
+    /// between each): the profile-level **Profile** page, the per-input pages, and the profile-level
+    /// **Rumble** page. They operate on the loaded profile, so they're greyed until one is loaded
+    /// ([`Self::is_editor`]).
+    pub const EDITOR_BANDS: &'static [&'static [Category]] = &[
+        &[Category::Profile],
+        &[
+            Category::Buttons,
+            Category::Triggers,
+            Category::Joysticks,
+            Category::Trackpads,
+            Category::Gyro,
+        ],
+        &[Category::Rumble],
     ];
 
     /// The application-level categories pinned at the bottom of the sidebar (Settings at the very
@@ -47,7 +51,7 @@ impl Category {
 
     /// Whether this category is part of the profile editor (disabled when no profile is loaded).
     pub fn is_editor(self) -> bool {
-        Self::EDITOR.contains(&self)
+        Self::EDITOR_BANDS.iter().any(|band| band.contains(&self))
     }
 
     /// The sidebar label.
@@ -149,9 +153,11 @@ mod tests {
     #[test]
     fn every_input_is_mapped_exactly_once() {
         let mut seen: Vec<InputSource> = Vec::new();
-        for &cat in Category::EDITOR {
-            for group in cat.groups() {
-                seen.extend(group.primary.iter().chain(group.sub).cloned());
+        for band in Category::EDITOR_BANDS {
+            for &cat in *band {
+                for group in cat.groups() {
+                    seen.extend(group.primary.iter().chain(group.sub).cloned());
+                }
             }
         }
         // No duplicates.

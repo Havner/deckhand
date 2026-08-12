@@ -191,12 +191,25 @@ fn top_bar(app: &App) -> Element<'_, Message> {
 
 // --- sidebar --------------------------------------------------------------------------------
 
-/// Left sidebar: Profiles at the top, a separator, then the profile-editor categories; app-level
-/// (Globals/Settings) pinned at the bottom.
+/// Left sidebar: Profiles (management) up top, a strong double-rule break, then the profile-editor
+/// bands (Profile / per-input pages / Rumble, each split by a rule); app-level (Globals/Settings)
+/// pinned at the bottom.
 fn sidebar(app: &App) -> Element<'_, Message> {
-    let mut top = column![nav_button(app, Category::Profiles), rule::horizontal(1)].spacing(4.0);
-    for &c in Category::EDITOR {
-        top = top.push(nav_button(app, c));
+    // Profiles, then the double rule that separates daemon-management from the editor proper.
+    let mut top = column![
+        nav_button(app, Category::Profiles),
+        rule::horizontal(1),
+        rule::horizontal(1),
+    ]
+    .spacing(4.0);
+    // Editor bands, a single rule between each.
+    for (i, band) in Category::EDITOR_BANDS.iter().enumerate() {
+        if i > 0 {
+            top = top.push(rule::horizontal(1));
+        }
+        for &c in *band {
+            top = top.push(nav_button(app, c));
+        }
     }
     let mut bottom = column![].spacing(4.0);
     for &c in Category::APP {
@@ -230,10 +243,12 @@ fn content(app: &App) -> Element<'_, Message> {
     let inner: Element<'_, Message> = match app.category {
         Category::Profiles => profiles::profiles_screen(app),
         Category::Profile => editor::profile_screen(app),
-        Category::Buttons => editor::buttons_screen(),
+        Category::Rumble => editor::rumble_screen(),
         Category::Settings => settings::settings_screen(app),
         Category::Globals => globals::globals_screen(app),
-        other => editor::stub_screen(other),
+        // The per-input editor pages (Buttons/Triggers/Joysticks/Trackpads/Gyro) are data-driven
+        // mockups rendered from the category's input groups.
+        cat => editor::input_screen(cat),
     };
     scrollable(container(inner).padding(16.0).width(Fill)).width(Fill).height(Fill).into()
 }
