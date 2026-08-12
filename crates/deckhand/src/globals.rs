@@ -23,19 +23,10 @@ pub fn globals_path() -> PathBuf {
 ///
 /// [`AppSettings::load`]: crate::settings::AppSettings::load
 pub fn load() -> GlobalConfig {
-    match std::fs::read_to_string(globals_path()) {
-        Ok(text) => ron::from_str(&text).unwrap_or_default(),
-        Err(_) => GlobalConfig::default(),
-    }
+    crate::persist::load_or_default(&globals_path())
 }
 
 /// Write to [`globals_path`] as pretty RON, creating the parent directory.
 pub fn save(g: &GlobalConfig) -> std::io::Result<()> {
-    let path = globals_path();
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let text = ron::ser::to_string_pretty(g, ron::ser::PrettyConfig::default())
-        .map_err(std::io::Error::other)?;
-    std::fs::write(&path, text)
+    crate::persist::save(&globals_path(), g)
 }

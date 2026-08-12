@@ -302,7 +302,7 @@ fn apply_profile(
     let config = if path.is_empty() {
         None
     } else {
-        match load_doc(path) {
+        match crate::profiles::load(std::path::Path::new(path)) {
             Ok(doc) => Some(Box::new(doc)),
             Err(e) => {
                 on(DaemonUpdate::Error(e));
@@ -356,12 +356,6 @@ fn daemon_bin() -> PathBuf {
         }
     }
     PathBuf::from(name)
-}
-
-/// Read + parse a profile RON into a [`ConfigDoc`] (mirrors `deckhandctl`'s loader).
-fn load_doc(path: &str) -> Result<ConfigDoc, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-    ron::from_str(&text).map_err(|e| format!("{path}: {e}"))
 }
 
 /// Report a command result to the consumer: nothing on success, a [`DaemonUpdate::Error`] on

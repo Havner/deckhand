@@ -86,22 +86,12 @@ impl AppSettings {
     /// Load from [`settings_path`]; returns the default (never an error) when the file is missing
     /// or unparseable — a config test shouldn't fail to launch over a stale settings file.
     pub fn load() -> Self {
-        let path = settings_path();
-        match std::fs::read_to_string(&path) {
-            Ok(text) => ron::from_str(&text).unwrap_or_default(),
-            Err(_) => AppSettings::default(),
-        }
+        crate::persist::load_or_default(&settings_path())
     }
 
     /// Write to [`settings_path`] as pretty RON, creating the parent directory.
     pub fn save(&self) -> std::io::Result<()> {
-        let path = settings_path();
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let text = ron::ser::to_string_pretty(self, ron::ser::PrettyConfig::default())
-            .map_err(std::io::Error::other)?;
-        std::fs::write(&path, text)
+        crate::persist::save(&settings_path(), self)
     }
 }
 

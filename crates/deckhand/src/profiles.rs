@@ -49,16 +49,10 @@ pub fn list(s: &AppSettings) -> Vec<String> {
 
 /// Load + parse a profile RON from a path (mirrors the daemon-client loader).
 pub fn load(path: &Path) -> Result<ConfigDoc, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    ron::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+    crate::persist::load(path)
 }
 
 /// Save a profile document to a path as pretty RON, creating the parent directory.
 pub fn save(path: &Path, doc: &ConfigDoc) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let text = ron::ser::to_string_pretty(doc, ron::ser::PrettyConfig::default())
-        .map_err(std::io::Error::other)?;
-    std::fs::write(path, text)
+    crate::persist::save(path, doc)
 }

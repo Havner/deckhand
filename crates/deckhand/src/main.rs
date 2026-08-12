@@ -21,6 +21,7 @@
 mod daemon;
 mod globals;
 mod nav;
+mod persist;
 mod profiles;
 mod settings;
 mod style;
