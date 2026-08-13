@@ -65,6 +65,9 @@ pub const NETWORK_OPTION: &str = "<network>";
 /// Widget id of the network popup's text field (so it can be focused when the popup opens).
 pub const NETWORK_FIELD_ID: &str = "network-host";
 
+/// Widget id of the editor name-entry dialog's text field (focused when that dialog opens).
+pub const NAME_FIELD_ID: &str = "editor-name";
+
 /// Which selector the network popup is editing.
 #[derive(Debug, Clone, Copy)]
 pub enum IoTarget {
@@ -72,11 +75,16 @@ pub enum IoTarget {
     Output,
 }
 
-/// The network input/output modal: which selector it targets and the current `host:port` text.
+/// The one modal shown at a time (the view layers exactly one over the base): network I/O staging,
+/// plus the profile editor's context menu and name-entry dialogs.
 #[derive(Debug, Clone)]
-pub struct Popup {
-    pub target: IoTarget,
-    pub text: String,
+pub enum Popup {
+    /// Network input/output staging: which selector it targets + the current `host:port` text.
+    Network { target: IoTarget, text: String },
+    /// A Profile-page set/layer context menu, opened by that bar's gear.
+    Menu(editor::EditTarget),
+    /// The add-set / add-layer / rename name dialog: what confirming does + the current text.
+    NameEntry { kind: editor::NameEntryKind, text: String },
 }
 
 /// Decode a PNG to straight RGBA8 with its dimensions. Shared by [`window_icon`] and the platform
@@ -435,6 +443,20 @@ impl App {
         Some(if p.is_absolute() { p.to_path_buf() } else { profiles::dir(&self.settings).join(sel) })
     }
 
+    /// Load a profile file into the editor (enables the editor tabs; stays on the current page).
+    /// Selection is seeded to the first action set. Shared by "Edit profile" and the create/
+    /// duplicate paths, which open their result for editing immediately.
+    fn load_for_editing(&mut self, path: PathBuf) {
+        match profiles::load(&path) {
+            Ok(doc) => {
+                let target = editor::first_target(&doc);
+                self.editing = Some(editor::Editing { path, doc, target });
+                self.error = None;
+            }
+            Err(e) => self.error = Some(e),
+        }
+    }
+
     /// Save the loaded profile back to the file it was loaded from (after a name/... edit).
     fn save_editing(&mut self) {
         if let Some(ed) = &self.editing
@@ -531,7 +553,7 @@ impl App {
             Message::InputSelected(spec) => {
                 if spec == NETWORK_OPTION {
                     let text = self.settings.last_input_network.clone();
-                    self.popup = Some(Popup { target: IoTarget::Input, text });
+                    self.popup = Some(Popup::Network { target: IoTarget::Input, text });
                     return iced::widget::operation::focus(NETWORK_FIELD_ID);
                 }
                 return self.apply_input(spec);
@@ -539,7 +561,7 @@ impl App {
             Message::OutputSelected(spec) => {
                 if spec == NETWORK_OPTION {
                     let text = self.settings.last_output_network.clone();
-                    self.popup = Some(Popup { target: IoTarget::Output, text });
+                    self.popup = Some(Popup::Network { target: IoTarget::Output, text });
                     return iced::widget::operation::focus(NETWORK_FIELD_ID);
                 }
                 return self.apply_output(spec);
@@ -573,15 +595,15 @@ impl App {
 
             // Network popup edits.
             Message::PopupTextChanged(t) => {
-                if let Some(p) = &mut self.popup {
-                    p.text = t;
+                if let Some(Popup::Network { text, .. }) = &mut self.popup {
+                    *text = t;
                 }
             }
             Message::PopupConfirm => {
-                if let Some(p) = self.popup.take() {
-                    let spec = p.text.trim().to_string();
+                if let Some(Popup::Network { target, text }) = self.popup.take() {
+                    let spec = text.trim().to_string();
                     if !spec.is_empty() {
-                        return match p.target {
+                        return match target {
                             IoTarget::Input => {
                                 self.settings.last_input_network = spec.clone();
                                 self.apply_input(spec)
@@ -751,9 +773,10 @@ impl App {
             Message::ProfileWritten(Ok(path)) => {
                 self.dialog_open = false;
                 if !path.is_empty() {
-                    self.selected_profile = Some(path);
+                    self.selected_profile = Some(path.clone());
                     self.profile_files = profiles::list(&self.settings);
-                    self.error = None;
+                    // Open the freshly created/duplicated profile for editing right away.
+                    self.load_for_editing(PathBuf::from(path));
                 }
             }
             Message::ProfileWritten(Err(e)) => {
@@ -776,15 +799,8 @@ impl App {
                     self.error = Some("no profile selected".into());
                     return Task::none();
                 };
-                match profiles::load(&path) {
-                    Ok(doc) => {
-                        // Stay on the Profiles page; loading just enables the editor tabs.
-                        self.editing =
-                            Some(editor::Editing { path, doc, target: editor::EditTarget::default() });
-                        self.error = None;
-                    }
-                    Err(e) => self.error = Some(e),
-                }
+                // Stay on the Profiles page; loading just enables the editor tabs.
+                self.load_for_editing(path);
             }
             Message::StopEditing => {
                 self.editing = None;
@@ -1114,7 +1130,7 @@ fn new_profile() -> ConfigDoc {
         version: 0,
         name: "New profile".into(),
         action_sets: vec![config::ActionSet {
-            name: "base".into(),
+            name: "Default".into(),
             bindings: Default::default(),
             layers: Vec::new(),
         }],

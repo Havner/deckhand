@@ -1,14 +1,15 @@
 //! The profile-editor screens — the pages reachable once a profile is loaded for editing.
 //!
-//! The real editor is still being built. Only the **Profile** page's name field is wired
-//! ([`profile_screen`]); everything else here is a **mockup** to preview the intended layout so it
-//! can be reviewed (all interactions send [`Message::Ignored`]). The per-input pages
+//! The real editor is still being built. The **Profile** page is wired ([`profile_screen`]: the
+//! name field, plus the action-set/layer list with per-bar gear context menus and add/rename/remove
+//! dialogs); everything else here is a **mockup** to preview the intended layout so it can be
+//! reviewed (all interactions send [`Message::Ignored`]). The per-input pages
 //! ([`input_screen`]) are rendered *data-driven* from [`Category::groups`], so the mock mirrors the
 //! real input→page mapping (headers, rich-source behaviour rows, nested click/touch sub-buttons).
 //! [`rumble_screen`] mocks the profile-level rumble feel. These get replaced screen-by-screen as the
 //! real editor lands.
 
-use iced::widget::{Space, button, column, pick_list, row, slider, text, text_input};
+use iced::widget::{Space, button, column, container, pick_list, row, slider, text, text_input};
 use iced::{Center, Element, Fill, Theme};
 
 use config::{InputSource, SourceKind};
@@ -22,8 +23,9 @@ use crate::{App, Message, style};
 /// the right-hand controls line up down the page.
 const CMD_SLOT: f32 = 200.0;
 
-/// Profile screen — the top of the profile editor: the profile name (wired), then mockups of the
-/// action sets and layers that will live below it.
+/// Profile screen — the top of the profile editor: the profile name, then the action sets with
+/// their layers nested beneath, each bar's gear opening a context menu (rename/remove, and add-layer
+/// on a set). All edits go through [`EditorMessage`] and autosave.
 pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
     let name = row![
         text("Profile name").width(140.0),
@@ -34,28 +36,59 @@ pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
     .spacing(12.0)
     .align_y(Center);
 
-    // Mockup — action sets, each with its layers nested (indented) beneath it, like Steam; a set's
-    // gear will host "New layer". Not wired yet.
-    let header = row![
-        group_header("Action Sets"),
-        Space::new().width(Fill),
-        button(text("?")).style(style::combo_button).on_press(Message::Ignored),
-    ]
-    .align_y(Center);
-    let set_card =
-        card(row![text("Default"), Space::new().width(Fill), gear()].spacing(12.0).align_y(Center));
-    let layer_card =
-        card(row![text("Layer"), Space::new().width(Fill), gear()].spacing(12.0).align_y(Center));
-    let layer_indented = row![Space::new().width(24.0), layer_card];
-    let action_sets = column![
-        header,
-        set_card,
-        layer_indented,
-        button(text("+ Add action set")).style(button::secondary).on_press(Message::Ignored),
-    ]
-    .spacing(8.0);
+    // The action sets, each with its layers nested (indented) beneath it, like Steam. Every bar
+    // carries its own gear that opens a context menu acting on *that* set/layer (add layer / rename
+    // / remove); the gear's target is the bar's own name-addressed [`EditTarget`].
+    let header = row![group_header("Action Sets"), Space::new().width(Fill)].align_y(Center);
+    let mut list = column![header].spacing(8.0);
+    if let Some(ed) = &app.editing {
+        for set in &ed.doc.action_sets {
+            list = list.push(set_bar(&set.name));
+            for layer in &set.layers {
+                list = list.push(layer_bar(&set.name, &layer.name));
+            }
+        }
+    }
+    // A little breathing room above "Add action set" so it reads as separate from the set/layer
+    // list rather than as another bar (the container top-pad adds to the column's row spacing).
+    list = list.push(
+        container(
+            button(text("Add action set"))
+                .style(button::secondary)
+                .on_press(Message::Editor(EditorMessage::AddSet)),
+        )
+        .padding(iced::padding::top(6.0)),
+    );
 
-    column![section_header("Profile"), name, action_sets].spacing(20.0).into()
+    column![section_header("Profile"), name, list].spacing(20.0).into()
+}
+
+/// A full-width action-set bar with its gear (opens the set's context menu).
+fn set_bar(name: &str) -> Element<'static, Message> {
+    let target = crate::editor::EditTarget { set: name.to_string(), layer: None };
+    card(row![text(name.to_string()), Space::new().width(Fill), menu_gear(target)]
+        .spacing(12.0)
+        .align_y(Center))
+}
+
+/// A layer bar, indented under its parent set, with its gear (opens the layer's context menu).
+fn layer_bar(set: &str, name: &str) -> Element<'static, Message> {
+    let target =
+        crate::editor::EditTarget { set: set.to_string(), layer: Some(name.to_string()) };
+    let bar = card(
+        row![text(name.to_string()), Space::new().width(Fill), menu_gear(target)]
+            .spacing(12.0)
+            .align_y(Center),
+    );
+    row![Space::new().width(24.0), bar].into()
+}
+
+/// The gear on a Profile-page bar: opens the context menu for `target`.
+fn menu_gear(target: crate::editor::EditTarget) -> Element<'static, Message> {
+    button(text("⚙").size(16.0))
+        .style(style::combo_button)
+        .on_press(Message::Editor(EditorMessage::OpenMenu(target)))
+        .into()
 }
 
 /// The sidebar action-set / layer selector: ◀ / ▶ arrows around two stacked labels. Walks
@@ -69,15 +102,14 @@ pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
         Some(ed) => {
             let list = crate::editor::edit_target_list(&ed.doc);
             let pos = list.iter().position(|t| *t == ed.target).unwrap_or(0);
-            let set = &ed.doc.action_sets[ed.target.set];
             // Top = the action set name (muted when a layer is the active target — it's just
             // context); bottom = the layer name, or a blank line to hold the height.
             let top = {
-                let t = text(set.name.clone()).size(13.0);
+                let t = text(ed.target.set.clone()).size(13.0);
                 if ed.target.layer.is_some() { t.style(style::muted_text) } else { t }
             };
-            let bottom = match ed.target.layer {
-                Some(li) => text(set.layers[li].name.clone()).size(13.0),
+            let bottom = match &ed.target.layer {
+                Some(layer) => text(layer.clone()).size(13.0),
                 None => text(" ").size(13.0),
             };
             (top, bottom, pos > 0, pos + 1 < list.len())
@@ -212,7 +244,7 @@ fn input_row(
     }
     // "Add command" fills the same slot + width as a behaviour row's combobox, so the right-hand
     // controls line up down the page; it will open the output-selector modal. Then the gear.
-    let add_command = button(text("Add command").center())
+    let add_command = button(text("<unbound>").center())
         .width(CMD_SLOT)
         .style(style::combo_button)
         .on_press(Message::Ignored);

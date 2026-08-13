@@ -20,7 +20,7 @@ use iced::widget::{
 use iced::{Center, Element, Fill, Theme};
 use ipc::{ProfileRole, RunState};
 
-use crate::editor::EditorMessage;
+use crate::editor::{EditTarget, EditorMessage};
 use crate::nav::Category;
 use crate::{App, INPUT_PRESETS, IoTarget, Message, NETWORK_OPTION, OUTPUT_PRESETS, Popup, daemon, style};
 
@@ -34,7 +34,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .into();
     match &app.popup {
-        Some(popup) => modal(base, popup_card(popup), Message::PopupCancel),
+        Some(popup) => modal(base, popup_card(app, popup), Message::PopupCancel),
         None => base,
     }
 }
@@ -95,25 +95,89 @@ fn modal<'a>(
     .into()
 }
 
-/// The network-spec card: a `host:port` field (Enter confirms) + Cancel / OK.
-fn popup_card(popup: &Popup) -> Element<'_, Message> {
-    let title = match popup.target {
+/// Render the open modal — the network dialog, a Profile-page context menu, or a name-entry dialog.
+fn popup_card<'a>(app: &'a App, popup: &'a Popup) -> Element<'a, Message> {
+    match popup {
+        Popup::Network { target, text } => network_card(*target, text),
+        Popup::Menu(target) => menu_card(app, target),
+        Popup::NameEntry { kind, text } => name_entry_card(app, kind, text),
+    }
+}
+
+/// The network-spec card: a `host:port` field (Enter confirms) + Cancel / OK. OK/Enter are inert
+/// while the field is empty (an empty spec is invalid).
+fn network_card(target: IoTarget, spec: &str) -> Element<'_, Message> {
+    let title = match target {
         IoTarget::Input => "Network input",
         IoTarget::Output => "Network output",
     };
-    let field = text_input("host:port", &popup.text)
+    let confirm = (!spec.trim().is_empty()).then_some(Message::PopupConfirm);
+    let field = text_input("host:port", spec)
         .id(crate::NETWORK_FIELD_ID)
         .on_input(Message::PopupTextChanged)
-        .on_submit(Message::PopupConfirm)
+        .on_submit_maybe(confirm.clone())
         .padding(6.0);
     let buttons = row![
         button(text("Cancel")).style(button::danger).on_press(Message::PopupCancel),
         Space::new().width(Fill),
-        button(text("OK")).style(button::success).on_press(Message::PopupConfirm),
+        button(text("OK")).style(button::success).on_press_maybe(confirm),
     ]
     .align_y(Center);
 
     let card = column![text(title).size(18.0), field, buttons].spacing(12.0);
+    container(card).padding(16.0).width(320.0).style(container::rounded_box).into()
+}
+
+/// A Profile-page set/layer context menu: a column of actions for the gear's target. Sets offer
+/// Rename / Remove (disabled when it's the only set) / Add layer; layers offer Rename / Remove.
+fn menu_card<'a>(app: &'a App, target: &'a EditTarget) -> Element<'a, Message> {
+    let is_set = target.layer.is_none();
+    let title = target.layer.as_deref().unwrap_or(target.set.as_str());
+    let item = |label, msg: Option<Message>| -> Element<'a, Message> {
+        let b = button(text(label)).width(Fill).style(button::secondary);
+        match msg {
+            Some(m) => b.on_press(m),
+            None => b,
+        }
+        .into()
+    };
+
+    let mut col = column![text(title).size(16.0)].spacing(8.0);
+    col = col.push(item("Rename", Some(Message::Editor(EditorMessage::MenuRename))));
+    if is_set {
+        // The last action set can't be removed — at least one must exist.
+        let can_remove = app.editing.as_ref().is_some_and(|e| e.doc.action_sets.len() > 1);
+        col = col
+            .push(item("Remove", can_remove.then_some(Message::Editor(EditorMessage::MenuRemove))));
+        col = col.push(item("Add layer", Some(Message::Editor(EditorMessage::MenuAddLayer))));
+    } else {
+        col = col.push(item("Remove", Some(Message::Editor(EditorMessage::MenuRemove))));
+    }
+    container(col).padding(12.0).width(220.0).style(container::rounded_box).into()
+}
+
+/// The add-set / add-layer / rename name dialog. OK/Enter are inert unless the name is valid
+/// (non-empty and unique in scope — see [`crate::editor::name_entry_ok`]).
+fn name_entry_card<'a>(
+    app: &'a App,
+    kind: &'a crate::editor::NameEntryKind,
+    value: &'a str,
+) -> Element<'a, Message> {
+    let ok = app.editing.as_ref().is_some_and(|e| crate::editor::name_entry_ok(&e.doc, kind, value));
+    let confirm = ok.then_some(Message::Editor(EditorMessage::DialogConfirm));
+    let field = text_input("name", value)
+        .id(crate::NAME_FIELD_ID)
+        .on_input(|s| Message::Editor(EditorMessage::DialogTextChanged(s)))
+        .on_submit_maybe(confirm.clone())
+        .padding(6.0);
+    let buttons = row![
+        button(text("Cancel")).style(button::danger).on_press(Message::PopupCancel),
+        Space::new().width(Fill),
+        button(text("OK")).style(button::success).on_press_maybe(confirm),
+    ]
+    .align_y(Center);
+
+    let card = column![text(kind.title()).size(18.0), field, buttons].spacing(12.0);
     container(card).padding(16.0).width(320.0).style(container::rounded_box).into()
 }
 
