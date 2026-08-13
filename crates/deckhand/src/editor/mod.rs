@@ -6,9 +6,13 @@
 //! [`update`] is the **single place a loaded profile's document is mutated**, so it is the natural
 //! hook for a future undo stack: snapshot [`Editing::doc`] here before applying an edit.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use config::{Action, ActionSet, ConfigDoc, Layer};
+use config::{
+    Action, ActionSet, Activator, Command, CommandSettings, ConfigDoc, InputSource, Layer,
+    SourceBinding,
+};
 use iced::Task;
 use ipc::ProfileRole;
 
@@ -37,6 +41,27 @@ pub(crate) struct Editing {
 pub struct EditTarget {
     pub(crate) set: String,
     pub(crate) layer: Option<String>,
+}
+
+/// Which `Vec<Command>` inside a binding a command bar edits: a plain button's own commands, a
+/// button-pad / directional-pad direction, a joystick outer ring, or a trigger's soft pull.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandSlot {
+    Button,
+    Up,
+    Down,
+    Left,
+    Right,
+    OuterRing,
+    SoftPull,
+}
+
+/// Where an Action picker's result lands: the input whose binding holds the command, and the slot
+/// within that binding. One command per slot for now (index 0) — multi-activator is a later pass.
+#[derive(Debug, Clone)]
+pub struct CommandDest {
+    pub input: InputSource,
+    pub slot: CommandSlot,
 }
 
 /// The initial target for a freshly-loaded profile: its first action set (no layer). A profile
@@ -107,12 +132,15 @@ pub enum EditorMessage {
     /// Name-entry dialog: the text field changed / confirmed (Enter or OK).
     DialogTextChanged(String),
     DialogConfirm,
-    /// Open the output-Action picker (from an input page's `<unbound>` bar).
-    OpenActionPicker,
+    /// Behaviour combobox: set an input's binding to a fresh default of the chosen behaviour, or
+    /// clear it (remove the map entry) when `Behavior::Unbound`.
+    SetBehavior(InputSource, Behavior),
+    /// Open the output-Action picker to fill a specific command slot (from a command bar).
+    OpenActionPicker(CommandDest),
     /// Switch the Action picker's tab.
     ActionPickerTab(ActionTab),
-    /// An action was picked (debug-wired: printed, not yet stored — the input pages don't hold
-    /// bindings yet). Closes the picker.
+    /// An action was picked — write it into the picker's target slot (creating the command / the
+    /// binding if needed) and close the picker.
     ActionPicked(Action),
 }
 
@@ -191,22 +219,131 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
             app.save_editing();
             Task::none()
         }
-        EditorMessage::OpenActionPicker => {
-            app.popup = Some(Popup::ActionPicker { tab: ActionTab::Gamepad });
+        EditorMessage::SetBehavior(input, behavior) => {
+            if let Some(bindings) = current_bindings_mut(app) {
+                match behavior {
+                    // Switching behaviour rebuilds from authoring defaults — the old binding (and
+                    // any commands on it) is discarded, by design.
+                    Behavior::Unbound => {
+                        bindings.remove(&input);
+                    }
+                    b => {
+                        bindings.insert(input.clone(), b.default_binding(&input));
+                    }
+                }
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::OpenActionPicker(dest) => {
+            app.popup = Some(Popup::ActionPicker { tab: ActionTab::Gamepad, dest });
             Task::none()
         }
         EditorMessage::ActionPickerTab(tab) => {
-            if let Some(Popup::ActionPicker { tab: current }) = &mut app.popup {
+            if let Some(Popup::ActionPicker { tab: current, .. }) = &mut app.popup {
                 *current = tab;
             }
             Task::none()
         }
         EditorMessage::ActionPicked(action) => {
-            // Debug wiring: the input pages don't store bindings yet, so just report the pick.
-            println!("[action picker] picked: {action:?}");
+            let dest = match &app.popup {
+                Some(Popup::ActionPicker { dest, .. }) => Some(dest.clone()),
+                _ => None,
+            };
+            if let Some(dest) = dest {
+                write_command(app, &dest, action);
+                app.save_editing();
+            }
             app.popup = None;
             Task::none()
         }
+    }
+}
+
+/// The bindings map of the currently-edited action set / layer (read) — resolved by name from the
+/// selected [`EditTarget`]. `None` when no profile is loaded or the target has drifted.
+pub(crate) fn current_bindings(app: &App) -> Option<&BTreeMap<InputSource, SourceBinding>> {
+    let ed = app.editing.as_ref()?;
+    let set = ed.doc.action_sets.iter().find(|s| s.name == ed.target.set)?;
+    match &ed.target.layer {
+        None => Some(&set.bindings),
+        Some(layer) => set.layers.iter().find(|l| &l.name == layer).map(|l| &l.bindings),
+    }
+}
+
+/// The bindings map of the currently-edited action set / layer (mutable).
+fn current_bindings_mut(app: &mut App) -> Option<&mut BTreeMap<InputSource, SourceBinding>> {
+    let ed = app.editing.as_mut()?;
+    let set_name = ed.target.set.clone();
+    let layer_name = ed.target.layer.clone();
+    let set = ed.doc.action_sets.iter_mut().find(|s| s.name == set_name)?;
+    match layer_name {
+        None => Some(&mut set.bindings),
+        Some(layer) => set.layers.iter_mut().find(|l| l.name == layer).map(|l| &mut l.bindings),
+    }
+}
+
+/// The command vector a [`CommandSlot`] addresses within a binding (read); `None` if the slot
+/// doesn't apply to that binding's shape.
+pub(crate) fn slot_commands(binding: &SourceBinding, slot: CommandSlot) -> Option<&Vec<Command>> {
+    use CommandSlot as S;
+    use SourceBinding as B;
+    match (binding, slot) {
+        (B::Button { commands }, S::Button) => Some(commands),
+        (B::ButtonPad { up, .. } | B::DirectionalPad { up, .. }, S::Up) => Some(up),
+        (B::ButtonPad { down, .. } | B::DirectionalPad { down, .. }, S::Down) => Some(down),
+        (B::ButtonPad { left, .. } | B::DirectionalPad { left, .. }, S::Left) => Some(left),
+        (B::ButtonPad { right, .. } | B::DirectionalPad { right, .. }, S::Right) => Some(right),
+        (B::Joystick { outer_ring, .. } | B::DirectionalPad { outer_ring, .. }, S::OuterRing) => {
+            Some(outer_ring)
+        }
+        (B::Trigger { soft_pull, .. }, S::SoftPull) => Some(soft_pull),
+        _ => None,
+    }
+}
+
+/// The command vector a [`CommandSlot`] addresses within a binding (mutable).
+fn slot_commands_mut(binding: &mut SourceBinding, slot: CommandSlot) -> Option<&mut Vec<Command>> {
+    use CommandSlot as S;
+    use SourceBinding as B;
+    match (binding, slot) {
+        (B::Button { commands }, S::Button) => Some(commands),
+        (B::ButtonPad { up, .. } | B::DirectionalPad { up, .. }, S::Up) => Some(up),
+        (B::ButtonPad { down, .. } | B::DirectionalPad { down, .. }, S::Down) => Some(down),
+        (B::ButtonPad { left, .. } | B::DirectionalPad { left, .. }, S::Left) => Some(left),
+        (B::ButtonPad { right, .. } | B::DirectionalPad { right, .. }, S::Right) => Some(right),
+        (B::Joystick { outer_ring, .. } | B::DirectionalPad { outer_ring, .. }, S::OuterRing) => {
+            Some(outer_ring)
+        }
+        (B::Trigger { soft_pull, .. }, S::SoftPull) => Some(soft_pull),
+        _ => None,
+    }
+}
+
+/// Write a picked action into `dest`'s command slot: replace the (single) command's action if one
+/// exists, else create a fresh [`Command`] (Regular, default settings). For a plain button with no
+/// binding yet, the `SourceBinding::Button` is created on demand.
+fn write_command(app: &mut App, dest: &CommandDest, action: Action) {
+    let Some(bindings) = current_bindings_mut(app) else { return };
+    if dest.slot == CommandSlot::Button {
+        bindings
+            .entry(dest.input.clone())
+            .or_insert_with(|| SourceBinding::Button { commands: Vec::new() });
+    }
+    let Some(binding) = bindings.get_mut(&dest.input) else { return };
+    let Some(commands) = slot_commands_mut(binding, dest.slot) else { return };
+    match commands.first_mut() {
+        Some(cmd) => cmd.actions = vec![action],
+        // Fresh command: Regular + config's neutral `CommandSettings::default()`. NOTE: we *want*
+        // `interruptible: true` by default here, but the engine currently defers a lone
+        // interruptible Regular to a tap-on-release (never holds). The correct fix is engine-side —
+        // only defer when the node has a non-Regular sibling — deferred to a later engine pass; keep
+        // the default off until then. (Sibling item: right-trigger-full as a gamepad output.)
+        None => commands.push(Command {
+            activator: Activator::Regular,
+            actions: vec![action],
+            settings: CommandSettings::default(),
+        }),
     }
 }
 
@@ -272,16 +409,20 @@ fn apply_name_entry(app: &mut App, kind: NameEntryKind, name: String) {
             if let Some(s) = find_set_mut(&mut ed.doc, &set) {
                 s.name = name.clone();
             }
+            // `ChangeActionSet` refs resolve globally → repoint them across the whole profile.
+            rename_set_refs(&mut ed.doc, &set, &name);
             // Follow the rename if the renamed set was the selected one.
             if ed.target.set == set {
                 ed.target.set = name;
             }
         }
         NameEntryKind::RenameLayer { set, layer } => {
-            if let Some(s) = find_set_mut(&mut ed.doc, &set)
-                && let Some(l) = s.layers.iter_mut().find(|l| l.name == layer)
-            {
-                l.name = name.clone();
+            if let Some(s) = find_set_mut(&mut ed.doc, &set) {
+                if let Some(l) = s.layers.iter_mut().find(|l| l.name == layer) {
+                    l.name = name.clone();
+                }
+                // Layer refs resolve *within their set* → repoint Hold/Add/RemoveLayer here only.
+                rename_layer_refs(s, &layer, &name);
             }
             if ed.target.set == set && ed.target.layer.as_deref() == Some(layer.as_str()) {
                 ed.target.layer = Some(name);
@@ -323,4 +464,150 @@ fn find_set<'a>(doc: &'a ConfigDoc, name: &str) -> Option<&'a ActionSet> {
 
 fn find_set_mut<'a>(doc: &'a mut ConfigDoc, name: &str) -> Option<&'a mut ActionSet> {
     doc.action_sets.iter_mut().find(|s| s.name == name)
+}
+
+/// Every `Vec<Command>` inside a binding, mutably — the mut counterpart of
+/// [`SourceBinding::commands`](config::SourceBinding::commands), for rewriting actions in place.
+fn binding_command_slots_mut(binding: &mut SourceBinding) -> Vec<&mut Vec<Command>> {
+    use SourceBinding as B;
+    match binding {
+        B::Button { commands } => vec![commands],
+        B::ButtonPad { up, down, left, right } => vec![up, down, left, right],
+        B::Joystick { outer_ring, .. } => vec![outer_ring],
+        B::DirectionalPad { up, down, left, right, outer_ring, .. } => {
+            vec![up, down, left, right, outer_ring]
+        }
+        B::Trigger { soft_pull, .. } => vec![soft_pull],
+        B::AsMouse { .. } | B::JoystickMouse { .. } | B::GyroToMouse { .. } | B::None => vec![],
+    }
+}
+
+/// Run `f` over every action across a bindings map's commands.
+fn visit_actions(bindings: &mut BTreeMap<InputSource, SourceBinding>, f: &mut impl FnMut(&mut Action)) {
+    for binding in bindings.values_mut() {
+        for slot in binding_command_slots_mut(binding) {
+            for cmd in slot.iter_mut() {
+                for action in &mut cmd.actions {
+                    f(action);
+                }
+            }
+        }
+    }
+}
+
+/// Repoint every `ChangeActionSet(old)` to `new` across the whole profile (set refs are global).
+fn rename_set_refs(doc: &mut ConfigDoc, old: &str, new: &str) {
+    let mut fix = |a: &mut Action| {
+        if let Action::ChangeActionSet(r) = a
+            && r.0 == old
+        {
+            r.0 = new.to_string();
+        }
+    };
+    for set in &mut doc.action_sets {
+        visit_actions(&mut set.bindings, &mut fix);
+        for layer in &mut set.layers {
+            visit_actions(&mut layer.bindings, &mut fix);
+        }
+    }
+}
+
+/// Repoint every `Hold/Add/RemoveLayer(old)` to `new` within one action set (layer refs are
+/// per-set), across its base bindings and each of its layers' bindings.
+fn rename_layer_refs(set: &mut ActionSet, old: &str, new: &str) {
+    let mut fix = |a: &mut Action| match a {
+        Action::HoldLayer(r) | Action::AddLayer(r) | Action::RemoveLayer(r) if r.0 == old => {
+            r.0 = new.to_string();
+        }
+        _ => {}
+    };
+    visit_actions(&mut set.bindings, &mut fix);
+    for layer in &mut set.layers {
+        visit_actions(&mut layer.bindings, &mut fix);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use config::{ActionSetRef, LayerRef};
+
+    fn button_with(actions: Vec<Action>) -> SourceBinding {
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular,
+                actions,
+                settings: CommandSettings::default(),
+            }],
+        }
+    }
+
+    fn set(name: &str, input: InputSource, action: Action, layers: Vec<Layer>) -> ActionSet {
+        ActionSet {
+            name: name.into(),
+            bindings: BTreeMap::from([(input, button_with(vec![action]))]),
+            layers,
+        }
+    }
+
+    fn action_of(binding: &SourceBinding) -> &Action {
+        match binding {
+            SourceBinding::Button { commands } => &commands[0].actions[0],
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn rename_set_repoints_change_action_set_refs_across_the_profile() {
+        let mut doc = ConfigDoc {
+            version: 0,
+            name: "p".into(),
+            action_sets: vec![
+                set(
+                    "Game",
+                    InputSource::LeftBumper,
+                    Action::ChangeActionSet(ActionSetRef("Drive".into())),
+                    vec![Layer {
+                        name: "aim".into(),
+                        bindings: BTreeMap::from([(
+                            InputSource::RightBumper,
+                            button_with(vec![Action::ChangeActionSet(ActionSetRef("Drive".into()))]),
+                        )]),
+                    }],
+                ),
+                ActionSet { name: "Drive".into(), bindings: BTreeMap::new(), layers: vec![] },
+            ],
+            rumble: Default::default(),
+        };
+        rename_set_refs(&mut doc, "Drive", "Racing");
+        let want = Action::ChangeActionSet(ActionSetRef("Racing".into()));
+        assert_eq!(action_of(&doc.action_sets[0].bindings[&InputSource::LeftBumper]), &want);
+        // …including refs living inside a layer's bindings.
+        assert_eq!(action_of(&doc.action_sets[0].layers[0].bindings[&InputSource::RightBumper]), &want);
+    }
+
+    #[test]
+    fn rename_layer_is_scoped_to_its_own_set() {
+        let hold = |name: &str| Action::HoldLayer(LayerRef(name.into()));
+        let mut doc = ConfigDoc {
+            version: 0,
+            name: "p".into(),
+            action_sets: vec![
+                set("Game", InputSource::LeftBumper, hold("aim"), vec![Layer {
+                    name: "aim".into(),
+                    bindings: BTreeMap::new(),
+                }]),
+                set("Drive", InputSource::LeftBumper, hold("aim"), vec![Layer {
+                    name: "aim".into(),
+                    bindings: BTreeMap::new(),
+                }]),
+            ],
+            rumble: Default::default(),
+        };
+        let game = doc.action_sets.iter_mut().find(|s| s.name == "Game").unwrap();
+        rename_layer_refs(game, "aim", "scope");
+        // Game's ref repointed; the same-named layer ref in Drive is a different layer → untouched.
+        assert_eq!(action_of(&doc.action_sets[0].bindings[&InputSource::LeftBumper]), &hold("scope"));
+        assert_eq!(action_of(&doc.action_sets[1].bindings[&InputSource::LeftBumper]), &hold("aim"));
+    }
 }

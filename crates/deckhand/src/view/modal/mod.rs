@@ -15,7 +15,9 @@ use iced::widget::{
 };
 use iced::{Center, Element, Fill};
 
-use crate::editor::{EditTarget, EditorMessage, NameEntryKind};
+pub(crate) use action::action_label;
+
+use crate::editor::{CommandDest, EditTarget, EditorMessage, NameEntryKind};
 use crate::{App, IoTarget, Message, style};
 
 /// The one modal shown at a time (the view layers exactly one over the base): network I/O staging,
@@ -28,8 +30,8 @@ pub enum Popup {
     Menu(EditTarget),
     /// The add-set / add-layer / rename name dialog: what confirming does + the current text.
     NameEntry { kind: NameEntryKind, text: String },
-    /// The output-Action picker (tabbed), currently on this tab.
-    ActionPicker { tab: ActionTab },
+    /// The output-Action picker (tabbed), currently on this tab, writing to `dest` on confirm.
+    ActionPicker { tab: ActionTab, dest: CommandDest },
     /// The button (gater/global) picker.
     ButtonPicker,
 }
@@ -73,7 +75,7 @@ fn card<'a>(app: &'a App, popup: &'a Popup) -> Element<'a, Message> {
         Popup::Network { target, text } => network_card(*target, text),
         Popup::Menu(target) => menu_card(app, target),
         Popup::NameEntry { kind, text } => name_entry_card(app, kind, text),
-        Popup::ActionPicker { tab } => action::card(app, *tab),
+        Popup::ActionPicker { tab, .. } => action::card(app, *tab),
         Popup::ButtonPicker => buttons::card(),
     }
 }

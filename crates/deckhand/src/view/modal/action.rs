@@ -142,8 +142,8 @@ fn gamepad() -> Element<'static, Message> {
     .align_y(Center);
 
     // Sticks: centre click active; the 4 direction arrows disabled (no stick-direction output).
-    let lstick = cross(gbtn_off("↑"), gbtn_off("←"), gbtn("L", LeftStick), gbtn_off("→"), gbtn_off("↓"));
-    let rstick = cross(gbtn_off("↑"), gbtn_off("←"), gbtn("R", RightStick), gbtn_off("→"), gbtn_off("↓"));
+    let lstick = cross(gbtn_off("↑"), gbtn_off("←"), gbtn("LS", LeftStick), gbtn_off("→"), gbtn_off("↓"));
+    let rstick = cross(gbtn_off("↑"), gbtn_off("←"), gbtn("RS", RightStick), gbtn_off("→"), gbtn_off("↓"));
     let dpad = diamond(gbtn("↑", DpadUp), gbtn("←", DpadLeft), gbtn("→", DpadRight), gbtn("↓", DpadDown));
     let face = diamond(
         gbtn_styled("Y", Y, button::warning),
@@ -259,11 +259,30 @@ const NP_KEYPAD: &[Key] = {
 };
 
 fn keyboard() -> Element<'static, Message> {
-    let mut col = column![].spacing(4.0);
-    for r in KB_ROWS {
+    // The function row (KB_ROWS[0]) is grouped like a real keyboard: Esc | F1-F4 | F5-F8 | F9-F12.
+    let mut col = column![function_row()].spacing(4.0);
+    for r in &KB_ROWS[1..] {
         col = col.push(krow(r));
     }
     col.align_x(Center).into()
+}
+
+/// The top function row with small gaps between Esc and each block of four F-keys.
+fn function_row() -> Element<'static, Message> {
+    use Key::*;
+    let gap = || iced::widget::Space::new().width(16.0);
+    row![
+        key(Esc, KW),
+        gap(),
+        krow(&[F1, F2, F3, F4]),
+        gap(),
+        krow(&[F5, F6, F7, F8]),
+        gap(),
+        krow(&[F9, F10, F11, F12]),
+    ]
+    .spacing(4.0)
+    .align_y(Center)
+    .into()
 }
 
 /// A row of default-width tiles for the numpad/nav/media clusters.
@@ -383,6 +402,58 @@ fn layer_pick(
         .on_select(move |name| Message::Editor(EditorMessage::ActionPicked(make(LayerRef(name)))))
         .width(280.0)
         .into()
+}
+
+/// A short display label for a bound action — used by the input pages' command bars to show what a
+/// command fires (mode actions include the target set/layer name).
+pub(crate) fn action_label(action: &Action) -> String {
+    match action {
+        Action::None => "None".to_string(),
+        Action::Key(k) => key_label(k).to_string(),
+        Action::MouseButton(b) => mouse_label(b).to_string(),
+        Action::GamepadButton(g) => gamepad_label(g).to_string(),
+        Action::ChangeActionSet(r) => format!("Set: {}", r.0),
+        Action::HoldLayer(r) => format!("Hold: {}", r.0),
+        Action::AddLayer(r) => format!("Add: {}", r.0),
+        Action::RemoveLayer(r) => format!("Remove: {}", r.0),
+    }
+}
+
+/// A display label for a mouse button.
+fn mouse_label(b: &MouseButton) -> &'static str {
+    match b {
+        MouseButton::Left => "Left Click",
+        MouseButton::Right => "Right Click",
+        MouseButton::Middle => "Middle Click",
+        MouseButton::Back => "Mouse 4",
+        MouseButton::Forward => "Mouse 5",
+        MouseButton::ScrollUp => "Scroll Up",
+        MouseButton::ScrollDown => "Scroll Down",
+        MouseButton::ScrollLeft => "Scroll Left",
+        MouseButton::ScrollRight => "Scroll Right",
+    }
+}
+
+/// A display label for a gamepad button — fully descriptive (the project keeps controller naming
+/// consistent; no `LB`/`L3`-style shorthand).
+fn gamepad_label(g: &GamepadButton) -> &'static str {
+    match g {
+        GamepadButton::A => "A Button",
+        GamepadButton::B => "B Button",
+        GamepadButton::X => "X Button",
+        GamepadButton::Y => "Y Button",
+        GamepadButton::LeftBumper => "Left Bumper",
+        GamepadButton::RightBumper => "Right Bumper",
+        GamepadButton::Back => "Back",
+        GamepadButton::Start => "Start",
+        GamepadButton::Guide => "Guide",
+        GamepadButton::LeftStick => "Left Stick Click",
+        GamepadButton::RightStick => "Right Stick Click",
+        GamepadButton::DpadUp => "D-Pad Up",
+        GamepadButton::DpadDown => "D-Pad Down",
+        GamepadButton::DpadLeft => "D-Pad Left",
+        GamepadButton::DpadRight => "D-Pad Right",
+    }
 }
 
 /// A display label for a key (UI-owned — vocab stays presentation-free).

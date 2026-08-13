@@ -9,14 +9,17 @@
 //! [`rumble_screen`] mocks the profile-level rumble feel. These get replaced screen-by-screen as the
 //! real editor lands.
 
+use std::collections::BTreeMap;
+
 use iced::widget::{Space, button, column, container, pick_list, row, slider, text, text_input};
 use iced::{Center, Element, Fill, Theme};
 
-use config::{InputSource, SourceKind};
+use config::{InputSource, SourceBinding, SourceKind};
 
 use super::{card, group_header, section_header, small};
-use crate::editor::{Behavior, EditorMessage};
+use crate::editor::{Behavior, CommandDest, CommandSlot, EditorMessage};
 use crate::nav::{Category, InputGroup};
+use crate::view::modal::action_label;
 use crate::{App, Message, style};
 
 /// Fixed width shared by a behaviour row's combobox and each input row's "Add command" button, so
@@ -135,12 +138,14 @@ pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
     .into()
 }
 
-/// A per-input editor page (Buttons/Triggers/Joysticks/Trackpads/Gyro), rendered from the category's
-/// [`InputGroup`]s so the mock stays in lock-step with the real input→page mapping.
-pub(super) fn input_screen(category: Category) -> Element<'static, Message> {
+/// A per-input editor page (Buttons/Triggers/Joysticks/Trackpads/Gyro): rendered from the category's
+/// [`InputGroup`]s over the **currently-edited** action set / layer's bindings, so every control
+/// reflects and mutates the live [`ConfigDoc`](config::ConfigDoc).
+pub(super) fn input_screen(app: &App, category: Category) -> Element<'static, Message> {
+    let binds = crate::editor::current_bindings(app);
     let mut col = column![section_header(category.label())].spacing(20.0);
     for group in category.groups() {
-        col = col.push(mock_group(group));
+        col = col.push(group_view(binds, group));
     }
     col.into()
 }
@@ -166,96 +171,150 @@ pub(super) fn rumble_screen() -> Element<'static, Message> {
     .into()
 }
 
-// --- mock building blocks -------------------------------------------------------------------
+// --- building blocks ------------------------------------------------------------------------
 
-/// One input group: its header, then its primary inputs (rich sources get a behaviour row and, for
-/// button clusters, one row per button), then any sub-buttons after a small gap.
-fn mock_group(group: &InputGroup) -> Element<'static, Message> {
+/// The bindings map of the set/layer being edited, or `None` when nothing is loaded.
+type Binds<'a> = Option<&'a BTreeMap<InputSource, SourceBinding>>;
+
+/// One input group: its header, then its primary inputs, then any sub-buttons (each a plain button)
+/// after a small gap.
+fn group_view(binds: Binds, group: &InputGroup) -> Element<'static, Message> {
     let mut col = column![group_header(group.header)].spacing(8.0);
     for input in group.primary {
-        col = col.push(mock_primary(input));
+        col = col.push(primary_view(binds, input));
     }
     if !group.sub.is_empty() {
         col = col.push(Space::new().height(4.0));
         for input in group.sub {
-            col = col.push(input_row(None, input_label(input)));
+            col = col.push(command_bar(binds, input, CommandSlot::Button, input_label(input), None));
         }
     }
     col.into()
 }
 
-/// A primary input: a plain button is one row; a button group (Face Buttons / D-Pad) gets a
-/// behaviour row + its members; a rich analog source gets a behaviour row + a row for itself.
-fn mock_primary(input: &InputSource) -> Element<'static, Message> {
+/// A primary input: a plain button is one command bar; a button group / rich analog source gets a
+/// behaviour selector plus the command bars its chosen behaviour exposes.
+fn primary_view(binds: Binds, input: &InputSource) -> Element<'static, Message> {
     match input.kind() {
-        SourceKind::Button => input_row(None, input_label(input)),
-        SourceKind::ButtonGroup => button_group_mock(input),
-        // Rich analog source: the group header already names it, so just its behaviour selector
-        // (its clicks/touches appear as sub-buttons below).
-        kind => behavior_row(kind),
+        SourceKind::Button => command_bar(binds, input, CommandSlot::Button, input_label(input), None),
+        SourceKind::ButtonGroup => group_view_input(binds, input),
+        kind => rich_view(binds, input, kind),
     }
 }
 
-/// A 4-button cluster mock: a behaviour row (Button Pad) + the four members. Face Buttons carry the
-/// Xbox glyph colors (A green→success, B red→danger, X blue→primary, Y yellow→warning).
-fn button_group_mock(input: &InputSource) -> Element<'static, Message> {
-    let members: Vec<(Option<fn(&Theme) -> text::Style>, &'static str)> = match input {
+/// A 4-button cluster (Face Buttons / D-Pad): a behaviour selector, and — when it's a Button Pad —
+/// the four member command bars. Face Buttons carry the Xbox glyph colours.
+fn group_view_input(binds: Binds, input: &InputSource) -> Element<'static, Message> {
+    let binding = binds.and_then(|b| b.get(input));
+    let current = binding.map_or(Behavior::Unbound, Behavior::of);
+    let mut col = column![behavior_row(input, current, SourceKind::ButtonGroup)].spacing(8.0);
+    if matches!(binding, Some(SourceBinding::ButtonPad { .. })) {
+        for (slot, label, dot) in group_members(input) {
+            col = col.push(command_bar(binds, input, slot, label, dot));
+        }
+    }
+    col.into()
+}
+
+/// A rich analog source (Pad/Stick/Trigger/Gyro): a behaviour selector, then the virtual-button
+/// command bars its chosen behaviour exposes (none for the mouse behaviours).
+fn rich_view(binds: Binds, input: &InputSource, kind: SourceKind) -> Element<'static, Message> {
+    let binding = binds.and_then(|b| b.get(input));
+    let current = binding.map_or(Behavior::Unbound, Behavior::of);
+    let mut col = column![behavior_row(input, current, kind)].spacing(8.0);
+    if let Some(b) = binding {
+        for (slot, label) in virtual_buttons(b) {
+            col = col.push(command_bar(binds, input, slot, label, None));
+        }
+    }
+    col.into()
+}
+
+/// The command slots (virtual buttons) a rich behaviour exposes, with display labels.
+fn virtual_buttons(binding: &SourceBinding) -> Vec<(CommandSlot, &'static str)> {
+    use CommandSlot::*;
+    match binding {
+        SourceBinding::Joystick { .. } => vec![(OuterRing, "Outer Ring")],
+        SourceBinding::DirectionalPad { .. } => {
+            vec![(Up, "Up"), (Down, "Down"), (Left, "Left"), (Right, "Right"), (OuterRing, "Outer Ring")]
+        }
+        SourceBinding::Trigger { .. } => vec![(SoftPull, "Soft Pull")],
+        _ => Vec::new(),
+    }
+}
+
+/// The four members of a button cluster, mapped to their `ButtonPad` slot (diamond positions:
+/// up=top, down=bottom, left/right=sides) with per-input labels and glyph colours.
+type Dot = Option<fn(&Theme) -> text::Style>;
+fn group_members(input: &InputSource) -> Vec<(CommandSlot, &'static str, Dot)> {
+    use CommandSlot::*;
+    match input {
         InputSource::FaceButtons => vec![
-            (Some(style::success_text), "A Button"),
-            (Some(style::danger_text), "B Button"),
-            (Some(style::primary_text), "X Button"),
-            (Some(style::warning_text), "Y Button"),
+            (Down, "A Button", Some(style::success_text)),
+            (Right, "B Button", Some(style::danger_text)),
+            (Left, "X Button", Some(style::primary_text)),
+            (Up, "Y Button", Some(style::warning_text)),
         ],
         InputSource::DPad => {
-            vec![(None, "Up"), (None, "Down"), (None, "Left"), (None, "Right")]
+            vec![(Up, "Up", None), (Down, "Down", None), (Left, "Left", None), (Right, "Right", None)]
         }
         _ => Vec::new(),
-    };
-    let mut col = column![behavior_row(SourceKind::ButtonGroup)].spacing(8.0);
-    for (dot, label) in members {
-        col = col.push(input_row(dot, label));
     }
-    col.into()
 }
 
-/// A group's "Behavior" selector: the real [`Behavior`] set for the source kind (default = first),
-/// plus a gear. Still a mock — selection isn't wired to construct a binding yet (`Message::Ignored`).
-fn behavior_row(kind: SourceKind) -> Element<'static, Message> {
+/// A group's "Behavior" selector: the [`Behavior`] set valid for the source kind, current value
+/// reflected; selecting one rebuilds the binding from authoring defaults (or clears it via `None`).
+/// The gear (behaviour settings) is a later pass.
+fn behavior_row(input: &InputSource, current: Behavior, kind: SourceKind) -> Element<'static, Message> {
     let options = Behavior::valid_for(kind).to_vec();
-    let selected = options.first().copied();
-    let combo = pick_list(selected, options, |b: &Behavior| b.label().to_string())
-        .on_select(|_| Message::Ignored)
+    let input = input.clone();
+    let combo = pick_list(Some(current), options, |b: &Behavior| b.label().to_string())
+        .on_select(move |b| Message::Editor(EditorMessage::SetBehavior(input.clone(), b)))
         .width(CMD_SLOT);
-    let inner = row![text("Behavior"), Space::new().width(Fill), combo, gear()]
+    let inner = row![text("Behavior"), Space::new().width(Fill), combo, gear(true)]
         .spacing(12.0)
         .align_y(Center);
     card(inner)
 }
 
-/// One input row: an optional colored glyph (a theme-role text style), the input name, and a gear
-/// on the right.
-fn input_row(
-    dot: Option<fn(&Theme) -> text::Style>,
+/// One command bar: an optional colour dot, the slot's name, then the command button (shows the
+/// bound action or `<unbound>`) and the gear. Clicking the button always opens the Action picker
+/// (create or change the action); the gear is active only once a command exists (its function —
+/// settings / unbind — is a later pass, so it's an inert placeholder for now).
+fn command_bar(
+    binds: Binds,
+    input: &InputSource,
+    slot: CommandSlot,
     label: &'static str,
+    dot: Dot,
 ) -> Element<'static, Message> {
+    let action = binds
+        .and_then(|b| b.get(input))
+        .and_then(|binding| crate::editor::slot_commands(binding, slot))
+        .and_then(|cmds| cmds.first())
+        .and_then(|cmd| cmd.actions.first());
+    let bound = action.is_some();
+    let btn_label = action.map(action_label).unwrap_or_else(|| "<unbound>".to_string());
+
+    let dest = CommandDest { input: input.clone(), slot };
+    let command_btn = button(text(btn_label).center())
+        .width(CMD_SLOT)
+        .style(style::combo_button)
+        .on_press(Message::Editor(EditorMessage::OpenActionPicker(dest)));
+
     let mut r = row![].spacing(12.0).align_y(Center);
     if let Some(role) = dot {
         r = r.push(text("●").size(16.0).style(role));
     }
-    // "<unbound>" fills the same slot + width as a behaviour row's combobox, so the right-hand
-    // controls line up down the page; it opens the Action picker (debug-wired: prints the picked
-    // action for now — the input pages don't store bindings yet). Then the gear.
-    let add_command = button(text("<unbound>").center())
-        .width(CMD_SLOT)
-        .style(style::combo_button)
-        .on_press(Message::Editor(EditorMessage::OpenActionPicker));
-    let inner = r.push(text(label)).push(Space::new().width(Fill)).push(add_command).push(gear());
+    let inner = r.push(text(label)).push(Space::new().width(Fill)).push(command_btn).push(gear(bound));
     card(inner)
 }
 
-/// An unwired settings/gear button, colored to match the comboboxes on the same cards.
-fn gear() -> Element<'static, Message> {
-    button(text("⚙").size(16.0)).on_press(Message::Ignored).style(style::combo_button).into()
+/// A settings/gear button, coloured to match the comboboxes on the same cards. `active` toggles
+/// whether it's clickable (a bound command) or greyed (an unbound one).
+fn gear(active: bool) -> Element<'static, Message> {
+    let b = button(text("⚙").size(16.0)).style(style::combo_button);
+    if active { b.on_press(Message::Ignored).into() } else { b.into() }
 }
 
 /// A human-readable label for an input, for the mock rows and the button picker.
