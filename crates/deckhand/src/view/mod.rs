@@ -198,10 +198,14 @@ fn sidebar(app: &App) -> Element<'_, Message> {
     // Profiles, a single rule, then a bigger gap separating daemon-management from the editor proper.
     let mut top = column![nav_button(app, Category::Profiles), rule::horizontal(1)].spacing(4.0);
     top = top.push(Space::new().height(50.0));
-    // Editor bands, a single rule between each.
+    // Editor bands, a single rule between each. The action-set/layer selector heads the per-input
+    // band (index 1) while a profile is loaded — it scopes those pages.
     for (i, band) in Category::EDITOR_BANDS.iter().enumerate() {
         if i > 0 {
             top = top.push(rule::horizontal(1));
+        }
+        if i == 1 && app.is_editing() {
+            top = top.push(editor::action_set_selector(app));
         }
         for &c in *band {
             top = top.push(nav_button(app, c));

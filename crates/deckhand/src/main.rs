@@ -163,6 +163,31 @@ fn main() -> iced::Result {
 struct Editing {
     path: PathBuf,
     doc: ConfigDoc,
+    /// Which action set / layer the per-input editor pages currently target (the sidebar selector).
+    target: EditTarget,
+}
+
+/// What the editor is currently pointed at: an action set (`layer: None` — its base bindings) or one
+/// of that set's layers. The sidebar's ◀/▶ selector walks these in the order [`edit_target_list`]
+/// produces. `Default` = the first action set, no layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct EditTarget {
+    set: usize,
+    layer: Option<usize>,
+}
+
+/// The flat, ordered list of edit targets for a profile: each action set followed by its own layers
+/// (a set with no layers contributes just itself). This is the sequence the sidebar selector steps
+/// through with ◀/▶.
+fn edit_target_list(doc: &ConfigDoc) -> Vec<EditTarget> {
+    let mut targets = Vec::new();
+    for (si, set) in doc.action_sets.iter().enumerate() {
+        targets.push(EditTarget { set: si, layer: None });
+        for li in 0..set.layers.len() {
+            targets.push(EditTarget { set: si, layer: Some(li) });
+        }
+    }
+    targets
 }
 
 /// The whole application state (Elm-architecture `State`).
@@ -286,6 +311,9 @@ pub enum Message {
     EditProfile,
     ProfileNameChanged(String),
     StopEditing,
+    /// Sidebar action-set/layer selector: step to the previous / next edit target.
+    EditorTargetPrev,
+    EditorTargetNext,
     /// Globals-screen edits. Each mutates the UI-owned `globals`, then persists it and ships it to
     /// the daemon ([`App::apply_globals`]). The two `Option` fields toggle via the `*Enabled` pair.
     GlobalsStartProfile(StartProfile),
@@ -424,6 +452,20 @@ impl App {
     /// The loaded profile's name, if any (for the Profiles name field).
     fn editing_name(&self) -> &str {
         self.editing.as_ref().map(|e| e.doc.name.as_str()).unwrap_or("")
+    }
+
+    /// Move the editor's target by `delta` steps through [`edit_target_list`] (−1 = previous,
+    /// +1 = next), clamped at the ends (the sidebar arrows disable there).
+    fn step_edit_target(&mut self, delta: isize) {
+        if let Some(ed) = &mut self.editing {
+            let list = edit_target_list(&ed.doc);
+            if let Some(pos) = list.iter().position(|t| *t == ed.target) {
+                let next = pos as isize + delta;
+                if next >= 0 && (next as usize) < list.len() {
+                    ed.target = list[next as usize];
+                }
+            }
+        }
     }
 
     /// Recreate + re-list the profiles directory after a directory-setting change.
@@ -789,7 +831,7 @@ impl App {
                 match profiles::load(&path) {
                     Ok(doc) => {
                         // Stay on the Profiles page; loading just enables the editor tabs.
-                        self.editing = Some(Editing { path, doc });
+                        self.editing = Some(Editing { path, doc, target: EditTarget::default() });
                         self.error = None;
                     }
                     Err(e) => self.error = Some(e),
@@ -808,6 +850,8 @@ impl App {
                     self.category = nav::Category::Profiles;
                 }
             }
+            Message::EditorTargetPrev => self.step_edit_target(-1),
+            Message::EditorTargetNext => self.step_edit_target(1),
 
             Message::Navigate(c) => self.category = c,
             Message::Daemon(DaemonUpdate::Disconnected) => {

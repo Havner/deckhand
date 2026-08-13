@@ -77,13 +77,19 @@ pub fn combo_button(theme: &Theme, status: button::Status) -> button::Style {
         ..button::Style::default()
     };
     match status {
-        button::Status::Active | button::Status::Disabled => base,
+        button::Status::Active => base,
         button::Status::Hovered => {
             button::Style { border: Border { color: palette.primary.strong.color, ..base.border }, ..base }
         }
         button::Status::Pressed => {
             button::Style { background: Some(Background::Color(palette.background.weaker.color)), ..base }
         }
+        // Reads as inactive — faded fill + text (e.g. the selector arrows at the list ends).
+        button::Status::Disabled => button::Style {
+            background: Some(Background::Color(palette.background.weaker.color)),
+            text_color: palette.background.strong.color,
+            ..base
+        },
     }
 }
 

@@ -57,6 +57,46 @@ pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
     column![section_header("Profile"), name, action_sets].spacing(20.0).into()
 }
 
+/// The sidebar action-set / layer selector: ◀ / ▶ arrows around two stacked labels. Walks
+/// [`crate::edit_target_list`] over the loaded profile; the arrows disable at the ends. The label
+/// you're **editing** is normal-colored, its context muted: on an action set the set name is active
+/// (layer line blank); on a layer the set name is muted context and the layer name is active.
+pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
+    let Some(ed) = &app.editing else { return Space::new().into() };
+    let list = crate::edit_target_list(&ed.doc);
+    let pos = list.iter().position(|t| *t == ed.target).unwrap_or(0);
+    let set = &ed.doc.action_sets[ed.target.set];
+
+    // Top line = the action set name (muted when a layer is the active target, i.e. it's just
+    // context); bottom line = the layer name, or a blank line to hold the height.
+    let editing_layer = ed.target.layer.is_some();
+    let top = {
+        let t = text(set.name.clone()).size(13.0);
+        if editing_layer { t.style(style::muted_text) } else { t }
+    };
+    let bottom = match ed.target.layer {
+        Some(li) => text(format!("≣ {}", set.layers[li].name)).size(13.0),
+        None => text(" ").size(13.0),
+    };
+    let labels = column![top, bottom].align_x(Center).spacing(2.0).width(Fill);
+
+    let arrow = |glyph: &'static str, enabled: bool, msg: Message| -> Element<'static, Message> {
+        let mut b = button(text(glyph).size(14.0)).style(style::combo_button);
+        if enabled {
+            b = b.on_press(msg);
+        }
+        b.into()
+    };
+    row![
+        arrow("◀", pos > 0, Message::EditorTargetPrev),
+        labels,
+        arrow("▶", pos + 1 < list.len(), Message::EditorTargetNext),
+    ]
+    .align_y(Center)
+    .spacing(6.0)
+    .into()
+}
+
 /// A per-input editor page (Buttons/Triggers/Joysticks/Trackpads/Gyro), rendered from the category's
 /// [`InputGroup`]s so the mock stays in lock-step with the real input→page mapping.
 pub(super) fn input_screen(category: Category) -> Element<'static, Message> {
