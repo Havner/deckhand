@@ -14,6 +14,7 @@ use iced::{Center, Element, Fill, Theme};
 use config::{InputSource, SourceKind};
 
 use super::{card, group_header, section_header, small};
+use crate::editor::EditorMessage;
 use crate::nav::{Category, InputGroup};
 use crate::{App, Message, style};
 
@@ -27,7 +28,7 @@ pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
     let name = row![
         text("Profile name").width(140.0),
         text_input("profile name", app.editing_name())
-            .on_input(Message::ProfileNameChanged)
+            .on_input(|s| Message::Editor(EditorMessage::NameChanged(s)))
             .width(Fill),
     ]
     .spacing(12.0)
@@ -63,7 +64,7 @@ pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
 /// (layer line blank); on a layer the set name is muted context and the layer name is active.
 pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
     let Some(ed) = &app.editing else { return Space::new().into() };
-    let list = crate::edit_target_list(&ed.doc);
+    let list = crate::editor::edit_target_list(&ed.doc);
     let pos = list.iter().position(|t| *t == ed.target).unwrap_or(0);
     let set = &ed.doc.action_sets[ed.target.set];
 
@@ -88,9 +89,9 @@ pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
         b.into()
     };
     row![
-        arrow("◀", pos > 0, Message::EditorTargetPrev),
+        arrow("◀", pos > 0, Message::Editor(EditorMessage::TargetPrev)),
         labels,
-        arrow("▶", pos + 1 < list.len(), Message::EditorTargetNext),
+        arrow("▶", pos + 1 < list.len(), Message::Editor(EditorMessage::TargetNext)),
     ]
     .align_y(Center)
     .spacing(6.0)

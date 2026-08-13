@@ -20,6 +20,7 @@ use iced::widget::{
 use iced::{Center, Element, Fill, Theme};
 use ipc::{ProfileRole, RunState};
 
+use crate::editor::EditorMessage;
 use crate::nav::Category;
 use crate::{App, INPUT_PRESETS, IoTarget, Message, NETWORK_OPTION, OUTPUT_PRESETS, Popup, daemon, style};
 
@@ -161,8 +162,8 @@ fn top_bar(app: &App) -> Element<'_, Message> {
         row![
             text(app.editing_name()).size(13.0),
             sep(),
-            button(text("Set as Main")).style(button::success).on_press(Message::SendEditingProfile(ProfileRole::Main)),
-            button(text("Set as Fallback")).style(button::primary).on_press(Message::SendEditingProfile(ProfileRole::Fallback)),
+            button(text("Set as Main")).style(button::success).on_press(Message::Editor(EditorMessage::SendToRole(ProfileRole::Main))),
+            button(text("Set as Fallback")).style(button::primary).on_press(Message::Editor(EditorMessage::SendToRole(ProfileRole::Fallback))),
         ]
         .spacing(8.0)
         .align_y(Center)
