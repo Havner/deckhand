@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 
 use iced::widget::{Space, button, column, container, pick_list, row, scrollable, text};
-use iced::{Center, Element, Theme};
+use iced::{Center, Element, Fill, Theme};
 
 use config::{Action, ActionSetRef, LayerRef};
 use vocab::{GamepadButton, Key, MouseButton};
@@ -23,7 +23,14 @@ use crate::{App, Message, style};
 /// exists and a `use Key::*` would shadow a bare `U`.)
 const KW: f32 = 42.0;
 
-/// The whole Action-picker card: a tab bar + the selected tab's content.
+/// Fixed card footprint — sized to the largest tab (gamepad) so switching tabs doesn't resize the
+/// modal. Deliberately a little roomier than any one tab needs; taller content (numpad extras)
+/// scrolls within it.
+const CARD_W: f32 = 840.0;
+const CARD_H: f32 = 520.0;
+
+/// The whole Action-picker card: a tab bar + the selected tab's content, at a fixed size with the
+/// content centred horizontally.
 pub(super) fn card(app: &App, tab: ActionTab) -> Element<'static, Message> {
     let content = match tab {
         ActionTab::Gamepad => gamepad(),
@@ -32,8 +39,15 @@ pub(super) fn card(app: &App, tab: ActionTab) -> Element<'static, Message> {
         ActionTab::Numpad => numpad(),
         ActionTab::ActionSets => action_sets(app),
     };
-    let body = column![tab_bar(tab), content].spacing(20.0).align_x(Center);
-    container(scrollable(body)).padding(20.0).width(840.0).style(style::modal_card).into()
+    // `width(Fill)` makes the body span the card so `align_x(Center)` centres the tab bar and the
+    // content left↔right (they're otherwise shrink-width and would hug the left edge).
+    let body = column![tab_bar(tab), content].spacing(20.0).align_x(Center).width(Fill);
+    container(scrollable(body).width(Fill).height(Fill))
+        .padding(20.0)
+        .width(CARD_W)
+        .height(CARD_H)
+        .style(style::modal_card)
+        .into()
 }
 
 /// The row of tab buttons; the active one is highlighted.
