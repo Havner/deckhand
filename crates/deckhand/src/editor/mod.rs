@@ -14,6 +14,9 @@ use ipc::ProfileRole;
 
 use crate::{App, Message};
 
+pub(crate) mod authoring;
+pub(crate) use authoring::Behavior;
+
 /// A profile loaded into the editor: the file it came from (edits save back here), the parsed
 /// document, and which action set / layer the input pages currently target. Its presence is the
 /// UI's central macro-state (see [`App::editing`]).

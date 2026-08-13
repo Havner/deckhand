@@ -14,7 +14,7 @@ use iced::{Center, Element, Fill, Theme};
 use config::{InputSource, SourceKind};
 
 use super::{card, group_header, section_header, small};
-use crate::editor::EditorMessage;
+use crate::editor::{Behavior, EditorMessage};
 use crate::nav::{Category, InputGroup};
 use crate::{App, Message, style};
 
@@ -186,30 +186,18 @@ fn button_group_mock(input: &InputSource) -> Element<'static, Message> {
     col.into()
 }
 
-/// A group's "Behavior" selector, filled with plausible options for the source kind + a gear. Mock.
+/// A group's "Behavior" selector: the real [`Behavior`] set for the source kind (default = first),
+/// plus a gear. Still a mock — selection isn't wired to construct a binding yet (`Message::Ignored`).
 fn behavior_row(kind: SourceKind) -> Element<'static, Message> {
-    let (selected, options) = behavior_choices(kind);
-    let options: Vec<String> = options.iter().map(|s| s.to_string()).collect();
-    let combo = pick_list(Some(selected.to_string()), options, String::clone)
+    let options = Behavior::valid_for(kind).to_vec();
+    let selected = options.first().copied();
+    let combo = pick_list(selected, options, |b: &Behavior| b.label().to_string())
         .on_select(|_| Message::Ignored)
         .width(CMD_SLOT);
     let inner = row![text("Behavior"), Space::new().width(Fill), combo, gear()]
         .spacing(12.0)
         .align_y(Center);
     card(inner)
-}
-
-/// Plausible behaviour options per source kind (mock only — not the authoritative behaviour set;
-/// that arrives with the real editor). Returns the default plus the list shown in the picker.
-fn behavior_choices(kind: SourceKind) -> (&'static str, &'static [&'static str]) {
-    match kind {
-        SourceKind::ButtonGroup => ("Button Pad", &["Button Pad", "Directional Pad"]),
-        SourceKind::Pad => ("As Mouse", &["As Mouse", "Joystick", "Directional Pad", "Scroll Wheel"]),
-        SourceKind::Stick => ("Joystick", &["Joystick", "Joystick Mouse", "Directional Pad"]),
-        SourceKind::Trigger => ("Trigger", &["Trigger", "Soft Pull"]),
-        SourceKind::Gyro => ("Gyro to Mouse", &["Gyro to Mouse", "Off"]),
-        SourceKind::Button => ("", &[]),
-    }
 }
 
 /// One input row: an optional colored glyph (a theme-role text style), the input name, and a gear
