@@ -12,48 +12,48 @@ use serde::{Deserialize, Serialize};
 /// still loads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct AppSettings {
+pub(crate) struct AppSettings {
     // Field order mirrors the Settings screen (UI section first, then Daemon), so the serialized
     // file reads top-to-bottom the same as the UI.
     /// The UI theme, stored by **name** (e.g. `Dark`, `Dracula`) — one of iced's built-in themes,
     /// falling back to the default when the name is empty/unknown.
-    pub theme: String,
+    pub(crate) theme: String,
     /// Show a system-tray icon. Master switch for the two options below.
-    pub use_tray: bool,
+    pub(crate) use_tray: bool,
     /// Close-to-tray: a window close request hides the window instead of quitting (needs `use_tray`).
-    pub close_to_tray: bool,
+    pub(crate) close_to_tray: bool,
     /// Start with the window hidden in the tray (needs `use_tray`; takes effect next launch). Not a
     /// minimize — the window is created hidden, not minimized to the taskbar.
-    pub start_hidden: bool,
+    pub(crate) start_hidden: bool,
     /// Use a custom profiles directory instead of the default (`<config>/deckhand/profiles`).
-    pub use_custom_profile_dir: bool,
+    pub(crate) use_custom_profile_dir: bool,
     /// The custom profiles directory (meaningful only when `use_custom_profile_dir`).
-    pub custom_profile_dir: String,
+    pub(crate) custom_profile_dir: String,
     /// Launch the daemon if it isn't running when the UI tries to connect.
-    pub start_daemon: bool,
+    pub(crate) start_daemon: bool,
     /// Load the Main profile on connect.
-    pub load_main: bool,
+    pub(crate) load_main: bool,
     /// Path to the Main profile RON (meaningful only when `load_main`).
-    pub main_path: String,
+    pub(crate) main_path: String,
     /// Load the Fallback profile on connect.
-    pub load_fallback: bool,
+    pub(crate) load_fallback: bool,
     /// Path to the Fallback profile RON (meaningful only when `load_fallback`).
-    pub fallback_path: String,
+    pub(crate) fallback_path: String,
     /// Re-stage the last-used input/output (`last_input`/`last_output`) on connect.
-    pub restore_io: bool,
+    pub(crate) restore_io: bool,
     /// Start the engine (acquire hardware + run the mapping loop) on connect.
-    pub start_engine: bool,
+    pub(crate) start_engine: bool,
 
     // --- Not shown in the UI (persisted at the end). ---
     /// Last window size, saved on hide/quit and restored when the window (re)opens.
-    pub window_width: u32,
-    pub window_height: u32,
+    pub(crate) window_width: u32,
+    pub(crate) window_height: u32,
     /// The last input/output spec set from the UI (restored on connect when `restore_io`).
-    pub last_input: String,
-    pub last_output: String,
+    pub(crate) last_input: String,
+    pub(crate) last_output: String,
     /// The last host:port typed into the network input/output popup (prefills it next time).
-    pub last_input_network: String,
-    pub last_output_network: String,
+    pub(crate) last_input_network: String,
+    pub(crate) last_output_network: String,
 }
 
 impl Default for AppSettings {
@@ -85,19 +85,19 @@ impl Default for AppSettings {
 impl AppSettings {
     /// Load from [`settings_path`]; returns the default (never an error) when the file is missing
     /// or unparseable — a config test shouldn't fail to launch over a stale settings file.
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         crate::persist::load_or_default(&settings_path())
     }
 
     /// Write to [`settings_path`] as pretty RON, creating the parent directory.
-    pub fn save(&self) -> std::io::Result<()> {
+    pub(crate) fn save(&self) -> std::io::Result<()> {
         crate::persist::save(&settings_path(), self)
     }
 }
 
 /// Where the UI settings live: `$XDG_CONFIG_HOME/deckhand/settings.ron` (fallback `~/.config/…`) on
 /// unix, `%APPDATA%\deckhand\settings.ron` on Windows.
-pub fn settings_path() -> PathBuf {
+fn settings_path() -> PathBuf {
     let dir = config_dir().join("deckhand");
     dir.join("settings.ron")
 }

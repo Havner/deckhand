@@ -15,7 +15,7 @@ use iced::widget::{
 };
 use iced::{Center, Element, Fill};
 
-pub(crate) use action::action_label;
+pub(in crate::view) use action::action_label;
 
 use crate::editor::{CommandDest, EditTarget, EditorMessage, NameEntryKind};
 use crate::{App, IoTarget, Message, style};
@@ -23,7 +23,7 @@ use crate::{App, IoTarget, Message, style};
 /// The one modal shown at a time (the view layers exactly one over the base): network I/O staging,
 /// the profile editor's context menu / name dialogs, and the two pickers.
 #[derive(Debug, Clone)]
-pub enum Popup {
+pub(crate) enum Popup {
     /// Network input/output staging: which selector it targets + the current `host:port` text.
     Network { target: IoTarget, text: String },
     /// A Profile-page set/layer context menu, opened by that bar's gear.
@@ -39,7 +39,7 @@ pub enum Popup {
 /// The tabs of the Action picker — one output/mode category each (mirrors the sidebar categories a
 /// binding's action can target). Steam's SYSTEM/CAMERA are dropped (no vocab).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActionTab {
+pub(crate) enum ActionTab {
     Gamepad,
     Mouse,
     Keyboard,

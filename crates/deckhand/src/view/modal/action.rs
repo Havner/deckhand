@@ -406,7 +406,7 @@ fn layer_pick(
 
 /// A short display label for a bound action — used by the input pages' command bars to show what a
 /// command fires (mode actions include the target set/layer name).
-pub(crate) fn action_label(action: &Action) -> String {
+pub(in crate::view) fn action_label(action: &Action) -> String {
     match action {
         Action::None => "None".to_string(),
         Action::Key(k) => key_label(k).to_string(),

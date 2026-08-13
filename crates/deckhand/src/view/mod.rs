@@ -24,7 +24,7 @@ use crate::{App, INPUT_PRESETS, Message, NETWORK_OPTION, OUTPUT_PRESETS, daemon,
 
 /// The whole window: top bar / (sidebar + content) / bottom bar, with a modal layered on top when
 /// one is open.
-pub fn view(app: &App) -> Element<'_, Message> {
+pub(crate) fn view(app: &App) -> Element<'_, Message> {
     let base: Element<'_, Message> = column![
         top_bar(app),
         row![sidebar(app), content(app)].height(Fill),

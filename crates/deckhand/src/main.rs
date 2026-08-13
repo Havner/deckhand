@@ -43,40 +43,40 @@ use settings::AppSettings;
 
 /// Preset input selections offered before the daemon's live `list-devices` is appended (the same
 /// grammar the daemon parses for `SetInput`).
-pub const INPUT_PRESETS: &[&str] = &["auto", "dongle", "wired", "bt"];
+pub(crate) const INPUT_PRESETS: &[&str] = &["auto", "dongle", "wired", "bt"];
 
 /// Preset output selections (`host:port` is typed, not listed).
-pub const OUTPUT_PRESETS: &[&str] = &["local"];
+pub(crate) const OUTPUT_PRESETS: &[&str] = &["local"];
 
 /// Value `led_brightness` snaps to when its checkbox is first enabled (mid-range).
-pub const DEFAULT_LED_BRIGHTNESS: u8 = 50;
+pub(crate) const DEFAULT_LED_BRIGHTNESS: u8 = 50;
 
 /// Value `idle_timeout` snaps to when its checkbox is first enabled — 5 minutes (the shortest
 /// offered option). In **seconds**, matching [`GlobalConfig::idle_timeout`].
-pub const DEFAULT_IDLE_TIMEOUT: u16 = 300;
+pub(crate) const DEFAULT_IDLE_TIMEOUT: u16 = 300;
 
 /// The idle-timeout options offered in the Globals combobox, in **minutes**.
-pub const IDLE_TIMEOUT_MINUTES: &[u16] = &[5, 10, 15];
+pub(crate) const IDLE_TIMEOUT_MINUTES: &[u16] = &[5, 10, 15];
 
 /// The sentinel pick-list entry that opens the network (`host:port`) popup instead of staging a
 /// value directly.
-pub const NETWORK_OPTION: &str = "<network>";
+pub(crate) const NETWORK_OPTION: &str = "<network>";
 
 /// Widget id of the network popup's text field (so it can be focused when the popup opens).
-pub const NETWORK_FIELD_ID: &str = "network-host";
+pub(crate) const NETWORK_FIELD_ID: &str = "network-host";
 
 /// Widget id of the editor name-entry dialog's text field (focused when that dialog opens).
-pub const NAME_FIELD_ID: &str = "editor-name";
+pub(crate) const NAME_FIELD_ID: &str = "editor-name";
 
 /// Which selector the network popup is editing.
 #[derive(Debug, Clone, Copy)]
-pub enum IoTarget {
+pub(crate) enum IoTarget {
     Input,
     Output,
 }
 
 // The modal state enum + its picker tabs live in the modal view module (which owns all modals).
-pub use view::modal::{ActionTab, Popup};
+pub(crate) use view::modal::{ActionTab, Popup};
 
 /// Decode a PNG to straight RGBA8 with its dimensions. Shared by [`window_icon`] and the platform
 /// tray backends' icon loaders (see [`tray`]). Returns `None` (icon simply omitted) rather than
@@ -159,7 +159,7 @@ fn main() -> iced::Result {
 }
 
 /// The whole application state (Elm-architecture `State`).
-pub struct App {
+pub(crate) struct App {
     /// The UI's own settings (Settings screen), persisted separately from the daemon.
     settings: AppSettings,
     /// The UI's central macro-state: a profile loaded **for editing**, or not. The whole app has
@@ -216,7 +216,7 @@ pub struct App {
 
 /// Everything the view can emit.
 #[derive(Debug, Clone)]
-pub enum Message {
+pub(crate) enum Message {
     /// Sidebar navigation.
     Navigate(Category),
     /// An update from the event-stream subscription.

@@ -21,7 +21,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 
 /// What a tray menu click means to the app.
 #[derive(Debug, Clone, Copy)]
-pub enum MenuAction {
+pub(crate) enum MenuAction {
     /// Show the window if hidden, hide it if shown.
     ToggleWindow,
     /// Quit the application.
@@ -37,7 +37,7 @@ fn channel() -> &'static (Sender<MenuAction>, Receiver<MenuAction>) {
 }
 
 /// A clone of the menu-action receiver for the app's subscription to drain.
-pub fn menu_receiver() -> Receiver<MenuAction> {
+pub(crate) fn menu_receiver() -> Receiver<MenuAction> {
     channel().1.clone()
 }
 
@@ -98,25 +98,25 @@ mod imp {
     /// A live system tray. Holds the ksni service handle; [`Tray::disable`] removes the icon (the
     /// handle only holds a weak ref, so dropping it would *not* stop the service — shutdown must be
     /// explicit).
-    pub struct Tray {
+    pub(crate) struct Tray {
         handle: Handle<DeckhandTray>,
     }
 
     impl Tray {
         /// Show the tray icon, with the Show/Hide label reflecting `hidden`. Blocks briefly while the
         /// D-Bus service registers.
-        pub fn enable(hidden: bool) -> Result<Tray, String> {
+        pub(crate) fn enable(hidden: bool) -> Result<Tray, String> {
             let handle = DeckhandTray { hidden }.spawn().map_err(|e| e.to_string())?;
             Ok(Tray { handle })
         }
 
         /// Update the Show/Hide label for the current window state.
-        pub fn set_label(&self, hidden: bool) {
+        pub(crate) fn set_label(&self, hidden: bool) {
             self.handle.update(|t| t.hidden = hidden);
         }
 
         /// Remove the tray icon and stop its D-Bus service.
-        pub fn disable(self) {
+        pub(crate) fn disable(self) {
             self.handle.shutdown();
         }
     }
@@ -292,7 +292,7 @@ mod imp {
 
     /// A live system tray, backed by a dedicated message-loop thread. The app drives it with
     /// `PostThreadMessageW` control messages (label update / shutdown).
-    pub struct Tray {
+    pub(crate) struct Tray {
         /// The tray thread's Win32 id, for `PostThreadMessageW`.
         thread_id: u32,
         /// Join handle for the message-loop thread (joined on [`Tray::disable`]).
@@ -302,7 +302,7 @@ mod imp {
     impl Tray {
         /// Show the tray icon with the Show/Hide label reflecting `hidden`. Spawns the message-loop
         /// thread and blocks until it has built the icon (or failed to).
-        pub fn enable(hidden: bool) -> Result<Tray, String> {
+        pub(crate) fn enable(hidden: bool) -> Result<Tray, String> {
             // The icon + menu are `!Send` (Rc-based), so they must be created and dropped on the loop
             // thread; only the thread id + a build result travel back here.
             let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
@@ -325,12 +325,12 @@ mod imp {
 
         /// Update the Show/Hide label for the current window state (marshalled onto the tray thread,
         /// which owns the `!Send` menu item).
-        pub fn set_label(&self, hidden: bool) {
+        pub(crate) fn set_label(&self, hidden: bool) {
             self.post(WM_TRAY_LABEL, WPARAM(hidden as usize));
         }
 
         /// Remove the tray icon and stop its message loop, joining the thread.
-        pub fn disable(mut self) {
+        pub(crate) fn disable(mut self) {
             self.post(WM_TRAY_QUIT, WPARAM(0));
             if let Some(join) = self.join.take() {
                 let _ = join.join();
@@ -358,15 +358,15 @@ mod imp {
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 mod imp {
     /// Stub tray for platforms without an implementation yet (macOS tray = a follow-up).
-    pub struct Tray;
+    pub(crate) struct Tray;
 
     impl Tray {
-        pub fn enable(_hidden: bool) -> Result<Tray, String> {
+        pub(crate) fn enable(_hidden: bool) -> Result<Tray, String> {
             Err("system tray is not implemented on this platform yet".into())
         }
-        pub fn set_label(&self, _hidden: bool) {}
-        pub fn disable(self) {}
+        pub(crate) fn set_label(&self, _hidden: bool) {}
+        pub(crate) fn disable(self) {}
     }
 }
 
-pub use imp::Tray;
+pub(crate) use imp::Tray;

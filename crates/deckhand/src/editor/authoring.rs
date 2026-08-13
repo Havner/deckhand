@@ -23,7 +23,7 @@ use config::{
 /// Kept in lock-step with `SourceBinding` by [`Behavior::of`]'s exhaustive match: adding a
 /// `SourceBinding` variant is a compile error until it's handled here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Behavior {
+pub(crate) enum Behavior {
     Button,
     ButtonPad,
     Joystick,

@@ -14,7 +14,7 @@ use crate::settings::config_dir;
 
 /// Where the UI's global config lives: alongside the app settings
 /// (`$XDG_CONFIG_HOME/deckhand/globals.ron`, `%APPDATA%\deckhand\globals.ron`).
-pub fn globals_path() -> PathBuf {
+fn globals_path() -> PathBuf {
     config_dir().join("deckhand").join("globals.ron")
 }
 
@@ -22,11 +22,11 @@ pub fn globals_path() -> PathBuf {
 /// unparseable — a stale globals file shouldn't stop the UI launching (mirrors [`AppSettings::load`]).
 ///
 /// [`AppSettings::load`]: crate::settings::AppSettings::load
-pub fn load() -> GlobalConfig {
+pub(crate) fn load() -> GlobalConfig {
     crate::persist::load_or_default(&globals_path())
 }
 
 /// Write to [`globals_path`] as pretty RON, creating the parent directory.
-pub fn save(g: &GlobalConfig) -> std::io::Result<()> {
+pub(crate) fn save(g: &GlobalConfig) -> std::io::Result<()> {
     crate::persist::save(&globals_path(), g)
 }

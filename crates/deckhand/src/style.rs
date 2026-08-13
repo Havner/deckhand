@@ -15,34 +15,34 @@ use iced::widget::{button, container, pick_list, slider, text};
 use iced::{Background, Border, Color, Theme};
 
 /// Text in the palette's **success** color (green-ish) — e.g. the "connected" dot.
-pub fn success_text(theme: &Theme) -> text::Style {
+pub(crate) fn success_text(theme: &Theme) -> text::Style {
     text::Style { color: Some(theme.palette().success.base.color) }
 }
 
 /// Text in the palette's **danger** color (red-ish) — e.g. the "disconnected" dot, error messages.
-pub fn danger_text(theme: &Theme) -> text::Style {
+pub(crate) fn danger_text(theme: &Theme) -> text::Style {
     text::Style { color: Some(theme.palette().danger.base.color) }
 }
 
 /// Text in the palette's **primary** color — the "X button" glyph (nominally blue).
-pub fn primary_text(theme: &Theme) -> text::Style {
+pub(crate) fn primary_text(theme: &Theme) -> text::Style {
     text::Style { color: Some(theme.palette().primary.base.color) }
 }
 
 /// Text in the palette's **warning** color — the "Y button" glyph (nominally yellow).
-pub fn warning_text(theme: &Theme) -> text::Style {
+pub(crate) fn warning_text(theme: &Theme) -> text::Style {
     text::Style { color: Some(theme.palette().warning.base.color) }
 }
 
 /// Muted/"inactive" text — a strong background tone rather than the foreground text color, so it
 /// reads as subtle against surrounding text (e.g. the status-bar separators). Tracks the theme.
-pub fn muted_text(theme: &Theme) -> text::Style {
+pub(crate) fn muted_text(theme: &Theme) -> text::Style {
     text::Style { color: Some(theme.palette().background.strong.color) }
 }
 
 /// A dimmed, theme-tinted backdrop for the modal overlay: the theme's background darkened toward
 /// black and made translucent, so the content behind reads as greyed out.
-pub fn scrim(theme: &Theme) -> container::Style {
+pub(crate) fn scrim(theme: &Theme) -> container::Style {
     let base = theme.palette().background.base.color;
     let c = Color { r: base.r * 0.3, g: base.g * 0.3, b: base.b * 0.3, a: 0.7 };
     container::Style {
@@ -55,7 +55,7 @@ pub fn scrim(theme: &Theme) -> container::Style {
 /// so the control keeps the exact same geometry (rail + handle) as the live slider but reads as
 /// disabled. Recolors iced's default slider from `primary` to a flat `background.strong` tone; the
 /// incoming status is ignored (there's no meaningful hover/drag on an inert control).
-pub fn disabled_slider(theme: &Theme, _status: slider::Status) -> slider::Style {
+pub(crate) fn disabled_slider(theme: &Theme, _status: slider::Status) -> slider::Style {
     let muted = theme.palette().background.strong.color;
     let mut style = slider::default(theme, slider::Status::Active);
     style.rail.backgrounds = (muted.into(), muted.into());
@@ -68,7 +68,7 @@ pub fn disabled_slider(theme: &Theme, _status: slider::Status) -> slider::Style 
 /// `secondary.base` tone iced's `button::secondary` uses, which reads too pale on the darkened cards.
 /// Unifies the gear / "Add command" buttons with the behaviour combobox next to them. Hover
 /// highlights the border like an opened combobox; pressed dips the fill a shade.
-pub fn combo_button(theme: &Theme, status: button::Status) -> button::Style {
+pub(crate) fn combo_button(theme: &Theme, status: button::Status) -> button::Style {
     let palette = theme.palette();
     let base = button::Style {
         background: Some(Background::Color(palette.background.weak.color)),
@@ -112,7 +112,7 @@ fn dark_bar_color(theme: &Theme) -> Color {
 /// but darkened on dark themes (the palette's `is_dark` flag — the same signal that drives the
 /// window decorations). Keeps the tint so each theme's panels still read as *its* color, just
 /// darker.
-pub fn panel(theme: &Theme) -> container::Style {
+pub(crate) fn panel(theme: &Theme) -> container::Style {
     let mut style = container::secondary(theme);
     // Light themes: keep the preset (its secondary text is already readable).
     if !theme.palette().is_dark {
@@ -130,7 +130,7 @@ pub fn panel(theme: &Theme) -> container::Style {
 /// picker uses a combobox's placeholder as its permanent label ("Hold Layer", …) rather than a
 /// hint for an empty value, so the default `secondary` placeholder tone made those labels look
 /// disabled. Everything else matches `pick_list::default`.
-pub fn labeled_pick(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
+pub(crate) fn labeled_pick(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
     let mut style = pick_list::default(theme, status);
     style.placeholder_color = style.text_color;
     style
@@ -140,7 +140,7 @@ pub fn labeled_pick(theme: &Theme, status: pick_list::Status) -> pick_list::Styl
 /// background (`background.base`) instead of the lighter `background.weak`, so a modal reads as the
 /// same tone as the big content pane behind it (which has no fill of its own → the base background).
 /// `rounded_box`'s `weak` fill looked right on light themes but too light on dark ones.
-pub fn modal_card(theme: &Theme) -> container::Style {
+pub(crate) fn modal_card(theme: &Theme) -> container::Style {
     let palette = theme.palette();
     container::Style {
         background: Some(Background::Color(palette.background.base.color)),
@@ -157,7 +157,7 @@ pub fn modal_card(theme: &Theme) -> container::Style {
 /// press instead. **Dark themes:** the [`combo_button`] look (gear / `<unbound>`) but filled with
 /// the darkened [`dark_bar_color`] the bars use, so options sit on the same tone as the cards
 /// behind them (hover highlights the border like an opened combobox; press dips the fill).
-pub fn option_button(theme: &Theme, status: button::Status) -> button::Style {
+pub(crate) fn option_button(theme: &Theme, status: button::Status) -> button::Style {
     let palette = theme.palette();
     if palette.is_dark {
         let bar = dark_bar_color(theme);

@@ -38,7 +38,7 @@ fn open(socket: Option<&str>) -> io::Result<IpcClient> {
 }
 
 /// A blocking command client to the daemon. Reconnects transparently after the daemon restarts.
-pub struct Client {
+pub(crate) struct Client {
     socket: Option<String>,
     conn: Option<IpcClient>,
 }
@@ -46,7 +46,7 @@ pub struct Client {
 impl Client {
     /// A client for the given socket/pipe override (`None` = the shared default). Does not connect
     /// until the first call.
-    pub fn new(socket: Option<String>) -> Self {
+    pub(crate) fn new(socket: Option<String>) -> Self {
         Client { socket, conn: None }
     }
 
@@ -64,7 +64,7 @@ impl Client {
     }
 
     /// The current engine status.
-    pub fn status(&mut self) -> io::Result<StatusSnapshot> {
+    pub(crate) fn status(&mut self) -> io::Result<StatusSnapshot> {
         match self.call(Request::Status)? {
             Response::Status(s) => Ok(s),
             other => Err(unexpected(&other)),
@@ -72,7 +72,7 @@ impl Client {
     }
 
     /// The daemon's currently-enumerated device ids.
-    pub fn list_devices(&mut self) -> io::Result<Vec<String>> {
+    pub(crate) fn list_devices(&mut self) -> io::Result<Vec<String>> {
         match self.call(Request::ListDevices)? {
             Response::Devices(d) => Ok(d),
             other => Err(unexpected(&other)),
@@ -80,33 +80,33 @@ impl Client {
     }
 
     /// Stage the input source (spec string — `auto|dongle|wired|bt|<device-id>|host:port`).
-    pub fn set_input(&mut self, spec: String) -> io::Result<()> {
+    pub(crate) fn set_input(&mut self, spec: String) -> io::Result<()> {
         expect_ok(self.call(Request::SetInput(spec))?)
     }
 
     /// Stage the output sink (spec string — `local|host:port`).
-    pub fn set_output(&mut self, spec: String) -> io::Result<()> {
+    pub(crate) fn set_output(&mut self, spec: String) -> io::Result<()> {
         expect_ok(self.call(Request::SetOutput(spec))?)
     }
 
     /// Replace the daemon's global config (rumble master, boot role, LED/idle, chords).
-    pub fn set_globals(&mut self, globals: config::GlobalConfig) -> io::Result<()> {
+    pub(crate) fn set_globals(&mut self, globals: config::GlobalConfig) -> io::Result<()> {
         expect_ok(self.call(Request::SetGlobals(Box::new(globals)))?)
     }
 
     /// Acquire hardware and start the mapping loop.
-    pub fn start(&mut self) -> io::Result<()> {
+    pub(crate) fn start(&mut self) -> io::Result<()> {
         expect_ok(self.call(Request::Start)?)
     }
 
     /// Stop the mapping loop (release hardware, keep config).
-    pub fn stop(&mut self) -> io::Result<()> {
+    pub(crate) fn stop(&mut self) -> io::Result<()> {
         expect_ok(self.call(Request::Stop)?)
     }
 
     /// Apply a profile to a role, or clear it (`config: None`). Compile diagnostics come back as
     /// [`Response::Diagnostics`] — folded into the error string so callers see one uniform result.
-    pub fn apply(&mut self, role: ProfileRole, config: Option<Box<ConfigDoc>>) -> io::Result<()> {
+    pub(crate) fn apply(&mut self, role: ProfileRole, config: Option<Box<ConfigDoc>>) -> io::Result<()> {
         match self.call(Request::Apply { role, config })? {
             Response::Ok => Ok(()),
             Response::Diagnostics(diags) => Err(io::Error::other(diags.join("; "))),
@@ -117,7 +117,7 @@ impl Client {
     /// Ask the daemon to exit (full teardown). Graceful — it runs its clean shutdown (restores
     /// lizard mode), unlike `Child::kill`. The reply may not arrive (the daemon can close first), so
     /// callers treat this as best-effort.
-    pub fn shutdown(&mut self) -> io::Result<()> {
+    pub(crate) fn shutdown(&mut self) -> io::Result<()> {
         expect_ok(self.call(Request::Shutdown)?)
     }
 }
@@ -126,30 +126,30 @@ impl Client {
 /// flag. Both live under one lock so the connect loop and the UI-exit path can't race — the loop
 /// never spawns a replacement daemon once the UI has begun tearing down.
 #[derive(Default)]
-pub struct Managed {
+pub(crate) struct Managed {
     child: Option<Child>,
     quitting: bool,
 }
 
 /// A handle to the [`Managed`] daemon, shared between the connect-loop thread and `main` (which owns
 /// the UI-exit teardown).
-pub type Handle = Arc<Mutex<Managed>>;
+pub(crate) type Handle = Arc<Mutex<Managed>>;
 
 /// Create an empty [`Handle`] (no daemon launched yet, not quitting).
-pub fn handle() -> Handle {
+pub(crate) fn handle() -> Handle {
     Arc::new(Mutex::new(Managed::default()))
 }
 
 /// Whether the UI currently owns a launched daemon child — i.e. we started it and will shut it down
 /// on exit. Drives the "managed" vs plain "connected" status label.
-pub fn is_managed(managed: &Handle) -> bool {
+pub(crate) fn is_managed(managed: &Handle) -> bool {
     managed.lock().unwrap().child.is_some()
 }
 
 /// On UI exit, gracefully stop the daemon we launched (if any). Flags `quitting` and takes the child
 /// atomically so the loop can't spawn a replacement mid-exit; then asks the daemon to exit over IPC
 /// and reaps it. A daemon we did *not* launch is left running.
-pub fn shutdown_managed(managed: &Handle) {
+pub(crate) fn shutdown_managed(managed: &Handle) {
     let child = {
         let mut m = managed.lock().unwrap();
         m.quitting = true;
@@ -176,7 +176,7 @@ pub fn shutdown_managed(managed: &Handle) {
 /// An update pushed by [`run_event_loop`]: connection lifecycle, each daemon [`Event`], plus
 /// non-fatal errors from the connect/setup sequence.
 #[derive(Debug, Clone)]
-pub enum DaemonUpdate {
+pub(crate) enum DaemonUpdate {
     /// The event connection was (re)established — the consumer should seed a fresh status /
     /// device list, since the stream itself carries only deltas.
     Connected,
@@ -211,7 +211,7 @@ const RETRY: Duration = Duration::from_millis(1000);
 ///
 /// Steps 3–6 run on a **separate** command connection (subscribe is terminal) and are best-effort —
 /// each failure is reported as [`DaemonUpdate::Error`] and the sequence continues.
-pub fn run_event_loop(socket: Option<String>, managed: Handle, mut on: impl FnMut(DaemonUpdate) -> bool) {
+pub(crate) fn run_event_loop(socket: Option<String>, managed: Handle, mut on: impl FnMut(DaemonUpdate) -> bool) {
     loop {
         // Step 0: honor a quitting UI, and reap a managed daemon that died on us. Same lock as the
         // UI-exit path, so we never relaunch once teardown has started.

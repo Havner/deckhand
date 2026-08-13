@@ -11,12 +11,12 @@ use config::ConfigDoc;
 use crate::settings::{AppSettings, config_dir};
 
 /// The default profiles directory: `<config>/deckhand/profiles`.
-pub fn default_dir() -> PathBuf {
+fn default_dir() -> PathBuf {
     config_dir().join("deckhand").join("profiles")
 }
 
 /// The active profiles directory: the custom one when enabled and non-empty, else the default.
-pub fn dir(s: &AppSettings) -> PathBuf {
+pub(crate) fn dir(s: &AppSettings) -> PathBuf {
     if s.use_custom_profile_dir && !s.custom_profile_dir.trim().is_empty() {
         PathBuf::from(s.custom_profile_dir.trim())
     } else {
@@ -25,13 +25,13 @@ pub fn dir(s: &AppSettings) -> PathBuf {
 }
 
 /// Create the active profiles directory (best-effort; called at startup and after a dir change).
-pub fn ensure_dir(s: &AppSettings) -> std::io::Result<()> {
+pub(crate) fn ensure_dir(s: &AppSettings) -> std::io::Result<()> {
     std::fs::create_dir_all(dir(s))
 }
 
 /// The `.ron` file names (not full paths) in the active profiles directory, sorted. Silent on a
 /// missing/unreadable directory (returns empty) — the Profiles combobox just shows nothing.
-pub fn list(s: &AppSettings) -> Vec<String> {
+pub(crate) fn list(s: &AppSettings) -> Vec<String> {
     let mut names = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir(s)) {
         for e in entries.flatten() {
@@ -48,11 +48,11 @@ pub fn list(s: &AppSettings) -> Vec<String> {
 }
 
 /// Load + parse a profile RON from a path (mirrors the daemon-client loader).
-pub fn load(path: &Path) -> Result<ConfigDoc, String> {
+pub(crate) fn load(path: &Path) -> Result<ConfigDoc, String> {
     crate::persist::load(path)
 }
 
 /// Save a profile document to a path as pretty RON, creating the parent directory.
-pub fn save(path: &Path, doc: &ConfigDoc) -> std::io::Result<()> {
+pub(crate) fn save(path: &Path, doc: &ConfigDoc) -> std::io::Result<()> {
     crate::persist::save(path, doc)
 }

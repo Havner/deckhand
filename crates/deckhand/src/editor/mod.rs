@@ -38,7 +38,7 @@ pub(crate) struct Editing {
 /// Profile-page bar's gear acts on. The sidebar's ◀/▶ selector walks these in [`edit_target_list`]
 /// order.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct EditTarget {
+pub(crate) struct EditTarget {
     pub(crate) set: String,
     pub(crate) layer: Option<String>,
 }
@@ -46,7 +46,7 @@ pub struct EditTarget {
 /// Which `Vec<Command>` inside a binding a command bar edits: a plain button's own commands, a
 /// button-pad / directional-pad direction, a joystick outer ring, or a trigger's soft pull.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandSlot {
+pub(crate) enum CommandSlot {
     Button,
     Up,
     Down,
@@ -59,9 +59,9 @@ pub enum CommandSlot {
 /// Where an Action picker's result lands: the input whose binding holds the command, and the slot
 /// within that binding. One command per slot for now (index 0) — multi-activator is a later pass.
 #[derive(Debug, Clone)]
-pub struct CommandDest {
-    pub input: InputSource,
-    pub slot: CommandSlot,
+pub(crate) struct CommandDest {
+    pub(crate) input: InputSource,
+    pub(crate) slot: CommandSlot,
 }
 
 /// The initial target for a freshly-loaded profile: its first action set (no layer). A profile
@@ -86,7 +86,7 @@ pub(crate) fn edit_target_list(doc: &ConfigDoc) -> Vec<EditTarget> {
 /// What confirming a name-entry dialog does, carrying the target it operates on. The dialog is the
 /// one modal reused by add-set / add-layer / rename (see [`crate::Popup::NameEntry`]).
 #[derive(Debug, Clone)]
-pub enum NameEntryKind {
+pub(crate) enum NameEntryKind {
     /// Create a new action set with the entered name.
     NewSet,
     /// Create a new layer (entered name) under this action set.
@@ -113,7 +113,7 @@ impl NameEntryKind {
 /// loaded profile flows through here (the top-level `Message` stays about the app/daemon). Grows as
 /// the editor does.
 #[derive(Debug, Clone)]
-pub enum EditorMessage {
+pub(crate) enum EditorMessage {
     /// Rename the loaded profile (Profile page name field).
     NameChanged(String),
     /// Send the in-memory edited profile to a daemon role (top-bar Set as Main/Fallback).

@@ -13,7 +13,7 @@ use config::InputSource;
 
 /// A sidebar entry / content screen. Declared in sidebar order, top to bottom.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Category {
+pub(crate) enum Category {
     // Profile-editor categories (top section; mock screens for now).
     Profile,
     Buttons,
@@ -33,7 +33,7 @@ impl Category {
     /// between each): the profile-level **Profile** page, the per-input pages, and the profile-level
     /// **Rumble** page. They operate on the loaded profile, so they're greyed until one is loaded
     /// ([`Self::is_editor`]).
-    pub const EDITOR_BANDS: &'static [&'static [Category]] = &[
+    pub(crate) const EDITOR_BANDS: &'static [&'static [Category]] = &[
         &[Category::Profile],
         &[
             Category::Buttons,
@@ -47,16 +47,16 @@ impl Category {
 
     /// The bottom-section pages, in order: profile management (Profiles) then the app-level pages
     /// (Globals, Settings). Rendered flat (no separators), pinned below the flex spacer.
-    pub const BOTTOM: &'static [Category] =
+    pub(crate) const BOTTOM: &'static [Category] =
         &[Category::Profiles, Category::Globals, Category::Settings];
 
     /// Whether this category is part of the profile editor (disabled when no profile is loaded).
-    pub fn is_editor(self) -> bool {
+    pub(crate) fn is_editor(self) -> bool {
         Self::EDITOR_BANDS.iter().any(|band| band.contains(&self))
     }
 
     /// The sidebar label.
-    pub fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Category::Profile => "Profile",
             Category::Buttons => "Buttons",
@@ -79,7 +79,7 @@ impl Category {
     /// This is the static, device-independent superset (Gordon lacks a handful — greyed at render
     /// time via [`config::Shape`], not filtered here). Every [`InputSource`] appears in exactly one
     /// group across all categories (checked by tests).
-    pub fn groups(self) -> &'static [InputGroup] {
+    pub(crate) fn groups(self) -> &'static [InputGroup] {
         match self {
             Category::Buttons => BUTTONS_GROUPS,
             Category::Triggers => TRIGGER_GROUPS,
@@ -98,14 +98,14 @@ impl Category {
 /// - a **rich source** — the header *is* the source (`Left Stick`); `primary` is the single rich
 ///   input (its behaviour selector), and `sub` lists the buttons that live on it (its click/touch),
 ///   shown below with a small gap and no header of their own.
-pub struct InputGroup {
+pub(crate) struct InputGroup {
     /// Group header (a cluster name like "Bumpers", or a rich source like "Left Stick").
-    pub header: &'static str,
+    pub(crate) header: &'static str,
     /// The primary inputs: the cluster's buttons, or the single rich source.
-    pub primary: &'static [InputSource],
+    pub(crate) primary: &'static [InputSource],
     /// Sub-buttons attached to a rich source (its click/touch), shown under `primary` without their
     /// own header. Empty for button clusters.
-    pub sub: &'static [InputSource],
+    pub(crate) sub: &'static [InputSource],
 }
 
 use InputSource as I;
