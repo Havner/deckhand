@@ -8,11 +8,11 @@
 
 use std::path::PathBuf;
 
-use config::{ActionSet, ConfigDoc, Layer};
+use config::{Action, ActionSet, ConfigDoc, Layer};
 use iced::Task;
 use ipc::ProfileRole;
 
-use crate::{App, Message, NAME_FIELD_ID, Popup};
+use crate::{ActionTab, App, Message, NAME_FIELD_ID, Popup};
 
 pub(crate) mod authoring;
 pub(crate) use authoring::Behavior;
@@ -107,6 +107,13 @@ pub enum EditorMessage {
     /// Name-entry dialog: the text field changed / confirmed (Enter or OK).
     DialogTextChanged(String),
     DialogConfirm,
+    /// Open the output-Action picker (from an input page's `<unbound>` bar).
+    OpenActionPicker,
+    /// Switch the Action picker's tab.
+    ActionPickerTab(ActionTab),
+    /// An action was picked (debug-wired: printed, not yet stored — the input pages don't hold
+    /// bindings yet). Closes the picker.
+    ActionPicked(Action),
 }
 
 /// Handle one editor message against the app state. The **single doc-mutation site** — the place to
@@ -182,6 +189,22 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
             }
             apply_name_entry(app, kind, text.trim().to_string());
             app.save_editing();
+            Task::none()
+        }
+        EditorMessage::OpenActionPicker => {
+            app.popup = Some(Popup::ActionPicker { tab: ActionTab::Gamepad });
+            Task::none()
+        }
+        EditorMessage::ActionPickerTab(tab) => {
+            if let Some(Popup::ActionPicker { tab: current }) = &mut app.popup {
+                *current = tab;
+            }
+            Task::none()
+        }
+        EditorMessage::ActionPicked(action) => {
+            // Debug wiring: the input pages don't store bindings yet, so just report the pick.
+            println!("[action picker] picked: {action:?}");
+            app.popup = None;
             Task::none()
         }
     }

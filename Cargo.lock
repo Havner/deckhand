@@ -848,6 +848,7 @@ dependencies = [
  "ron",
  "serde",
  "tray-icon",
+ "vocab",
  "windows",
  "winresource",
 ]

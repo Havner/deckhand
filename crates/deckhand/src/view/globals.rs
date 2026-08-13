@@ -4,7 +4,7 @@
 //! yet (that lands with the profile editor) — only their count is shown.
 
 use config::StartProfile;
-use iced::widget::{checkbox, column, pick_list, row, slider, text};
+use iced::widget::{button, checkbox, column, pick_list, row, slider, text};
 use iced::{Center, Element};
 
 use super::{section_header, small};
@@ -88,12 +88,25 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
         .spacing(12.0)
         .align_y(Center);
 
+    // TEMPORARY debug affordance: opens the button (gater/global) picker to exercise it; the pick is
+    // printed to stdout. Remove once gater/chord editing is built.
+    let pick_button = button(text("Pick a button (debug)")).on_press(Message::OpenButtonPicker);
+
     let note =
         small("'Start profile', 'LED brightness' and 'Idle timeout' take effect only on engine start.");
 
-    column![section_header("Global daemon settings"), note, start, master, led, idle, chords]
-        .spacing(16.0)
-        .into()
+    column![
+        section_header("Global daemon settings"),
+        note,
+        start,
+        master,
+        led,
+        idle,
+        chords,
+        pick_button,
+    ]
+    .spacing(16.0)
+    .into()
 }
 
 /// A fixed-width row label for the Globals screen, so the controls line up in a column.

@@ -12,6 +12,8 @@ path = "src/main.rs"
 [dependencies]
 ipc = { path = "../ipc" }
 config = { path = "../config" }
+# Output vocabulary (Key/MouseButton/GamepadButton) for the Action picker.
+vocab = { path = "../vocab" }
 iced.workspace = true
 rfd.workspace = true
 serde.workspace = true

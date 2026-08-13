@@ -75,17 +75,8 @@ pub enum IoTarget {
     Output,
 }
 
-/// The one modal shown at a time (the view layers exactly one over the base): network I/O staging,
-/// plus the profile editor's context menu and name-entry dialogs.
-#[derive(Debug, Clone)]
-pub enum Popup {
-    /// Network input/output staging: which selector it targets + the current `host:port` text.
-    Network { target: IoTarget, text: String },
-    /// A Profile-page set/layer context menu, opened by that bar's gear.
-    Menu(editor::EditTarget),
-    /// The add-set / add-layer / rename name dialog: what confirming does + the current text.
-    NameEntry { kind: editor::NameEntryKind, text: String },
-}
+// The modal state enum + its picker tabs live in the modal view module (which owns all modals).
+pub use view::modal::{ActionTab, Popup};
 
 /// Decode a PNG to straight RGBA8 with its dimensions. Shared by [`window_icon`] and the platform
 /// tray backends' icon loaders (see [`tray`]). Returns `None` (icon simply omitted) rather than
@@ -305,6 +296,10 @@ pub enum Message {
     PopupTextChanged(String),
     PopupConfirm,
     PopupCancel,
+    /// Button (gater/global) picker — temporary debug wiring: opened from a Globals-page button,
+    /// prints the picked input.
+    OpenButtonPicker,
+    ButtonPicked(config::InputSource),
     /// Window lifecycle: open captures the id; a close *request* (WM button) is intercepted for
     /// close-to-tray; closed clears the id; resize tracks the size to persist.
     WindowOpened(window::Id),
@@ -617,6 +612,12 @@ impl App {
                 }
             }
             Message::PopupCancel => self.popup = None,
+            Message::OpenButtonPicker => self.popup = Some(Popup::ButtonPicker),
+            Message::ButtonPicked(src) => {
+                // Debug wiring: gaters/globals editing isn't built yet, so just report the pick.
+                println!("[button picker] picked: {src:?}");
+                self.popup = None;
+            }
 
             // --- window + tray arms (may drive a window Task) ---
             Message::WindowOpened(id) => self.window = Some(id),

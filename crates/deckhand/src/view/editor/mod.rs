@@ -242,12 +242,13 @@ fn input_row(
     if let Some(role) = dot {
         r = r.push(text("●").size(16.0).style(role));
     }
-    // "Add command" fills the same slot + width as a behaviour row's combobox, so the right-hand
-    // controls line up down the page; it will open the output-selector modal. Then the gear.
+    // "<unbound>" fills the same slot + width as a behaviour row's combobox, so the right-hand
+    // controls line up down the page; it opens the Action picker (debug-wired: prints the picked
+    // action for now — the input pages don't store bindings yet). Then the gear.
     let add_command = button(text("<unbound>").center())
         .width(CMD_SLOT)
         .style(style::combo_button)
-        .on_press(Message::Ignored);
+        .on_press(Message::Editor(EditorMessage::OpenActionPicker));
     let inner = r.push(text(label)).push(Space::new().width(Fill)).push(add_command).push(gear());
     card(inner)
 }
@@ -257,8 +258,8 @@ fn gear() -> Element<'static, Message> {
     button(text("⚙").size(16.0)).on_press(Message::Ignored).style(style::combo_button).into()
 }
 
-/// A human-readable label for an input, for the mock rows.
-fn input_label(input: &InputSource) -> &'static str {
+/// A human-readable label for an input, for the mock rows and the button picker.
+pub(crate) fn input_label(input: &InputSource) -> &'static str {
     match input {
         InputSource::FaceButtons => "Face Buttons",
         InputSource::DPad => "D-Pad",

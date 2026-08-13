@@ -10,19 +10,17 @@
 
 mod editor;
 mod globals;
+pub(crate) mod modal;
 mod profiles;
 mod settings;
 
-use iced::widget::{
-    Space, button, center, column, container, mouse_area, opaque, pick_list, row, rule, scrollable,
-    stack, text, text_input,
-};
+use iced::widget::{Space, button, column, container, pick_list, row, rule, scrollable, text};
 use iced::{Center, Element, Fill, Theme};
 use ipc::{ProfileRole, RunState};
 
-use crate::editor::{EditTarget, EditorMessage};
+use crate::editor::EditorMessage;
 use crate::nav::Category;
-use crate::{App, INPUT_PRESETS, IoTarget, Message, NETWORK_OPTION, OUTPUT_PRESETS, Popup, daemon, style};
+use crate::{App, INPUT_PRESETS, Message, NETWORK_OPTION, OUTPUT_PRESETS, daemon, style};
 
 /// The whole window: top bar / (sidebar + content) / bottom bar, with a modal layered on top when
 /// one is open.
@@ -33,10 +31,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         bottom_bar(app),
     ]
     .into();
-    match &app.popup {
-        Some(popup) => modal(base, popup_card(app, popup), Message::PopupCancel),
-        None => base,
-    }
+    modal::overlay(app, base)
 }
 
 // --- shared building blocks (used across the screen submodules via `super::`) ---------------
@@ -76,109 +71,6 @@ fn card<'a>(inner: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
 /// The status-bar separator glyph.
 fn sep() -> Element<'static, Message> {
     text("│").size(13.0).style(style::muted_text).into()
-}
-
-// --- modal shell ----------------------------------------------------------------------------
-
-/// Layer `content` over `base` as a modal: a dimmed, input-blocking backdrop (click it to dismiss,
-/// sending `on_dismiss`) with `content` centered on top. Content-agnostic — any screen can reuse it
-/// with its own card and dismiss message.
-fn modal<'a>(
-    base: Element<'a, Message>,
-    content: Element<'a, Message>,
-    on_dismiss: Message,
-) -> Element<'a, Message> {
-    stack![
-        base,
-        opaque(mouse_area(center(opaque(content)).style(style::scrim)).on_press(on_dismiss))
-    ]
-    .into()
-}
-
-/// Render the open modal — the network dialog, a Profile-page context menu, or a name-entry dialog.
-fn popup_card<'a>(app: &'a App, popup: &'a Popup) -> Element<'a, Message> {
-    match popup {
-        Popup::Network { target, text } => network_card(*target, text),
-        Popup::Menu(target) => menu_card(app, target),
-        Popup::NameEntry { kind, text } => name_entry_card(app, kind, text),
-    }
-}
-
-/// The network-spec card: a `host:port` field (Enter confirms) + Cancel / OK. OK/Enter are inert
-/// while the field is empty (an empty spec is invalid).
-fn network_card(target: IoTarget, spec: &str) -> Element<'_, Message> {
-    let title = match target {
-        IoTarget::Input => "Network input",
-        IoTarget::Output => "Network output",
-    };
-    let confirm = (!spec.trim().is_empty()).then_some(Message::PopupConfirm);
-    let field = text_input("host:port", spec)
-        .id(crate::NETWORK_FIELD_ID)
-        .on_input(Message::PopupTextChanged)
-        .on_submit_maybe(confirm.clone())
-        .padding(6.0);
-    let buttons = row![
-        button(text("Cancel")).style(button::danger).on_press(Message::PopupCancel),
-        Space::new().width(Fill),
-        button(text("OK")).style(button::success).on_press_maybe(confirm),
-    ]
-    .align_y(Center);
-
-    let card = column![text(title).size(18.0), field, buttons].spacing(12.0);
-    container(card).padding(16.0).width(320.0).style(container::rounded_box).into()
-}
-
-/// A Profile-page set/layer context menu: a column of actions for the gear's target. Sets offer
-/// Rename / Remove (disabled when it's the only set) / Add layer; layers offer Rename / Remove.
-fn menu_card<'a>(app: &'a App, target: &'a EditTarget) -> Element<'a, Message> {
-    let is_set = target.layer.is_none();
-    let title = target.layer.as_deref().unwrap_or(target.set.as_str());
-    let item = |label, msg: Option<Message>| -> Element<'a, Message> {
-        let b = button(text(label)).width(Fill).style(button::secondary);
-        match msg {
-            Some(m) => b.on_press(m),
-            None => b,
-        }
-        .into()
-    };
-
-    let mut col = column![text(title).size(16.0)].spacing(8.0);
-    col = col.push(item("Rename", Some(Message::Editor(EditorMessage::MenuRename))));
-    if is_set {
-        // The last action set can't be removed — at least one must exist.
-        let can_remove = app.editing.as_ref().is_some_and(|e| e.doc.action_sets.len() > 1);
-        col = col
-            .push(item("Remove", can_remove.then_some(Message::Editor(EditorMessage::MenuRemove))));
-        col = col.push(item("Add layer", Some(Message::Editor(EditorMessage::MenuAddLayer))));
-    } else {
-        col = col.push(item("Remove", Some(Message::Editor(EditorMessage::MenuRemove))));
-    }
-    container(col).padding(12.0).width(220.0).style(container::rounded_box).into()
-}
-
-/// The add-set / add-layer / rename name dialog. OK/Enter are inert unless the name is valid
-/// (non-empty and unique in scope — see [`crate::editor::name_entry_ok`]).
-fn name_entry_card<'a>(
-    app: &'a App,
-    kind: &'a crate::editor::NameEntryKind,
-    value: &'a str,
-) -> Element<'a, Message> {
-    let ok = app.editing.as_ref().is_some_and(|e| crate::editor::name_entry_ok(&e.doc, kind, value));
-    let confirm = ok.then_some(Message::Editor(EditorMessage::DialogConfirm));
-    let field = text_input("name", value)
-        .id(crate::NAME_FIELD_ID)
-        .on_input(|s| Message::Editor(EditorMessage::DialogTextChanged(s)))
-        .on_submit_maybe(confirm.clone())
-        .padding(6.0);
-    let buttons = row![
-        button(text("Cancel")).style(button::danger).on_press(Message::PopupCancel),
-        Space::new().width(Fill),
-        button(text("OK")).style(button::success).on_press_maybe(confirm),
-    ]
-    .align_y(Center);
-
-    let card = column![text(kind.title()).size(18.0), field, buttons].spacing(12.0);
-    container(card).padding(16.0).width(320.0).style(container::rounded_box).into()
 }
 
 // --- top bar --------------------------------------------------------------------------------
