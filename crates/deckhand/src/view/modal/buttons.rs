@@ -20,7 +20,7 @@ fn tile(src: InputSource) -> Element<'static, Message> {
     button(text(label).size(12.0).center())
         .width(150.0)
         .height(40.0)
-        .style(style::combo_button)
+        .style(style::option_button)
         .on_press(Message::ButtonPicked(src))
         .into()
 }
@@ -63,5 +63,5 @@ pub(super) fn card() -> Element<'static, Message> {
     .spacing(14.0)
     .align_x(Center);
 
-    container(col).padding(20.0).width(720.0).style(container::rounded_box).into()
+    container(col).padding(20.0).width(720.0).style(style::modal_card).into()
 }

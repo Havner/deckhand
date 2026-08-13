@@ -11,7 +11,7 @@
 //! `text(...).style(...)` and re-resolve against whatever theme iced passes — no need to thread the
 //! theme through the view functions.
 
-use iced::widget::{button, container, slider, text};
+use iced::widget::{button, container, pick_list, slider, text};
 use iced::{Background, Border, Color, Theme};
 
 /// Text in the palette's **success** color (green-ish) — e.g. the "connected" dot.
@@ -97,6 +97,17 @@ pub fn combo_button(theme: &Theme, status: button::Status) -> button::Style {
 /// a panel while keeping the theme's tint. Light themes keep the plain `secondary` preset.
 const DARK_PANEL_DIVISOR: f32 = 5.0;
 
+/// The dark-theme "bar" background: the `secondary` container color with each channel divided by
+/// [`DARK_PANEL_DIVISOR`]. One source of truth for the tone the sidebar/cards use, so the picker
+/// option buttons ([`option_button`]) can sit on the very same color.
+fn dark_bar_color(theme: &Theme) -> Color {
+    let c = match container::secondary(theme).background {
+        Some(Background::Color(c)) => c,
+        _ => theme.palette().background.weak.color,
+    };
+    Color::from_rgb(c.r / DARK_PANEL_DIVISOR, c.g / DARK_PANEL_DIVISOR, c.b / DARK_PANEL_DIVISOR)
+}
+
 /// Shared panel background (sidebar + the Buttons cards): the theme's `secondary` container style,
 /// but darkened on dark themes (the palette's `is_dark` flag — the same signal that drives the
 /// window decorations). Keeps the tint so each theme's panels still read as *its* color, just
@@ -110,13 +121,85 @@ pub fn panel(theme: &Theme) -> container::Style {
     // Dark themes: darken the secondary background, and force the theme's primary (light) text
     // color — the `secondary` preset picks dark text for its light base, which is unreadable once
     // the background is darkened.
-    if let Some(Background::Color(c)) = style.background {
-        style.background = Some(Background::Color(Color::from_rgb(
-            c.r / DARK_PANEL_DIVISOR,
-            c.g / DARK_PANEL_DIVISOR,
-            c.b / DARK_PANEL_DIVISOR,
-        )));
-    }
+    style.background = Some(Background::Color(dark_bar_color(theme)));
     style.text_color = Some(theme.palette().background.base.text);
     style
+}
+
+/// A `pick_list` whose placeholder reads as **normal** text, not the muted default. The Action
+/// picker uses a combobox's placeholder as its permanent label ("Hold Layer", …) rather than a
+/// hint for an empty value, so the default `secondary` placeholder tone made those labels look
+/// disabled. Everything else matches `pick_list::default`.
+pub fn labeled_pick(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
+    let mut style = pick_list::default(theme, status);
+    style.placeholder_color = style.text_color;
+    style
+}
+
+/// A modal card's surface — like `container::rounded_box`, but filled with the window's **base**
+/// background (`background.base`) instead of the lighter `background.weak`, so a modal reads as the
+/// same tone as the big content pane behind it (which has no fill of its own → the base background).
+/// `rounded_box`'s `weak` fill looked right on light themes but too light on dark ones.
+pub fn modal_card(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(Background::Color(palette.background.base.color)),
+        text_color: Some(palette.background.base.text),
+        ..container::rounded_box(theme)
+    }
+}
+
+/// The picker / menu **option** button — one style shared by the Action picker, the Button picker,
+/// and the gear context menu, so every clickable option reads the same.
+///
+/// **Light themes:** essentially `button::secondary`, but hovering only *outlines* it with the
+/// combobox's hairline border (no fill change); the fill shifts to `secondary`'s hover tone on
+/// press instead. **Dark themes:** the [`combo_button`] look (gear / `<unbound>`) but filled with
+/// the darkened [`dark_bar_color`] the bars use, so options sit on the same tone as the cards
+/// behind them (hover highlights the border like an opened combobox; press dips the fill).
+pub fn option_button(theme: &Theme, status: button::Status) -> button::Style {
+    let palette = theme.palette();
+    if palette.is_dark {
+        let bar = dark_bar_color(theme);
+        let base = button::Style {
+            background: Some(Background::Color(bar)),
+            text_color: palette.background.base.text,
+            border: Border { radius: 2.0.into(), width: 1.0, color: palette.background.strong.color },
+            ..button::Style::default()
+        };
+        match status {
+            button::Status::Active => base,
+            button::Status::Hovered => button::Style {
+                border: Border { color: palette.primary.strong.color, ..base.border },
+                ..base
+            },
+            button::Status::Pressed => button::Style {
+                background: Some(Background::Color(Color::from_rgb(
+                    bar.r * 0.7,
+                    bar.g * 0.7,
+                    bar.b * 0.7,
+                ))),
+                ..base
+            },
+            button::Status::Disabled => {
+                button::Style { text_color: palette.background.strong.color, ..base }
+            }
+        }
+    } else {
+        // Light: base is plain `secondary`; hover only adds a border (fill unchanged), and press
+        // adopts `secondary`'s hover fill. The border matches `combo_button`'s hover highlight
+        // (`primary.strong`) so hovering an option reads like hovering an opened combobox.
+        let base = button::secondary(theme, button::Status::Active);
+        let combo_border =
+            Border { radius: 2.0.into(), width: 1.0, color: palette.primary.strong.color };
+        match status {
+            button::Status::Active => base,
+            button::Status::Hovered => button::Style { border: combo_border, ..base },
+            button::Status::Pressed => button::Style {
+                border: combo_border,
+                ..button::secondary(theme, button::Status::Hovered)
+            },
+            button::Status::Disabled => button::secondary(theme, button::Status::Disabled),
+        }
+    }
 }

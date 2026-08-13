@@ -99,7 +99,7 @@ fn network_card(target: IoTarget, spec: &str) -> Element<'_, Message> {
     .align_y(Center);
 
     let card = column![text(title).size(18.0), field, buttons].spacing(12.0);
-    container(card).padding(16.0).width(320.0).style(container::rounded_box).into()
+    container(card).padding(16.0).width(320.0).style(style::modal_card).into()
 }
 
 /// A Profile-page set/layer context menu: a column of actions for the gear's target. Sets offer
@@ -108,7 +108,7 @@ fn menu_card<'a>(app: &'a App, target: &'a EditTarget) -> Element<'a, Message> {
     let is_set = target.layer.is_none();
     let title = target.layer.as_deref().unwrap_or(target.set.as_str());
     let item = |label, msg: Option<Message>| -> Element<'a, Message> {
-        let b = button(text(label)).width(Fill).style(button::secondary);
+        let b = button(text(label)).width(Fill).style(style::option_button);
         match msg {
             Some(m) => b.on_press(m),
             None => b,
@@ -127,7 +127,7 @@ fn menu_card<'a>(app: &'a App, target: &'a EditTarget) -> Element<'a, Message> {
     } else {
         col = col.push(item("Remove", Some(Message::Editor(EditorMessage::MenuRemove))));
     }
-    container(col).padding(12.0).width(220.0).style(container::rounded_box).into()
+    container(col).padding(12.0).width(220.0).style(style::modal_card).into()
 }
 
 /// The add-set / add-layer / rename name dialog. OK/Enter are inert unless the name is valid
@@ -152,5 +152,5 @@ fn name_entry_card<'a>(
     .align_y(Center);
 
     let card = column![text(kind.title()).size(18.0), field, buttons].spacing(12.0);
-    container(card).padding(16.0).width(320.0).style(container::rounded_box).into()
+    container(card).padding(16.0).width(320.0).style(style::modal_card).into()
 }

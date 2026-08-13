@@ -33,7 +33,7 @@ pub(super) fn card(app: &App, tab: ActionTab) -> Element<'static, Message> {
         ActionTab::ActionSets => action_sets(app),
     };
     let body = column![tab_bar(tab), content].spacing(20.0).align_x(Center);
-    container(scrollable(body)).padding(20.0).width(840.0).style(container::rounded_box).into()
+    container(scrollable(body)).padding(20.0).width(840.0).style(style::modal_card).into()
 }
 
 /// The row of tab buttons; the active one is highlighted.
@@ -58,10 +58,22 @@ fn tab_bar(active: ActionTab) -> Element<'static, Message> {
 
 /// An active gamepad-button tile.
 fn gbtn(label: &'static str, gb: GamepadButton) -> Element<'static, Message> {
-    gbtn_styled(label, gb, style::combo_button)
+    button(text(label).size(13.0).center())
+        .width(50.0)
+        .height(40.0)
+        .style(style::option_button)
+        .on_press(Message::Editor(EditorMessage::ActionPicked(Action::GamepadButton(gb))))
+        .into()
 }
 
-/// An active gamepad-button tile with a custom (coloured) style.
+/// A disabled placeholder tile (no output in vocab yet — e.g. LT/RT, stick directions). No
+/// `on_press` → renders in the option button's disabled (faded) state.
+fn gbtn_off(label: &'static str) -> Element<'static, Message> {
+    button(text(label).size(13.0).center()).width(50.0).height(40.0).style(style::option_button).into()
+}
+
+/// An active gamepad-button tile with a custom (coloured) style — the A/B/X/Y face buttons keep
+/// their Xbox glyph colours rather than the uniform option style.
 fn gbtn_styled(
     label: &'static str,
     gb: GamepadButton,
@@ -73,11 +85,6 @@ fn gbtn_styled(
         .style(sty)
         .on_press(Message::Editor(EditorMessage::ActionPicked(Action::GamepadButton(gb))))
         .into()
-}
-
-/// A disabled placeholder tile (no output in vocab yet — e.g. LT/RT, stick directions).
-fn gbtn_off(label: &'static str) -> Element<'static, Message> {
-    button(text(label).size(13.0).center()).width(50.0).height(40.0).style(style::combo_button).into()
 }
 
 /// up / left+center+right / down, stacked — a stick cluster.
@@ -153,7 +160,7 @@ fn mouse() -> Element<'static, Message> {
     let mb = |label, b: MouseButton| -> Element<'static, Message> {
         button(text(label))
             .width(190.0)
-            .style(style::combo_button)
+            .style(style::option_button)
             .on_press(Message::Editor(EditorMessage::ActionPicked(Action::MouseButton(b))))
             .into()
     };
@@ -184,7 +191,7 @@ fn key(k: Key, w: f32) -> Element<'static, Message> {
         .width(w)
         .height(30.0)
         .padding(2.0)
-        .style(style::combo_button)
+        .style(style::option_button)
         .on_press(Message::Editor(EditorMessage::ActionPicked(Action::Key(k))))
         .into()
 }
@@ -331,6 +338,7 @@ fn action_sets(app: &App) -> Element<'static, Message> {
 
     let change: Element<'static, Message> = pick_list(None::<String>, sets, |s: &String| s.clone())
         .placeholder("Change Action Set")
+        .style(style::labeled_pick)
         .on_select(|name| {
             Message::Editor(EditorMessage::ActionPicked(Action::ChangeActionSet(ActionSetRef(name))))
         })
@@ -357,6 +365,7 @@ fn layer_pick(
 ) -> Element<'static, Message> {
     pick_list(None::<String>, layers, |s: &String| s.clone())
         .placeholder(placeholder)
+        .style(style::labeled_pick)
         .on_select(move |name| Message::Editor(EditorMessage::ActionPicked(make(LayerRef(name)))))
         .width(280.0)
         .into()
