@@ -63,21 +63,26 @@ pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
 /// you're **editing** is normal-colored, its context muted: on an action set the set name is active
 /// (layer line blank); on a layer the set name is muted context and the layer name is active.
 pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
-    let Some(ed) = &app.editing else { return Space::new().into() };
-    let list = crate::editor::edit_target_list(&ed.doc);
-    let pos = list.iter().position(|t| *t == ed.target).unwrap_or(0);
-    let set = &ed.doc.action_sets[ed.target.set];
-
-    // Top line = the action set name (muted when a layer is the active target, i.e. it's just
-    // context); bottom line = the layer name, or a blank line to hold the height.
-    let editing_layer = ed.target.layer.is_some();
-    let top = {
-        let t = text(set.name.clone()).size(13.0);
-        if editing_layer { t.style(style::muted_text) } else { t }
-    };
-    let bottom = match ed.target.layer {
-        Some(li) => text(format!("≣ {}", set.layers[li].name)).size(13.0),
-        None => text(" ").size(13.0),
+    // Always rendered so loading/unloading a profile doesn't shift the sidebar. Inert when nothing
+    // is loaded: both arrows disabled, both labels blank (blank lines still hold the height).
+    let (top, bottom, prev_enabled, next_enabled) = match &app.editing {
+        Some(ed) => {
+            let list = crate::editor::edit_target_list(&ed.doc);
+            let pos = list.iter().position(|t| *t == ed.target).unwrap_or(0);
+            let set = &ed.doc.action_sets[ed.target.set];
+            // Top = the action set name (muted when a layer is the active target — it's just
+            // context); bottom = the layer name, or a blank line to hold the height.
+            let top = {
+                let t = text(set.name.clone()).size(13.0);
+                if ed.target.layer.is_some() { t.style(style::muted_text) } else { t }
+            };
+            let bottom = match ed.target.layer {
+                Some(li) => text(set.layers[li].name.clone()).size(13.0),
+                None => text(" ").size(13.0),
+            };
+            (top, bottom, pos > 0, pos + 1 < list.len())
+        }
+        None => (text(" ").size(13.0), text(" ").size(13.0), false, false),
     };
     let labels = column![top, bottom].align_x(Center).spacing(2.0).width(Fill);
 
@@ -89,9 +94,9 @@ pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
         b.into()
     };
     row![
-        arrow("◀", pos > 0, Message::Editor(EditorMessage::TargetPrev)),
+        arrow("◀", prev_enabled, Message::Editor(EditorMessage::TargetPrev)),
         labels,
-        arrow("▶", pos + 1 < list.len(), Message::Editor(EditorMessage::TargetNext)),
+        arrow("▶", next_enabled, Message::Editor(EditorMessage::TargetNext)),
     ]
     .align_y(Center)
     .spacing(6.0)
