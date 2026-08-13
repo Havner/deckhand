@@ -1,21 +1,20 @@
 //! The left-sidebar navigation model — one enum for every screen the content pane can show.
 //!
-//! Three bands, top to bottom:
-//! - **Profiles** — profile *management* (load-for-edit, send-to-daemon); always available.
-//! - a separator, then the **profile-editor** categories (Profile … Gyro) — these edit the
-//!   currently-loaded profile, so they're disabled until one is loaded (see `App::editing`).
-//! - the **application-level** entries pinned at the bottom (Globals, Settings) — always available.
+//! Two sections, split by a flex spacer (declared top-to-bottom):
+//! - **Top** — the **profile-editor** bands ([`Category::EDITOR_BANDS`]: Profile / per-input pages /
+//!   Rumble), which edit the loaded profile, so they're disabled until one is loaded (see
+//!   `App::editing`).
+//! - **Bottom** ([`Category::BOTTOM`]) — profile *management* (Profiles) plus the app-level pages
+//!   (Globals, Settings); always available.
 //!
-//! The editor categories are still stub/mockup screens; Profiles, Settings, and Globals are wired.
+//! Profiles, Settings, and Globals are wired; the editor pages are still mock screens.
 
 use config::InputSource;
 
-/// A sidebar entry / content screen.
+/// A sidebar entry / content screen. Declared in sidebar order, top to bottom.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Category {
-    // Profile management (top band).
-    Profiles,
-    // Profile-editor categories (middle band, below the separator; stub screens for now).
+    // Profile-editor categories (top section; mock screens for now).
     Profile,
     Buttons,
     Triggers,
@@ -23,7 +22,8 @@ pub enum Category {
     Trackpads,
     Gyro,
     Rumble,
-    // Application-level (bottom band).
+    // Bottom section: profile management + app-level pages.
+    Profiles,
     Globals,
     Settings,
 }
@@ -45,9 +45,10 @@ impl Category {
         &[Category::Rumble],
     ];
 
-    /// The application-level categories pinned at the bottom of the sidebar (Settings at the very
-    /// bottom, Globals above it).
-    pub const APP: &'static [Category] = &[Category::Globals, Category::Settings];
+    /// The bottom-section pages, in order: profile management (Profiles) then the app-level pages
+    /// (Globals, Settings). Rendered flat (no separators), pinned below the flex spacer.
+    pub const BOTTOM: &'static [Category] =
+        &[Category::Profiles, Category::Globals, Category::Settings];
 
     /// Whether this category is part of the profile editor (disabled when no profile is loaded).
     pub fn is_editor(self) -> bool {
@@ -57,7 +58,6 @@ impl Category {
     /// The sidebar label.
     pub fn label(self) -> &'static str {
         match self {
-            Category::Profiles => "Profiles",
             Category::Profile => "Profile",
             Category::Buttons => "Buttons",
             Category::Triggers => "Triggers",
@@ -65,6 +65,7 @@ impl Category {
             Category::Trackpads => "Trackpads",
             Category::Gyro => "Gyro",
             Category::Rumble => "Rumble",
+            Category::Profiles => "Profiles",
             Category::Globals => "Globals",
             Category::Settings => "Settings",
         }

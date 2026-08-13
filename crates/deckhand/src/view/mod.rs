@@ -192,15 +192,13 @@ fn top_bar(app: &App) -> Element<'_, Message> {
 
 // --- sidebar --------------------------------------------------------------------------------
 
-/// Left sidebar: Profiles (management) up top, a strong double-rule break, then the profile-editor
-/// bands (Profile / per-input pages / Rumble, each split by a rule); app-level (Globals/Settings)
-/// pinned at the bottom.
+/// Left sidebar: the profile-editor bands (Profile / per-input pages / Rumble, each split by a rule,
+/// with the action-set/layer selector heading the input band) at the top; profile management +
+/// app-level pages (Profiles / Globals / Settings) pinned at the bottom.
 fn sidebar(app: &App) -> Element<'_, Message> {
-    // Profiles, a single rule, then a bigger gap separating daemon-management from the editor proper.
-    let mut top = column![nav_button(app, Category::Profiles), rule::horizontal(1)].spacing(4.0);
-    top = top.push(Space::new().height(50.0));
-    // Editor bands, a single rule between each. The action-set/layer selector heads the per-input
+    // Top: the editor bands, a rule between each. The action-set/layer selector heads the per-input
     // band (index 1); always shown (inert when no profile is loaded) so the layout never shifts.
+    let mut top = column![].spacing(4.0);
     for (i, band) in Category::EDITOR_BANDS.iter().enumerate() {
         if i > 0 {
             top = top.push(rule::horizontal(1));
@@ -212,8 +210,9 @@ fn sidebar(app: &App) -> Element<'_, Message> {
             top = top.push(nav_button(app, c));
         }
     }
+    // Bottom: profile management + app-level pages (Profiles / Globals / Settings), no separators.
     let mut bottom = column![].spacing(4.0);
-    for &c in Category::APP {
+    for &c in Category::BOTTOM {
         bottom = bottom.push(nav_button(app, c));
     }
 
