@@ -61,7 +61,12 @@ pub(crate) enum ActionTab {
 pub(super) fn overlay<'a>(app: &'a App, base: Element<'a, Message>) -> Element<'a, Message> {
     match &app.popup {
         Some(popup) => shell(base, card(app, popup), Message::PopupCancel),
-        None => base,
+        // Wrap even the no-popup case in a `stack!` so the root widget type stays `Stack`
+        // whether or not a modal is open. iced matches widget state (incl. a scrollable's
+        // offset) by position + widget type; if the root flipped Column<->Stack when a modal
+        // opened, the whole tree would rebuild and every scrollable would snap back to the top.
+        // Keeping `base` as stack child 0 in both states preserves scroll position.
+        None => stack![base].into(),
     }
 }
 
