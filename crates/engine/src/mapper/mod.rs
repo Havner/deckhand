@@ -283,7 +283,7 @@ mod tests {
         CompiledAction, CompiledCommand, CompiledLayer, CompiledSet, ProgramMeta, Role, SourceMap,
     };
     use config::{Activator, CommandSettings};
-    use vocab::{GamepadButton, Key};
+    use vocab_out::{GamepadButton, Key};
 
     /// A `Regular` command firing the given actions.
     fn regular(actions: Vec<CompiledAction>) -> CompiledCommand {

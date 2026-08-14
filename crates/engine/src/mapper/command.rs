@@ -237,7 +237,7 @@ mod tests {
     use super::*;
     use crate::program::CompiledAction;
     use config::CommandSettings;
-    use vocab::Key;
+    use vocab_out::Key;
 
     fn cmd(activator: Activator) -> CompiledCommand {
         cmd_key(activator, Key::A, CommandSettings::default())
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn scroll_button_rides_the_level_path_and_turbo_repeats() {
-        use vocab::MouseButton;
+        use vocab_out::MouseButton;
         let up = |settings| CompiledCommand {
             activator: Activator::Regular,
             actions: vec![CompiledAction::MouseButton(MouseButton::ScrollUp)],

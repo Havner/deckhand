@@ -13,7 +13,7 @@ use iced::widget::{Space, button, column, container, pick_list, row, scrollable,
 use iced::{Center, Element, Fill, Theme};
 
 use config::{Action, ActionSetRef, LayerRef};
-use vocab::{GamepadButton, Key, MouseButton};
+use vocab_out::{GamepadButton, Key, MouseButton};
 
 use super::ActionTab;
 use crate::editor::EditorMessage;

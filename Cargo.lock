@@ -663,7 +663,7 @@ version = "0.0.0"
 dependencies = [
  "ron",
  "serde",
- "vocab",
+ "vocab-out",
 ]
 
 [[package]]
@@ -848,7 +848,7 @@ dependencies = [
  "ron",
  "serde",
  "tray-icon",
- "vocab",
+ "vocab-out",
  "windows",
  "winresource",
 ]
@@ -1038,7 +1038,7 @@ dependencies = [
  "steam-hid",
  "thiserror 2.0.20",
  "virt-out",
- "vocab",
+ "vocab-out",
 ]
 
 [[package]]
@@ -4082,12 +4082,12 @@ dependencies = [
  "thiserror 2.0.20",
  "vigem-client",
  "viiper-client",
- "vocab",
+ "vocab-out",
  "windows",
 ]
 
 [[package]]
-name = "vocab"
+name = "vocab-out"
 version = "0.0.0"
 dependencies = [
  "serde",

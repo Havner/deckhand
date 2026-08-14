@@ -161,7 +161,7 @@ fn resolve_layer(names: &Names, name: &str) -> LayerId {
 mod tests {
     use super::*;
     use config::{Activator, LayerRef};
-    use vocab::{GamepadButton, Key};
+    use vocab_out::{GamepadButton, Key};
 
     fn press(action: Action) -> Command {
         Command { activator: Activator::Regular, actions: vec![action], settings: Default::default() }

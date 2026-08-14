@@ -14,7 +14,7 @@ use evdev::{
 };
 
 use crate::event::{AxisButtons, Dpad, OutputEvent, Rumble};
-use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
+use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 const FF_MAX_EFFECTS: u32 = 16;
 
@@ -508,7 +508,7 @@ fn push_wheel(mouse: &mut Vec<InputEvent>, horizontal: bool, notches: i32) {
 }
 
 /// Hi-res wheel units per detent (kernel/libinput convention; matches Windows `WHEEL_DELTA`).
-const SCROLL_HI_RES_PER_NOTCH: i32 = vocab::SCROLL_HI_RES_PER_DETENT;
+const SCROLL_HI_RES_PER_NOTCH: i32 = vocab_out::SCROLL_HI_RES_PER_DETENT;
 
 /// Add a hi-res scroll `delta` (units of 1/120 detent) to `accum`, returning the number of full
 /// legacy wheel notches that accumulated (with sign), keeping the sub-notch remainder. `None` when

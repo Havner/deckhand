@@ -12,7 +12,7 @@ publish.workspace = true
 config = { path = "../config" }
 # Shared output vocabulary (Key / MouseButton / GamepadButton / GamepadAxis). serde on so the
 # compiled Program IR (which embeds these) can be sent over the §6 network wire.
-vocab = { path = "../vocab", features = ["serde"] }
+vocab-out = { path = "../vocab-out", features = ["serde"] }
 # Input HAL (devices, ControllerState) and output HAL (Sink, OutputEvent, Rumble). The
 # engine owns and drives both directly (PLAN §4). virt-out's controller (virtual-gamepad)
 # backend is compile-time selectable and off by default; forward the choice via the engine's

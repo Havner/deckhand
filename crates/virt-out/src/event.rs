@@ -3,7 +3,7 @@
 //! `GamepadButton` / `GamepadAxis`) live in the shared [`vocab`] crate and are re-exported
 //! from the crate root. The backend maps them to OS codes.
 
-use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
+use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 /// A batch item handed to [`crate::Sink::emit`]. **Levels** (`Key`/button/axis) carry
 /// the desired state; **deltas** (`MouseMove`/`Scroll`) are relative. The engine sends

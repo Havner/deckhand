@@ -13,7 +13,7 @@ path = "src/main.rs"
 ipc = { path = "../ipc" }
 config = { path = "../config" }
 # Output vocabulary (Key/MouseButton/GamepadButton) for the Action picker.
-vocab = { path = "../vocab" }
+vocab-out = { path = "../vocab-out" }
 iced.workspace = true
 rfd.workspace = true
 serde.workspace = true

@@ -11,7 +11,7 @@ use vigem_client::{Client, TargetId, XButtons, XGamepad, XTarget};
 
 use super::ControllerBackend;
 use crate::event::{AxisButtons, Dpad, Rumble};
-use vocab::{GamepadAxis, GamepadButton};
+use vocab_out::{GamepadAxis, GamepadButton};
 
 /// Latest rumble from the virtual pad, written by the ViGEm notification thread and read by
 /// [`VigemController::poll_rumble`]. ViGEm reports motor speeds as `u8` (the high byte of the

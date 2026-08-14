@@ -13,7 +13,7 @@ thiserror.workspace = true
 log.workspace = true
 # The shared, platform-agnostic output vocabulary (Key / MouseButton / GamepadButton /
 # GamepadAxis). No serde here — that's `config`'s concern (PLAN §2.1/§3).
-vocab = { path = "../vocab" }
+vocab-out = { path = "../vocab-out" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev.workspace = true

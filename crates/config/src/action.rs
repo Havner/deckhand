@@ -1,7 +1,7 @@
 //! Actions — what a command/subcommand fires (PLAN §3, Round D).
 
 use serde::{Deserialize, Serialize};
-use vocab::{GamepadButton, Key, MouseButton};
+use vocab_out::{GamepadButton, Key, MouseButton};
 
 /// Reference to an action set by name (validated against the profile's action sets; the
 /// compile step later resolves it to an index). Serializes as a bare string in RON.

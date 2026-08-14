@@ -29,7 +29,7 @@ use viiper_client::{DeviceCreateRequest, DeviceStream, ViiperClient};
 
 use super::ControllerBackend;
 use crate::event::{AxisButtons, Dpad, Rumble};
-use vocab::{GamepadAxis, GamepadButton};
+use vocab_out::{GamepadAxis, GamepadButton};
 
 /// Default VIIPER API address (the `--api.addr` port, not the USB/IP `:3241` port).
 const DEFAULT_ADDR: &str = "127.0.0.1:3242";

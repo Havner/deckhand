@@ -12,7 +12,7 @@ serde.workspace = true
 ron.workspace = true
 # The shared output vocabulary (Key / MouseButton / GamepadButton), with serde on so it
 # round-trips in RON.
-vocab = { path = "../vocab", features = ["serde"] }
+vocab-out = { path = "../vocab-out", features = ["serde"] }
 
 # The worked example carries a #[test] (write a profile to a file + round-trip it), so let
 # `cargo test` run it.

@@ -95,7 +95,7 @@ pub enum HapticStrength {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vocab::Key;
+    use vocab_out::Key;
 
     #[test]
     fn ctrl_c_combo_round_trips_ron() {

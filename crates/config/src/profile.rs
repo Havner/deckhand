@@ -74,7 +74,7 @@ mod tests {
     use super::*;
     use crate::action::Action;
     use crate::command::{Activator, Command};
-    use vocab::GamepadButton;
+    use vocab_out::GamepadButton;
 
     #[test]
     fn config_doc_round_trips_ron() {

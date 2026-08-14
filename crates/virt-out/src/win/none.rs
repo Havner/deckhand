@@ -5,7 +5,7 @@
 
 use super::ControllerBackend;
 use crate::event::Rumble;
-use vocab::{GamepadAxis, GamepadButton};
+use vocab_out::{GamepadAxis, GamepadButton};
 
 /// A controller backend that realizes nothing. `warned` gates the one-time drop warning.
 pub(crate) struct NoController {

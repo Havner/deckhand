@@ -22,7 +22,7 @@ use config::{
     InputSource, JoystickMouseSettings, JoystickSettings, RumbleSettings, TriggerSettings,
 };
 use serde::{Deserialize, Serialize};
-use vocab::{GamepadButton, Key, MouseButton};
+use vocab_out::{GamepadButton, Key, MouseButton};
 
 /// Which of the engine's two live slots a [`Program`] occupies (PLAN §4.1). The engine
 /// self-switches `Main`↔`Fallback` via a global chord. (`Main` was `Active`, renamed since the

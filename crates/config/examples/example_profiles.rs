@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use config::{
     Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, GlobalAction, GlobalChord, GlobalConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StartProfile, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
 };
-use vocab::{GamepadButton, Key, MouseButton};
+use vocab_out::{GamepadButton, Key, MouseButton};
 
 // --- leaf action constructors (no embedded settings) ------------------------------------
 

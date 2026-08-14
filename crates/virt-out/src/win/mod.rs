@@ -37,7 +37,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 use crate::event::{OutputEvent, Rumble};
-use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
+use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 // --- controller backend selection (compile-time, mutually exclusive) ---
 //
@@ -273,7 +273,7 @@ fn mouse_input(dx: i32, dy: i32, data: u32, flags: windows::Win32::UI::Input::Ke
 const XBUTTON1: u32 = 0x0001;
 const XBUTTON2: u32 = 0x0002;
 /// One wheel notch (`WHEEL_DELTA`).
-const WHEEL_DELTA: i32 = vocab::SCROLL_HI_RES_PER_DETENT;
+const WHEEL_DELTA: i32 = vocab_out::SCROLL_HI_RES_PER_DETENT;
 
 /// Build a keyboard `INPUT`. Normal keys use **scancode injection** (games often read
 /// scancodes, not virtual keys): the scancode comes from the VK via `MapVirtualKeyW`, and

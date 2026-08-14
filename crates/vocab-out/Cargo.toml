@@ -1,5 +1,5 @@
 [package]
-name = "vocab"
+name = "vocab-out"
 description = "Hardware-independent output vocabulary (keys / mouse / gamepad) shared by config and virt-out; backends map these bare names to OS codes."
 version.workspace = true
 edition.workspace = true

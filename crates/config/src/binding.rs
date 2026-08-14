@@ -150,7 +150,7 @@ mod tests {
     use crate::command::{Activator, Command};
     use crate::input::InputSource;
     use crate::settings::MouseOutput;
-    use vocab::Key;
+    use vocab_out::Key;
 
     fn press(action: Action) -> Command {
         Command {

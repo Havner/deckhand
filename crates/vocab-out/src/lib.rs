@@ -1,5 +1,6 @@
-//! `vocab` — the hardware-independent **output vocabulary** shared by `config` (which
-//! names the target of a binding) and `virt-out` (which realizes it). No platform deps:
+//! `vocab-out` — the hardware-independent **output vocabulary** shared by `config` (which
+//! names the target of a binding) and `virt-out` (which realizes it). Its input counterpart is
+//! `vocab-hid` (the raw controller button bits). No platform deps:
 //! each backend maps these **bare names** to OS codes (`virt-out` Linux → evdev, Windows
 //! → scancode/VK). PLAN §2.1 / §3.
 //!
