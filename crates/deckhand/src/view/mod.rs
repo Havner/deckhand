@@ -14,11 +14,13 @@ pub(crate) mod modal;
 mod profiles;
 mod settings;
 
-use iced::widget::{Space, button, column, container, pick_list, row, rule, scrollable, text};
+use iced::widget::{Row, Space, button, column, container, pick_list, row, rule, scrollable, text};
 use iced::{Center, Element, Fill, Theme};
 use ipc::{ProfileRole, RunState};
 
-use crate::editor::EditorMessage;
+use config::InputSource;
+
+use crate::editor::{CommandSlot, EditorMessage};
 use crate::nav::Category;
 use crate::{App, INPUT_PRESETS, Message, NETWORK_OPTION, OUTPUT_PRESETS, daemon, style};
 
@@ -66,6 +68,47 @@ fn monospace<'a>(fragment: impl text::IntoFragment<'a>) -> Element<'a, Message> 
 /// Wrap a row as a padded card so grouped list rows read like the Steam UI.
 fn card<'a>(inner: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     container(inner).padding(10.0).width(Fill).style(style::panel).into()
+}
+
+/// An optional glyph-colour dot (a theme-role text style) for a button label.
+pub(in crate::view) type Dot = Option<fn(&Theme) -> text::Style>;
+
+/// A slot's display label + optional colour dot — the **single source of truth** for how a button
+/// reads, shared by its command bar(s) and its gear-menu title, so a future glyph/colour/name change
+/// happens in exactly one place.
+pub(in crate::view) fn slot_display(input: &InputSource, slot: CommandSlot) -> (&'static str, Dot) {
+    use CommandSlot as S;
+    use InputSource as I;
+    match (input, slot) {
+        // Face-button diamond (Y top, A bottom, X left, B right) with Xbox glyph colours.
+        (I::FaceButtons, S::Up) => ("Y Button", Some(style::warning_text)),
+        (I::FaceButtons, S::Down) => ("A Button", Some(style::success_text)),
+        (I::FaceButtons, S::Left) => ("X Button", Some(style::primary_text)),
+        (I::FaceButtons, S::Right) => ("B Button", Some(style::danger_text)),
+        // D-pad directions.
+        (I::DPad, S::Up) => ("Up", None),
+        (I::DPad, S::Down) => ("Down", None),
+        (I::DPad, S::Left) => ("Left", None),
+        (I::DPad, S::Right) => ("Right", None),
+        // Rich virtual buttons (directional-pad directions, outer ring, trigger soft-pull).
+        (_, S::Up) => ("Up", None),
+        (_, S::Down) => ("Down", None),
+        (_, S::Left) => ("Left", None),
+        (_, S::Right) => ("Right", None),
+        (_, S::OuterRing) => ("Outer Ring", None),
+        (_, S::SoftPull) => ("Soft Pull", None),
+        // A standalone button (or a rich source's click/touch sub-button): its own name.
+        (_, S::Button) => (editor::input_label(input), None),
+    }
+}
+
+/// Render a "● Label" row (dot optional) — the shared label widget for command bars and menu titles.
+pub(in crate::view) fn label_row(label: &str, dot: Dot) -> Row<'static, Message> {
+    let mut r = row![].spacing(12.0).align_y(Center);
+    if let Some(role) = dot {
+        r = r.push(text("●").size(16.0).style(role));
+    }
+    r.push(text(label.to_string()))
 }
 
 /// The status-bar separator glyph.

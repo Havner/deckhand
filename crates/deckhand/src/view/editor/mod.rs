@@ -1,23 +1,19 @@
 //! The profile-editor screens — the pages reachable once a profile is loaded for editing.
 //!
-//! The real editor is still being built. The **Profile** page is wired ([`profile_screen`]: the
-//! name field, plus the action-set/layer list with per-bar gear context menus and add/rename/remove
-//! dialogs); everything else here is a **mockup** to preview the intended layout so it can be
-//! reviewed (all interactions send [`Message::Ignored`]). The per-input pages
-//! ([`input_screen`]) are rendered *data-driven* from [`Category::groups`], so the mock mirrors the
-//! real input→page mapping (headers, rich-source behaviour rows, nested click/touch sub-buttons).
-//! [`rumble_screen`] mocks the profile-level rumble feel. These get replaced screen-by-screen as the
-//! real editor lands.
+//! The **Profile** page ([`profile_screen`]) and the per-input pages ([`input_screen`]) are wired:
+//! they render from, and mutate, the loaded profile's [`ConfigDoc`](config::ConfigDoc). Input pages
+//! are data-driven from [`Category::groups`] (headers, behaviour selectors, per-slot command
+//! bars with their gear menus, subcommands). Only [`rumble_screen`] is still a mockup.
 
 use std::collections::BTreeMap;
 
 use iced::widget::{Space, button, column, container, pick_list, row, slider, text, text_input};
-use iced::{Center, Element, Fill, Theme};
+use iced::{Center, Element, Fill};
 
-use config::{InputSource, SourceBinding, SourceKind};
+use config::{Action, InputSource, SourceBinding, SourceKind};
 
-use super::{card, group_header, section_header, small};
-use crate::editor::{Behavior, CommandDest, CommandSlot, EditorMessage};
+use super::{Dot, card, group_header, label_row, section_header, slot_display, small};
+use crate::editor::{ActionTarget, Behavior, CommandRef, CommandSlot, EditorMessage};
 use crate::nav::{Category, InputGroup};
 use crate::view::modal::action_label;
 use crate::{App, Message, style};
@@ -186,7 +182,7 @@ fn group_view(binds: Binds, group: &InputGroup) -> Element<'static, Message> {
     if !group.sub.is_empty() {
         col = col.push(Space::new().height(4.0));
         for input in group.sub {
-            col = col.push(command_bar(binds, input, CommandSlot::Button, input_label(input), None));
+            col = col.push(slot_view(binds, input, CommandSlot::Button));
         }
     }
     col.into()
@@ -196,21 +192,21 @@ fn group_view(binds: Binds, group: &InputGroup) -> Element<'static, Message> {
 /// behaviour selector plus the command bars its chosen behaviour exposes.
 fn primary_view(binds: Binds, input: &InputSource) -> Element<'static, Message> {
     match input.kind() {
-        SourceKind::Button => command_bar(binds, input, CommandSlot::Button, input_label(input), None),
+        SourceKind::Button => slot_view(binds, input, CommandSlot::Button),
         SourceKind::ButtonGroup => group_view_input(binds, input),
         kind => rich_view(binds, input, kind),
     }
 }
 
 /// A 4-button cluster (Face Buttons / D-Pad): a behaviour selector, and — when it's a Button Pad —
-/// the four member command bars. Face Buttons carry the Xbox glyph colours.
+/// the four member command bars.
 fn group_view_input(binds: Binds, input: &InputSource) -> Element<'static, Message> {
     let binding = binds.and_then(|b| b.get(input));
     let current = binding.map_or(Behavior::Unbound, Behavior::of);
     let mut col = column![behavior_row(input, current, SourceKind::ButtonGroup)].spacing(8.0);
     if matches!(binding, Some(SourceBinding::ButtonPad { .. })) {
-        for (slot, label, dot) in group_members(input) {
-            col = col.push(command_bar(binds, input, slot, label, dot));
+        for slot in group_member_slots(input) {
+            col = col.push(slot_view(binds, input, slot));
         }
     }
     col.into()
@@ -223,41 +219,32 @@ fn rich_view(binds: Binds, input: &InputSource, kind: SourceKind) -> Element<'st
     let current = binding.map_or(Behavior::Unbound, Behavior::of);
     let mut col = column![behavior_row(input, current, kind)].spacing(8.0);
     if let Some(b) = binding {
-        for (slot, label) in virtual_buttons(b) {
-            col = col.push(command_bar(binds, input, slot, label, None));
+        for slot in virtual_slots(b) {
+            col = col.push(slot_view(binds, input, slot));
         }
     }
     col.into()
 }
 
-/// The command slots (virtual buttons) a rich behaviour exposes, with display labels.
-fn virtual_buttons(binding: &SourceBinding) -> Vec<(CommandSlot, &'static str)> {
+/// The command slots (virtual buttons) a rich behaviour exposes, in display order (labels come from
+/// [`slot_display`]).
+fn virtual_slots(binding: &SourceBinding) -> Vec<CommandSlot> {
     use CommandSlot::*;
     match binding {
-        SourceBinding::Joystick { .. } => vec![(OuterRing, "Outer Ring")],
-        SourceBinding::DirectionalPad { .. } => {
-            vec![(Up, "Up"), (Down, "Down"), (Left, "Left"), (Right, "Right"), (OuterRing, "Outer Ring")]
-        }
-        SourceBinding::Trigger { .. } => vec![(SoftPull, "Soft Pull")],
+        SourceBinding::Joystick { .. } => vec![OuterRing],
+        SourceBinding::DirectionalPad { .. } => vec![Up, Down, Left, Right, OuterRing],
+        SourceBinding::Trigger { .. } => vec![SoftPull],
         _ => Vec::new(),
     }
 }
 
-/// The four members of a button cluster, mapped to their `ButtonPad` slot (diamond positions:
-/// up=top, down=bottom, left/right=sides) with per-input labels and glyph colours.
-type Dot = Option<fn(&Theme) -> text::Style>;
-fn group_members(input: &InputSource) -> Vec<(CommandSlot, &'static str, Dot)> {
+/// The members of a button cluster, as their `ButtonPad` slots in display order (A, B, X, Y for Face
+/// Buttons; Up/Down/Left/Right for the D-pad). Labels/colours come from [`slot_display`].
+fn group_member_slots(input: &InputSource) -> Vec<CommandSlot> {
     use CommandSlot::*;
     match input {
-        InputSource::FaceButtons => vec![
-            (Down, "A Button", Some(style::success_text)),
-            (Right, "B Button", Some(style::danger_text)),
-            (Left, "X Button", Some(style::primary_text)),
-            (Up, "Y Button", Some(style::warning_text)),
-        ],
-        InputSource::DPad => {
-            vec![(Up, "Up", None), (Down, "Down", None), (Left, "Left", None), (Right, "Right", None)]
-        }
+        InputSource::FaceButtons => vec![Down, Right, Left, Up],
+        InputSource::DPad => vec![Up, Down, Left, Right],
         _ => Vec::new(),
     }
 }
@@ -277,41 +264,129 @@ fn behavior_row(input: &InputSource, current: Behavior, kind: SourceKind) -> Ele
     card(inner)
 }
 
-/// One command bar: an optional colour dot, the slot's name, then the command button (shows the
-/// bound action or `<unbound>`) and the gear. Clicking the button always opens the Action picker
-/// (create or change the action); the gear is active only once a command exists (its function —
-/// settings / unbind — is a later pass, so it's an inert placeholder for now).
-fn command_bar(
-    binds: Binds,
-    input: &InputSource,
-    slot: CommandSlot,
-    label: &'static str,
-    dot: Dot,
-) -> Element<'static, Message> {
-    let action = binds
+/// A slot's whole view: `<unbound>` when empty; a single command bar (+ its subcommands) when it
+/// holds one command; or a top bar + one command bar per command (+ their subcommands) when it holds
+/// several. Each command bar carries its main action (`actions[0]`) and a gear menu; subcommands
+/// (`actions[1..]`) are double-indented remove-able bars.
+fn slot_view(binds: Binds, input: &InputSource, slot: CommandSlot) -> Element<'static, Message> {
+    let (label, dot) = slot_display(input, slot);
+    let commands = binds
         .and_then(|b| b.get(input))
-        .and_then(|binding| crate::editor::slot_commands(binding, slot))
-        .and_then(|cmds| cmds.first())
-        .and_then(|cmd| cmd.actions.first());
-    let bound = action.is_some();
-    let btn_label = action.map(action_label).unwrap_or_else(|| "<unbound>".to_string());
-
-    let dest = CommandDest { input: input.clone(), slot };
-    let command_btn = button(text(btn_label).center())
-        .width(CMD_SLOT)
-        .style(style::combo_button)
-        .on_press(Message::Editor(EditorMessage::OpenActionPicker(dest)));
-
-    let mut r = row![].spacing(12.0).align_y(Center);
-    if let Some(role) = dot {
-        r = r.push(text("●").size(16.0).style(role));
+        .and_then(|bind| crate::editor::slot_commands(bind, slot))
+        .map(Vec::as_slice);
+    match commands {
+        None | Some([]) => unbound_bar(input, slot, label, dot),
+        Some([cmd]) => command_block(input, slot, 0, cmd, label, dot, 0.0),
+        Some(cmds) => {
+            let mut col = column![main_slot_bar(input, slot, label, dot)].spacing(8.0);
+            for (i, cmd) in cmds.iter().enumerate() {
+                col = col.push(command_block(input, slot, i, cmd, "Command", None, 1.0));
+            }
+            col.into()
+        }
     }
-    let inner = r.push(text(label)).push(Space::new().width(Fill)).push(command_btn).push(gear(bound));
-    card(inner)
 }
 
-/// A settings/gear button, coloured to match the comboboxes on the same cards. `active` toggles
-/// whether it's clickable (a bound command) or greyed (an unbound one).
+/// Indent an element by `level` steps (0 = none).
+fn indent(level: f32, el: Element<'static, Message>) -> Element<'static, Message> {
+    if level == 0.0 {
+        el
+    } else {
+        row![Space::new().width(24.0 * level), el].into()
+    }
+}
+
+/// An unbound slot: the `<unbound>` button (opens the picker to add the first command) + inert gear.
+fn unbound_bar(input: &InputSource, slot: CommandSlot, label: &'static str, dot: Dot) -> Element<'static, Message> {
+    let target = ActionTarget::AddCommand { input: input.clone(), slot };
+    let btn = button(text("<unbound>").center())
+        .width(CMD_SLOT)
+        .style(style::combo_button)
+        .on_press(Message::Editor(EditorMessage::OpenActionPicker(target)));
+    card(label_row(label, dot).push(Space::new().width(Fill)).push(btn).push(gear(false)))
+}
+
+/// The top bar of a multi-command slot: label + gear (Remove all / Add extra), no action button.
+fn main_slot_bar(input: &InputSource, slot: CommandSlot, label: &'static str, dot: Dot) -> Element<'static, Message> {
+    let msg = Message::Editor(EditorMessage::OpenSlotMenu(input.clone(), slot));
+    card(label_row(label, dot).push(Space::new().width(Fill)).push(gear_menu(msg)))
+}
+
+/// A single command bar at `level` (its main action + gear menu) plus its subcommand bars below.
+/// `base` is the bar's name ("Command", or the slot label when it's the sole command); `dot` colours
+/// the sole-command label.
+fn command_block(
+    input: &InputSource,
+    slot: CommandSlot,
+    index: usize,
+    cmd: &config::Command,
+    base: &'static str,
+    dot: Dot,
+    level: f32,
+) -> Element<'static, Message> {
+    let cref = CommandRef { input: input.clone(), slot, index };
+
+    // Label: base (+ a blue "(activator)" suffix for non-Regular).
+    let mut label = label_row(base, dot);
+    if let Some(suffix) = activator_suffix(&cmd.activator) {
+        label = label.push(text(format!("({suffix})")).style(style::primary_text));
+    }
+
+    let action_btn = action_button(
+        cmd.actions.first(),
+        ActionTarget::Replace { cmd: cref.clone(), action: 0 },
+    );
+    let menu = Message::Editor(EditorMessage::OpenCommandMenu(cref.clone()));
+    let bar = card(label.push(Space::new().width(Fill)).push(action_btn).push(gear_menu(menu)));
+
+    let mut col = column![indent(level, bar)].spacing(8.0);
+    // Subcommands (actions[1..]) — always double-indented, with a remove button instead of a gear.
+    for (ai, action) in cmd.actions.iter().enumerate().skip(1) {
+        col = col.push(indent(2.0, subcommand_bar(&cref, ai, action)));
+    }
+    col.into()
+}
+
+/// A subcommand bar: "Sub command", its (re-pickable) action, and a remove button — no gear/menu.
+fn subcommand_bar(cref: &CommandRef, action_idx: usize, action: &Action) -> Element<'static, Message> {
+    let action_btn =
+        action_button(Some(action), ActionTarget::Replace { cmd: cref.clone(), action: action_idx });
+    let remove = button(text("✕").size(15.0))
+        .style(style::combo_button)
+        .on_press(Message::Editor(EditorMessage::RemoveSubCommand(cref.clone(), action_idx)));
+    card(row![text("Sub command"), Space::new().width(Fill), action_btn, remove]
+        .spacing(12.0)
+        .align_y(Center))
+}
+
+/// The command-slot-width button that shows an action (or `<unbound>`) and opens the picker for it.
+fn action_button(action: Option<&Action>, target: ActionTarget) -> Element<'static, Message> {
+    let label = action.map(action_label).unwrap_or_else(|| "<unbound>".to_string());
+    button(text(label).center())
+        .width(CMD_SLOT)
+        .style(style::combo_button)
+        .on_press(Message::Editor(EditorMessage::OpenActionPicker(target)))
+        .into()
+}
+
+/// The blue "(…)" suffix shown after a command's label for any non-Regular activator.
+fn activator_suffix(a: &config::Activator) -> Option<String> {
+    use config::Activator::*;
+    match a {
+        Regular => None,
+        Start => Some("Start press".into()),
+        Long { hold_ms } => Some(format!("Long press: {hold_ms}ms")),
+        Double { window_ms } => Some(format!("Double press: {window_ms}ms")),
+        Release => Some("On release".into()),
+    }
+}
+
+/// An active gear button that opens a menu on press.
+fn gear_menu(msg: Message) -> Element<'static, Message> {
+    button(text("⚙").size(16.0)).style(style::combo_button).on_press(msg).into()
+}
+
+/// A settings/gear button. `active=false` greys it (an unbound slot has no menu yet).
 fn gear(active: bool) -> Element<'static, Message> {
     let b = button(text("⚙").size(16.0)).style(style::combo_button);
     if active { b.on_press(Message::Ignored).into() } else { b.into() }

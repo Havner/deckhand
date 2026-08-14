@@ -11,14 +11,18 @@ mod action;
 mod buttons;
 
 use iced::widget::{
-    Space, button, center, column, container, mouse_area, opaque, row, stack, text, text_input,
+    Space, button, center, column, container, mouse_area, opaque, pick_list, row, stack, text,
+    text_input,
 };
 use iced::{Center, Element, Fill};
 
 pub(in crate::view) use action::action_label;
 
-use crate::editor::{CommandDest, EditTarget, EditorMessage, NameEntryKind};
+use crate::editor::{
+    ActionTarget, ActivatorKind, CommandRef, CommandSlot, EditTarget, EditorMessage, NameEntryKind,
+};
 use crate::{App, IoTarget, Message, style};
+use config::InputSource;
 
 /// The one modal shown at a time (the view layers exactly one over the base): network I/O staging,
 /// the profile editor's context menu / name dialogs, and the two pickers.
@@ -30,8 +34,12 @@ pub(crate) enum Popup {
     Menu(EditTarget),
     /// The add-set / add-layer / rename name dialog: what confirming does + the current text.
     NameEntry { kind: NameEntryKind, text: String },
-    /// The output-Action picker (tabbed), currently on this tab, writing to `dest` on confirm.
-    ActionPicker { tab: ActionTab, dest: CommandDest },
+    /// The output-Action picker (tabbed), currently on this tab, writing to `target` on confirm.
+    ActionPicker { tab: ActionTab, target: ActionTarget },
+    /// A command's gear menu (activator / settings / remove / add).
+    CommandMenu { cmd: CommandRef },
+    /// The top slot bar's gear menu (multi-command: remove all / add extra).
+    SlotMenu { input: InputSource, slot: CommandSlot },
     /// The button (gater/global) picker.
     ButtonPicker,
 }
@@ -76,8 +84,20 @@ fn card<'a>(app: &'a App, popup: &'a Popup) -> Element<'a, Message> {
         Popup::Menu(target) => menu_card(app, target),
         Popup::NameEntry { kind, text } => name_entry_card(app, kind, text),
         Popup::ActionPicker { tab, .. } => action::card(app, *tab),
+        Popup::CommandMenu { cmd } => command_menu_card(app, cmd),
+        Popup::SlotMenu { input, slot } => slot_menu_card(*slot, input),
         Popup::ButtonPicker => buttons::card(),
     }
+}
+
+/// A full-width menu row: an active option button, or a greyed one when `msg` is `None`.
+fn menu_item<'a>(label: &'a str, msg: Option<Message>) -> Element<'a, Message> {
+    let b = button(text(label)).width(Fill).style(style::option_button);
+    match msg {
+        Some(m) => b.on_press(m),
+        None => b,
+    }
+    .into()
 }
 
 /// The network-spec card: a `host:port` field (Enter confirms) + Cancel / OK. OK/Enter are inert
@@ -155,4 +175,66 @@ fn name_entry_card<'a>(
 
     let card = column![text(kind.title()).size(18.0), field, buttons].spacing(12.0);
     container(card).padding(16.0).width(320.0).style(style::modal_card).into()
+}
+
+/// A command's gear menu: its label title, an activator combobox, a (disabled) Settings row, Remove
+/// command, Add extra command (only when it's the sole command), and Add sub command. The title is
+/// the bar's own label (via [`super::slot_display`]) when it's the sole command, else "Command".
+fn command_menu_card<'a>(app: &'a App, cmd: &'a CommandRef) -> Element<'a, Message> {
+    let ed = crate::editor::EditorMessage::SetActivator;
+    let current = crate::editor::command_at(app, cmd).map(|c| ActivatorKind::of(&c.activator));
+    let sole = crate::editor::slot_len(app, &cmd.input, cmd.slot) == 1;
+    let (label, dot) =
+        if sole { super::slot_display(&cmd.input, cmd.slot) } else { ("Command", None) };
+
+    let cmd_for_select = cmd.clone();
+    let activator = pick_list(current, ActivatorKind::ALL.to_vec(), |k: &ActivatorKind| {
+        k.label().to_string()
+    })
+    .on_select(move |k| Message::Editor(ed(cmd_for_select.clone(), k)))
+    .width(Fill);
+
+    let mut col = column![super::label_row(label, dot), activator].spacing(8.0);
+    col = col.push(menu_item("Settings", None)); // disabled this pass
+    col = col.push(menu_item(
+        "Remove command",
+        Some(Message::Editor(EditorMessage::RemoveCommand(cmd.clone()))),
+    ));
+    if sole {
+        col = col.push(menu_item(
+            "Add extra command",
+            Some(Message::Editor(EditorMessage::OpenActionPicker(ActionTarget::AddCommand {
+                input: cmd.input.clone(),
+                slot: cmd.slot,
+            }))),
+        ));
+    }
+    col = col.push(menu_item(
+        "Add sub command",
+        Some(Message::Editor(EditorMessage::OpenActionPicker(ActionTarget::AddSubCommand {
+            cmd: cmd.clone(),
+        }))),
+    ));
+    container(col).padding(12.0).width(240.0).style(style::modal_card).into()
+}
+
+/// The top slot bar's gear menu (multi-command): its label title, Remove all commands, Add extra.
+fn slot_menu_card<'a>(slot: CommandSlot, input: &'a InputSource) -> Element<'a, Message> {
+    let (label, dot) = super::slot_display(input, slot);
+    let col = column![
+        super::label_row(label, dot),
+        menu_item(
+            "Remove all commands",
+            Some(Message::Editor(EditorMessage::RemoveAllCommands(input.clone(), slot))),
+        ),
+        menu_item(
+            "Add extra command",
+            Some(Message::Editor(EditorMessage::OpenActionPicker(ActionTarget::AddCommand {
+                input: input.clone(),
+                slot,
+            }))),
+        ),
+    ]
+    .spacing(8.0);
+    container(col).padding(12.0).width(220.0).style(style::modal_card).into()
 }

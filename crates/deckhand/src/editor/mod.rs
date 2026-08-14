@@ -56,12 +56,75 @@ pub(crate) enum CommandSlot {
     SoftPull,
 }
 
-/// Where an Action picker's result lands: the input whose binding holds the command, and the slot
-/// within that binding. One command per slot for now (index 0) — multi-activator is a later pass.
+/// A specific command within a slot — the input, the slot, and which `Command` in that slot's
+/// `Vec<Command>` (each command is one activator; a slot can hold several).
 #[derive(Debug, Clone)]
-pub(crate) struct CommandDest {
+pub(crate) struct CommandRef {
     pub(crate) input: InputSource,
     pub(crate) slot: CommandSlot,
+    pub(crate) index: usize,
+}
+
+/// Where a picked action lands. `Replace` sets an existing action (main = index 0, subcommands ≥1);
+/// `AddCommand` appends a new Regular command (the first/extra command); `AddSubCommand` appends an
+/// extra action (subcommand) to a command.
+#[derive(Debug, Clone)]
+pub(crate) enum ActionTarget {
+    Replace { cmd: CommandRef, action: usize },
+    AddCommand { input: InputSource, slot: CommandSlot },
+    AddSubCommand { cmd: CommandRef },
+}
+
+/// The activator kinds, as the picker/combobox value (an [`Activator`] carries a parameter, so this
+/// tags just the variant; [`ActivatorKind::to_activator`] supplies the default parameter).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActivatorKind {
+    Regular,
+    Start,
+    Long,
+    Double,
+    Release,
+}
+
+impl ActivatorKind {
+    pub(crate) const ALL: &'static [ActivatorKind] = &[
+        ActivatorKind::Regular,
+        ActivatorKind::Start,
+        ActivatorKind::Long,
+        ActivatorKind::Double,
+        ActivatorKind::Release,
+    ];
+
+    pub(crate) fn of(a: &Activator) -> Self {
+        match a {
+            Activator::Regular => ActivatorKind::Regular,
+            Activator::Start => ActivatorKind::Start,
+            Activator::Long { .. } => ActivatorKind::Long,
+            Activator::Double { .. } => ActivatorKind::Double,
+            Activator::Release => ActivatorKind::Release,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            ActivatorKind::Regular => "Regular",
+            ActivatorKind::Start => "Start press",
+            ActivatorKind::Long => "Long press",
+            ActivatorKind::Double => "Double press",
+            ActivatorKind::Release => "On release",
+        }
+    }
+
+    /// Build the activator with its default parameter (Long = 450 ms, Double = 200 ms).
+    pub(crate) fn to_activator(self) -> Activator {
+        match self {
+            ActivatorKind::Regular => Activator::Regular,
+            ActivatorKind::Start => Activator::Start,
+            ActivatorKind::Long => Activator::Long { hold_ms: 450 },
+            ActivatorKind::Double => Activator::Double { window_ms: 200 },
+            ActivatorKind::Release => Activator::Release,
+        }
+    }
 }
 
 /// The initial target for a freshly-loaded profile: its first action set (no layer). A profile
@@ -135,13 +198,25 @@ pub(crate) enum EditorMessage {
     /// Behaviour combobox: set an input's binding to a fresh default of the chosen behaviour, or
     /// clear it (remove the map entry) when `Behavior::Unbound`.
     SetBehavior(InputSource, Behavior),
-    /// Open the output-Action picker to fill a specific command slot (from a command bar).
-    OpenActionPicker(CommandDest),
+    /// Open the output-Action picker to fill a target (replace an action / add a command / add a
+    /// subcommand).
+    OpenActionPicker(ActionTarget),
     /// Switch the Action picker's tab.
     ActionPickerTab(ActionTab),
-    /// An action was picked — write it into the picker's target slot (creating the command / the
-    /// binding if needed) and close the picker.
+    /// An action was picked — write it into the picker's target and close the picker.
     ActionPicked(Action),
+    /// Open a command's gear menu (activator / settings / remove / add).
+    OpenCommandMenu(CommandRef),
+    /// Open the top slot bar's gear menu (multi-command: remove all / add extra).
+    OpenSlotMenu(InputSource, CommandSlot),
+    /// Set a command's activator kind (keeps the menu open).
+    SetActivator(CommandRef, ActivatorKind),
+    /// Remove one command (clears the whole slot / drops the plain-button entry when it empties).
+    RemoveCommand(CommandRef),
+    /// Remove every command from a slot.
+    RemoveAllCommands(InputSource, CommandSlot),
+    /// Remove a subcommand (an action at index ≥1) from a command.
+    RemoveSubCommand(CommandRef, usize),
 }
 
 /// Handle one editor message against the app state. The **single doc-mutation site** — the place to
@@ -235,8 +310,8 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
             app.save_editing();
             Task::none()
         }
-        EditorMessage::OpenActionPicker(dest) => {
-            app.popup = Some(Popup::ActionPicker { tab: ActionTab::Gamepad, dest });
+        EditorMessage::OpenActionPicker(target) => {
+            app.popup = Some(Popup::ActionPicker { tab: ActionTab::Gamepad, target });
             Task::none()
         }
         EditorMessage::ActionPickerTab(tab) => {
@@ -246,15 +321,52 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
             Task::none()
         }
         EditorMessage::ActionPicked(action) => {
-            let dest = match &app.popup {
-                Some(Popup::ActionPicker { dest, .. }) => Some(dest.clone()),
+            let target = match &app.popup {
+                Some(Popup::ActionPicker { target, .. }) => Some(target.clone()),
                 _ => None,
             };
-            if let Some(dest) = dest {
-                write_command(app, &dest, action);
+            if let Some(target) = target {
+                apply_action(app, target, action);
                 app.save_editing();
             }
             app.popup = None;
+            Task::none()
+        }
+        EditorMessage::OpenCommandMenu(cmd) => {
+            app.popup = Some(Popup::CommandMenu { cmd });
+            Task::none()
+        }
+        EditorMessage::OpenSlotMenu(input, slot) => {
+            app.popup = Some(Popup::SlotMenu { input, slot });
+            Task::none()
+        }
+        EditorMessage::SetActivator(cmd, kind) => {
+            if let Some(command) = command_mut(app, &cmd) {
+                command.activator = kind.to_activator();
+            }
+            app.save_editing();
+            // Keep the menu open so the new value shows and further edits are possible.
+            Task::none()
+        }
+        EditorMessage::RemoveCommand(cmd) => {
+            remove_command(app, &cmd);
+            app.save_editing();
+            app.popup = None;
+            Task::none()
+        }
+        EditorMessage::RemoveAllCommands(input, slot) => {
+            clear_slot(app, &input, slot);
+            app.save_editing();
+            app.popup = None;
+            Task::none()
+        }
+        EditorMessage::RemoveSubCommand(cmd, action) => {
+            if let Some(command) = command_mut(app, &cmd)
+                && action < command.actions.len()
+            {
+                command.actions.remove(action);
+            }
+            app.save_editing();
             Task::none()
         }
     }
@@ -320,30 +432,101 @@ fn slot_commands_mut(binding: &mut SourceBinding, slot: CommandSlot) -> Option<&
     }
 }
 
-/// Write a picked action into `dest`'s command slot: replace the (single) command's action if one
-/// exists, else create a fresh [`Command`] (Regular, default settings). For a plain button with no
-/// binding yet, the `SourceBinding::Button` is created on demand.
-fn write_command(app: &mut App, dest: &CommandDest, action: Action) {
-    let Some(bindings) = current_bindings_mut(app) else { return };
-    if dest.slot == CommandSlot::Button {
-        bindings
-            .entry(dest.input.clone())
-            .or_insert_with(|| SourceBinding::Button { commands: Vec::new() });
+/// The command a [`CommandRef`] points at, in the currently-edited set/layer (read).
+pub(crate) fn command_at<'a>(app: &'a App, cmd: &CommandRef) -> Option<&'a Command> {
+    let binding = current_bindings(app)?.get(&cmd.input)?;
+    slot_commands(binding, cmd.slot)?.get(cmd.index)
+}
+
+/// How many commands a slot currently holds.
+pub(crate) fn slot_len(app: &App, input: &InputSource, slot: CommandSlot) -> usize {
+    current_bindings(app)
+        .and_then(|b| b.get(input))
+        .and_then(|binding| slot_commands(binding, slot))
+        .map_or(0, |v| v.len())
+}
+
+/// The command a [`CommandRef`] points at (mutable).
+fn command_mut<'a>(app: &'a mut App, cmd: &CommandRef) -> Option<&'a mut Command> {
+    let binding = current_bindings_mut(app)?.get_mut(&cmd.input)?;
+    slot_commands_mut(binding, cmd.slot)?.get_mut(cmd.index)
+}
+
+/// Apply a picked action to its [`ActionTarget`]. For a plain button, `AddCommand` creates the
+/// `SourceBinding::Button` on demand; a command is always born with a Regular activator + default
+/// settings.
+fn apply_action(app: &mut App, target: ActionTarget, action: Action) {
+    match target {
+        ActionTarget::Replace { cmd, action: idx } => {
+            if let Some(c) = command_mut(app, &cmd)
+                && idx < c.actions.len()
+            {
+                c.actions[idx] = action;
+            }
+        }
+        ActionTarget::AddSubCommand { cmd } => {
+            if let Some(c) = command_mut(app, &cmd) {
+                c.actions.push(action);
+            }
+        }
+        ActionTarget::AddCommand { input, slot } => {
+            let Some(bindings) = current_bindings_mut(app) else { return };
+            if slot == CommandSlot::Button {
+                bindings
+                    .entry(input.clone())
+                    .or_insert_with(|| SourceBinding::Button { commands: Vec::new() });
+            }
+            if let Some(binding) = bindings.get_mut(&input)
+                && let Some(commands) = slot_commands_mut(binding, slot)
+            {
+                commands.push(Command {
+                    activator: Activator::Regular,
+                    actions: vec![action],
+                    settings: CommandSettings::default(),
+                });
+            }
+        }
     }
-    let Some(binding) = bindings.get_mut(&dest.input) else { return };
-    let Some(commands) = slot_commands_mut(binding, dest.slot) else { return };
-    match commands.first_mut() {
-        Some(cmd) => cmd.actions = vec![action],
-        // Fresh command: Regular + config's neutral `CommandSettings::default()`. NOTE: we *want*
-        // `interruptible: true` by default here, but the engine currently defers a lone
-        // interruptible Regular to a tap-on-release (never holds). The correct fix is engine-side —
-        // only defer when the node has a non-Regular sibling — deferred to a later engine pass; keep
-        // the default off until then. (Sibling item: right-trigger-full as a gamepad output.)
-        None => commands.push(Command {
-            activator: Activator::Regular,
-            actions: vec![action],
-            settings: CommandSettings::default(),
-        }),
+}
+
+/// Remove one command from a slot; if that empties a plain-button binding, drop its map entry
+/// (a rich binding's slot is just left empty — the binding persists).
+fn remove_command(app: &mut App, cmd: &CommandRef) {
+    let Some(bindings) = current_bindings_mut(app) else { return };
+    let is_plain_button;
+    {
+        let Some(binding) = bindings.get_mut(&cmd.input) else { return };
+        is_plain_button =
+            matches!(binding, SourceBinding::Button { .. }) && cmd.slot == CommandSlot::Button;
+        if let Some(commands) = slot_commands_mut(binding, cmd.slot)
+            && cmd.index < commands.len()
+        {
+            commands.remove(cmd.index);
+        }
+    }
+    let empty = bindings
+        .get(&cmd.input)
+        .and_then(|b| slot_commands(b, cmd.slot))
+        .is_none_or(|v| v.is_empty());
+    if empty && is_plain_button {
+        bindings.remove(&cmd.input);
+    }
+}
+
+/// Clear every command from a slot: a plain-button binding is removed from the map entirely, a rich
+/// binding's slot vector is just emptied.
+fn clear_slot(app: &mut App, input: &InputSource, slot: CommandSlot) {
+    let Some(bindings) = current_bindings_mut(app) else { return };
+    match bindings.get_mut(input) {
+        Some(SourceBinding::Button { .. }) if slot == CommandSlot::Button => {
+            bindings.remove(input);
+        }
+        Some(binding) => {
+            if let Some(commands) = slot_commands_mut(binding, slot) {
+                commands.clear();
+            }
+        }
+        None => {}
     }
 }
 
