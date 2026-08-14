@@ -13,12 +13,15 @@ use iced::widget::{Space, button, checkbox, column, container, pick_list, row, s
 use iced::{Center, Element, Fill};
 
 use config::{
-    Action, Activator, Command, HapticEdge, HapticStrength, InputSource, SourceBinding, SourceKind,
+    Action, Activation, ActivationMode, Activator, Command, Curve, DpadLayout, GyroSpace, HapticEdge,
+    HapticStrength, InputSource, Invert, MouseOutput, OneEuroFilter, Sensitivity, SourceBinding,
+    SourceKind, StickOutput, TriggerOutput,
 };
 
 use super::{Dot, card, group_header, label_row, section_header, slot_display, small};
 use crate::editor::{
-    ActionTarget, ActivatorKind, Behavior, CommandRef, CommandSlot, EditorMessage, SettingsView,
+    ActionTarget, ActivatorKind, Behavior, CommandRef, CommandSlot, EditorMessage, SettingEdit,
+    SettingsView,
 };
 use crate::nav::{Category, InputGroup};
 use crate::view::modal::action_label;
@@ -182,6 +185,7 @@ pub(super) fn rumble_screen() -> Element<'static, Message> {
 pub(super) fn settings_screen(app: &App) -> Option<Element<'static, Message>> {
     match app.editing.as_ref()?.settings.as_ref()? {
         SettingsView::Command(cref) => Some(command_settings(app, cref)),
+        SettingsView::Behavior(input) => Some(behavior_settings(app, input)),
     }
 }
 
@@ -371,6 +375,407 @@ fn haptic_strength_label(s: &HapticStrength) -> &'static str {
     }
 }
 
+// --- per-behaviour settings page ------------------------------------------------------------
+//
+// A behaviour's settings page = a header + its settings **blocks** composed in the canonical field
+// order (see the per-behaviour compose fns). Each block is a reusable row (shared across every
+// behaviour that has that field) that emits one generic `SetSetting(input, SettingEdit)`; the edit
+// is applied by `editor::apply_setting`. Adding a behaviour = one compose fn from existing blocks.
+
+/// The per-behaviour settings page: header (Back + input · behaviour) over the behaviour's blocks.
+fn behavior_settings(app: &App, input: &InputSource) -> Element<'static, Message> {
+    let back = button(text("‹ Back"))
+        .style(style::option_button)
+        .on_press(Message::Editor(EditorMessage::CloseSettings));
+
+    let binding = crate::editor::current_bindings(app).and_then(|b| b.get(input));
+    let Some(binding) = binding else {
+        let title = container(text(input_label(input))).width(Fill).align_x(Center);
+        return column![row![back, title].spacing(16.0).align_y(Center), small("This input has no behaviour settings.")]
+            .spacing(20.0)
+            .into();
+    };
+    let title = container(text(format!("{} · {}", input_label(input), Behavior::of(binding).label())))
+        .width(Fill)
+        .align_x(Center);
+    let header = row![back, title].spacing(16.0).align_y(Center);
+
+    let body = match binding {
+        SourceBinding::Joystick { settings, .. } => joystick_view(input, settings),
+        SourceBinding::DirectionalPad { settings, .. } => directional_pad_view(input, settings),
+        SourceBinding::AsMouse { settings } => as_mouse_view(input, settings),
+        SourceBinding::JoystickMouse { settings } => joystick_mouse_view(input, settings),
+        SourceBinding::GyroToMouse { settings } => gyro_to_mouse_view(input, settings),
+        SourceBinding::Trigger { settings, .. } => trigger_view(input, settings),
+        _ => small("This behaviour has no settings."),
+    };
+    column![header, body].spacing(16.0).into()
+}
+
+// --- per-behaviour compose fns (blocks in canonical field order) ----------------------------
+
+fn joystick_view(input: &InputSource, s: &config::JoystickSettings) -> Element<'static, Message> {
+    column![
+        output_stick(input, s.output.clone()),
+        outer_ring(input, s.outer_ring.radius),
+        curve(input, &s.curve),
+        deadzone(input, s.deadzone.inner),
+        anti_deadzone(input, s.anti_deadzone.amount),
+        invert(input, s.invert.clone()),
+        rotation(input, s.rotation.degrees),
+        activation(input, &s.activation),
+    ]
+    .spacing(16.0)
+    .into()
+}
+
+fn directional_pad_view(input: &InputSource, s: &config::DirectionalPadSettings) -> Element<'static, Message> {
+    column![
+        layout(input, s.layout.clone()),
+        outer_ring(input, s.outer_ring.radius),
+        deadzone(input, s.deadzone.inner),
+        rotation(input, s.rotation.degrees),
+        activation(input, &s.activation),
+    ]
+    .spacing(16.0)
+    .into()
+}
+
+fn as_mouse_view(input: &InputSource, s: &config::AsMouseSettings) -> Element<'static, Message> {
+    column![
+        output_mouse(input, s.output.clone()),
+        sensitivity(input, s.sensitivity.clone()),
+        acceleration(input, s.acceleration.factor),
+        smoothing(input, &s.smoothing),
+        invert(input, s.invert.clone()),
+        rotation(input, s.rotation.degrees),
+        activation(input, &s.activation),
+    ]
+    .spacing(16.0)
+    .into()
+}
+
+fn joystick_mouse_view(input: &InputSource, s: &config::JoystickMouseSettings) -> Element<'static, Message> {
+    column![
+        output_mouse(input, s.output.clone()),
+        sensitivity(input, s.sensitivity.clone()),
+        curve(input, &s.curve),
+        deadzone(input, s.deadzone.inner),
+        invert(input, s.invert.clone()),
+        rotation(input, s.rotation.degrees),
+        activation(input, &s.activation),
+    ]
+    .spacing(16.0)
+    .into()
+}
+
+fn gyro_to_mouse_view(input: &InputSource, s: &config::GyroToMouseSettings) -> Element<'static, Message> {
+    column![
+        output_mouse(input, s.output.clone()),
+        space(input, s.space.clone()),
+        sensitivity(input, s.sensitivity.clone()),
+        acceleration(input, s.acceleration.factor),
+        smoothing(input, &s.smoothing),
+        deadzone(input, s.deadzone.inner),
+        invert(input, s.invert.clone()),
+        rotation(input, s.rotation.degrees),
+        activation(input, &s.activation),
+    ]
+    .spacing(16.0)
+    .into()
+}
+
+fn trigger_view(input: &InputSource, s: &config::TriggerSettings) -> Element<'static, Message> {
+    column![
+        output_trigger(input, s.output.clone()),
+        soft_pull(input, s.soft_pull.threshold),
+        curve(input, &s.curve),
+        deadzone(input, s.deadzone.inner),
+    ]
+    .spacing(16.0)
+    .into()
+}
+
+// --- reusable settings blocks ---------------------------------------------------------------
+
+fn output_stick(input: &InputSource, o: StickOutput) -> Element<'static, Message> {
+    pick_setting(
+        "Output",
+        o,
+        vec![StickOutput::Left, StickOutput::Right, StickOutput::None],
+        |o: &StickOutput| stick_output_label(o).to_string(),
+        input,
+        SettingEdit::StickOutput,
+    )
+}
+
+fn output_trigger(input: &InputSource, o: TriggerOutput) -> Element<'static, Message> {
+    pick_setting(
+        "Output",
+        o,
+        vec![TriggerOutput::Left, TriggerOutput::Right, TriggerOutput::None],
+        |o: &TriggerOutput| trigger_output_label(o).to_string(),
+        input,
+        SettingEdit::TriggerOutput,
+    )
+}
+
+fn output_mouse(input: &InputSource, o: MouseOutput) -> Element<'static, Message> {
+    pick_setting(
+        "Output",
+        o,
+        vec![MouseOutput::Cursor, MouseOutput::Scroll, MouseOutput::SmoothScroll],
+        |o: &MouseOutput| mouse_output_label(o).to_string(),
+        input,
+        SettingEdit::MouseOutput,
+    )
+}
+
+fn layout(input: &InputSource, l: DpadLayout) -> Element<'static, Message> {
+    pick_setting(
+        "Layout",
+        l,
+        vec![DpadLayout::FourWay, DpadLayout::EightWay],
+        |l: &DpadLayout| layout_label(l).to_string(),
+        input,
+        SettingEdit::Layout,
+    )
+}
+
+fn space(input: &InputSource, s: GyroSpace) -> Element<'static, Message> {
+    pick_setting(
+        "Space",
+        s,
+        vec![GyroSpace::Yaw, GyroSpace::Roll, GyroSpace::YawRoll, GyroSpace::PlayerSpace],
+        |s: &GyroSpace| space_label(s).to_string(),
+        input,
+        SettingEdit::Space,
+    )
+}
+
+fn outer_ring(input: &InputSource, radius: f32) -> Element<'static, Message> {
+    slider_setting("Outer ring", radius, 0.0..=1.0, 0.01, format!("{radius:.2}"), input, SettingEdit::OuterRing)
+}
+
+fn soft_pull(input: &InputSource, threshold: f32) -> Element<'static, Message> {
+    slider_setting("Soft pull", threshold, 0.0..=1.0, 0.01, format!("{threshold:.2}"), input, SettingEdit::SoftPull)
+}
+
+fn deadzone(input: &InputSource, inner: f32) -> Element<'static, Message> {
+    slider_setting("Deadzone", inner, 0.0..=1.0, 0.01, format!("{inner:.2}"), input, SettingEdit::Deadzone)
+}
+
+fn anti_deadzone(input: &InputSource, amount: f32) -> Element<'static, Message> {
+    slider_setting("Anti-deadzone", amount, 0.0..=1.0, 0.01, format!("{amount:.2}"), input, SettingEdit::AntiDeadzone)
+}
+
+fn acceleration(input: &InputSource, factor: f32) -> Element<'static, Message> {
+    slider_setting("Acceleration", factor, 0.0..=0.2, 0.005, format!("{factor:.3}"), input, SettingEdit::Acceleration)
+}
+
+fn rotation(input: &InputSource, degrees: f32) -> Element<'static, Message> {
+    slider_setting("Rotation", degrees, -180.0..=180.0, 1.0, format!("{degrees:.0}°"), input, SettingEdit::Rotation)
+}
+
+fn sensitivity(input: &InputSource, s: Sensitivity) -> Element<'static, Message> {
+    column![
+        slider_setting("Sensitivity X", s.x, 0.0..=10.0, 0.1, format!("{:.1}", s.x), input, SettingEdit::SensitivityX),
+        slider_setting("Sensitivity Y", s.y, 0.0..=10.0, 0.1, format!("{:.1}", s.y), input, SettingEdit::SensitivityY),
+    ]
+    .spacing(8.0)
+    .into()
+}
+
+fn invert(input: &InputSource, inv: Invert) -> Element<'static, Message> {
+    let ix = input.clone();
+    let iy = input.clone();
+    let x = checkbox(inv.x).on_toggle(move |b| Message::Editor(EditorMessage::SetSetting(ix.clone(), SettingEdit::InvertX(b))));
+    let y = checkbox(inv.y).on_toggle(move |b| Message::Editor(EditorMessage::SetSetting(iy.clone(), SettingEdit::InvertY(b))));
+    row![setting_label("Invert"), x, text("X"), Space::new().width(16.0), y, text("Y")]
+        .spacing(8.0)
+        .align_y(Center)
+        .into()
+}
+
+/// Curve: a Linear/Power kind picker, plus an exponent slider when Power.
+fn curve(input: &InputSource, curve: &Curve) -> Element<'static, Message> {
+    let kind = if matches!(curve, Curve::Power(_)) { CurveKind::Power } else { CurveKind::Linear };
+    let i1 = input.clone();
+    let combo = pick_list(Some(kind), vec![CurveKind::Linear, CurveKind::Power], |k: &CurveKind| {
+        k.label().to_string()
+    })
+    .on_select(move |k| {
+        let c = match k {
+            CurveKind::Linear => Curve::Linear,
+            CurveKind::Power => Curve::Power(2.0),
+        };
+        Message::Editor(EditorMessage::SetSetting(i1.clone(), SettingEdit::Curve(c)))
+    })
+    .width(CMD_SLOT);
+    let mut col = column![row![setting_label("Curve"), combo].spacing(12.0).align_y(Center)].spacing(8.0);
+    if let Curve::Power(e) = *curve {
+        let i2 = input.clone();
+        col = col.push(
+            row![
+                setting_label("Exponent"),
+                slider(0.2..=4.0f32, e, move |v| Message::Editor(EditorMessage::SetSetting(
+                    i2.clone(),
+                    SettingEdit::Curve(Curve::Power(v))
+                )))
+                .step(0.05f32),
+                text(format!("{e:.2}")).width(70.0),
+            ]
+            .spacing(12.0)
+            .align_y(Center),
+        );
+    }
+    col.into()
+}
+
+/// Smoothing: an enable checkbox gating min-cutoff / beta sliders.
+fn smoothing(input: &InputSource, sm: &Option<OneEuroFilter>) -> Element<'static, Message> {
+    let on = sm.is_some();
+    let f = sm.clone().unwrap_or_default();
+    let i0 = input.clone();
+    let check = checkbox(on)
+        .on_toggle(move |b| Message::Editor(EditorMessage::SetSetting(i0.clone(), SettingEdit::SmoothingEnabled(b))));
+    let mut col = column![row![setting_label("Smoothing"), check].spacing(12.0).align_y(Center)].spacing(8.0);
+    if on {
+        col = col.push(slider_setting("Min cutoff", f.min_cutoff, 0.1..=10.0, 0.1, format!("{:.1}", f.min_cutoff), input, SettingEdit::SmoothingMinCutoff));
+        col = col.push(slider_setting("Beta", f.beta, 0.0..=2.0, 0.05, format!("{:.2}", f.beta), input, SettingEdit::SmoothingBeta));
+    }
+    col.into()
+}
+
+/// Activation: the mode picker + a read-only summary of gaters (the gater editor is deferred).
+fn activation(input: &InputSource, a: &Activation) -> Element<'static, Message> {
+    let i = input.clone();
+    let combo = pick_list(
+        Some(a.mode.clone()),
+        vec![ActivationMode::HoldToDisable, ActivationMode::HoldToEnable],
+        |m: &ActivationMode| activation_mode_label(m).to_string(),
+    )
+    .on_select(move |m| Message::Editor(EditorMessage::SetSetting(i.clone(), SettingEdit::ActivationMode(m))))
+    .width(CMD_SLOT);
+    let gaters = if a.gaters.is_empty() {
+        "Gaters: none (editing coming soon)".to_string()
+    } else {
+        let names: Vec<&str> = a.gaters.iter().map(input_label).collect();
+        format!("Gaters: {} (editing coming soon)", names.join(", "))
+    };
+    column![row![setting_label("Activation"), combo].spacing(12.0).align_y(Center), small(gaters)]
+        .spacing(8.0)
+        .into()
+}
+
+// --- settings-block helpers -----------------------------------------------------------------
+
+/// A pick-list settings row: fixed label + a combobox that emits one [`SettingEdit`].
+fn pick_setting<T>(
+    label: &'static str,
+    selected: T,
+    options: Vec<T>,
+    to_label: impl Fn(&T) -> String + 'static,
+    input: &InputSource,
+    make: fn(T) -> SettingEdit,
+) -> Element<'static, Message>
+where
+    T: Clone + PartialEq + 'static,
+{
+    let input = input.clone();
+    let combo = pick_list(Some(selected), options, to_label)
+        .on_select(move |v: T| Message::Editor(EditorMessage::SetSetting(input.clone(), make(v))))
+        .width(CMD_SLOT);
+    row![setting_label(label), combo].spacing(12.0).align_y(Center).into()
+}
+
+/// An `f32` slider settings row: fixed label, step-snapped slider, preformatted readout. Emits one
+/// [`SettingEdit`] (built by `make`) per change.
+fn slider_setting(
+    label: &'static str,
+    value: f32,
+    range: std::ops::RangeInclusive<f32>,
+    step: f32,
+    readout: String,
+    input: &InputSource,
+    make: fn(f32) -> SettingEdit,
+) -> Element<'static, Message> {
+    let input = input.clone();
+    row![
+        setting_label(label),
+        slider(range, value, move |v| Message::Editor(EditorMessage::SetSetting(input.clone(), make(v)))).step(step),
+        text(readout).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+/// Curve kind (the pick-list value; the exponent lives on a separate slider). UI-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CurveKind {
+    Linear,
+    Power,
+}
+
+impl CurveKind {
+    fn label(self) -> &'static str {
+        match self {
+            CurveKind::Linear => "Linear",
+            CurveKind::Power => "Power",
+        }
+    }
+}
+
+// UI-owned display labels for the settings enums (`config` stays presentation-free).
+
+fn stick_output_label(o: &StickOutput) -> &'static str {
+    match o {
+        StickOutput::Left => "Left stick",
+        StickOutput::Right => "Right stick",
+        StickOutput::None => "None (ring only)",
+    }
+}
+
+fn trigger_output_label(o: &TriggerOutput) -> &'static str {
+    match o {
+        TriggerOutput::Left => "Left trigger",
+        TriggerOutput::Right => "Right trigger",
+        TriggerOutput::None => "None (soft-pull only)",
+    }
+}
+
+fn mouse_output_label(o: &MouseOutput) -> &'static str {
+    match o {
+        MouseOutput::Cursor => "Cursor",
+        MouseOutput::Scroll => "Scroll",
+        MouseOutput::SmoothScroll => "Smooth scroll",
+    }
+}
+
+fn layout_label(l: &DpadLayout) -> &'static str {
+    match l {
+        DpadLayout::FourWay => "4-way",
+        DpadLayout::EightWay => "8-way",
+    }
+}
+
+fn space_label(s: &GyroSpace) -> &'static str {
+    match s {
+        GyroSpace::Yaw => "Yaw",
+        GyroSpace::Roll => "Roll",
+        GyroSpace::YawRoll => "Yaw + Roll",
+        GyroSpace::PlayerSpace => "Player space",
+    }
+}
+
+fn activation_mode_label(m: &ActivationMode) -> &'static str {
+    match m {
+        ActivationMode::HoldToDisable => "Hold to disable",
+        ActivationMode::HoldToEnable => "Hold to enable",
+    }
+}
+
 // --- building blocks ------------------------------------------------------------------------
 
 /// The bindings map of the set/layer being edited, or `None` when nothing is loaded.
@@ -459,6 +864,9 @@ fn group_member_slots(input: &InputSource) -> Vec<CommandSlot> {
 fn behavior_row(input: &InputSource, current: Behavior, kind: SourceKind, on_layer: bool) -> Element<'static, Message> {
     let options = Behavior::valid_for(kind, on_layer);
     let input = input.clone();
+    // The gear opens the behaviour settings page (active only when the behaviour has settings);
+    // built before the combo's closure consumes `input`.
+    let gear_el = behavior_gear(&input, current);
     // On a layer the empty `Unbound` choice reads as "Inherited"; otherwise its own label ("None").
     let combo = pick_list(Some(current), options, move |b: &Behavior| {
         if on_layer && *b == Behavior::Unbound { "Inherited".to_string() } else { b.label().to_string() }
@@ -468,10 +876,7 @@ fn behavior_row(input: &InputSource, current: Behavior, kind: SourceKind, on_lay
     // The "Behavior" label dims when this layer entry is inherited (the passthrough state).
     let inherited = on_layer && current == Behavior::Unbound;
     let name = if inherited { text("Behavior").style(style::muted_text) } else { text("Behavior") };
-    // The gear (→ behaviour settings, later) is inert unless there's a real behaviour to configure.
-    let inner = row![name, Space::new().width(Fill), combo, gear(current.is_real())]
-        .spacing(12.0)
-        .align_y(Center);
+    let inner = row![name, Space::new().width(Fill), combo, gear_el].spacing(12.0).align_y(Center);
     card(inner)
 }
 
@@ -621,6 +1026,16 @@ fn activator_suffix(a: &config::Activator) -> Option<String> {
 /// An active gear button that opens a menu on press.
 fn gear_menu(msg: Message) -> Element<'static, Message> {
     button(text("⚙").size(16.0)).style(style::combo_button).on_press(msg).into()
+}
+
+/// The behaviour-row gear: opens the per-behaviour settings page when the behaviour has settings,
+/// else an inert (greyed) gear. Only for the behaviour row — a plain Button's gear is a command menu.
+fn behavior_gear(input: &InputSource, current: Behavior) -> Element<'static, Message> {
+    if current.has_settings() {
+        gear_menu(Message::Editor(EditorMessage::OpenBehaviorSettings(input.clone())))
+    } else {
+        gear(false)
+    }
 }
 
 /// A settings/gear button. `active=false` greys it (an unbound slot has no menu yet).

@@ -92,9 +92,20 @@ impl Behavior {
         }
     }
 
-    /// Whether this is a real behaviour (settings/virtual buttons) vs a pseudo (`Unbound`/`Disabled`).
-    pub(crate) fn is_real(self) -> bool {
-        !matches!(self, Behavior::Unbound | Behavior::Disabled)
+    /// Whether this behaviour has a per-behaviour **settings page** — i.e. carries a settings struct
+    /// (the analog/rich behaviours). `Button`/`ButtonPad` have none (nor do the pseudo-behaviours),
+    /// so their behaviour-row gear is disabled. NOTE: this governs only the **behaviour-row** gear;
+    /// a plain Button's own gear is a command context menu, a separate path this doesn't touch.
+    pub(crate) fn has_settings(self) -> bool {
+        matches!(
+            self,
+            Behavior::Joystick
+                | Behavior::DirectionalPad
+                | Behavior::AsMouse
+                | Behavior::JoystickMouse
+                | Behavior::GyroToMouse
+                | Behavior::Trigger
+        )
     }
 
     /// Build a fresh binding of this behaviour for `input`, with UI-authored starting values. The

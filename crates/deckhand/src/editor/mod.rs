@@ -10,8 +10,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use config::{
-    Action, ActionSet, Activator, Command, CommandSettings, ConfigDoc, HapticEdge, HapticStrength,
-    InputSource, Layer, SourceBinding, Turbo,
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, Command, CommandSettings,
+    ConfigDoc, Curve, Deadzone, DpadLayout, GyroSpace, HapticEdge, HapticStrength, InputSource,
+    Invert, Layer, MouseOutput, OneEuroFilter, OuterRing, Rotation, Sensitivity, SourceBinding,
+    StickOutput, TriggerOutput, Turbo,
 };
 use iced::Task;
 use ipc::ProfileRole;
@@ -86,6 +88,38 @@ pub(crate) enum ActionTarget {
 pub(crate) enum SettingsView {
     /// Per-command settings (activator kind + time, interruptible/toggle/turbo/haptics).
     Command(CommandRef),
+    /// Per-behaviour settings for a rich source / button group (deadzone, curve, sensitivity, …).
+    /// Addresses the input; the page reads its binding in the currently-edited set/layer.
+    Behavior(InputSource),
+}
+
+/// One field-edit on a behaviour's settings — the wire form of "the user changed one control".
+/// A **sum type** (one variant per editable field), NOT a struct of all fields: a control emits
+/// exactly one of these, and [`apply_setting`] writes it into whichever binding field it names
+/// (a no-op if the current behaviour lacks that field). The typed `config` settings structs stay
+/// the source of truth; this never mirrors them wholesale.
+#[derive(Debug, Clone)]
+pub(crate) enum SettingEdit {
+    StickOutput(StickOutput),
+    TriggerOutput(TriggerOutput),
+    MouseOutput(MouseOutput),
+    OuterRing(f32),
+    SoftPull(f32),
+    Layout(DpadLayout),
+    Space(GyroSpace),
+    SensitivityX(f32),
+    SensitivityY(f32),
+    Curve(Curve),
+    Acceleration(f32),
+    SmoothingEnabled(bool),
+    SmoothingMinCutoff(f32),
+    SmoothingBeta(f32),
+    Deadzone(f32),
+    AntiDeadzone(f32),
+    InvertX(bool),
+    InvertY(bool),
+    Rotation(f32),
+    ActivationMode(ActivationMode),
 }
 
 /// The activator kinds, as the picker/combobox value (an [`Activator`] carries a parameter, so this
@@ -246,6 +280,10 @@ pub(crate) enum EditorMessage {
     SetTurboInterval(CommandRef, u32),
     SetHapticEdge(CommandRef, HapticEdge),
     SetHapticStrength(CommandRef, HapticStrength),
+    /// Open the per-behaviour settings sub-page for an input (the behaviour-row gear).
+    OpenBehaviorSettings(InputSource),
+    /// Apply one behaviour-settings field edit to an input's binding (settings sub-page).
+    SetSetting(InputSource, SettingEdit),
 }
 
 /// Handle one editor message against the app state. The **single doc-mutation site** — the place to
@@ -479,6 +517,233 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
             app.save_editing();
             Task::none()
         }
+        EditorMessage::OpenBehaviorSettings(input) => {
+            if let Some(ed) = &mut app.editing {
+                ed.settings = Some(SettingsView::Behavior(input));
+            }
+            Task::none()
+        }
+        EditorMessage::SetSetting(input, edit) => {
+            if let Some(bindings) = current_bindings_mut(app)
+                && let Some(binding) = bindings.get_mut(&input)
+            {
+                apply_setting(binding, edit);
+            }
+            app.save_editing();
+            Task::none()
+        }
+    }
+}
+
+// --- behaviour-settings edit path -----------------------------------------------------------
+//
+// A single [`SettingEdit`] is applied to whichever field the current binding carries, via small
+// `&mut` accessors over [`SourceBinding`] shared across every behaviour that has that field. The
+// per-type outputs (Stick/Trigger/Mouse) and the singletons (layout/space/soft_pull/anti_deadzone)
+// resolve inline; everything shared goes through an accessor so the logic isn't duplicated.
+
+/// Apply one behaviour-settings field edit to a binding. A no-op when the binding's behaviour lacks
+/// that field (the page only ever offers a behaviour's real fields, so that never happens in
+/// practice — but it keeps the mapping total and safe).
+fn apply_setting(binding: &mut SourceBinding, edit: SettingEdit) {
+    use SettingEdit as E;
+    use SourceBinding as B;
+    match edit {
+        E::StickOutput(o) => {
+            if let B::Joystick { settings, .. } = binding {
+                settings.output = o;
+            }
+        }
+        E::TriggerOutput(o) => {
+            if let B::Trigger { settings, .. } = binding {
+                settings.output = o;
+            }
+        }
+        E::MouseOutput(o) => match binding {
+            B::AsMouse { settings } => settings.output = o,
+            B::JoystickMouse { settings } => settings.output = o,
+            B::GyroToMouse { settings } => settings.output = o,
+            _ => {}
+        },
+        E::OuterRing(r) => {
+            if let Some(x) = outer_ring_mut(binding) {
+                x.radius = r;
+            }
+        }
+        E::SoftPull(t) => {
+            if let B::Trigger { settings, .. } = binding {
+                settings.soft_pull.threshold = t;
+            }
+        }
+        E::Layout(l) => {
+            if let B::DirectionalPad { settings, .. } = binding {
+                settings.layout = l;
+            }
+        }
+        E::Space(s) => {
+            if let B::GyroToMouse { settings } = binding {
+                settings.space = s;
+            }
+        }
+        E::SensitivityX(v) => {
+            if let Some(s) = sensitivity_mut(binding) {
+                s.x = v;
+            }
+        }
+        E::SensitivityY(v) => {
+            if let Some(s) = sensitivity_mut(binding) {
+                s.y = v;
+            }
+        }
+        E::Curve(c) => {
+            if let Some(x) = curve_mut(binding) {
+                *x = c;
+            }
+        }
+        E::Acceleration(f) => {
+            if let Some(a) = acceleration_mut(binding) {
+                a.factor = f;
+            }
+        }
+        E::SmoothingEnabled(on) => {
+            if let Some(s) = smoothing_mut(binding) {
+                *s = on.then(OneEuroFilter::default);
+            }
+        }
+        E::SmoothingMinCutoff(v) => {
+            if let Some(f) = smoothing_mut(binding).and_then(|s| s.as_mut()) {
+                f.min_cutoff = v;
+            }
+        }
+        E::SmoothingBeta(v) => {
+            if let Some(f) = smoothing_mut(binding).and_then(|s| s.as_mut()) {
+                f.beta = v;
+            }
+        }
+        E::Deadzone(v) => {
+            if let Some(d) = deadzone_mut(binding) {
+                d.inner = v;
+            }
+        }
+        E::AntiDeadzone(v) => {
+            if let B::Joystick { settings, .. } = binding {
+                settings.anti_deadzone.amount = v;
+            }
+        }
+        E::InvertX(b) => {
+            if let Some(i) = invert_mut(binding) {
+                i.x = b;
+            }
+        }
+        E::InvertY(b) => {
+            if let Some(i) = invert_mut(binding) {
+                i.y = b;
+            }
+        }
+        E::Rotation(d) => {
+            if let Some(r) = rotation_mut(binding) {
+                r.degrees = d;
+            }
+        }
+        E::ActivationMode(m) => {
+            if let Some(a) = activation_mut(binding) {
+                a.mode = m;
+            }
+        }
+    }
+}
+
+fn deadzone_mut(b: &mut SourceBinding) -> Option<&mut Deadzone> {
+    use SourceBinding as B;
+    match b {
+        B::Joystick { settings, .. } => Some(&mut settings.deadzone),
+        B::DirectionalPad { settings, .. } => Some(&mut settings.deadzone),
+        B::JoystickMouse { settings } => Some(&mut settings.deadzone),
+        B::GyroToMouse { settings } => Some(&mut settings.deadzone),
+        B::Trigger { settings, .. } => Some(&mut settings.deadzone),
+        _ => None,
+    }
+}
+
+fn sensitivity_mut(b: &mut SourceBinding) -> Option<&mut Sensitivity> {
+    use SourceBinding as B;
+    match b {
+        B::AsMouse { settings } => Some(&mut settings.sensitivity),
+        B::JoystickMouse { settings } => Some(&mut settings.sensitivity),
+        B::GyroToMouse { settings } => Some(&mut settings.sensitivity),
+        _ => None,
+    }
+}
+
+fn curve_mut(b: &mut SourceBinding) -> Option<&mut Curve> {
+    use SourceBinding as B;
+    match b {
+        B::Joystick { settings, .. } => Some(&mut settings.curve),
+        B::JoystickMouse { settings } => Some(&mut settings.curve),
+        B::Trigger { settings, .. } => Some(&mut settings.curve),
+        _ => None,
+    }
+}
+
+fn acceleration_mut(b: &mut SourceBinding) -> Option<&mut Acceleration> {
+    use SourceBinding as B;
+    match b {
+        B::AsMouse { settings } => Some(&mut settings.acceleration),
+        B::GyroToMouse { settings } => Some(&mut settings.acceleration),
+        _ => None,
+    }
+}
+
+fn smoothing_mut(b: &mut SourceBinding) -> Option<&mut Option<OneEuroFilter>> {
+    use SourceBinding as B;
+    match b {
+        B::AsMouse { settings } => Some(&mut settings.smoothing),
+        B::GyroToMouse { settings } => Some(&mut settings.smoothing),
+        _ => None,
+    }
+}
+
+fn invert_mut(b: &mut SourceBinding) -> Option<&mut Invert> {
+    use SourceBinding as B;
+    match b {
+        B::Joystick { settings, .. } => Some(&mut settings.invert),
+        B::JoystickMouse { settings } => Some(&mut settings.invert),
+        B::AsMouse { settings } => Some(&mut settings.invert),
+        B::GyroToMouse { settings } => Some(&mut settings.invert),
+        _ => None,
+    }
+}
+
+fn rotation_mut(b: &mut SourceBinding) -> Option<&mut Rotation> {
+    use SourceBinding as B;
+    match b {
+        B::Joystick { settings, .. } => Some(&mut settings.rotation),
+        B::DirectionalPad { settings, .. } => Some(&mut settings.rotation),
+        B::JoystickMouse { settings } => Some(&mut settings.rotation),
+        B::AsMouse { settings } => Some(&mut settings.rotation),
+        B::GyroToMouse { settings } => Some(&mut settings.rotation),
+        _ => None,
+    }
+}
+
+fn activation_mut(b: &mut SourceBinding) -> Option<&mut Activation> {
+    use SourceBinding as B;
+    match b {
+        B::Joystick { settings, .. } => Some(&mut settings.activation),
+        B::DirectionalPad { settings, .. } => Some(&mut settings.activation),
+        B::AsMouse { settings } => Some(&mut settings.activation),
+        B::JoystickMouse { settings } => Some(&mut settings.activation),
+        B::GyroToMouse { settings } => Some(&mut settings.activation),
+        _ => None,
+    }
+}
+
+fn outer_ring_mut(b: &mut SourceBinding) -> Option<&mut OuterRing> {
+    use SourceBinding as B;
+    match b {
+        B::Joystick { settings, .. } => Some(&mut settings.outer_ring),
+        B::DirectionalPad { settings, .. } => Some(&mut settings.outer_ring),
+        _ => None,
     }
 }
 
