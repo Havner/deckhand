@@ -44,14 +44,10 @@ pub enum Key {
     // keypad (physical order; 0 then dot last)
     NumLock, KpSlash, KpAsterisk, KpMinus, KpPlus, KpEnter,
     Kp7, Kp8, Kp9, Kp4, Kp5, Kp6, Kp1, Kp2, Kp3, Kp0, KpDot,
-    // keypad extras
-    KpComma, KpEqual, KpPlusMinus, KpLeftParen, KpRightParen,
     // audio
     Mute, VolumeDown, VolumeUp, MicMute,
-    // media (backward-first, matching the down-first ± convention)
-    PlayPause, Play, PreviousSong, NextSong, Rewind, FastForward,
-    // cd
-    StopCd, PlayCd, PauseCd, CloseCd, EjectCd, EjectCloseCd,
+    // media transport (Stop after Play; backward-first for prev/next)
+    PlayPause, Play, StopCd, PreviousSong, NextSong, Rewind, FastForward,
     // browser
     Back, Forward,
     // brightness / keyboard illumination
@@ -81,10 +77,9 @@ impl Key {
         Key::NumLock, Key::KpSlash, Key::KpAsterisk, Key::KpMinus, Key::KpPlus, Key::KpEnter,
         Key::Kp7, Key::Kp8, Key::Kp9, Key::Kp4, Key::Kp5, Key::Kp6,
         Key::Kp1, Key::Kp2, Key::Kp3, Key::Kp0, Key::KpDot,
-        Key::KpComma, Key::KpEqual, Key::KpPlusMinus, Key::KpLeftParen, Key::KpRightParen,
         Key::Mute, Key::VolumeDown, Key::VolumeUp, Key::MicMute,
-        Key::PlayPause, Key::Play, Key::PreviousSong, Key::NextSong, Key::Rewind, Key::FastForward,
-        Key::StopCd, Key::PlayCd, Key::PauseCd, Key::CloseCd, Key::EjectCd, Key::EjectCloseCd,
+        Key::PlayPause, Key::Play, Key::StopCd, Key::PreviousSong, Key::NextSong,
+        Key::Rewind, Key::FastForward,
         Key::Back, Key::Forward,
         Key::BrightnessDown, Key::BrightnessUp, Key::BrightnessCycle, Key::BrightnessAuto,
         Key::KbdIllumToggle, Key::KbdIllumDown, Key::KbdIllumUp,
@@ -226,7 +221,7 @@ mod tests {
     #[test]
     fn all_arrays_have_no_dupes_and_cover_scroll() {
         // A light guard that ALL stays in sync (unique + non-empty).
-        assert_eq!(Key::ALL.len(), 137);
+        assert_eq!(Key::ALL.len(), 127);
         let mut seen = std::collections::HashSet::new();
         for k in Key::ALL {
             assert!(seen.insert(k), "duplicate in Key::ALL: {k:?}");

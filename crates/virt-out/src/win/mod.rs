@@ -347,16 +347,16 @@ fn is_vk_only(k: &Key) -> bool {
 }
 
 /// True for keys this backend can't realize: Windows has no virtual key for them at all
-/// (`Compose`, the exotic keypad keys, brightness / keyboard-illumination, `MicMute`, and the
-/// media-transport keys with no distinct VK — `Play`/`Rewind`/`FastForward`/the `*Cd` keys).
+/// (`Compose`, brightness / keyboard-illumination, `MicMute`, and the media-transport keys with
+/// no distinct VK — `Play`/`Rewind`/`FastForward`).
 /// Defined as "`key_vk` has no mapping", so it can never drift from the actual `None` cases.
 /// `key_input` drops these; `emit` logs a warning so a mis-bound key isn't silently swallowed.
 fn is_unsupported(k: &Key) -> bool {
     key_vk(k).is_none()
 }
 
-/// Map a key to a Windows virtual-key, or `None` if Windows has no VK for it (`Compose`, exotic
-/// keypad keys, brightness / keyboard-illumination). The media/volume/browser keys map to a
+/// Map a key to a Windows virtual-key, or `None` if Windows has no VK for it (`Compose`,
+/// brightness / keyboard-illumination). The media/volume/browser keys map to a
 /// consumer-control VK; `key_input` injects those by virtual key (`is_vk_only`) rather than by
 /// their E0-extended scancode. Numpad Enter maps to Return + the extended flag.
 fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
@@ -477,24 +477,14 @@ fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
         Key::StopCd => VK_MEDIA_STOP,
         Key::Back => VK_BROWSER_BACK,
         Key::Forward => VK_BROWSER_FORWARD,
-        // No Windows VK at all (or no exact match) → not injected. `Play`/`Rewind`/`FastForward`/
-        // the `*Cd` transport keys and `MicMute` have no distinct VK; brightness / keyboard
-        // illumination aren't virtual keys on Windows.
+        // No Windows VK at all (or no exact match) → not injected. `Play`/`Rewind`/`FastForward`
+        // and `MicMute` have no distinct VK; brightness / keyboard illumination aren't virtual
+        // keys on Windows.
         Key::Compose
-        | Key::KpComma
-        | Key::KpEqual
-        | Key::KpPlusMinus
-        | Key::KpLeftParen
-        | Key::KpRightParen
         | Key::MicMute
         | Key::Play
         | Key::Rewind
         | Key::FastForward
-        | Key::PlayCd
-        | Key::PauseCd
-        | Key::CloseCd
-        | Key::EjectCd
-        | Key::EjectCloseCd
         | Key::BrightnessDown
         | Key::BrightnessUp
         | Key::BrightnessCycle

@@ -248,13 +248,26 @@ const KB_ROWS: &[&[Key]] = {
 const NP_NAV: &[Key] =
     { use Key::*; &[Insert, Home, PageUp, Delete, End, PageDown] };
 const NP_ARROWS: &[Key] = { use Key::*; &[Up, Left, Down, Right] };
-const NP_MEDIA: &[Key] =
-    { use Key::*; &[PlayPause, StopCd, PreviousSong, NextSong, Mute, VolumeDown, VolumeUp] };
 const NP_KEYPAD: &[Key] = {
     use Key::*;
     &[
         NumLock, KpSlash, KpAsterisk, KpMinus, Kp7, Kp8, Kp9, KpPlus, Kp4, Kp5, Kp6, Kp1, Kp2, Kp3,
         KpEnter, Kp0, KpDot,
+    ]
+};
+
+// The "Other keys" groups — one static row each, below the keyboard-like nav + keypad top.
+const NP_SPECIAL: &[Key] =
+    { use Key::*; &[Compose, K102nd, Print, SysRq, ScrollLock, Pause] };
+// Browser Back/Forward sit with audio — outliers either way, and it balances the row lengths.
+const NP_AUDIO: &[Key] = { use Key::*; &[Mute, VolumeDown, VolumeUp, MicMute, Back, Forward] };
+const NP_MEDIA: &[Key] =
+    { use Key::*; &[PlayPause, Play, StopCd, PreviousSong, NextSong, Rewind, FastForward] };
+const NP_BRIGHTNESS: &[Key] = {
+    use Key::*;
+    &[
+        BrightnessDown, BrightnessUp, BrightnessCycle, BrightnessAuto, KbdIllumToggle, KbdIllumDown,
+        KbdIllumUp,
     ]
 };
 
@@ -296,6 +309,7 @@ fn row_of(keys: &[Key]) -> Element<'static, Message> {
 
 fn numpad() -> Element<'static, Message> {
     use Key::*;
+    // The keyboard-like top: the nav island (left) and the numeric keypad (right), nothing between.
     let nav = column![
         row_of(&[Insert, Home, PageUp]),
         row_of(&[Delete, End, PageDown]),
@@ -305,14 +319,6 @@ fn numpad() -> Element<'static, Message> {
     ]
     .spacing(4.0)
     .align_x(Center);
-    let media = column![
-        row_of(&[PlayPause, StopCd]),
-        row_of(&[PreviousSong, NextSong]),
-        iced::widget::Space::new().height(8.0),
-        row_of(&[Mute]),
-        row_of(&[VolumeDown, VolumeUp]),
-    ]
-    .spacing(4.0);
     let keypad = column![
         row_of(&[NumLock, KpSlash, KpAsterisk, KpMinus]),
         row_of(&[Kp7, Kp8, Kp9, KpPlus]),
@@ -321,32 +327,48 @@ fn numpad() -> Element<'static, Message> {
         row_of(&[Kp0, KpDot]),
     ]
     .spacing(4.0);
-    let top = row![nav, media, keypad].spacing(28.0);
-    column![top, text("Other keys").size(14.0), extras_grid()].spacing(16.0).align_x(Center).into()
+    let top = row![nav, keypad].spacing(28.0);
+
+    // The remaining keys as static, categorised rows.
+    let mut groups = column![
+        group_row(NP_SPECIAL),
+        group_row(NP_AUDIO),
+        group_row(NP_MEDIA),
+        group_row(NP_BRIGHTNESS),
+    ]
+    .spacing(4.0)
+    .align_x(Center);
+    // Safety net (decision F): a vocab key that isn't in any group above still gets a spot, so it
+    // can never become unbindable. Normally empty → renders nothing.
+    let unplaced = unplaced_keys();
+    if !unplaced.is_empty() {
+        groups = groups.push(group_row(&unplaced));
+    }
+
+    column![top, text("Other keys").size(14.0), groups].spacing(16.0).align_x(Center).into()
 }
 
-/// Every `Key` not placed in the keyboard/numpad layouts — so all 137 stay bindable (decision F),
-/// even ones with no home on a drawn layout. Auto-complements the placed set: add a key to vocab
-/// and it simply appears here until someone gives it a spot.
-fn extras_grid() -> Element<'static, Message> {
+/// One "Other keys" group as a row of wider tiles (their labels are long — "Play/Pause",
+/// "Browser Back", …).
+fn group_row(keys: &[Key]) -> Element<'static, Message> {
+    let mut r = row![].spacing(4.0);
+    for k in keys {
+        r = r.push(key(k.clone(), 1.7 * KW));
+    }
+    r.into()
+}
+
+/// Every `Key` not placed in the keyboard rows or any numpad-page cluster/group — the safety-net set
+/// (decision F). Empty in normal operation; a newly-added vocab key lands here until it's grouped.
+fn unplaced_keys() -> Vec<Key> {
     let mut placed = HashSet::new();
     for r in KB_ROWS {
         placed.extend(r.iter().cloned());
     }
-    for list in [NP_NAV, NP_ARROWS, NP_MEDIA, NP_KEYPAD] {
+    for list in [NP_NAV, NP_ARROWS, NP_KEYPAD, NP_SPECIAL, NP_AUDIO, NP_MEDIA, NP_BRIGHTNESS] {
         placed.extend(list.iter().cloned());
     }
-    let extras: Vec<Key> = Key::ALL.iter().filter(|k| !placed.contains(*k)).cloned().collect();
-
-    let mut col = column![].spacing(4.0);
-    for chunk in extras.chunks(7) {
-        let mut r = row![].spacing(4.0);
-        for k in chunk {
-            r = r.push(key(k.clone(), 1.7 * KW));
-        }
-        col = col.push(r);
-    }
-    col.into()
+    Key::ALL.iter().filter(|k| !placed.contains(*k)).cloned().collect()
 }
 
 // --- action sets -----------------------------------------------------------------------------
@@ -567,11 +589,6 @@ fn key_label(k: &Key) -> &'static str {
         Kp3 => "KP 3",
         Kp0 => "KP 0",
         KpDot => "KP .",
-        KpComma => "KP ,",
-        KpEqual => "KP =",
-        KpPlusMinus => "KP ±",
-        KpLeftParen => "KP (",
-        KpRightParen => "KP )",
         Mute => "Mute",
         VolumeDown => "Vol -",
         VolumeUp => "Vol +",
@@ -583,11 +600,6 @@ fn key_label(k: &Key) -> &'static str {
         Rewind => "Rewind",
         FastForward => "Fast Fwd",
         StopCd => "Stop",
-        PlayCd => "Play CD",
-        PauseCd => "Pause CD",
-        CloseCd => "Close CD",
-        EjectCd => "Eject",
-        EjectCloseCd => "Eject/Close",
         Back => "Browser Back",
         Forward => "Browser Fwd",
         BrightnessDown => "Bright -",
