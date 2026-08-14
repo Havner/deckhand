@@ -316,7 +316,7 @@ pub(crate) enum Message {
     PopupCancel,
     /// Open the Button (gater/chord) picker, targeting where the pick lands.
     OpenButtonPicker(ButtonTarget),
-    ButtonPicked(config::InputSource),
+    ButtonPicked(vocab_hid::Button),
     /// Globals-page chord edits (each mutates `globals.chords`, then persists + pushes to the daemon).
     ChordAdd,
     ChordRemove(usize),

@@ -128,18 +128,54 @@ pub(in crate::view) fn chip(label: &str, on_remove: Message) -> Element<'static,
 
 /// A leading `+` (fixed position, so it doesn't shift as chips are added) followed by the button
 /// chips. `add` opens the button picker; `on_remove(i)` drops the i-th button. The shared editor for
-/// a `Vec<InputSource>` set (gaters and chord triggers).
+/// a `Vec<vocab_hid::Button>` set (gaters and chord triggers).
 pub(in crate::view) fn button_chips(
-    buttons: &[InputSource],
+    buttons: &[vocab_hid::Button],
     on_remove: impl Fn(usize) -> Message,
     add: Message,
 ) -> Element<'static, Message> {
     let plus = button(text("+").size(15.0)).style(style::combo_button).height(CHIP_H).on_press(add);
     let mut r = row![plus].spacing(6.0).align_y(Center);
     for (i, b) in buttons.iter().enumerate() {
-        r = r.push(chip(editor::input_label(b), on_remove(i)));
+        r = r.push(chip(button_label(b), on_remove(i)));
     }
     r.into()
+}
+
+/// UI-owned display label for a raw controller [`Button`](vocab_hid::Button) — used by the gater/
+/// chord chips and the Button picker. (`vocab-hid` stays presentation-free, like `vocab-out`.)
+pub(in crate::view) fn button_label(b: &vocab_hid::Button) -> &'static str {
+    use vocab_hid::Button as B;
+    match b {
+        B::A => "A",
+        B::B => "B",
+        B::X => "X",
+        B::Y => "Y",
+        B::DpadUp => "D-Pad Up",
+        B::DpadDown => "D-Pad Down",
+        B::DpadLeft => "D-Pad Left",
+        B::DpadRight => "D-Pad Right",
+        B::LB => "Left Bumper",
+        B::RB => "Right Bumper",
+        B::LT => "Left Trigger",
+        B::RT => "Right Trigger",
+        B::LGrip => "Left Grip",
+        B::RGrip => "Right Grip",
+        B::LGrip2 => "Left Grip 2",
+        B::RGrip2 => "Right Grip 2",
+        B::View => "View",
+        B::Menu => "Menu",
+        B::Steam => "Steam",
+        B::QuickAccess => "Quick Access",
+        B::LPadPress => "Left Pad Click",
+        B::RPadPress => "Right Pad Click",
+        B::LPadTouch => "Left Pad Touch",
+        B::RPadTouch => "Right Pad Touch",
+        B::LStickPress => "Left Stick Click",
+        B::RStickPress => "Right Stick Click",
+        B::LStickTouch => "Left Stick Touch",
+        B::RStickTouch => "Right Stick Touch",
+    }
 }
 
 /// The status-bar separator glyph.

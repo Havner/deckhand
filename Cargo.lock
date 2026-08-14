@@ -663,6 +663,7 @@ version = "0.0.0"
 dependencies = [
  "ron",
  "serde",
+ "vocab-hid",
  "vocab-out",
 ]
 
@@ -848,6 +849,7 @@ dependencies = [
  "ron",
  "serde",
  "tray-icon",
+ "vocab-hid",
  "vocab-out",
  "windows",
  "winresource",

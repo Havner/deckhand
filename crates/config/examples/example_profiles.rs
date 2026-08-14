@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use config::{
     Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, GlobalAction, GlobalChord, GlobalConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StartProfile, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
 };
+use vocab_hid::Button;
 use vocab_out::{GamepadButton, Key, MouseButton};
 
 // --- leaf action constructors (no embedded settings) ------------------------------------
@@ -844,7 +845,7 @@ pub fn cp2077_profile() -> ConfigDoc {
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
-                    gaters: vec![InputSource::LeftTriggerFull],
+                    gaters: vec![Button::LT],
                 },
                 ..Default::default()
             },
@@ -1250,7 +1251,7 @@ pub fn control_profile() -> ConfigDoc {
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
-                    gaters: vec![InputSource::LeftTriggerFull],
+                    gaters: vec![Button::LT],
                 },
                 ..Default::default()
             },
@@ -1560,7 +1561,7 @@ pub fn system_shock_profile() -> ConfigDoc {
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
-                    gaters: vec![InputSource::LeftTriggerFull],
+                    gaters: vec![Button::LT],
                 },
                 ..Default::default()
             },
@@ -1616,31 +1617,31 @@ pub fn globals() -> GlobalConfig {
         master_rumble: 100,
         chords: vec![
             GlobalChord {
-                buttons: vec![InputSource::Steam, InputSource::RightGrip],
+                buttons: vec![Button::Steam, Button::RGrip],
                 action: GlobalAction::SwitchProfile {
                     mode: SwitchMode::SetMain,
                 },
             },
             GlobalChord {
-                buttons: vec![InputSource::QuickAccess, InputSource::RightGrip],
+                buttons: vec![Button::QuickAccess, Button::RGrip],
                 action: GlobalAction::SwitchProfile {
                     mode: SwitchMode::SetMain,
                 },
             },
             GlobalChord {
-                buttons: vec![InputSource::Steam, InputSource::LeftGrip],
+                buttons: vec![Button::Steam, Button::LGrip],
                 action: GlobalAction::SwitchProfile {
                     mode: SwitchMode::SetFallback,
                 },
             },
             GlobalChord {
-                buttons: vec![InputSource::QuickAccess, InputSource::LeftGrip],
+                buttons: vec![Button::QuickAccess, Button::LGrip],
                 action: GlobalAction::SwitchProfile {
                     mode: SwitchMode::SetFallback,
                 },
             },
             // GlobalChord {
-            //     buttons: vec![InputSource::Steam, InputSource::LeftGrip],
+            //     buttons: vec![Button::Steam, Button::LGrip],
             //     action: GlobalAction::CommandExecute {
             //         command: "ls".into(),
             //         args: vec!["-l".into(), "/home/havner/Documents/Steam-Claude".into()],

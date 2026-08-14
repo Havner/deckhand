@@ -14,6 +14,8 @@ ipc = { path = "../ipc" }
 config = { path = "../config" }
 # Output vocabulary (Key/MouseButton/GamepadButton) for the Action picker.
 vocab-out = { path = "../vocab-out" }
+# Input vocabulary (controller Button bits) for the gater/chord Button picker.
+vocab-hid = { path = "../vocab-hid" }
 iced.workspace = true
 rfd.workspace = true
 serde.workspace = true

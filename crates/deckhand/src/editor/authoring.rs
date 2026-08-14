@@ -216,8 +216,8 @@ fn mouse_output(input: &InputSource) -> MouseOutput {
 /// click; anything else (a stick) stays always-on.
 fn pad_click_activation(input: &InputSource) -> Activation {
     let click = match input {
-        InputSource::LeftPad => Some(InputSource::LeftPadClick),
-        InputSource::RightPad => Some(InputSource::RightPadClick),
+        InputSource::LeftPad => Some(vocab_hid::Button::LPadPress),
+        InputSource::RightPad => Some(vocab_hid::Button::RPadPress),
         _ => None,
     };
     match click {

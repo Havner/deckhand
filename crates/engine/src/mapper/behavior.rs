@@ -501,7 +501,7 @@ fn rotate(x: f32, y: f32, degrees: f32) -> (f32, f32) {
 /// Whether a behavior is live given its activation gaters (physical buttons, OR-combined).
 /// `HoldToDisable` + no gater = always (the default); `HoldToEnable` + no gater = never.
 fn is_active(a: &Activation, frame: &LogicalFrame) -> bool {
-    let gater_held = a.gaters.iter().any(|g| frame.button(g));
+    let gater_held = a.gaters.iter().any(|g| frame.button_held(g));
     match a.mode {
         ActivationMode::HoldToEnable => gater_held,
         ActivationMode::HoldToDisable => !gater_held,
@@ -823,7 +823,7 @@ mod tests {
             settings: JoystickSettings {
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
-                    gaters: vec![InputSource::LeftGrip],
+                    gaters: vec![steam_hid::Button::LGrip],
                 },
                 ..Default::default()
             },

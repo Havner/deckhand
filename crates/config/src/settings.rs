@@ -7,8 +7,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::input::InputSource;
-
 // --- shared setting types ---------------------------------------------------------------
 
 /// Inner **radial** deadzone (`0..=1`): input magnitude below this maps to neutral.
@@ -133,8 +131,10 @@ impl Default for SoftPull {
 #[serde(default)]
 pub struct Activation {
     pub mode: ActivationMode,
-    /// Physical hardware-bit inputs (incl. full-pulls); validation checks they're buttons.
-    pub gaters: Vec<InputSource>,
+    /// Held hardware buttons that gate the behaviour (OR-combined). Raw controller button bits —
+    /// any of them, including face buttons / dpad directions (`vocab_hid::Button`), not just the
+    /// standalone `SourceKind::Button` inputs.
+    pub gaters: Vec<vocab_hid::Button>,
 }
 
 /// Activation polarity. `HoldToEnable` + no gater = never; `HoldToDisable` + no gater =
@@ -319,7 +319,7 @@ mod tests {
             smoothing: Some(OneEuroFilter { min_cutoff: 1.0, beta: 0.5 }),
             activation: Activation {
                 mode: ActivationMode::HoldToEnable,
-                gaters: vec![InputSource::LeftTriggerFull],
+                gaters: vec![vocab_hid::Button::LT],
             },
             ..Default::default()
         };

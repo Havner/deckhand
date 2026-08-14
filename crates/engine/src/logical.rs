@@ -18,7 +18,7 @@
 //! both crates were unified onto Valve's names.)
 
 use config::InputSource;
-use steam_hid::{Buttons, ControllerState, TrackPad, Vec2, Vec3i};
+use steam_hid::{Button, Buttons, ControllerState, TrackPad, Vec2, Vec3i};
 
 /// A direction within a directional source (button group, dpad, joystick ring). Reused by
 /// the `ButtonPad`/`DirectionalPad` behaviors (S6).
@@ -47,15 +47,12 @@ impl LogicalFrame {
         &self.state
     }
 
-    /// A copy with the given physical-button inputs cleared — used to **consume** the buttons a
+    /// A copy with the given raw controller buttons cleared — used to **consume** the buttons a
     /// global chord fired on, so profile bindings don't also see them (PLAN §3 Round E / §4).
-    /// Non-button inputs are ignored.
-    pub fn masked(&self, consumed: &[InputSource]) -> LogicalFrame {
+    pub fn masked(&self, consumed: &[Button]) -> LogicalFrame {
         let mut state = self.state.clone();
-        for source in consumed {
-            if let Some(flag) = button_flag(source) {
-                state.buttons.remove(flag);
-            }
+        for b in consumed {
+            state.buttons.remove(steam_hid::button_flag(b));
         }
         LogicalFrame::new(state)
     }
@@ -64,6 +61,13 @@ impl LogicalFrame {
     /// clicks, touches, full-pulls). `false` for non-button sources.
     pub fn button(&self, source: &InputSource) -> bool {
         button_flag(source).is_some_and(|f| self.state.buttons.contains(f))
+    }
+
+    /// Whether a raw controller [`Button`] is held. Chords and gaters name hardware buttons
+    /// directly (any bit — including face buttons / dpad directions), so they use this rather than
+    /// the [`InputSource`]-keyed [`button`](Self::button).
+    pub fn button_held(&self, b: &Button) -> bool {
+        self.state.buttons.contains(steam_hid::button_flag(b))
     }
 
     /// Digital level of one member of a **button group** (`FaceButtons`/`DPad`). `false` for

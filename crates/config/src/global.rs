@@ -6,8 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::input::InputSource;
-
 /// The global (above-profile) configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -48,11 +46,11 @@ pub enum StartProfile {
     Fallback,
 }
 
-/// A top-level chord: physical hardware-bit buttons, **AND-combined** (all held), firing a
-/// [`GlobalAction`].
+/// A top-level chord: raw controller buttons, **AND-combined** (all held), firing a
+/// [`GlobalAction`]. Any hardware button (`vocab_hid::Button`) — face buttons / dpad included.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GlobalChord {
-    pub buttons: Vec<InputSource>,
+    pub buttons: Vec<vocab_hid::Button>,
     pub action: GlobalAction,
 }
 
@@ -105,11 +103,11 @@ mod tests {
             idle_timeout: None,
             chords: vec![
                 GlobalChord {
-                    buttons: vec![InputSource::Steam, InputSource::RightGrip],
+                    buttons: vec![vocab_hid::Button::Steam, vocab_hid::Button::RGrip],
                     action: GlobalAction::SwitchProfile { mode: SwitchMode::Toggle },
                 },
                 GlobalChord {
-                    buttons: vec![InputSource::Steam, InputSource::LeftGrip],
+                    buttons: vec![vocab_hid::Button::Steam, vocab_hid::Button::LGrip],
                     action: GlobalAction::CommandExecute {
                         command: "wvkbd".into(),
                         args: vec!["--toggle".into()],

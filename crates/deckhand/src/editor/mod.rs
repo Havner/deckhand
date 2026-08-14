@@ -121,7 +121,7 @@ pub(crate) enum SettingEdit {
     Rotation(f32),
     ActivationMode(ActivationMode),
     /// Append a gater button to the behaviour's activation (deduped). Chosen via the Button picker.
-    AddGater(InputSource),
+    AddGater(vocab_hid::Button),
     /// Remove the gater at this index from the behaviour's activation.
     RemoveGater(usize),
 }

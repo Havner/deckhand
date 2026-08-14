@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashSet};
 use crate::action::Action;
 use crate::binding::SourceBinding;
 use crate::global::GlobalConfig;
-use crate::input::{InputSource, SourceKind};
+use crate::input::InputSource;
 use crate::profile::ConfigDoc;
 
 /// Severity of a [`Diagnostic`].
@@ -59,7 +59,9 @@ impl ConfigDoc {
 }
 
 impl GlobalConfig {
-    /// Validate the globals: chords must have physical-button members, master rumble ≤ 100.
+    /// Validate the globals: chords must be non-empty, master rumble ≤ 100. (Chord/gater members
+    /// are `vocab_hid::Button`s now — every value is a real hardware button, so "is it a physical
+    /// button" is no longer representable-as-invalid.)
     pub fn validate(&self) -> Vec<Diagnostic> {
         let mut out = Vec::new();
         if self.master_rumble > 100 {
@@ -68,11 +70,6 @@ impl GlobalConfig {
         for (i, chord) in self.chords.iter().enumerate() {
             if chord.buttons.is_empty() {
                 error(&mut out, format!("chord #{i} has no buttons"));
-            }
-            for b in &chord.buttons {
-                if b.kind() != SourceKind::Button {
-                    error(&mut out, format!("chord #{i}: {b:?} is not a physical button"));
-                }
             }
         }
         out
@@ -90,14 +87,8 @@ fn check_bindings(
         if !binding.is_valid_for(&input.kind()) {
             error(out, format!("{ctx}: binding not valid for {input:?} (kind {:?})", input.kind()));
         }
-        // Activation gaters must be physical buttons.
-        if let Some(act) = binding.activation() {
-            for g in &act.gaters {
-                if g.kind() != SourceKind::Button {
-                    error(out, format!("{ctx}: {input:?} gater {g:?} is not a physical button"));
-                }
-            }
-        }
+        // Gaters are `vocab_hid::Button`s now — every value is a real hardware button, so there's
+        // nothing to validate about them here (invalid-unrepresentable).
         for cmd in binding.commands() {
             if cmd.actions.is_empty() {
                 warning(out, format!("{ctx}: {input:?} has a command with no actions"));
@@ -152,7 +143,6 @@ mod tests {
     use crate::action::{Action, LayerRef};
     use crate::command::{Activator, Command};
     use crate::profile::{ActionSet, Layer};
-    use crate::settings::{Activation, ActivationMode, GyroToMouseSettings};
 
     fn cmd(action: Action) -> Command {
         Command { activator: Activator::Regular, actions: vec![action], settings: Default::default() }
@@ -183,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn catches_dangling_ref_kind_mismatch_and_bad_gater() {
+    fn catches_dangling_ref_and_kind_mismatch() {
         let mut bindings = BTreeMap::new();
         // dangling layer ref
         bindings.insert(
@@ -192,26 +182,13 @@ mod tests {
         );
         // kind mismatch: AsMouse on a Button
         bindings.insert(InputSource::RightBumper, SourceBinding::AsMouse { settings: Default::default() });
-        // bad gater: a Pad used as a gyro gater
-        bindings.insert(
-            InputSource::Gyro,
-            SourceBinding::GyroToMouse {
-                settings: GyroToMouseSettings {
-                    activation: Activation {
-                        mode: ActivationMode::HoldToEnable,
-                        gaters: vec![InputSource::LeftPad],
-                    },
-                    ..Default::default()
-                },
-            },
-        );
         let doc = ConfigDoc {
             version: 0,
             name: "p".into(),
             action_sets: vec![ActionSet { name: "Game".into(), bindings, layers: vec![] }],
             rumble: Default::default(),
         };
-        // ≥ 3 errors: dangling layer, kind mismatch, bad gater.
-        assert!(errors(&doc.validate()) >= 3);
+        // ≥ 2 errors: dangling layer, kind mismatch. (Gaters can't be "bad" now — they're Buttons.)
+        assert!(errors(&doc.validate()) >= 2);
     }
 }
