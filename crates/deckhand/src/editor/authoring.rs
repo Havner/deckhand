@@ -15,8 +15,10 @@
 //! `default_binding` are ready for when the editor reflects and constructs bindings.
 
 use config::{
-    Acceleration, AsMouseSettings, Deadzone, GyroToMouseSettings, InputSource, JoystickSettings,
-    OneEuroFilter, Sensitivity, SourceBinding, SourceKind,
+    Acceleration, Activation, ActivationMode, AsMouseSettings, Deadzone, DirectionalPadSettings,
+    GyroToMouseSettings, InputSource, JoystickMouseSettings, JoystickSettings, MouseOutput,
+    OneEuroFilter, Sensitivity, Side, SourceBinding, SourceKind, StickOutput, TriggerOutput,
+    TriggerSettings,
 };
 
 /// A behaviour choice — the picker's value type, one per [`SourceBinding`] variant (+ `Unbound`).
@@ -124,6 +126,8 @@ impl Behavior {
             },
             Behavior::Joystick => SourceBinding::Joystick {
                 settings: JoystickSettings {
+                    // Drive the gamepad stick on the input's own side (left input → left stick).
+                    output: stick_output(input),
                     // A stick rests off-centre (mechanical jitter), so it wants a larger inner
                     // deadzone than an absolute-touch pad — the one genuinely per-input default.
                     deadzone: Deadzone {
@@ -134,7 +138,12 @@ impl Behavior {
                 outer_ring: Vec::new(),
             },
             Behavior::DirectionalPad => SourceBinding::DirectionalPad {
-                settings: Default::default(),
+                // On a trackpad, gate directions on that pad's click so a resting finger doesn't fire
+                // one (a stick self-centres, so it stays always-on).
+                settings: DirectionalPadSettings {
+                    activation: pad_click_activation(input),
+                    ..Default::default()
+                },
                 up: Vec::new(),
                 down: Vec::new(),
                 left: Vec::new(),
@@ -142,16 +151,20 @@ impl Behavior {
                 outer_ring: Vec::new(),
             },
             // Pad-velocity mouse — sensitivity/accel/1€ tuned for pad-units/s (see the example
-            // profiles; the difference from gyro is a per-behaviour thing, absorbed here).
+            // profiles; the difference from gyro is a per-behaviour thing, absorbed here). Left side
+            // scrolls, right side moves the cursor.
             Behavior::AsMouse => SourceBinding::AsMouse {
                 settings: AsMouseSettings {
+                    output: mouse_output(input),
                     sensitivity: Sensitivity { x: 0.5, y: 0.5 },
                     acceleration: Acceleration { factor: 0.05 },
                     smoothing: Some(OneEuroFilter { min_cutoff: 3.0, beta: 0.5 }),
                     ..Default::default()
                 },
             },
-            Behavior::JoystickMouse => SourceBinding::JoystickMouse { settings: Default::default() },
+            Behavior::JoystickMouse => SourceBinding::JoystickMouse {
+                settings: JoystickMouseSettings { output: mouse_output(input), ..Default::default() },
+            },
             // Gyro-velocity mouse — the same knobs tuned for deg/s (smaller accel, lower cutoff).
             Behavior::GyroToMouse => SourceBinding::GyroToMouse {
                 settings: GyroToMouseSettings {
@@ -161,13 +174,55 @@ impl Behavior {
                     ..Default::default()
                 },
             },
-            Behavior::Trigger => {
-                SourceBinding::Trigger { settings: Default::default(), soft_pull: Vec::new() }
-            }
+            // Drive the gamepad trigger on the input's own side (left trigger → left trigger axis).
+            Behavior::Trigger => SourceBinding::Trigger {
+                settings: TriggerSettings { output: trigger_output(input), ..Default::default() },
+                soft_pull: Vec::new(),
+            },
             // `Unbound` is "no entry" so this is never inserted (SetBehavior removes instead);
             // `Disabled` is the explicit nullifying `None`.
             Behavior::Unbound | Behavior::Disabled => SourceBinding::None,
         }
+    }
+}
+
+// --- side-aware authoring defaults ----------------------------------------------------------
+
+/// Default stick-axis output for a Joystick binding — the input's own side.
+fn stick_output(input: &InputSource) -> StickOutput {
+    match input.side() {
+        Side::Left => StickOutput::Left,
+        Side::Right => StickOutput::Right,
+    }
+}
+
+/// Default trigger-axis output for a Trigger binding — the input's own side.
+fn trigger_output(input: &InputSource) -> TriggerOutput {
+    match input.side() {
+        Side::Left => TriggerOutput::Left,
+        Side::Right => TriggerOutput::Right,
+    }
+}
+
+/// Default mouse output for a pad/stick mouse behaviour: left side → scroll, right side → cursor.
+fn mouse_output(input: &InputSource) -> MouseOutput {
+    match input.side() {
+        Side::Left => MouseOutput::Scroll,
+        Side::Right => MouseOutput::Cursor,
+    }
+}
+
+/// Default activation for a DirectionalPad: on a trackpad, hold-to-enable gated on that pad's own
+/// click; anything else (a stick) stays always-on.
+fn pad_click_activation(input: &InputSource) -> Activation {
+    let click = match input {
+        InputSource::LeftPad => Some(InputSource::LeftPadClick),
+        InputSource::RightPad => Some(InputSource::RightPadClick),
+        _ => None,
+    };
+    match click {
+        Some(c) => Activation { mode: ActivationMode::HoldToEnable, gaters: vec![c] },
+        None => Activation::default(),
     }
 }
 
