@@ -215,10 +215,10 @@ pub enum GyroSpace {
 #[serde(default)]
 pub struct JoystickSettings {
     pub output: StickOutput,
-    pub deadzone: Deadzone,
-    pub anti_deadzone: AntiDeadzone,
     pub outer_ring: OuterRing,
     pub curve: Curve,
+    pub deadzone: Deadzone,
+    pub anti_deadzone: AntiDeadzone,
     pub invert: Invert,
     pub rotation: Rotation,
     pub activation: Activation,
@@ -228,10 +228,10 @@ pub struct JoystickSettings {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DirectionalPadSettings {
-    /// Register deadzone: how far from centre before a direction activates.
-    pub deadzone: Deadzone,
     pub layout: DpadLayout,
     pub outer_ring: OuterRing,
+    /// Register deadzone: how far from centre before a direction activates.
+    pub deadzone: Deadzone,
     pub rotation: Rotation,
     pub activation: Activation,
 }
@@ -245,9 +245,9 @@ pub struct AsMouseSettings {
     pub output: MouseOutput,
     pub sensitivity: Sensitivity,
     pub acceleration: Acceleration,
+    pub smoothing: Option<OneEuroFilter>,
     pub invert: Invert,
     pub rotation: Rotation,
-    pub smoothing: Option<OneEuroFilter>,
     pub activation: Activation,
 }
 
@@ -261,9 +261,9 @@ pub struct AsMouseSettings {
 pub struct JoystickMouseSettings {
     pub output: MouseOutput,
     pub sensitivity: Sensitivity,
+    pub curve: Curve,
     pub deadzone: Deadzone,
     pub invert: Invert,
-    pub curve: Curve,
     pub rotation: Rotation,
     pub activation: Activation,
 }
@@ -273,14 +273,14 @@ pub struct JoystickMouseSettings {
 #[serde(default)]
 pub struct GyroToMouseSettings {
     pub output: MouseOutput,
+    pub space: GyroSpace,
     pub sensitivity: Sensitivity,
-    pub invert: Invert,
+    pub acceleration: Acceleration,
+    pub smoothing: Option<OneEuroFilter>,
     /// Radial deadzone — kills the resting-bias drift (Round B / bridge).
     pub deadzone: Deadzone,
-    pub acceleration: Acceleration,
+    pub invert: Invert,
     pub rotation: Rotation,
-    pub smoothing: Option<OneEuroFilter>,
-    pub space: GyroSpace,
     pub activation: Activation,
 }
 
@@ -314,8 +314,8 @@ mod tests {
     #[test]
     fn gyro_settings_round_trip_ron() {
         let g = GyroToMouseSettings {
-            sensitivity: Sensitivity { x: 0.7, y: 0.9 },
             space: GyroSpace::PlayerSpace,
+            sensitivity: Sensitivity { x: 0.7, y: 0.9 },
             smoothing: Some(OneEuroFilter { min_cutoff: 1.0, beta: 0.5 }),
             activation: Activation {
                 mode: ActivationMode::HoldToEnable,

@@ -714,8 +714,8 @@ mod tests {
     fn directional_pad_eight_way_diagonal_fires_two() {
         let binding = CompiledBinding::DirectionalPad {
             settings: DirectionalPadSettings {
-                deadzone: Deadzone { inner: 0.2 },
                 layout: DpadLayout::EightWay,
+                deadzone: Deadzone { inner: 0.2 },
                 ..Default::default()
             },
             up: regular(Key::Up),

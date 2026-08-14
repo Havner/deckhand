@@ -832,8 +832,8 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::Gyro,
         SourceBinding::GyroToMouse {
             settings: GyroToMouseSettings {
-                space: GyroSpace::PlayerSpace,
                 output: MouseOutput::Cursor,
+                space: GyroSpace::PlayerSpace,
                 sensitivity: Sensitivity { x: 0.5, y: 0.5 },
                 acceleration: Acceleration { factor: 0.02 },
                 smoothing: Some(OneEuroFilter {
@@ -1238,8 +1238,8 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::Gyro,
         SourceBinding::GyroToMouse {
             settings: GyroToMouseSettings {
-                space: GyroSpace::PlayerSpace,
                 output: MouseOutput::Cursor,
+                space: GyroSpace::PlayerSpace,
                 sensitivity: Sensitivity { x: 0.5, y: 0.5 },
                 acceleration: Acceleration { factor: 0.02 },
                 smoothing: Some(OneEuroFilter {
@@ -1548,8 +1548,8 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::Gyro,
         SourceBinding::GyroToMouse {
             settings: GyroToMouseSettings {
-                space: GyroSpace::PlayerSpace,
                 output: MouseOutput::Cursor,
+                space: GyroSpace::PlayerSpace,
                 sensitivity: Sensitivity { x: 0.5, y: 0.5 },
                 acceleration: Acceleration { factor: 0.02 },
                 smoothing: Some(OneEuroFilter {
