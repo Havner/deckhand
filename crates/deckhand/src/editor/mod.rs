@@ -288,6 +288,10 @@ pub(crate) enum EditorMessage {
     OpenBehaviorSettings(InputSource),
     /// Apply one behaviour-settings field edit to an input's binding (settings sub-page).
     SetSetting(InputSource, SettingEdit),
+    /// Rumble-page edits — the profile-level `ConfigDoc.rumble` feel.
+    SetRumbleStrength(u8),
+    SetRumbleHz(u16),
+    SetRumbleCurve(Curve),
 }
 
 /// Handle one editor message against the app state. The **single doc-mutation site** — the place to
@@ -532,6 +536,27 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
                 && let Some(binding) = bindings.get_mut(&input)
             {
                 apply_setting(binding, edit);
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetRumbleStrength(v) => {
+            if let Some(ed) = &mut app.editing {
+                ed.doc.rumble.strength = v;
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetRumbleHz(v) => {
+            if let Some(ed) = &mut app.editing {
+                ed.doc.rumble.hz = v;
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetRumbleCurve(c) => {
+            if let Some(ed) = &mut app.editing {
+                ed.doc.rumble.curve = c;
             }
             app.save_editing();
             Task::none()

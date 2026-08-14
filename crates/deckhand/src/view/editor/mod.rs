@@ -156,25 +156,91 @@ pub(super) fn input_screen(app: &App, category: Category) -> Element<'static, Me
     col.into()
 }
 
-/// Rumble screen — the profile-level rumble feel (game rumble → trackpad haptics). Mockup.
-pub(super) fn rumble_screen() -> Element<'static, Message> {
-    let slider_row = |label: &'static str, value: u16, max: u16, readout: String| {
-        row![
-            text(label).width(140.0),
-            slider(0..=max, value, |_| Message::Ignored).style(style::disabled_slider),
-            text(readout).width(60.0),
-        ]
-        .spacing(12.0)
-        .align_y(Center)
-    };
+/// Rumble screen — the profile-level rumble feel (`ConfigDoc.rumble`: strength / frequency / the
+/// strength→drive curve). A **standalone** page (its own widgets + curve control), deliberately NOT
+/// built from the reusable settings blocks — those stay solely for the per-behaviour pages.
+pub(super) fn rumble_screen(app: &App) -> Element<'static, Message> {
+    let r = app.editing.as_ref().map(|e| e.doc.rumble.clone()).unwrap_or_default();
+
+    // Strength is a percent that may exceed 100 (u8 → 255) to boost under-driven games.
+    let strength = row![
+        setting_label("Strength"),
+        slider(0..=255u8, r.strength, |v| Message::Editor(EditorMessage::SetRumbleStrength(v))).step(1u8),
+        text(format!("{}%", r.strength)).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+
+    let frequency = row![
+        setting_label("Frequency"),
+        slider(30..=150u16, r.hz, |v| Message::Editor(EditorMessage::SetRumbleHz(v))).step(1u16),
+        text(format!("{} Hz", r.hz)).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+
     column![
         section_header("Rumble"),
-        small("Per-profile rumble feel (game rumble → trackpad haptics). Mockup — not wired yet."),
-        slider_row("Strength", 100, 200, "100%".into()),
-        slider_row("Frequency", 60, 200, "60 Hz".into()),
+        small(
+            "Per-profile rumble feel: game force-feedback → controller rumble. Strength may exceed \
+             100% to boost games that under-drive their force-feedback.",
+        ),
+        strength,
+        frequency,
+        rumble_curve(&r.curve),
     ]
     .spacing(16.0)
     .into()
+}
+
+/// This page's own Curve control (kind picker + exponent slider) — a standalone copy of the
+/// settings-page shape, NOT the reusable `curve` block, so the behaviour-settings blocks stay
+/// untouched. Its own `RumbleCurveKind`, so the two evolve independently (accepted duplication).
+fn rumble_curve(curve: &Curve) -> Element<'static, Message> {
+    let kind = if matches!(curve, Curve::Power(_)) { RumbleCurveKind::Power } else { RumbleCurveKind::Linear };
+    let combo = pick_list(
+        Some(kind),
+        vec![RumbleCurveKind::Linear, RumbleCurveKind::Power],
+        |k: &RumbleCurveKind| k.label().to_string(),
+    )
+    .on_select(|k| {
+        let c = match k {
+            RumbleCurveKind::Linear => Curve::Linear,
+            RumbleCurveKind::Power => Curve::Power(1.0),
+        };
+        Message::Editor(EditorMessage::SetRumbleCurve(c))
+    })
+    .width(CMD_SLOT);
+    let mut col = column![row![setting_label("Curve"), combo].spacing(12.0).align_y(Center)].spacing(8.0);
+    if let Curve::Power(e) = *curve {
+        col = col.push(
+            row![
+                setting_label("Exponent"),
+                slider(0.2..=4.0f32, e, |v| Message::Editor(EditorMessage::SetRumbleCurve(Curve::Power(v))))
+                    .step(0.05f32),
+                text(format!("{e:.2}")).width(70.0),
+            ]
+            .spacing(12.0)
+            .align_y(Center),
+        );
+    }
+    col.into()
+}
+
+/// The rumble page's own curve-kind pick-list value (standalone — not the settings blocks' `CurveKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RumbleCurveKind {
+    Linear,
+    Power,
+}
+
+impl RumbleCurveKind {
+    fn label(self) -> &'static str {
+        match self {
+            RumbleCurveKind::Linear => "Linear",
+            RumbleCurveKind::Power => "Power",
+        }
+    }
 }
 
 // --- settings sub-pages ---------------------------------------------------------------------
@@ -607,7 +673,7 @@ fn curve(input: &InputSource, curve: &Curve) -> Element<'static, Message> {
     .on_select(move |k| {
         let c = match k {
             CurveKind::Linear => Curve::Linear,
-            CurveKind::Power => Curve::Power(2.0),
+            CurveKind::Power => Curve::Power(1.0),
         };
         Message::Editor(EditorMessage::SetSetting(i1.clone(), SettingEdit::Curve(c)))
     })
