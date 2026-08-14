@@ -647,7 +647,8 @@ fn smoothing(input: &InputSource, sm: &Option<OneEuroFilter>) -> Element<'static
     col.into()
 }
 
-/// Activation: the mode picker + a read-only summary of gaters (the gater editor is deferred).
+/// Activation: the mode picker + the gater set (chips + the Button picker), OR-combined held buttons
+/// that gate the behaviour.
 fn activation(input: &InputSource, a: &Activation) -> Element<'static, Message> {
     let i = input.clone();
     let combo = pick_list(
@@ -657,13 +658,19 @@ fn activation(input: &InputSource, a: &Activation) -> Element<'static, Message> 
     )
     .on_select(move |m| Message::Editor(EditorMessage::SetSetting(i.clone(), SettingEdit::ActivationMode(m))))
     .width(CMD_SLOT);
-    let gaters = if a.gaters.is_empty() {
-        "Gaters: none (editing coming soon)".to_string()
-    } else {
-        let names: Vec<&str> = a.gaters.iter().map(input_label).collect();
-        format!("Gaters: {} (editing coming soon)", names.join(", "))
-    };
-    column![row![setting_label("Activation"), combo].spacing(12.0).align_y(Center), small(gaters)]
+    let rm = input.clone();
+    let add = input.clone();
+    let gaters = row![
+        setting_label("Gaters"),
+        super::button_chips(
+            &a.gaters,
+            move |j| Message::Editor(EditorMessage::SetSetting(rm.clone(), SettingEdit::RemoveGater(j))),
+            Message::OpenButtonPicker(crate::ButtonTarget::Gater(add.clone())),
+        ),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+    column![row![setting_label("Activation"), combo].spacing(12.0).align_y(Center), gaters]
         .spacing(8.0)
         .into()
 }

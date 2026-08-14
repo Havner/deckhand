@@ -3,12 +3,12 @@
 //! `app.globals` (the source of truth), never the daemon's status snapshot. Chords aren't editable
 //! yet (that lands with the profile editor) — only their count is shown.
 
-use config::StartProfile;
-use iced::widget::{button, checkbox, column, pick_list, row, slider, text};
-use iced::{Center, Element};
+use config::{GlobalAction, GlobalChord, StartProfile, SwitchMode};
+use iced::widget::{Space, button, checkbox, column, pick_list, row, slider, text, text_input};
+use iced::{Center, Element, Fill};
 
-use super::{section_header, small};
-use crate::{App, IDLE_TIMEOUT_MINUTES, Message, style};
+use super::{button_chips, group_header, section_header, small};
+use crate::{App, ButtonTarget, ChordActionKind, IDLE_TIMEOUT_MINUTES, Message, style};
 
 /// The global-config page (Category::Globals).
 pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
@@ -82,16 +82,6 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
     .spacing(12.0)
     .align_y(Center);
 
-    // Chords: count only — editing is deferred to the profile editor (the count still round-trips
-    // through the file/daemon untouched).
-    let chords = row![glabel("Chords:"), text(format!("{}", g.chords.len()))]
-        .spacing(12.0)
-        .align_y(Center);
-
-    // TEMPORARY debug affordance: opens the button (gater/global) picker to exercise it; the pick is
-    // printed to stdout. Remove once gater/chord editing is built.
-    let pick_button = button(text("Pick a button (debug)")).on_press(Message::OpenButtonPicker);
-
     let note =
         small("'Start profile', 'LED brightness' and 'Idle timeout' take effect only on engine start.");
 
@@ -102,11 +92,90 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
         master,
         led,
         idle,
-        chords,
-        pick_button,
+        chords_section(g),
     ]
     .spacing(16.0)
     .into()
+}
+
+/// The chords editor: one bar per chord (trigger chips + action) and an "Add chord" button. Chords
+/// are AND-combined buttons firing a [`GlobalAction`] (profile switch / run command).
+fn chords_section(g: &config::GlobalConfig) -> Element<'_, Message> {
+    let mut col = column![group_header("Chords")].spacing(8.0);
+    for (i, chord) in g.chords.iter().enumerate() {
+        col = col.push(chord_bar(i, chord));
+    }
+    col = col.push(
+        button(text("Add chord")).style(button::secondary).on_press(Message::ChordAdd),
+    );
+    col.into()
+}
+
+/// One chord bar: the trigger buttons (chips + picker), the action-kind combobox and its detail
+/// (switch mode / command line), and a ✕ to remove the whole chord.
+fn chord_bar(i: usize, chord: &GlobalChord) -> Element<'static, Message> {
+    let trigger = button_chips(
+        &chord.buttons,
+        move |j| Message::ChordRemoveButton(i, j),
+        Message::OpenButtonPicker(ButtonTarget::Chord(i)),
+    );
+
+    let kind = match chord.action {
+        GlobalAction::SwitchProfile { .. } => ChordActionKind::SwitchProfile,
+        GlobalAction::CommandExecute { .. } => ChordActionKind::CommandExecute,
+    };
+    let kind_combo = pick_list(
+        Some(kind),
+        vec![ChordActionKind::SwitchProfile, ChordActionKind::CommandExecute],
+        |k: &ChordActionKind| chord_kind_label(k).to_string(),
+    )
+    .on_select(move |k| Message::ChordSetKind(i, k))
+    .width(150.0);
+
+    let detail: Element<'static, Message> = match &chord.action {
+        GlobalAction::SwitchProfile { mode } => pick_list(
+            Some(mode.clone()),
+            vec![SwitchMode::HoldFallback, SwitchMode::Toggle, SwitchMode::SetMain, SwitchMode::SetFallback],
+            |m: &SwitchMode| switch_mode_label(m).to_string(),
+        )
+        .on_select(move |m| Message::ChordSetMode(i, m))
+        .width(150.0)
+        .into(),
+        GlobalAction::CommandExecute { command, args } => text_input("command args…", command_line(command, args))
+            .on_input(move |s| Message::ChordSetCommandLine(i, s))
+            .width(240.0)
+            .into(),
+    };
+
+    let remove = button(text("✕").size(15.0)).style(style::combo_button).on_press(Message::ChordRemove(i));
+
+    super::card(
+        row![trigger, Space::new().width(Fill), kind_combo, detail, remove]
+            .spacing(12.0)
+            .align_y(Center),
+    )
+}
+
+/// The command line shown/edited for a `CommandExecute` chord: command + args joined by a single
+/// space. Paired with the split-on-`' '` parse in `App::update` so the field's exact text round-trips.
+fn command_line(command: &str, args: &[String]) -> String {
+    std::iter::once(command.to_string()).chain(args.iter().cloned()).collect::<Vec<_>>().join(" ")
+}
+
+fn chord_kind_label(k: &ChordActionKind) -> &'static str {
+    match k {
+        ChordActionKind::SwitchProfile => "Switch profile",
+        ChordActionKind::CommandExecute => "Run command",
+    }
+}
+
+fn switch_mode_label(m: &SwitchMode) -> &'static str {
+    match m {
+        SwitchMode::HoldFallback => "Hold fallback",
+        SwitchMode::Toggle => "Toggle",
+        SwitchMode::SetMain => "Set main",
+        SwitchMode::SetFallback => "Set fallback",
+    }
 }
 
 /// A fixed-width row label for the Globals screen, so the controls line up in a column.

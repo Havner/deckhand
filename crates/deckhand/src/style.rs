@@ -136,6 +136,18 @@ pub(crate) fn labeled_pick(theme: &Theme, status: pick_list::Status) -> pick_lis
     style
 }
 
+/// A small rounded "chip" surface for a button in a set (gater / chord trigger): the bar's `weak`
+/// fill with a hairline border, so a set of buttons reads as inline pills rather than full rows.
+pub(crate) fn chip(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(Background::Color(palette.background.weak.color)),
+        text_color: Some(palette.background.weak.text),
+        border: Border { radius: 10.0.into(), width: 1.0, color: palette.background.strong.color },
+        ..container::Style::default()
+    }
+}
+
 /// A modal card's surface — like `container::rounded_box`, but filled with the window's **base**
 /// background (`background.base`) instead of the lighter `background.weak`, so a modal reads as the
 /// same tone as the big content pane behind it (which has no fill of its own → the base background).

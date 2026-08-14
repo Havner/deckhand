@@ -75,6 +75,24 @@ pub(crate) enum IoTarget {
     Output,
 }
 
+/// Where a button picked in the Button picker lands. Both destinations hold a `Vec<InputSource>`;
+/// the picker is single-select (append one), and removal is handled at the destination.
+#[derive(Debug, Clone)]
+pub(crate) enum ButtonTarget {
+    /// Append to the behaviour's `Activation.gaters` for this input (in the edited profile).
+    Gater(config::InputSource),
+    /// Append to `globals.chords[i].buttons`.
+    Chord(usize),
+}
+
+/// A global chord's action kind — the pick-list value for the chord's action-type combobox (the
+/// concrete [`config::GlobalAction`] carries params; this tags just the variant).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChordActionKind {
+    SwitchProfile,
+    CommandExecute,
+}
+
 // The modal state enum + its picker tabs live in the modal view module (which owns all modals).
 pub(crate) use view::modal::{ActionTab, Popup};
 
@@ -296,10 +314,16 @@ pub(crate) enum Message {
     PopupTextChanged(String),
     PopupConfirm,
     PopupCancel,
-    /// Button (gater/global) picker — temporary debug wiring: opened from a Globals-page button,
-    /// prints the picked input.
-    OpenButtonPicker,
+    /// Open the Button (gater/chord) picker, targeting where the pick lands.
+    OpenButtonPicker(ButtonTarget),
     ButtonPicked(config::InputSource),
+    /// Globals-page chord edits (each mutates `globals.chords`, then persists + pushes to the daemon).
+    ChordAdd,
+    ChordRemove(usize),
+    ChordRemoveButton(usize, usize),
+    ChordSetKind(usize, ChordActionKind),
+    ChordSetMode(usize, config::SwitchMode),
+    ChordSetCommandLine(usize, String),
     /// Window lifecycle: open captures the id; a close *request* (WM button) is intercepted for
     /// close-to-tray; closed clears the id; resize tracks the size to persist.
     WindowOpened(window::Id),
@@ -612,11 +636,82 @@ impl App {
                 }
             }
             Message::PopupCancel => self.popup = None,
-            Message::OpenButtonPicker => self.popup = Some(Popup::ButtonPicker),
+            Message::OpenButtonPicker(target) => self.popup = Some(Popup::ButtonPicker { target }),
             Message::ButtonPicked(src) => {
-                // Debug wiring: gaters/globals editing isn't built yet, so just report the pick.
-                println!("[button picker] picked: {src:?}");
+                let target = match &self.popup {
+                    Some(Popup::ButtonPicker { target }) => Some(target.clone()),
+                    _ => None,
+                };
                 self.popup = None;
+                match target {
+                    // A gater is part of the edited profile → route through the editor's edit path.
+                    Some(ButtonTarget::Gater(input)) => {
+                        return editor::update(
+                            self,
+                            editor::EditorMessage::SetSetting(input, editor::SettingEdit::AddGater(src)),
+                        );
+                    }
+                    Some(ButtonTarget::Chord(i)) => {
+                        if let Some(ch) = self.globals.chords.get_mut(i)
+                            && !ch.buttons.contains(&src)
+                        {
+                            ch.buttons.push(src);
+                        }
+                        return self.apply_globals();
+                    }
+                    None => {}
+                }
+            }
+            Message::ChordAdd => {
+                self.globals.chords.push(config::GlobalChord {
+                    buttons: Vec::new(),
+                    action: config::GlobalAction::SwitchProfile { mode: config::SwitchMode::HoldFallback },
+                });
+                return self.apply_globals();
+            }
+            Message::ChordRemove(i) => {
+                if i < self.globals.chords.len() {
+                    self.globals.chords.remove(i);
+                }
+                return self.apply_globals();
+            }
+            Message::ChordRemoveButton(i, j) => {
+                if let Some(ch) = self.globals.chords.get_mut(i)
+                    && j < ch.buttons.len()
+                {
+                    ch.buttons.remove(j);
+                }
+                return self.apply_globals();
+            }
+            Message::ChordSetKind(i, kind) => {
+                if let Some(ch) = self.globals.chords.get_mut(i) {
+                    ch.action = match kind {
+                        ChordActionKind::SwitchProfile => {
+                            config::GlobalAction::SwitchProfile { mode: config::SwitchMode::HoldFallback }
+                        }
+                        ChordActionKind::CommandExecute => {
+                            config::GlobalAction::CommandExecute { command: String::new(), args: Vec::new() }
+                        }
+                    };
+                }
+                return self.apply_globals();
+            }
+            Message::ChordSetMode(i, mode) => {
+                if let Some(ch) = self.globals.chords.get_mut(i) {
+                    ch.action = config::GlobalAction::SwitchProfile { mode };
+                }
+                return self.apply_globals();
+            }
+            Message::ChordSetCommandLine(i, line) => {
+                if let Some(ch) = self.globals.chords.get_mut(i) {
+                    // Split on the literal space (keeping empties) so command+args round-trip the
+                    // field's exact text — no whitespace normalisation to fight the cursor mid-type.
+                    let mut parts = line.split(' ').map(String::from);
+                    let command = parts.next().unwrap_or_default();
+                    let args: Vec<String> = parts.collect();
+                    ch.action = config::GlobalAction::CommandExecute { command, args };
+                }
+                return self.apply_globals();
             }
 
             // --- window + tray arms (may drive a window Task) ---

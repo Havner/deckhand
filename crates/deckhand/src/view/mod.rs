@@ -111,6 +111,30 @@ pub(in crate::view) fn label_row(label: &str, dot: Dot) -> Row<'static, Message>
     r.push(text(label.to_string()))
 }
 
+/// A small removable "chip": a button's name in a pill with a ✕ that emits `on_remove`. Shared by
+/// the gater list (Activation) and chord triggers (Globals) — the compact set representation.
+pub(in crate::view) fn chip(label: &str, on_remove: Message) -> Element<'static, Message> {
+    let x = button(text("✕").size(11.0)).style(style::combo_button).padding([1.0, 5.0]).on_press(on_remove);
+    container(row![text(label.to_string()).size(12.0), x].spacing(6.0).align_y(Center))
+        .padding([2.0, 8.0])
+        .style(style::chip)
+        .into()
+}
+
+/// A row of button chips + a trailing `+` that opens the button picker (`add`). `on_remove(i)` drops
+/// the i-th button. The shared editor for a `Vec<InputSource>` set (gaters and chord triggers).
+pub(in crate::view) fn button_chips(
+    buttons: &[InputSource],
+    on_remove: impl Fn(usize) -> Message,
+    add: Message,
+) -> Element<'static, Message> {
+    let mut r = row![].spacing(6.0).align_y(Center);
+    for (i, b) in buttons.iter().enumerate() {
+        r = r.push(chip(editor::input_label(b), on_remove(i)));
+    }
+    r.push(button(text("+").size(15.0)).style(style::combo_button).on_press(add)).into()
+}
+
 /// The status-bar separator glyph.
 fn sep() -> Element<'static, Message> {
     text("│").size(13.0).style(style::muted_text).into()

@@ -120,6 +120,10 @@ pub(crate) enum SettingEdit {
     InvertY(bool),
     Rotation(f32),
     ActivationMode(ActivationMode),
+    /// Append a gater button to the behaviour's activation (deduped). Chosen via the Button picker.
+    AddGater(InputSource),
+    /// Remove the gater at this index from the behaviour's activation.
+    RemoveGater(usize),
 }
 
 /// The activator kinds, as the picker/combobox value (an [`Activator`] carries a parameter, so this
@@ -648,6 +652,20 @@ fn apply_setting(binding: &mut SourceBinding, edit: SettingEdit) {
         E::ActivationMode(m) => {
             if let Some(a) = activation_mut(binding) {
                 a.mode = m;
+            }
+        }
+        E::AddGater(b) => {
+            if let Some(a) = activation_mut(binding)
+                && !a.gaters.contains(&b)
+            {
+                a.gaters.push(b);
+            }
+        }
+        E::RemoveGater(i) => {
+            if let Some(a) = activation_mut(binding)
+                && i < a.gaters.len()
+            {
+                a.gaters.remove(i);
             }
         }
     }

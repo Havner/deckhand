@@ -42,8 +42,8 @@ pub(crate) enum Popup {
     SlotMenu { input: InputSource, slot: CommandSlot },
     /// A layer Button's inherited/disabled gear menu (Disable, or Remove the `None`).
     LayerButtonMenu { input: InputSource },
-    /// The button (gater/global) picker.
-    ButtonPicker,
+    /// The button (gater/chord) picker; `target` is where the picked button lands.
+    ButtonPicker { target: crate::ButtonTarget },
 }
 
 /// The tabs of the Action picker — one output/mode category each (mirrors the sidebar categories a
@@ -94,7 +94,7 @@ fn card<'a>(app: &'a App, popup: &'a Popup) -> Element<'a, Message> {
         Popup::CommandMenu { cmd } => command_menu_card(app, cmd),
         Popup::SlotMenu { input, slot } => slot_menu_card(app, *slot, input),
         Popup::LayerButtonMenu { input } => layer_button_menu_card(app, input),
-        Popup::ButtonPicker => buttons::card(),
+        Popup::ButtonPicker { .. } => buttons::card(),
     }
 }
 
