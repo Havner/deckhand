@@ -1,0 +1,15 @@
+[package]
+name = "vocab-hid"
+description = "Hardware-independent controller-input vocabulary (the unified button bits) shared by config (which names them in chords/gaters) and steam-hid (which produces them). The input counterpart of vocab-out."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Opt-in (de)serialization — enabled by `config` (RON) and `steam-hid` (wire), off otherwise.
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }

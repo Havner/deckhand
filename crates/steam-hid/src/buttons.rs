@@ -133,111 +133,45 @@ bitflags::bitflags! {
     }
 }
 
-/// A single unified button (one variant per [`Buttons`] bit).
-///
-/// `LB/RB/LT/RT` are deliberately the same short abbreviations as the [`Buttons`]
-/// bitflags (hence the `upper_case_acronyms` allow); the grips use `LGrip`/`LGrip2`.
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[non_exhaustive]
-pub enum Button {
-    A,
-    B,
-    X,
-    Y,
-    DpadUp,
-    DpadDown,
-    DpadLeft,
-    DpadRight,
-    LB,
-    RB,
-    LT,
-    RT,
-    LGrip,
-    RGrip,
-    LGrip2,
-    RGrip2,
-    View,
-    Menu,
-    Steam,
-    QuickAccess,
-    LPadPress,
-    RPadPress,
-    LPadTouch,
-    RPadTouch,
-    LStickPress,
-    RStickPress,
-    LStickTouch,
-    RStickTouch,
-}
+// The unified [`Button`] enum lives in `vocab-hid` (the shared input vocabulary) so `config` can
+// name hardware buttons in chords/gaters without depending on `steam-hid`. Re-exported here so this
+// crate's own consumers keep using `steam_hid::Button`. The `Button` ↔ [`Buttons`] mapping stays
+// here, next to the bitflags.
+pub use vocab_hid::Button;
 
-impl Button {
-    /// The [`Buttons`] flag corresponding to this button.
-    pub fn flag(&self) -> Buttons {
-        match self {
-            Button::A => Buttons::A,
-            Button::B => Buttons::B,
-            Button::X => Buttons::X,
-            Button::Y => Buttons::Y,
-            Button::DpadUp => Buttons::DPAD_UP,
-            Button::DpadDown => Buttons::DPAD_DOWN,
-            Button::DpadLeft => Buttons::DPAD_LEFT,
-            Button::DpadRight => Buttons::DPAD_RIGHT,
-            Button::LB => Buttons::LB,
-            Button::RB => Buttons::RB,
-            Button::LT => Buttons::LT,
-            Button::RT => Buttons::RT,
-            Button::LGrip => Buttons::LGRIP,
-            Button::RGrip => Buttons::RGRIP,
-            Button::LGrip2 => Buttons::LGRIP2,
-            Button::RGrip2 => Buttons::RGRIP2,
-            Button::View => Buttons::VIEW,
-            Button::Menu => Buttons::MENU,
-            Button::Steam => Buttons::STEAM,
-            Button::QuickAccess => Buttons::QUICK_ACCESS,
-            Button::LPadPress => Buttons::LPAD_PRESS,
-            Button::RPadPress => Buttons::RPAD_PRESS,
-            Button::LPadTouch => Buttons::LPAD_TOUCH,
-            Button::RPadTouch => Buttons::RPAD_TOUCH,
-            Button::LStickPress => Buttons::LSTICK_PRESS,
-            Button::RStickPress => Buttons::RSTICK_PRESS,
-            Button::LStickTouch => Buttons::LSTICK_TOUCH,
-            Button::RStickTouch => Buttons::RSTICK_TOUCH,
-        }
+/// The [`Buttons`] flag corresponding to a unified [`Button`]. (A free fn rather than a method: the
+/// enum is foreign to this crate now, and the mapping belongs with the bitflags anyway.)
+pub fn button_flag(b: &Button) -> Buttons {
+    match b {
+        Button::A => Buttons::A,
+        Button::B => Buttons::B,
+        Button::X => Buttons::X,
+        Button::Y => Buttons::Y,
+        Button::DpadUp => Buttons::DPAD_UP,
+        Button::DpadDown => Buttons::DPAD_DOWN,
+        Button::DpadLeft => Buttons::DPAD_LEFT,
+        Button::DpadRight => Buttons::DPAD_RIGHT,
+        Button::LB => Buttons::LB,
+        Button::RB => Buttons::RB,
+        Button::LT => Buttons::LT,
+        Button::RT => Buttons::RT,
+        Button::LGrip => Buttons::LGRIP,
+        Button::RGrip => Buttons::RGRIP,
+        Button::LGrip2 => Buttons::LGRIP2,
+        Button::RGrip2 => Buttons::RGRIP2,
+        Button::View => Buttons::VIEW,
+        Button::Menu => Buttons::MENU,
+        Button::Steam => Buttons::STEAM,
+        Button::QuickAccess => Buttons::QUICK_ACCESS,
+        Button::LPadPress => Buttons::LPAD_PRESS,
+        Button::RPadPress => Buttons::RPAD_PRESS,
+        Button::LPadTouch => Buttons::LPAD_TOUCH,
+        Button::RPadTouch => Buttons::RPAD_TOUCH,
+        Button::LStickPress => Buttons::LSTICK_PRESS,
+        Button::RStickPress => Buttons::RSTICK_PRESS,
+        Button::LStickTouch => Buttons::LSTICK_TOUCH,
+        Button::RStickTouch => Buttons::RSTICK_TOUCH,
     }
-
-    /// Every button, in bit order — for iterating diffs.
-    pub const ALL: [Button; 28] = [
-        Button::A,
-        Button::B,
-        Button::X,
-        Button::Y,
-        Button::DpadUp,
-        Button::DpadDown,
-        Button::DpadLeft,
-        Button::DpadRight,
-        Button::LB,
-        Button::RB,
-        Button::LT,
-        Button::RT,
-        Button::LGrip,
-        Button::RGrip,
-        Button::LGrip2,
-        Button::RGrip2,
-        Button::View,
-        Button::Menu,
-        Button::Steam,
-        Button::QuickAccess,
-        Button::LPadPress,
-        Button::RPadPress,
-        Button::LPadTouch,
-        Button::RPadTouch,
-        Button::LStickPress,
-        Button::RStickPress,
-        Button::LStickTouch,
-        Button::RStickTouch,
-    ];
 }
 
 /// Normalized analog channels (PLAN §1.5).

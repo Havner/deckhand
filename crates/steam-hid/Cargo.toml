@@ -10,9 +10,12 @@ publish.workspace = true
 default = []
 # Opt-in (de)serialization for ControllerState/Report/etc. — used by trace recording
 # and the future network path (PLAN §1.5). Off by default so consumers don't pay for it.
-serde = ["dep:serde", "bitflags/serde"]
+serde = ["dep:serde", "bitflags/serde", "vocab-hid/serde"]
 
 [dependencies]
+# The shared input vocabulary (unified controller button bits). steam-hid produces `Button`s from
+# the wire bitfields; `config` names them in chords/gaters — neither depends on the other.
+vocab-hid = { path = "../vocab-hid" }
 hidapi.workspace = true
 bitflags.workspace = true
 thiserror.workspace = true

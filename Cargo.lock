@@ -3632,6 +3632,7 @@ dependencies = [
  "hidapi",
  "serde",
  "thiserror 2.0.20",
+ "vocab-hid",
 ]
 
 [[package]]
@@ -4084,6 +4085,13 @@ dependencies = [
  "viiper-client",
  "vocab-out",
  "windows",
+]
+
+[[package]]
+name = "vocab-hid"
+version = "0.0.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

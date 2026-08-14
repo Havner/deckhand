@@ -6,7 +6,7 @@
 
 use std::collections::VecDeque;
 
-use crate::buttons::{Axis, Button};
+use crate::buttons::{Axis, Button, button_flag};
 use crate::device::Device;
 use crate::state::{Battery, ControllerState, Report};
 
@@ -42,7 +42,7 @@ impl ControllerState {
         let (cur_b, prev_b) = (self.buttons.bits(), prev.buttons.bits());
         if cur_b != prev_b {
             for btn in Button::ALL {
-                let bit = btn.flag().bits();
+                let bit = button_flag(&btn).bits();
                 let now = cur_b & bit != 0;
                 let was = prev_b & bit != 0;
                 if now && !was {

@@ -28,7 +28,7 @@ mod report;
 mod state;
 mod value;
 
-pub use buttons::{Axis, Button, Buttons, GordonButtons, NeptuneButtons};
+pub use buttons::{Axis, Button, Buttons, GordonButtons, NeptuneButtons, button_flag};
 pub use command::{HapticPulse, HapticStyle, ImuMode, Motor};
 pub use protocol::{ACCEL_RES_PER_G, GYRO_RES_PER_DPS};
 pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, Manager, Transport};
