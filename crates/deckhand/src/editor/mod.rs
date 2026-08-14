@@ -209,6 +209,8 @@ pub(crate) enum EditorMessage {
     OpenCommandMenu(CommandRef),
     /// Open the top slot bar's gear menu (multi-command: remove all / add extra).
     OpenSlotMenu(InputSource, CommandSlot),
+    /// Open a layer Button's inherited/disabled gear menu (Disable, or Remove the `None`).
+    OpenLayerButtonMenu(InputSource),
     /// Set a command's activator kind (keeps the menu open).
     SetActivator(CommandRef, ActivatorKind),
     /// Remove one command (clears the whole slot / drops the plain-button entry when it empties).
@@ -297,10 +299,13 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
         EditorMessage::SetBehavior(input, behavior) => {
             if let Some(bindings) = current_bindings_mut(app) {
                 match behavior {
-                    // Switching behaviour rebuilds from authoring defaults — the old binding (and
-                    // any commands on it) is discarded, by design.
+                    // `Unbound` = no entry (Inherited/None); `Disabled` = explicit nullifying `None`;
+                    // a real behaviour rebuilds from authoring defaults (discarding old commands).
                     Behavior::Unbound => {
                         bindings.remove(&input);
+                    }
+                    Behavior::Disabled => {
+                        bindings.insert(input.clone(), SourceBinding::None);
                     }
                     b => {
                         bindings.insert(input.clone(), b.default_binding(&input));
@@ -308,6 +313,8 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
                 }
             }
             app.save_editing();
+            // Also used from the Button gear menu (Disable) — close any open menu.
+            app.popup = None;
             Task::none()
         }
         EditorMessage::OpenActionPicker(target) => {
@@ -338,6 +345,10 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
         }
         EditorMessage::OpenSlotMenu(input, slot) => {
             app.popup = Some(Popup::SlotMenu { input, slot });
+            Task::none()
+        }
+        EditorMessage::OpenLayerButtonMenu(input) => {
+            app.popup = Some(Popup::LayerButtonMenu { input });
             Task::none()
         }
         EditorMessage::SetActivator(cmd, kind) => {
@@ -472,9 +483,13 @@ fn apply_action(app: &mut App, target: ActionTarget, action: Action) {
         ActionTarget::AddCommand { input, slot } => {
             let Some(bindings) = current_bindings_mut(app) else { return };
             if slot == CommandSlot::Button {
-                bindings
-                    .entry(input.clone())
-                    .or_insert_with(|| SourceBinding::Button { commands: Vec::new() });
+                // Create the plain-button binding on demand — for a missing entry (unbound/inherited)
+                // *or* an explicit `None` (a layer's disabled state), since adding a command must
+                // always leave a real binding (Q1: no state you can't click out of).
+                let e = bindings.entry(input.clone()).or_insert(SourceBinding::None);
+                if matches!(e, SourceBinding::None) {
+                    *e = SourceBinding::Button { commands: Vec::new() };
+                }
             }
             if let Some(binding) = bindings.get_mut(&input)
                 && let Some(commands) = slot_commands_mut(binding, slot)
@@ -513,21 +528,24 @@ fn remove_command(app: &mut App, cmd: &CommandRef) {
     }
 }
 
-/// Clear every command from a slot: a plain-button binding is removed from the map entirely, a rich
-/// binding's slot vector is just emptied.
+/// Clear a slot: the plain-button slot addresses the whole InputSource entry, so it's dropped from
+/// the map (a `Button` binding's commands, or a layer `None` disable, alike) → back to no-entry. A
+/// rich binding's slot vector is just emptied (the behaviour persists).
 fn clear_slot(app: &mut App, input: &InputSource, slot: CommandSlot) {
     let Some(bindings) = current_bindings_mut(app) else { return };
-    match bindings.get_mut(input) {
-        Some(SourceBinding::Button { .. }) if slot == CommandSlot::Button => {
-            bindings.remove(input);
-        }
-        Some(binding) => {
-            if let Some(commands) = slot_commands_mut(binding, slot) {
-                commands.clear();
-            }
-        }
-        None => {}
+    if slot == CommandSlot::Button {
+        bindings.remove(input);
+    } else if let Some(binding) = bindings.get_mut(input)
+        && let Some(commands) = slot_commands_mut(binding, slot)
+    {
+        commands.clear();
     }
+}
+
+/// Whether the editor is currently pointed at a layer (vs an action set) — Inherited/Disabled UI
+/// applies only on layers.
+pub(crate) fn on_layer(app: &App) -> bool {
+    app.editing.as_ref().is_some_and(|e| e.target.layer.is_some())
 }
 
 /// Move the editor's target by `delta` steps through [`edit_target_list`] (−1 = previous, +1 = next),

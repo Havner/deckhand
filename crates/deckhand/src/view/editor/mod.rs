@@ -139,9 +139,10 @@ pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
 /// reflects and mutates the live [`ConfigDoc`](config::ConfigDoc).
 pub(super) fn input_screen(app: &App, category: Category) -> Element<'static, Message> {
     let binds = crate::editor::current_bindings(app);
+    let on_layer = crate::editor::on_layer(app);
     let mut col = column![section_header(category.label())].spacing(20.0);
     for group in category.groups() {
-        col = col.push(group_view(binds, group));
+        col = col.push(group_view(binds, group, on_layer));
     }
     col.into()
 }
@@ -174,15 +175,15 @@ type Binds<'a> = Option<&'a BTreeMap<InputSource, SourceBinding>>;
 
 /// One input group: its header, then its primary inputs, then any sub-buttons (each a plain button)
 /// after a small gap.
-fn group_view(binds: Binds, group: &InputGroup) -> Element<'static, Message> {
+fn group_view(binds: Binds, group: &InputGroup, on_layer: bool) -> Element<'static, Message> {
     let mut col = column![group_header(group.header)].spacing(8.0);
     for input in group.primary {
-        col = col.push(primary_view(binds, input));
+        col = col.push(primary_view(binds, input, on_layer));
     }
     if !group.sub.is_empty() {
         col = col.push(Space::new().height(4.0));
         for input in group.sub {
-            col = col.push(slot_view(binds, input, CommandSlot::Button));
+            col = col.push(slot_view(binds, input, CommandSlot::Button, on_layer));
         }
     }
     col.into()
@@ -190,23 +191,23 @@ fn group_view(binds: Binds, group: &InputGroup) -> Element<'static, Message> {
 
 /// A primary input: a plain button is one command bar; a button group / rich analog source gets a
 /// behaviour selector plus the command bars its chosen behaviour exposes.
-fn primary_view(binds: Binds, input: &InputSource) -> Element<'static, Message> {
+fn primary_view(binds: Binds, input: &InputSource, on_layer: bool) -> Element<'static, Message> {
     match input.kind() {
-        SourceKind::Button => slot_view(binds, input, CommandSlot::Button),
-        SourceKind::ButtonGroup => group_view_input(binds, input),
-        kind => rich_view(binds, input, kind),
+        SourceKind::Button => slot_view(binds, input, CommandSlot::Button, on_layer),
+        SourceKind::ButtonGroup => group_view_input(binds, input, on_layer),
+        kind => rich_view(binds, input, kind, on_layer),
     }
 }
 
 /// A 4-button cluster (Face Buttons / D-Pad): a behaviour selector, and — when it's a Button Pad —
 /// the four member command bars.
-fn group_view_input(binds: Binds, input: &InputSource) -> Element<'static, Message> {
+fn group_view_input(binds: Binds, input: &InputSource, on_layer: bool) -> Element<'static, Message> {
     let binding = binds.and_then(|b| b.get(input));
     let current = binding.map_or(Behavior::Unbound, Behavior::of);
-    let mut col = column![behavior_row(input, current, SourceKind::ButtonGroup)].spacing(8.0);
+    let mut col = column![behavior_row(input, current, SourceKind::ButtonGroup, on_layer)].spacing(8.0);
     if matches!(binding, Some(SourceBinding::ButtonPad { .. })) {
         for slot in group_member_slots(input) {
-            col = col.push(slot_view(binds, input, slot));
+            col = col.push(slot_view(binds, input, slot, on_layer));
         }
     }
     col.into()
@@ -214,13 +215,13 @@ fn group_view_input(binds: Binds, input: &InputSource) -> Element<'static, Messa
 
 /// A rich analog source (Pad/Stick/Trigger/Gyro): a behaviour selector, then the virtual-button
 /// command bars its chosen behaviour exposes (none for the mouse behaviours).
-fn rich_view(binds: Binds, input: &InputSource, kind: SourceKind) -> Element<'static, Message> {
+fn rich_view(binds: Binds, input: &InputSource, kind: SourceKind, on_layer: bool) -> Element<'static, Message> {
     let binding = binds.and_then(|b| b.get(input));
     let current = binding.map_or(Behavior::Unbound, Behavior::of);
-    let mut col = column![behavior_row(input, current, kind)].spacing(8.0);
+    let mut col = column![behavior_row(input, current, kind, on_layer)].spacing(8.0);
     if let Some(b) = binding {
         for slot in virtual_slots(b) {
-            col = col.push(slot_view(binds, input, slot));
+            col = col.push(slot_view(binds, input, slot, on_layer));
         }
     }
     col.into()
@@ -252,13 +253,20 @@ fn group_member_slots(input: &InputSource) -> Vec<CommandSlot> {
 /// A group's "Behavior" selector: the [`Behavior`] set valid for the source kind, current value
 /// reflected; selecting one rebuilds the binding from authoring defaults (or clears it via `None`).
 /// The gear (behaviour settings) is a later pass.
-fn behavior_row(input: &InputSource, current: Behavior, kind: SourceKind) -> Element<'static, Message> {
-    let options = Behavior::valid_for(kind).to_vec();
+fn behavior_row(input: &InputSource, current: Behavior, kind: SourceKind, on_layer: bool) -> Element<'static, Message> {
+    let options = Behavior::valid_for(kind, on_layer);
     let input = input.clone();
-    let combo = pick_list(Some(current), options, |b: &Behavior| b.label().to_string())
-        .on_select(move |b| Message::Editor(EditorMessage::SetBehavior(input.clone(), b)))
-        .width(CMD_SLOT);
-    let inner = row![text("Behavior"), Space::new().width(Fill), combo, gear(true)]
+    // On a layer the empty `Unbound` choice reads as "Inherited"; otherwise its own label ("None").
+    let combo = pick_list(Some(current), options, move |b: &Behavior| {
+        if on_layer && *b == Behavior::Unbound { "Inherited".to_string() } else { b.label().to_string() }
+    })
+    .on_select(move |b| Message::Editor(EditorMessage::SetBehavior(input.clone(), b)))
+    .width(CMD_SLOT);
+    // The "Behavior" label dims when this layer entry is inherited (the passthrough state).
+    let inherited = on_layer && current == Behavior::Unbound;
+    let name = if inherited { text("Behavior").style(style::muted_text) } else { text("Behavior") };
+    // The gear (→ behaviour settings, later) is inert unless there's a real behaviour to configure.
+    let inner = row![name, Space::new().width(Fill), combo, gear(current.is_real())]
         .spacing(12.0)
         .align_y(Center);
     card(inner)
@@ -268,12 +276,22 @@ fn behavior_row(input: &InputSource, current: Behavior, kind: SourceKind) -> Ele
 /// holds one command; or a top bar + one command bar per command (+ their subcommands) when it holds
 /// several. Each command bar carries its main action (`actions[0]`) and a gear menu; subcommands
 /// (`actions[1..]`) are double-indented remove-able bars.
-fn slot_view(binds: Binds, input: &InputSource, slot: CommandSlot) -> Element<'static, Message> {
+fn slot_view(binds: Binds, input: &InputSource, slot: CommandSlot, on_layer: bool) -> Element<'static, Message> {
     let (label, dot) = slot_display(input, slot);
-    let commands = binds
-        .and_then(|b| b.get(input))
-        .and_then(|bind| crate::editor::slot_commands(bind, slot))
-        .map(Vec::as_slice);
+    let entry = binds.and_then(|b| b.get(input));
+
+    // On a layer, a top-level Button's "empty" state splits into Inherited (no entry) / Disabled
+    // (explicit `None`) — each a special bar (see `layer_button_bar`); a real Button binding falls
+    // through to the normal command layout below.
+    if on_layer && slot == CommandSlot::Button {
+        match entry {
+            None => return layer_button_bar(input, label, false),
+            Some(SourceBinding::None) => return layer_button_bar(input, label, true),
+            _ => {}
+        }
+    }
+
+    let commands = entry.and_then(|bind| crate::editor::slot_commands(bind, slot)).map(Vec::as_slice);
     match commands {
         None | Some([]) => unbound_bar(input, slot, label, dot),
         Some([cmd]) => command_block(input, slot, 0, cmd, label, dot, 0.0),
@@ -285,6 +303,22 @@ fn slot_view(binds: Binds, input: &InputSource, slot: CommandSlot) -> Element<'s
             col.into()
         }
     }
+}
+
+/// A layer top-level Button in its inherited (`<inherited>`, muted label) or disabled (`<disabled>`,
+/// normal label) state. The action button is always clickable — clicking adds a command (→ a real
+/// binding). The gear opens the inherited/disabled menu (Disable, or Remove the `None`).
+fn layer_button_bar(input: &InputSource, label: &'static str, disabled: bool) -> Element<'static, Message> {
+    let target = ActionTarget::AddCommand { input: input.clone(), slot: CommandSlot::Button };
+    let text_str = if disabled { "<disabled>" } else { "<inherited>" };
+    let btn = button(text(text_str).center())
+        .width(CMD_SLOT)
+        .style(style::combo_button)
+        .on_press(Message::Editor(EditorMessage::OpenActionPicker(target)));
+    // Only the left label dims (and only for inherited — the passthrough state).
+    let name = if disabled { text(label) } else { text(label).style(style::muted_text) };
+    let gear = gear_menu(Message::Editor(EditorMessage::OpenLayerButtonMenu(input.clone())));
+    card(row![name, Space::new().width(Fill), btn, gear].spacing(12.0).align_y(Center))
 }
 
 /// Indent an element by `level` steps (0 = none).

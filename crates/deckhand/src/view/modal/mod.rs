@@ -22,7 +22,7 @@ use crate::editor::{
     ActionTarget, ActivatorKind, CommandRef, CommandSlot, EditTarget, EditorMessage, NameEntryKind,
 };
 use crate::{App, IoTarget, Message, style};
-use config::InputSource;
+use config::{InputSource, SourceBinding};
 
 /// The one modal shown at a time (the view layers exactly one over the base): network I/O staging,
 /// the profile editor's context menu / name dialogs, and the two pickers.
@@ -40,6 +40,8 @@ pub(crate) enum Popup {
     CommandMenu { cmd: CommandRef },
     /// The top slot bar's gear menu (multi-command: remove all / add extra).
     SlotMenu { input: InputSource, slot: CommandSlot },
+    /// A layer Button's inherited/disabled gear menu (Disable, or Remove the `None`).
+    LayerButtonMenu { input: InputSource },
     /// The button (gater/global) picker.
     ButtonPicker,
 }
@@ -85,7 +87,8 @@ fn card<'a>(app: &'a App, popup: &'a Popup) -> Element<'a, Message> {
         Popup::NameEntry { kind, text } => name_entry_card(app, kind, text),
         Popup::ActionPicker { tab, .. } => action::card(app, *tab),
         Popup::CommandMenu { cmd } => command_menu_card(app, cmd),
-        Popup::SlotMenu { input, slot } => slot_menu_card(*slot, input),
+        Popup::SlotMenu { input, slot } => slot_menu_card(app, *slot, input),
+        Popup::LayerButtonMenu { input } => layer_button_menu_card(app, input),
         Popup::ButtonPicker => buttons::card(),
     }
 }
@@ -138,16 +141,20 @@ fn menu_card<'a>(app: &'a App, target: &'a EditTarget) -> Element<'a, Message> {
         .into()
     };
 
+    // Remove at the top (disabled for the last remaining set — at least one must exist).
+    let remove_msg = if is_set {
+        app.editing
+            .as_ref()
+            .is_some_and(|e| e.doc.action_sets.len() > 1)
+            .then_some(Message::Editor(EditorMessage::MenuRemove))
+    } else {
+        Some(Message::Editor(EditorMessage::MenuRemove))
+    };
     let mut col = column![text(title).size(16.0)].spacing(8.0);
+    col = col.push(item("Remove", remove_msg));
     col = col.push(item("Rename", Some(Message::Editor(EditorMessage::MenuRename))));
     if is_set {
-        // The last action set can't be removed — at least one must exist.
-        let can_remove = app.editing.as_ref().is_some_and(|e| e.doc.action_sets.len() > 1);
-        col = col
-            .push(item("Remove", can_remove.then_some(Message::Editor(EditorMessage::MenuRemove))));
         col = col.push(item("Add layer", Some(Message::Editor(EditorMessage::MenuAddLayer))));
-    } else {
-        col = col.push(item("Remove", Some(Message::Editor(EditorMessage::MenuRemove))));
     }
     container(col).padding(12.0).width(220.0).style(style::modal_card).into()
 }
@@ -194,12 +201,18 @@ fn command_menu_card<'a>(app: &'a App, cmd: &'a CommandRef) -> Element<'a, Messa
     .on_select(move |k| Message::Editor(ed(cmd_for_select.clone(), k)))
     .width(Fill);
 
-    let mut col = column![super::label_row(label, dot), activator].spacing(8.0);
-    col = col.push(menu_item("Settings", None)); // disabled this pass
+    let mut col = column![super::label_row(label, dot)].spacing(8.0);
+    // Disable (sets an explicit `None`) sits at the top — layer + top-level Button only; a sole
+    // command bar *is* the top-level bar, so it belongs here (multi-command puts it on the slot menu).
+    if crate::editor::on_layer(app) && cmd.slot == CommandSlot::Button && sole {
+        col = col.push(disable_item(&cmd.input));
+    }
     col = col.push(menu_item(
-        "Remove command",
+        "Remove",
         Some(Message::Editor(EditorMessage::RemoveCommand(cmd.clone()))),
     ));
+    col = col.push(activator);
+    col = col.push(menu_item("Settings", None)); // disabled this pass
     if sole {
         col = col.push(menu_item(
             "Add extra command",
@@ -218,23 +231,53 @@ fn command_menu_card<'a>(app: &'a App, cmd: &'a CommandRef) -> Element<'a, Messa
     container(col).padding(12.0).width(240.0).style(style::modal_card).into()
 }
 
-/// The top slot bar's gear menu (multi-command): its label title, Remove all commands, Add extra.
-fn slot_menu_card<'a>(slot: CommandSlot, input: &'a InputSource) -> Element<'a, Message> {
+/// The top slot bar's gear menu (multi-command): its label title, an optional Disable (layer +
+/// top-level Button), Remove all, and Add extra command.
+fn slot_menu_card<'a>(app: &'a App, slot: CommandSlot, input: &'a InputSource) -> Element<'a, Message> {
     let (label, dot) = super::slot_display(input, slot);
-    let col = column![
-        super::label_row(label, dot),
-        menu_item(
-            "Remove all commands",
-            Some(Message::Editor(EditorMessage::RemoveAllCommands(input.clone(), slot))),
-        ),
-        menu_item(
-            "Add extra command",
-            Some(Message::Editor(EditorMessage::OpenActionPicker(ActionTarget::AddCommand {
-                input: input.clone(),
-                slot,
-            }))),
-        ),
-    ]
-    .spacing(8.0);
+    let mut col = column![super::label_row(label, dot)].spacing(8.0);
+    if crate::editor::on_layer(app) && slot == CommandSlot::Button {
+        col = col.push(disable_item(input));
+    }
+    col = col.push(menu_item(
+        "Remove all",
+        Some(Message::Editor(EditorMessage::RemoveAllCommands(input.clone(), slot))),
+    ));
+    col = col.push(menu_item(
+        "Add extra command",
+        Some(Message::Editor(EditorMessage::OpenActionPicker(ActionTarget::AddCommand {
+            input: input.clone(),
+            slot,
+        }))),
+    ));
     container(col).padding(12.0).width(220.0).style(style::modal_card).into()
+}
+
+/// The inherited/disabled gear menu for a layer's top-level Button: **Disable** when it's currently
+/// inherited (no entry), else **Remove** (drops the explicit `None` → back to inherited).
+fn layer_button_menu_card<'a>(app: &'a App, input: &'a InputSource) -> Element<'a, Message> {
+    let (label, _) = super::slot_display(input, CommandSlot::Button);
+    let disabled =
+        matches!(crate::editor::current_bindings(app).and_then(|b| b.get(input)), Some(SourceBinding::None));
+    let action = if disabled {
+        menu_item(
+            "Remove",
+            Some(Message::Editor(EditorMessage::RemoveAllCommands(input.clone(), CommandSlot::Button))),
+        )
+    } else {
+        disable_item(input)
+    };
+    container(column![super::label_row(label, None), action].spacing(8.0))
+        .padding(12.0)
+        .width(220.0)
+        .style(style::modal_card)
+        .into()
+}
+
+/// The shared "Disable" menu row → sets an explicit `SourceBinding::None` (via `SetBehavior`).
+fn disable_item(input: &InputSource) -> Element<'static, Message> {
+    menu_item(
+        "Disable",
+        Some(Message::Editor(EditorMessage::SetBehavior(input.clone(), crate::editor::Behavior::Disabled))),
+    )
 }

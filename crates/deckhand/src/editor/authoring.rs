@@ -32,11 +32,15 @@ pub(crate) enum Behavior {
     JoystickMouse,
     GyroToMouse,
     Trigger,
+    /// **No map entry.** On a set = "None"; on a layer = "Inherited" (falls through to the base).
     Unbound,
+    /// An explicit `SourceBinding::None` — layer-only picker choice "Disabled" (nullifies the base).
+    Disabled,
 }
 
 impl Behavior {
-    /// The label shown in the behaviour picker.
+    /// The label shown in the behaviour picker (the set label; the caller relabels `Unbound` →
+    /// "Inherited" on a layer, since it knows the context).
     pub(crate) fn label(self) -> &'static str {
         match self {
             Behavior::Button => "Button",
@@ -48,25 +52,32 @@ impl Behavior {
             Behavior::GyroToMouse => "Gyro to Mouse",
             Behavior::Trigger => "Trigger",
             Behavior::Unbound => "None",
+            Behavior::Disabled => "Disabled",
         }
     }
 
-    /// The behaviours offered for a source kind, in picker order (mirrors
-    /// [`SourceBinding::is_valid_for`]). `Unbound` is valid on every source, listed last.
-    pub(crate) fn valid_for(kind: SourceKind) -> &'static [Behavior] {
+    /// The behaviours offered for a source kind, in picker order. On a **layer** a `Disabled`
+    /// (explicit `None`) choice comes next; `Unbound` (no entry = "Inherited") is always last.
+    pub(crate) fn valid_for(kind: SourceKind, on_layer: bool) -> Vec<Behavior> {
         use Behavior::*;
-        match kind {
-            SourceKind::Button => &[Button, Unbound],
-            SourceKind::ButtonGroup => &[ButtonPad, Unbound],
-            SourceKind::Pad => &[Joystick, DirectionalPad, AsMouse, Unbound],
-            SourceKind::Stick => &[Joystick, DirectionalPad, JoystickMouse, Unbound],
-            SourceKind::Trigger => &[Trigger, Unbound],
-            SourceKind::Gyro => &[GyroToMouse, Unbound],
+        let mut v = match kind {
+            SourceKind::Button => vec![Button],
+            SourceKind::ButtonGroup => vec![ButtonPad],
+            SourceKind::Pad => vec![Joystick, DirectionalPad, AsMouse],
+            SourceKind::Stick => vec![Joystick, DirectionalPad, JoystickMouse],
+            SourceKind::Trigger => vec![Trigger],
+            SourceKind::Gyro => vec![GyroToMouse],
+        };
+        if on_layer {
+            v.push(Disabled);
         }
+        v.push(Unbound);
+        v
     }
 
-    /// Which behaviour a binding currently is. Exhaustive over `SourceBinding` — the drift guard.
-    #[allow(dead_code)] // wired when the editor reflects a binding's current behaviour
+    /// Which behaviour a binding currently is. Exhaustive over `SourceBinding` — the drift guard. An
+    /// explicit `SourceBinding::None` reads as `Disabled`; a *missing* entry reads as `Unbound` (the
+    /// caller supplies that, since `of` only sees present bindings).
     pub(crate) fn of(binding: &SourceBinding) -> Behavior {
         match binding {
             SourceBinding::Button { .. } => Behavior::Button,
@@ -77,8 +88,13 @@ impl Behavior {
             SourceBinding::JoystickMouse { .. } => Behavior::JoystickMouse,
             SourceBinding::GyroToMouse { .. } => Behavior::GyroToMouse,
             SourceBinding::Trigger { .. } => Behavior::Trigger,
-            SourceBinding::None => Behavior::Unbound,
+            SourceBinding::None => Behavior::Disabled,
         }
+    }
+
+    /// Whether this is a real behaviour (settings/virtual buttons) vs a pseudo (`Unbound`/`Disabled`).
+    pub(crate) fn is_real(self) -> bool {
+        !matches!(self, Behavior::Unbound | Behavior::Disabled)
     }
 
     /// Build a fresh binding of this behaviour for `input`, with UI-authored starting values. The
@@ -137,7 +153,9 @@ impl Behavior {
             Behavior::Trigger => {
                 SourceBinding::Trigger { settings: Default::default(), soft_pull: Vec::new() }
             }
-            Behavior::Unbound => SourceBinding::None,
+            // `Unbound` is "no entry" so this is never inserted (SetBehavior removes instead);
+            // `Disabled` is the explicit nullifying `None`.
+            Behavior::Unbound | Behavior::Disabled => SourceBinding::None,
         }
     }
 }
@@ -171,7 +189,12 @@ mod tests {
         for kind in KINDS {
             let kind = kind.clone();
             let input = sample_input(kind.clone());
-            for &b in Behavior::valid_for(kind.clone()) {
+            // `on_layer=true` offers every choice including `Disabled`; skip the `Unbound` sentinel
+            // (it's "no entry", not a constructable binding).
+            for b in Behavior::valid_for(kind.clone(), true) {
+                if b == Behavior::Unbound {
+                    continue;
+                }
                 let binding = b.default_binding(&input);
                 assert_eq!(Behavior::of(&binding), b, "{b:?} should read back as itself");
                 assert!(binding.is_valid_for(&kind), "{b:?} should be valid for {kind:?}");
