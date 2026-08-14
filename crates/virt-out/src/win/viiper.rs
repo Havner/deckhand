@@ -28,7 +28,7 @@ use viiper_client::devices::xbox360::{OUTPUT_SIZE, Xbox360Input};
 use viiper_client::{DeviceCreateRequest, DeviceStream, ViiperClient};
 
 use super::ControllerBackend;
-use crate::event::{Dpad, Rumble};
+use crate::event::{AxisButtons, Dpad, Rumble};
 use vocab::{GamepadAxis, GamepadButton};
 
 /// Default VIIPER API address (the `--api.addr` port, not the USB/IP `:3241` port).
@@ -58,9 +58,27 @@ pub(crate) struct ViiperController {
     // holds the non-dpad bits; the dpad hat is kept separately and OR'd in at flush.
     input: Xbox360Input,
     dpad: Dpad,
+    // Full-trigger / stick-direction pseudo-buttons, folded into the stick/trigger axes.
+    axis_buttons: AxisButtons,
     // Set by set_button/set_axis; cleared on flush — avoids resending an unchanged snapshot.
     dirty: bool,
     rumble: Arc<RumbleState>,
+}
+
+impl ViiperController {
+    /// Write a (combined) axis value into the snapshot, translating the shared evdev-signed vocab to
+    /// XInput (sticks are +up → negate Y; triggers `0..1`). Shared by `set_axis` and the axis
+    /// pseudo-buttons (`AxisButtons`).
+    fn write_axis(&mut self, a: &GamepadAxis, v: f32) {
+        match a {
+            GamepadAxis::LeftStickX => self.input.lx = stick(v),
+            GamepadAxis::LeftStickY => self.input.ly = stick(-v),
+            GamepadAxis::RightStickX => self.input.rx = stick(v),
+            GamepadAxis::RightStickY => self.input.ry = stick(-v),
+            GamepadAxis::LeftTrigger => self.input.lt = trigger(v),
+            GamepadAxis::RightTrigger => self.input.rt = trigger(v),
+        }
+    }
 }
 
 impl ControllerBackend for ViiperController {
@@ -116,29 +134,30 @@ impl ControllerBackend for ViiperController {
             stream: Some(stream),
             input: Xbox360Input::default(),
             dpad: Dpad::default(),
+            axis_buttons: AxisButtons::default(),
             dirty: false,
             rumble,
         })
     }
 
     fn set_button(&mut self, b: &GamepadButton, down: bool) {
-        if !self.dpad.set(b, down) {
+        if self.dpad.set(b, down) {
+            // dpad → hat bits, folded in at flush
+        } else if let Some(axis) = self.axis_buttons.set_button(b, down) {
+            // Full-trigger / stick-direction pseudo-button → drive its axis to the combined value.
+            let vc = self.axis_buttons.value(&axis);
+            self.write_axis(&axis, vc);
+        } else {
             set_button_bit(&mut self.input.buttons, b, down);
         }
         self.dirty = true;
     }
 
     fn set_axis(&mut self, a: &GamepadAxis, v: f32) {
-        match a {
-            GamepadAxis::LeftStickX => self.input.lx = stick(v),
-            // XInput sticks are +up; the shared vocabulary uses the evdev sign (+down), so
-            // negate Y here — same convention as the ViGEm backend.
-            GamepadAxis::LeftStickY => self.input.ly = stick(-v),
-            GamepadAxis::RightStickX => self.input.rx = stick(v),
-            GamepadAxis::RightStickY => self.input.ry = stick(-v),
-            GamepadAxis::LeftTrigger => self.input.lt = trigger(v),
-            GamepadAxis::RightTrigger => self.input.rt = trigger(v),
-        }
+        // Cache the analog value and write it combined with any held axis-button (which overrides).
+        self.axis_buttons.set_analog(a, v);
+        let vc = self.axis_buttons.value(a);
+        self.write_axis(a, vc);
         self.dirty = true;
     }
 
@@ -250,6 +269,10 @@ fn set_button_bit(buttons: &mut u32, b: &GamepadButton, down: bool) {
         | GamepadButton::DpadRight => {
             unreachable!("dpad directions fold into the hat — see Dpad / set_button")
         }
+        b if b.is_axis_button() => {
+            unreachable!("axis pseudo-buttons fold into the stick/trigger axes — see AxisButtons")
+        }
+        _ => unreachable!("set_button_bit covers every non-hat, non-axis button"),
     };
     if down {
         *buttons |= bit;

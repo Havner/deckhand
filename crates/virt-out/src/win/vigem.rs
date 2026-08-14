@@ -10,7 +10,7 @@ use std::thread::JoinHandle;
 use vigem_client::{Client, TargetId, XButtons, XGamepad, XTarget};
 
 use super::ControllerBackend;
-use crate::event::{Dpad, Rumble};
+use crate::event::{AxisButtons, Dpad, Rumble};
 use vocab::{GamepadAxis, GamepadButton};
 
 /// Latest rumble from the virtual pad, written by the ViGEm notification thread and read by
@@ -32,11 +32,29 @@ pub(crate) struct VigemController {
     gamepad: XGamepad,
     // Dpad direction state, folded into the XInput hat bits at flush.
     dpad: Dpad,
+    // Full-trigger / stick-direction pseudo-buttons, folded into the stick/trigger axes.
+    axis_buttons: AxisButtons,
     // Set by set_button/set_axis; cleared on flush — avoids resubmitting an unchanged report.
     dirty: bool,
     // Rumble back-channel: a notification thread stores the latest motor speeds here.
     rumble: Arc<RumbleState>,
     notif: Option<JoinHandle<()>>,
+}
+
+impl VigemController {
+    /// Write a (combined) axis value into the report, translating the shared evdev-signed vocab to
+    /// XInput (sticks are +up → negate Y; triggers `0..1`). Shared by `set_axis` and the axis
+    /// pseudo-buttons (`AxisButtons`), so both go through the identical conversion.
+    fn write_axis(&mut self, a: &GamepadAxis, v: f32) {
+        match a {
+            GamepadAxis::LeftStickX => self.gamepad.thumb_lx = stick(v),
+            GamepadAxis::LeftStickY => self.gamepad.thumb_ly = stick(-v),
+            GamepadAxis::RightStickX => self.gamepad.thumb_rx = stick(v),
+            GamepadAxis::RightStickY => self.gamepad.thumb_ry = stick(-v),
+            GamepadAxis::LeftTrigger => self.gamepad.left_trigger = trigger(v),
+            GamepadAxis::RightTrigger => self.gamepad.right_trigger = trigger(v),
+        }
+    }
 }
 
 impl ControllerBackend for VigemController {
@@ -65,6 +83,7 @@ impl ControllerBackend for VigemController {
             target,
             gamepad: XGamepad::default(),
             dpad: Dpad::default(),
+            axis_buttons: AxisButtons::default(),
             dirty: false,
             rumble,
             notif: Some(notif),
@@ -72,23 +91,23 @@ impl ControllerBackend for VigemController {
     }
 
     fn set_button(&mut self, b: &GamepadButton, down: bool) {
-        if !self.dpad.set(b, down) {
+        if self.dpad.set(b, down) {
+            // dpad → hat bits, folded in at flush
+        } else if let Some(axis) = self.axis_buttons.set_button(b, down) {
+            // Full-trigger / stick-direction pseudo-button → drive its axis to the combined value.
+            let vc = self.axis_buttons.value(&axis);
+            self.write_axis(&axis, vc);
+        } else {
             set_button_bit(&mut self.gamepad.buttons, b, down);
         }
         self.dirty = true;
     }
 
     fn set_axis(&mut self, a: &GamepadAxis, v: f32) {
-        match a {
-            GamepadAxis::LeftStickX => self.gamepad.thumb_lx = stick(v),
-            // XInput sticks are +up; the shared vocabulary uses the evdev sign (+down, see the
-            // Linux backend / the bridge's `-s.left_stick.y`), so negate Y here.
-            GamepadAxis::LeftStickY => self.gamepad.thumb_ly = stick(-v),
-            GamepadAxis::RightStickX => self.gamepad.thumb_rx = stick(v),
-            GamepadAxis::RightStickY => self.gamepad.thumb_ry = stick(-v),
-            GamepadAxis::LeftTrigger => self.gamepad.left_trigger = trigger(v),
-            GamepadAxis::RightTrigger => self.gamepad.right_trigger = trigger(v),
-        }
+        // Cache the analog value and write it combined with any held axis-button (which overrides).
+        self.axis_buttons.set_analog(a, v);
+        let vc = self.axis_buttons.value(a);
+        self.write_axis(a, vc);
         self.dirty = true;
     }
 
@@ -152,6 +171,10 @@ fn set_button_bit(buttons: &mut XButtons, b: &GamepadButton, down: bool) {
         | GamepadButton::DpadRight => {
             unreachable!("dpad directions fold into the hat — see Dpad / set_button")
         }
+        b if b.is_axis_button() => {
+            unreachable!("axis pseudo-buttons fold into the stick/trigger axes — see AxisButtons")
+        }
+        _ => unreachable!("set_button_bit covers every non-hat, non-axis button"),
     };
     if down {
         buttons.raw |= bit;

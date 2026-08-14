@@ -134,10 +134,11 @@ impl MouseButton {
 /// `virt-out` backend (which emits them, synthesizing a legacy notch every 120).
 pub const SCROLL_HI_RES_PER_DETENT: i32 = 120;
 
-/// A virtual-gamepad button (Xbox 360 layout). The four `Dpad*` are the **logical** dpad
-/// directions — bindable as discrete actions like any button. The XInput/evdev virtual
-/// pad models the dpad as a hat, so the backend folds these four into that hat (opposing
-/// directions cancel to neutral).
+/// A virtual-gamepad button (Xbox 360 layout). Two families are **pseudo-buttons** that the pad
+/// realizes as something other than a plain button bit, folded in the backend (opposing directions
+/// cancel to neutral): the four `Dpad*` fold into the XInput/evdev **hat**; and the full-trigger
+/// (`*TriggerFull`) + eight stick-direction (`*Stick{Up,Down,Left,Right}`) buttons drive an **axis**
+/// to its extreme (a full pull / a stick pushed to the edge). All are bindable as discrete actions.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum GamepadButton {
@@ -156,6 +157,17 @@ pub enum GamepadButton {
     DpadDown,
     DpadLeft,
     DpadRight,
+    // Axis pseudo-buttons: a press drives the axis to its extreme (see `is_axis_button`).
+    LeftTriggerFull,
+    RightTriggerFull,
+    LeftStickUp,
+    LeftStickDown,
+    LeftStickLeft,
+    LeftStickRight,
+    RightStickUp,
+    RightStickDown,
+    RightStickLeft,
+    RightStickRight,
 }
 
 impl GamepadButton {
@@ -175,6 +187,16 @@ impl GamepadButton {
         GamepadButton::DpadDown,
         GamepadButton::DpadLeft,
         GamepadButton::DpadRight,
+        GamepadButton::LeftTriggerFull,
+        GamepadButton::RightTriggerFull,
+        GamepadButton::LeftStickUp,
+        GamepadButton::LeftStickDown,
+        GamepadButton::LeftStickLeft,
+        GamepadButton::LeftStickRight,
+        GamepadButton::RightStickUp,
+        GamepadButton::RightStickDown,
+        GamepadButton::RightStickLeft,
+        GamepadButton::RightStickRight,
     ];
 
     /// True for the four dpad directions (the backend folds these into the hat, not a
@@ -186,6 +208,25 @@ impl GamepadButton {
                 | GamepadButton::DpadDown
                 | GamepadButton::DpadLeft
                 | GamepadButton::DpadRight
+        )
+    }
+
+    /// True for the axis pseudo-buttons — the two full-trigger pulls and the eight stick-direction
+    /// pushes. The backend realizes these by driving an **axis** to its extreme (opposing stick
+    /// directions cancel), not a button bit, so they carry no `BTN_*`/XInput bit.
+    pub fn is_axis_button(&self) -> bool {
+        matches!(
+            self,
+            GamepadButton::LeftTriggerFull
+                | GamepadButton::RightTriggerFull
+                | GamepadButton::LeftStickUp
+                | GamepadButton::LeftStickDown
+                | GamepadButton::LeftStickLeft
+                | GamepadButton::LeftStickRight
+                | GamepadButton::RightStickUp
+                | GamepadButton::RightStickDown
+                | GamepadButton::RightStickLeft
+                | GamepadButton::RightStickRight
         )
     }
 }

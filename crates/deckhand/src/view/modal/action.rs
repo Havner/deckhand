@@ -80,12 +80,6 @@ fn gbtn(label: &'static str, gb: GamepadButton) -> Element<'static, Message> {
         .into()
 }
 
-/// A disabled placeholder tile (no output in vocab yet — e.g. LT/RT, stick directions). No
-/// `on_press` → renders in the option button's disabled (faded) state.
-fn gbtn_off(label: &'static str) -> Element<'static, Message> {
-    button(text(label).size(13.0).center()).width(50.0).height(40.0).style(style::option_button).into()
-}
-
 /// An active gamepad-button tile with a custom (coloured) style — the A/B/X/Y face buttons keep
 /// their Xbox glyph colours rather than the uniform option style.
 fn gbtn_styled(
@@ -130,20 +124,32 @@ fn diamond(
 
 fn gamepad() -> Element<'static, Message> {
     use GamepadButton::*;
-    // Bumpers active; triggers disabled (a gamepad trigger output is an axis, not in vocab yet).
+    // Bumpers + the full-trigger pulls (LT/RT drive the trigger axis to max via the axis pseudo-buttons).
     let shoulders = row![
-        gbtn_off("LT"),
+        gbtn("LT", LeftTriggerFull),
         gbtn("LB", LeftBumper),
         Space::new().width(60.0),
         gbtn("RB", RightBumper),
-        gbtn_off("RT"),
+        gbtn("RT", RightTriggerFull),
     ]
     .spacing(8.0)
     .align_y(Center);
 
-    // Sticks: centre click active; the 4 direction arrows disabled (no stick-direction output).
-    let lstick = cross(gbtn_off("↑"), gbtn_off("←"), gbtn("LS", LeftStick), gbtn_off("→"), gbtn_off("↓"));
-    let rstick = cross(gbtn_off("↑"), gbtn_off("←"), gbtn("RS", RightStick), gbtn_off("→"), gbtn_off("↓"));
+    // Sticks: centre click + the four direction pushes (drive the stick axis to the edge).
+    let lstick = cross(
+        gbtn("↑", LeftStickUp),
+        gbtn("←", LeftStickLeft),
+        gbtn("LS", LeftStick),
+        gbtn("→", LeftStickRight),
+        gbtn("↓", LeftStickDown),
+    );
+    let rstick = cross(
+        gbtn("↑", RightStickUp),
+        gbtn("←", RightStickLeft),
+        gbtn("RS", RightStick),
+        gbtn("→", RightStickRight),
+        gbtn("↓", RightStickDown),
+    );
     let dpad = diamond(gbtn("↑", DpadUp), gbtn("←", DpadLeft), gbtn("→", DpadRight), gbtn("↓", DpadDown));
     let face = diamond(
         gbtn_styled("Y", Y, button::warning),
@@ -475,6 +481,16 @@ fn gamepad_label(g: &GamepadButton) -> &'static str {
         GamepadButton::DpadDown => "D-Pad Down",
         GamepadButton::DpadLeft => "D-Pad Left",
         GamepadButton::DpadRight => "D-Pad Right",
+        GamepadButton::LeftTriggerFull => "Left Trigger",
+        GamepadButton::RightTriggerFull => "Right Trigger",
+        GamepadButton::LeftStickUp => "Left Stick Up",
+        GamepadButton::LeftStickDown => "Left Stick Down",
+        GamepadButton::LeftStickLeft => "Left Stick Left",
+        GamepadButton::LeftStickRight => "Left Stick Right",
+        GamepadButton::RightStickUp => "Right Stick Up",
+        GamepadButton::RightStickDown => "Right Stick Down",
+        GamepadButton::RightStickLeft => "Right Stick Left",
+        GamepadButton::RightStickRight => "Right Stick Right",
     }
 }
 

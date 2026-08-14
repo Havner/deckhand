@@ -87,3 +87,114 @@ impl Dpad {
         self.down as i32 - self.up as i32
     }
 }
+
+/// Axis pseudo-button realization state. Vocab exposes full-trigger pulls and stick-direction
+/// pushes as `GamepadButton`s (like the dpad), but they drive **axes**: a press sets the axis to
+/// its extreme, opposing stick directions cancel to neutral, and a full-trigger button pushes the
+/// trigger to max. A held direction/trigger **overrides** the analog value on that axis; on release
+/// the axis falls back to the last analog value (cached here), so an axis driven by both an analog
+/// behaviour and a direction button behaves sensibly. Sticks use the evdev sign (Y +down), matching
+/// [`Dpad::y`] and the `GamepadAxis` convention. Same precedent + cfg as [`Dpad`].
+#[cfg(any(target_os = "linux", all(target_os = "windows", any(feature = "vigem", feature = "viiper"))))]
+#[derive(Default)]
+pub(crate) struct AxisButtons {
+    ls_up: bool,
+    ls_down: bool,
+    ls_left: bool,
+    ls_right: bool,
+    rs_up: bool,
+    rs_down: bool,
+    rs_left: bool,
+    rs_right: bool,
+    lt: bool,
+    rt: bool,
+    /// Last analog value per axis (indexed by [`Self::idx`]).
+    analog: [f32; 6],
+}
+
+#[cfg(any(target_os = "linux", all(target_os = "windows", any(feature = "vigem", feature = "viiper"))))]
+impl AxisButtons {
+    /// Record a pseudo-button press; returns the axis it drives (so the caller emits that axis's
+    /// combined [`value`](Self::value)), or `None` if `b` isn't one of the ten.
+    pub(crate) fn set_button(&mut self, b: &GamepadButton, down: bool) -> Option<GamepadAxis> {
+        use GamepadAxis as A;
+        use GamepadButton as B;
+        Some(match b {
+            B::LeftStickUp => {
+                self.ls_up = down;
+                A::LeftStickY
+            }
+            B::LeftStickDown => {
+                self.ls_down = down;
+                A::LeftStickY
+            }
+            B::LeftStickLeft => {
+                self.ls_left = down;
+                A::LeftStickX
+            }
+            B::LeftStickRight => {
+                self.ls_right = down;
+                A::LeftStickX
+            }
+            B::RightStickUp => {
+                self.rs_up = down;
+                A::RightStickY
+            }
+            B::RightStickDown => {
+                self.rs_down = down;
+                A::RightStickY
+            }
+            B::RightStickLeft => {
+                self.rs_left = down;
+                A::RightStickX
+            }
+            B::RightStickRight => {
+                self.rs_right = down;
+                A::RightStickX
+            }
+            B::LeftTriggerFull => {
+                self.lt = down;
+                A::LeftTrigger
+            }
+            B::RightTriggerFull => {
+                self.rt = down;
+                A::RightTrigger
+            }
+            _ => return None,
+        })
+    }
+
+    /// Cache an analog value from a `GamepadAxis` event, so a released direction/trigger falls back
+    /// to it rather than to zero.
+    pub(crate) fn set_analog(&mut self, a: &GamepadAxis, v: f32) {
+        self.analog[Self::idx(a)] = v;
+    }
+
+    /// The value to drive an axis with: the digital extreme when a direction/trigger on that axis is
+    /// held (opposing stick directions cancel to 0), else the cached analog value. Sticks are in
+    /// `-1..=1` (evdev sign), triggers `0..=1`.
+    pub(crate) fn value(&self, a: &GamepadAxis) -> f32 {
+        use GamepadAxis as A;
+        let digital = match a {
+            A::LeftStickX => self.ls_right as i32 - self.ls_left as i32,
+            A::LeftStickY => self.ls_down as i32 - self.ls_up as i32,
+            A::RightStickX => self.rs_right as i32 - self.rs_left as i32,
+            A::RightStickY => self.rs_down as i32 - self.rs_up as i32,
+            A::LeftTrigger => self.lt as i32,
+            A::RightTrigger => self.rt as i32,
+        };
+        if digital != 0 { digital as f32 } else { self.analog[Self::idx(a)] }
+    }
+
+    fn idx(a: &GamepadAxis) -> usize {
+        use GamepadAxis as A;
+        match a {
+            A::LeftStickX => 0,
+            A::LeftStickY => 1,
+            A::RightStickX => 2,
+            A::RightStickY => 3,
+            A::LeftTrigger => 4,
+            A::RightTrigger => 5,
+        }
+    }
+}

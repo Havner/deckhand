@@ -13,7 +13,7 @@ use evdev::{
     RelativeAxisEvent, UInputCode, UinputAbsSetup,
 };
 
-use crate::event::{Dpad, OutputEvent, Rumble};
+use crate::event::{AxisButtons, Dpad, OutputEvent, Rumble};
 use vocab::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 const FF_MAX_EFFECTS: u32 = 16;
@@ -44,6 +44,8 @@ pub struct Sink {
     ff_until: Option<Instant>,
     // Dpad direction state, folded into the ABS_HAT0X/Y hat on change.
     dpad: Dpad,
+    // Full-trigger / stick-direction pseudo-buttons, folded into the stick/trigger axes.
+    axis_buttons: AxisButtons,
     // High-res scroll: accumulated hi-res units (120 = one detent) per axis, so a legacy
     // REL_WHEEL/REL_HWHEEL notch is synthesized every 120 for non-hi-res consumers.
     hi_res_wheel: i32,
@@ -63,6 +65,7 @@ impl Sink {
             ff_playing: None,
             ff_until: None,
             dpad: Dpad::default(),
+            axis_buttons: AxisButtons::default(),
             hi_res_wheel: 0,
             hi_res_hwheel: 0,
         })
@@ -123,12 +126,21 @@ impl Sink {
                             AbsoluteAxisCode::ABS_HAT0Y,
                             self.dpad.y(),
                         ));
+                    } else if let Some(axis) = self.axis_buttons.set_button(b, *down) {
+                        // Full-trigger / stick-direction pseudo-button → drive its axis to the
+                        // combined value (digital extreme while held, else the cached analog).
+                        let vc = self.axis_buttons.value(&axis);
+                        gp.push(*AbsoluteAxisEvent::new(abs_code(&axis), abs_value(&axis, vc)));
                     } else {
                         gp.push(*KeyEvent::new(gamepad_code(b), *down as i32));
                     }
                 }
                 OutputEvent::GamepadAxis(a, v) => {
-                    gp.push(*AbsoluteAxisEvent::new(abs_code(a), abs_value(a, *v)))
+                    // Cache the analog value and emit it combined with any held axis-button (which
+                    // overrides it) — so an analog stick and a stick-direction button coexist.
+                    self.axis_buttons.set_analog(a, *v);
+                    let vc = self.axis_buttons.value(a);
+                    gp.push(*AbsoluteAxisEvent::new(abs_code(a), abs_value(a, vc)))
                 }
             }
         }
@@ -271,8 +283,10 @@ fn build_mouse() -> io::Result<VirtualDevice> {
 fn build_gamepad() -> io::Result<VirtualDevice> {
     let mut buttons = AttributeSet::<KeyCode>::new();
     for b in GamepadButton::ALL {
-        if !b.is_dpad() {
-            buttons.insert(gamepad_code(b)); // dpad directions fold into the hat, below
+        // Dpad directions fold into the hat, and the axis pseudo-buttons into the stick/trigger
+        // axes — neither is advertised as a `BTN_*` key.
+        if !b.is_dpad() && !b.is_axis_button() {
+            buttons.insert(gamepad_code(b));
         }
     }
     let mut ff = AttributeSet::<FFEffectCode>::new();
@@ -530,6 +544,10 @@ fn gamepad_code(b: &GamepadButton) -> KeyCode {
         | GamepadButton::DpadRight => {
             unreachable!("dpad directions fold into the hat — see Dpad / emit")
         }
+        b if b.is_axis_button() => {
+            unreachable!("axis pseudo-buttons fold into stick/trigger axes — see AxisButtons / emit")
+        }
+        _ => unreachable!("gamepad_code covers every non-hat, non-axis button"),
     }
 }
 
