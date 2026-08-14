@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use config::{
-    Action, ActionSet, Activator, Command, CommandSettings, ConfigDoc, InputSource, Layer,
-    SourceBinding,
+    Action, ActionSet, Activator, Command, CommandSettings, ConfigDoc, HapticEdge, HapticStrength,
+    InputSource, Layer, SourceBinding, Turbo,
 };
 use iced::Task;
 use ipc::ProfileRole;
@@ -29,6 +29,10 @@ pub(crate) struct Editing {
     pub(crate) doc: ConfigDoc,
     /// Which action set / layer the per-input editor pages currently target (the sidebar selector).
     pub(crate) target: EditTarget,
+    /// An open settings sub-page shown *instead of* the current input page, or `None` for the normal
+    /// category pages. Cleared by any navigation (sidebar category or the target selector) — see
+    /// [`SettingsView`].
+    pub(crate) settings: Option<SettingsView>,
 }
 
 /// What the editor is pointed at: an action set (`layer: None` — its base bindings) or one of that
@@ -73,6 +77,15 @@ pub(crate) enum ActionTarget {
     Replace { cmd: CommandRef, action: usize },
     AddCommand { input: InputSource, slot: CommandSlot },
     AddSubCommand { cmd: CommandRef },
+}
+
+/// A focused settings sub-page, shown *instead of* the current input page (reached from a gear
+/// menu, left via Back). The general paradigm for every settings page — only per-command settings
+/// exist so far; per-behaviour settings will join as a second variant on the same model.
+#[derive(Debug, Clone)]
+pub(crate) enum SettingsView {
+    /// Per-command settings (activator kind + time, interruptible/toggle/turbo/haptics).
+    Command(CommandRef),
 }
 
 /// The activator kinds, as the picker/combobox value (an [`Activator`] carries a parameter, so this
@@ -219,6 +232,20 @@ pub(crate) enum EditorMessage {
     RemoveAllCommands(InputSource, CommandSlot),
     /// Remove a subcommand (an action at index ≥1) from a command.
     RemoveSubCommand(CommandRef, usize),
+    /// Open the per-command settings sub-page (the command gear menu's Settings item).
+    OpenCommandSettings(CommandRef),
+    /// Leave a settings sub-page (Back button), returning to the input page.
+    CloseSettings,
+    /// Per-command settings edits (the settings sub-page). Each mutates one field of the addressed
+    /// command and autosaves.
+    SetHoldMs(CommandRef, u32),
+    SetWindowMs(CommandRef, u32),
+    SetInterruptible(CommandRef, bool),
+    SetToggle(CommandRef, bool),
+    SetTurbo(CommandRef, bool),
+    SetTurboInterval(CommandRef, u32),
+    SetHapticEdge(CommandRef, HapticEdge),
+    SetHapticStrength(CommandRef, HapticStrength),
 }
 
 /// Handle one editor message against the app state. The **single doc-mutation site** — the place to
@@ -380,8 +407,83 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
             app.save_editing();
             Task::none()
         }
+        EditorMessage::OpenCommandSettings(cmd) => {
+            if let Some(ed) = &mut app.editing {
+                ed.settings = Some(SettingsView::Command(cmd));
+            }
+            app.popup = None;
+            Task::none()
+        }
+        EditorMessage::CloseSettings => {
+            if let Some(ed) = &mut app.editing {
+                ed.settings = None;
+            }
+            Task::none()
+        }
+        EditorMessage::SetHoldMs(cmd, ms) => {
+            if let Some(c) = command_mut(app, &cmd) {
+                c.activator = Activator::Long { hold_ms: ms };
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetWindowMs(cmd, ms) => {
+            if let Some(c) = command_mut(app, &cmd) {
+                c.activator = Activator::Double { window_ms: ms };
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetInterruptible(cmd, v) => {
+            if let Some(c) = command_mut(app, &cmd) {
+                c.settings.interruptible = v;
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetToggle(cmd, v) => {
+            if let Some(c) = command_mut(app, &cmd) {
+                c.settings.toggle = v;
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetTurbo(cmd, on) => {
+            if let Some(c) = command_mut(app, &cmd) {
+                // Enabling seeds a sensible default rate; disabling drops it entirely.
+                c.settings.turbo = on.then_some(Turbo { interval_ms: DEFAULT_TURBO_INTERVAL_MS });
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetTurboInterval(cmd, ms) => {
+            if let Some(c) = command_mut(app, &cmd)
+                && let Some(t) = &mut c.settings.turbo
+            {
+                t.interval_ms = ms;
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetHapticEdge(cmd, edge) => {
+            if let Some(c) = command_mut(app, &cmd) {
+                c.settings.haptics.on = edge;
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetHapticStrength(cmd, strength) => {
+            if let Some(c) = command_mut(app, &cmd) {
+                c.settings.haptics.strength = strength;
+            }
+            app.save_editing();
+            Task::none()
+        }
     }
 }
+
+/// The turbo rate a freshly-enabled turbo starts at, in milliseconds (≈10 Hz).
+pub(crate) const DEFAULT_TURBO_INTERVAL_MS: u32 = 100;
 
 /// The bindings map of the currently-edited action set / layer (read) — resolved by name from the
 /// selected [`EditTarget`]. `None` when no profile is loaded or the target has drifted.
@@ -557,6 +659,8 @@ fn step_target(app: &mut App, delta: isize) {
             let next = pos as isize + delta;
             if next >= 0 && (next as usize) < list.len() {
                 ed.target = list[next as usize].clone();
+                // A settings sub-page addresses a command in the *old* target — leave it on a switch.
+                ed.settings = None;
             }
         }
     }

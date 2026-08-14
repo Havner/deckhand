@@ -445,7 +445,7 @@ impl App {
         match profiles::load(&path) {
             Ok(doc) => {
                 let target = editor::first_target(&doc);
-                self.editing = Some(editor::Editing { path, doc, target });
+                self.editing = Some(editor::Editing { path, doc, target, settings: None });
                 self.error = None;
             }
             Err(e) => self.error = Some(e),
@@ -812,7 +812,13 @@ impl App {
             }
             Message::Editor(m) => return editor::update(self, m),
 
-            Message::Navigate(c) => self.category = c,
+            Message::Navigate(c) => {
+                self.category = c;
+                // Navigating away from an input page leaves any open settings sub-page.
+                if let Some(ed) = &mut self.editing {
+                    ed.settings = None;
+                }
+            }
             Message::Daemon(DaemonUpdate::Disconnected) => {
                 self.connected = false;
                 self.status = None;

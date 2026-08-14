@@ -239,15 +239,19 @@ fn nav_button(app: &App, c: Category) -> Element<'static, Message> {
 
 /// The scrollable content pane; swaps entirely on the selected category.
 fn content(app: &App) -> Element<'_, Message> {
-    let inner: Element<'_, Message> = match app.category {
-        Category::Profiles => profiles::profiles_screen(app),
-        Category::Profile => editor::profile_screen(app),
-        Category::Rumble => editor::rumble_screen(),
-        Category::Settings => settings::settings_screen(app),
-        Category::Globals => globals::globals_screen(app),
-        // The per-input editor pages (Buttons/Triggers/Joysticks/Trackpads/Gyro) are data-driven
-        // mockups rendered from the category's input groups.
-        cat => editor::input_screen(app, cat),
+    // An open settings sub-page (reached from a gear menu) replaces the category page until Back.
+    let inner: Element<'_, Message> = match editor::settings_screen(app) {
+        Some(settings) => settings,
+        None => match app.category {
+            Category::Profiles => profiles::profiles_screen(app),
+            Category::Profile => editor::profile_screen(app),
+            Category::Rumble => editor::rumble_screen(),
+            Category::Settings => settings::settings_screen(app),
+            Category::Globals => globals::globals_screen(app),
+            // The per-input editor pages (Buttons/Triggers/Joysticks/Trackpads/Gyro) are data-driven
+            // mockups rendered from the category's input groups.
+            cat => editor::input_screen(app, cat),
+        },
     };
     scrollable(container(inner).padding(16.0).width(Fill)).width(Fill).height(Fill).into()
 }

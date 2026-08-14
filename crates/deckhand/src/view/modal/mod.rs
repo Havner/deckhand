@@ -217,7 +217,10 @@ fn command_menu_card<'a>(app: &'a App, cmd: &'a CommandRef) -> Element<'a, Messa
         Some(Message::Editor(EditorMessage::RemoveCommand(cmd.clone()))),
     ));
     col = col.push(activator);
-    col = col.push(menu_item("Settings", None)); // disabled this pass
+    col = col.push(menu_item(
+        "Settings",
+        Some(Message::Editor(EditorMessage::OpenCommandSettings(cmd.clone()))),
+    ));
     if sole {
         col = col.push(menu_item(
             "Add extra command",

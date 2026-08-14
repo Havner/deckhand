@@ -7,13 +7,19 @@
 
 use std::collections::BTreeMap;
 
-use iced::widget::{Space, button, column, container, pick_list, row, slider, text, text_input};
+use std::ops::RangeInclusive;
+
+use iced::widget::{Space, button, checkbox, column, container, pick_list, row, slider, text, text_input};
 use iced::{Center, Element, Fill};
 
-use config::{Action, InputSource, SourceBinding, SourceKind};
+use config::{
+    Action, Activator, Command, HapticEdge, HapticStrength, InputSource, SourceBinding, SourceKind,
+};
 
 use super::{Dot, card, group_header, label_row, section_header, slot_display, small};
-use crate::editor::{ActionTarget, Behavior, CommandRef, CommandSlot, EditorMessage};
+use crate::editor::{
+    ActionTarget, ActivatorKind, Behavior, CommandRef, CommandSlot, EditorMessage, SettingsView,
+};
 use crate::nav::{Category, InputGroup};
 use crate::view::modal::action_label;
 use crate::{App, Message, style};
@@ -166,6 +172,203 @@ pub(super) fn rumble_screen() -> Element<'static, Message> {
     ]
     .spacing(16.0)
     .into()
+}
+
+// --- settings sub-pages ---------------------------------------------------------------------
+
+/// The active settings sub-page, rendered *instead of* the current category page — `None` when no
+/// settings page is open (the caller then renders the normal category). The general settings-page
+/// paradigm: a focused full-width form reached from a gear menu, left via Back.
+pub(super) fn settings_screen(app: &App) -> Option<Element<'static, Message>> {
+    match app.editing.as_ref()?.settings.as_ref()? {
+        SettingsView::Command(cref) => Some(command_settings(app, cref)),
+    }
+}
+
+/// Fixed label column for a settings row, so the controls line up down the form.
+const SET_LABEL: f32 = 160.0;
+
+/// The per-command settings form: activator (kind + its time), then interruptible / toggle / turbo /
+/// haptics. Applicability-gated (interruptible only on Regular, turbo hidden on Release, the time bar
+/// only for Long/Double, haptic strength only when the pulse is on) — decision B, invalid-unrepresentable.
+fn command_settings(app: &App, cref: &CommandRef) -> Element<'static, Message> {
+    let back = button(text("‹ Back"))
+        .style(style::option_button)
+        .on_press(Message::Editor(EditorMessage::CloseSettings));
+    let (label, dot) = slot_display(&cref.input, cref.slot);
+    // Centre the command label across the space beside Back so it reads as the page title.
+    let title = container(label_row(label, dot)).width(Fill).align_x(Center);
+    let header = row![back, title].spacing(16.0).align_y(Center);
+
+    // The command can vanish (removed from another surface) while this page is open — keep Back live.
+    let Some(cmd) = crate::editor::command_at(app, cref) else {
+        return column![header, small("This command no longer exists.")].spacing(20.0).into();
+    };
+
+    let mut col = column![header, activator_setting(cref, cmd)].spacing(16.0);
+    if let Some(time) = activator_time_setting(cref, cmd) {
+        col = col.push(time);
+    }
+    // Interruptible applies only to a Regular command (suppress it when a longer activator fires).
+    if matches!(cmd.activator, Activator::Regular) {
+        let cref = cref.clone();
+        col = col.push(check_setting("Interruptible", cmd.settings.interruptible, move |b| {
+            Message::Editor(EditorMessage::SetInterruptible(cref.clone(), b))
+        }));
+    }
+    let cref_toggle = cref.clone();
+    col = col.push(check_setting("Toggle", cmd.settings.toggle, move |b| {
+        Message::Editor(EditorMessage::SetToggle(cref_toggle.clone(), b))
+    }));
+    // Turbo (rapid re-fire) is meaningless on a one-shot Release.
+    if !matches!(cmd.activator, Activator::Release) {
+        col = col.push(turbo_setting(cref, cmd));
+    }
+    col = col.push(haptic_settings(cref, cmd));
+    col.into()
+}
+
+/// The activator-kind row: the same 5-way combobox as the command gear menu (kept here too so the
+/// settings page is a complete home for the command's activator + its time parameter).
+fn activator_setting(cref: &CommandRef, cmd: &Command) -> Element<'static, Message> {
+    let cref = cref.clone();
+    let current = ActivatorKind::of(&cmd.activator);
+    let combo = pick_list(Some(current), ActivatorKind::ALL.to_vec(), |k: &ActivatorKind| {
+        k.label().to_string()
+    })
+    .on_select(move |k| Message::Editor(EditorMessage::SetActivator(cref.clone(), k)))
+    .width(CMD_SLOT);
+    row![setting_label("Activator"), combo].spacing(12.0).align_y(Center).into()
+}
+
+/// The activator's time parameter, when it has one: Long's hold time / Double's window. `None` for
+/// the parameter-less kinds (Regular/Start/Release).
+fn activator_time_setting(cref: &CommandRef, cmd: &Command) -> Option<Element<'static, Message>> {
+    match cmd.activator {
+        Activator::Long { hold_ms } => {
+            let cref = cref.clone();
+            Some(slider_row("Hold time", hold_ms, 100..=2000, 50, move |v| {
+                Message::Editor(EditorMessage::SetHoldMs(cref.clone(), v))
+            }))
+        }
+        Activator::Double { window_ms } => {
+            let cref = cref.clone();
+            Some(slider_row("Double window", window_ms, 100..=600, 25, move |v| {
+                Message::Editor(EditorMessage::SetWindowMs(cref.clone(), v))
+            }))
+        }
+        _ => None,
+    }
+}
+
+/// Turbo: a checkbox gating a rate slider (inert same-geometry slider when off, mirroring the Globals
+/// LED/idle pattern so toggling doesn't reflow the row).
+fn turbo_setting(cref: &CommandRef, cmd: &Command) -> Element<'static, Message> {
+    let on = cmd.settings.turbo.is_some();
+    let interval =
+        cmd.settings.turbo.as_ref().map_or(crate::editor::DEFAULT_TURBO_INTERVAL_MS, |t| t.interval_ms);
+    let cref_toggle = cref.clone();
+    let check = checkbox(on)
+        .on_toggle(move |b| Message::Editor(EditorMessage::SetTurbo(cref_toggle.clone(), b)));
+    let bar: Element<'static, Message> = if on {
+        let cref = cref.clone();
+        slider(20..=500u32, interval, move |v| {
+            Message::Editor(EditorMessage::SetTurboInterval(cref.clone(), v))
+        })
+        .step(10u32)
+        .into()
+    } else {
+        slider(20..=500u32, interval, |_| Message::Ignored).style(style::disabled_slider).into()
+    };
+    let readout = if on { format!("{interval} ms") } else { "off".to_string() };
+    row![setting_label("Turbo"), check, bar, text(readout).width(70.0)]
+        .spacing(12.0)
+        .align_y(Center)
+        .into()
+}
+
+/// Haptics: the pulse edge (Off/On press/On release/Both), plus a strength combobox that appears only
+/// when the pulse is on (strength is meaningless while Off).
+fn haptic_settings(cref: &CommandRef, cmd: &Command) -> Element<'static, Message> {
+    let edge = cmd.settings.haptics.on.clone();
+    let cref_edge = cref.clone();
+    let edge_combo = pick_list(
+        Some(edge.clone()),
+        vec![HapticEdge::Off, HapticEdge::OnPress, HapticEdge::OnRelease, HapticEdge::Both],
+        |e: &HapticEdge| haptic_edge_label(e).to_string(),
+    )
+    .on_select(move |e| Message::Editor(EditorMessage::SetHapticEdge(cref_edge.clone(), e)))
+    .width(CMD_SLOT);
+    let mut col =
+        column![row![setting_label("Haptics"), edge_combo].spacing(12.0).align_y(Center)].spacing(8.0);
+    if edge != HapticEdge::Off {
+        let cref_strength = cref.clone();
+        let strength_combo = pick_list(
+            Some(cmd.settings.haptics.strength.clone()),
+            vec![HapticStrength::Low, HapticStrength::Medium, HapticStrength::High],
+            |s: &HapticStrength| haptic_strength_label(s).to_string(),
+        )
+        .on_select(move |s| Message::Editor(EditorMessage::SetHapticStrength(cref_strength.clone(), s)))
+        .width(CMD_SLOT);
+        col = col.push(row![setting_label("Strength"), strength_combo].spacing(12.0).align_y(Center));
+    }
+    col.into()
+}
+
+/// A settings-form checkbox row: a fixed-width label + a bare checkbox (label lives in the row, not
+/// the widget, matching the Globals form).
+fn check_setting(
+    label: &'static str,
+    value: bool,
+    on_toggle: impl Fn(bool) -> Message + 'static,
+) -> Element<'static, Message> {
+    row![setting_label(label), checkbox(value).on_toggle(on_toggle)]
+        .spacing(12.0)
+        .align_y(Center)
+        .into()
+}
+
+/// A settings-form slider row over a `u32` value: fixed label, the (step-snapped) slider, and a
+/// trailing "<value> <unit>" readout.
+fn slider_row(
+    label: &'static str,
+    value: u32,
+    range: RangeInclusive<u32>,
+    step: u32,
+    on_change: impl Fn(u32) -> Message + 'static,
+) -> Element<'static, Message> {
+    row![
+        setting_label(label),
+        slider(range, value, on_change).step(step),
+        text(format!("{value} ms")).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+/// A fixed-width settings-row label so the controls line up down the form.
+fn setting_label(s: &'static str) -> Element<'static, Message> {
+    text(s).width(SET_LABEL).into()
+}
+
+/// Display label for a haptic edge (UI-owned — `config` stays presentation-free).
+fn haptic_edge_label(e: &HapticEdge) -> &'static str {
+    match e {
+        HapticEdge::Off => "Off",
+        HapticEdge::OnPress => "On press",
+        HapticEdge::OnRelease => "On release",
+        HapticEdge::Both => "Both",
+    }
+}
+
+/// Display label for a haptic strength (UI-owned).
+fn haptic_strength_label(s: &HapticStrength) -> &'static str {
+    match s {
+        HapticStrength::Low => "Low",
+        HapticStrength::Medium => "Medium",
+        HapticStrength::High => "High",
+    }
 }
 
 // --- building blocks ------------------------------------------------------------------------
