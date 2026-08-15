@@ -130,39 +130,39 @@ pub(crate) enum SettingEdit {
 /// tags just the variant; [`ActivatorKind::to_activator`] supplies the default parameter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActivatorKind {
-    RegularPress,
-    LongPress,
-    DoublePress,
-    StartPress,
-    ReleasePress,
+    Regular,
+    Long,
+    Double,
+    Start,
+    Release,
 }
 
 impl ActivatorKind {
     pub(crate) const ALL: &'static [ActivatorKind] = &[
-        ActivatorKind::RegularPress,
-        ActivatorKind::LongPress,
-        ActivatorKind::DoublePress,
-        ActivatorKind::StartPress,
-        ActivatorKind::ReleasePress,
+        ActivatorKind::Regular,
+        ActivatorKind::Long,
+        ActivatorKind::Double,
+        ActivatorKind::Start,
+        ActivatorKind::Release,
     ];
 
     pub(crate) fn of(a: &Activator) -> Self {
         match a {
-            Activator::Regular { .. } => ActivatorKind::RegularPress,
-            Activator::Long { .. } => ActivatorKind::LongPress,
-            Activator::Double { .. } => ActivatorKind::DoublePress,
-            Activator::Start => ActivatorKind::StartPress,
-            Activator::Release => ActivatorKind::ReleasePress,
+            Activator::Regular { .. } => ActivatorKind::Regular,
+            Activator::Long { .. } => ActivatorKind::Long,
+            Activator::Double { .. } => ActivatorKind::Double,
+            Activator::Start => ActivatorKind::Start,
+            Activator::Release => ActivatorKind::Release,
         }
     }
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            ActivatorKind::RegularPress => "Regular press",
-            ActivatorKind::LongPress => "Long press",
-            ActivatorKind::DoublePress => "Double press",
-            ActivatorKind::StartPress => "Start press",
-            ActivatorKind::ReleasePress => "Release press",
+            ActivatorKind::Regular => "Regular press",
+            ActivatorKind::Long => "Long press",
+            ActivatorKind::Double => "Double press",
+            ActivatorKind::Start => "Start press",
+            ActivatorKind::Release => "Release press",
         }
     }
 
@@ -172,11 +172,11 @@ impl ActivatorKind {
             // New commands default to interruptible: harmless when it's the node's only command
             // (nothing to interrupt it → a plain hold), and the intent one wants the moment a
             // Long/Double is added alongside it.
-            ActivatorKind::RegularPress => Activator::Regular { interruptible: true },
-            ActivatorKind::LongPress => Activator::Long { hold_ms: 450 },
-            ActivatorKind::DoublePress => Activator::Double { window_ms: 200 },
-            ActivatorKind::StartPress => Activator::Start,
-            ActivatorKind::ReleasePress => Activator::Release,
+            ActivatorKind::Regular => Activator::Regular { interruptible: true },
+            ActivatorKind::Long => Activator::Long { hold_ms: 450 },
+            ActivatorKind::Double => Activator::Double { window_ms: 200 },
+            ActivatorKind::Start => Activator::Start,
+            ActivatorKind::Release => Activator::Release,
         }
     }
 }
@@ -682,7 +682,7 @@ fn apply_action(app: &mut App, target: ActionTarget, action: Action) {
                 && let Some(commands) = slot_commands_mut(binding, slot)
             {
                 commands.push(Command {
-                    activator: ActivatorKind::RegularPress.to_activator(), // the authoring default
+                    activator: ActivatorKind::Regular.to_activator(), // the authoring default
                     actions: vec![action],
                     settings: CommandSettings::default(),
                 });
