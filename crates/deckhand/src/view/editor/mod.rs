@@ -87,7 +87,7 @@ fn layer_bar(set: &str, name: &str) -> Element<'static, Message> {
 
 /// The gear on a Profile-page bar: opens the context menu for `target`.
 fn menu_gear(target: crate::editor::EditTarget) -> Element<'static, Message> {
-    button(text("⚙").size(16.0))
+    button(super::icon("⚙").size(16.0))
         .style(style::combo_button)
         .on_press(Message::Editor(EditorMessage::OpenMenu(target)))
         .into()
@@ -121,7 +121,7 @@ pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
     let labels = column![top, bottom].align_x(Center).spacing(2.0).width(Fill);
 
     let arrow = |glyph: &'static str, enabled: bool, msg: Message| -> Element<'static, Message> {
-        let mut b = button(text(glyph).size(14.0)).style(style::combo_button);
+        let mut b = button(super::icon(glyph).size(14.0)).style(style::combo_button);
         if enabled {
             b = b.on_press(msg);
         }
@@ -486,7 +486,7 @@ fn activator_suffix(a: &config::Activator) -> Option<String> {
 
 /// An active gear button that opens a menu on press.
 fn gear_menu(msg: Message) -> Element<'static, Message> {
-    button(text("⚙").size(16.0)).style(style::combo_button).on_press(msg).into()
+    button(super::icon("⚙").size(16.0)).style(style::combo_button).on_press(msg).into()
 }
 
 /// The behaviour-row gear: opens the per-behaviour settings page when the behaviour has settings,
@@ -501,7 +501,7 @@ fn behavior_gear(input: &InputSource, current: Behavior) -> Element<'static, Mes
 
 /// A settings/gear button. `active=false` greys it (an unbound slot has no menu yet).
 fn gear(active: bool) -> Element<'static, Message> {
-    let b = button(text("⚙").size(16.0)).style(style::combo_button);
+    let b = button(super::icon("⚙").size(16.0)).style(style::combo_button);
     if active { b.on_press(Message::Ignored).into() } else { b.into() }
 }
 

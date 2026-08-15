@@ -14,7 +14,9 @@ pub(crate) mod modal;
 mod profiles;
 mod settings;
 
-use iced::widget::{Row, Space, button, column, container, pick_list, row, rule, scrollable, text};
+use iced::widget::{
+    Row, Space, Text, button, column, container, pick_list, row, rule, scrollable, text,
+};
 use iced::{Center, Element, Fill, Theme};
 use ipc::{ProfileRole, RunState};
 
@@ -41,6 +43,20 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
 /// A screen's big title (e.g. "Settings", "Buttons") — the largest heading on a page.
 fn section_header<'a>(title: impl text::IntoFragment<'a>) -> Element<'a, Message> {
     text(title).size(24.0).into()
+}
+
+/// An icon glyph (gear `⚙`, arrows `▶`/`◀`) rendered from a symbol font. On Windows cosmic-text's
+/// fallback chain resolves these through the *colour* "Segoe UI Emoji" ahead of the monochrome
+/// "Segoe UI Symbol", and it has no text/emoji presentation-selector logic — so without help they
+/// render as colour emoji that ignore the widget's text colour (blue-boxed arrows; a beige gear that
+/// won't dim when its button is disabled). Pin the monochrome symbol font so the glyph takes the
+/// text colour. Other platforms already fall back to a colourable monochrome glyph — leave them be.
+/// Callers keep chaining `.size(..)` / `.style(..)` on the returned [`Text`].
+fn icon<'a>(glyph: &'a str) -> Text<'a> {
+    let t = text(glyph);
+    #[cfg(target_os = "windows")]
+    let t = t.font(iced::Font::new("Segoe UI Symbol"));
+    t
 }
 
 /// A sub-group heading within a screen (e.g. "UI", "Face Buttons", "Profile") — the smaller
@@ -384,7 +400,7 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
 fn role_label(name: &str, profile: Option<&str>, active: bool) -> Element<'static, Message> {
     let label = text(format!("{name}: {}", profile.unwrap_or("—"))).size(13.0);
     if active {
-        row![text("▶").size(13.0).style(style::success_text), label]
+        row![icon("▶").size(13.0).style(style::success_text), label]
             .spacing(4.0)
             .align_y(Center)
             .into()

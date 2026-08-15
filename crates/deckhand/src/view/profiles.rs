@@ -78,7 +78,7 @@ pub(super) fn profiles_screen(app: &App) -> Element<'_, Message> {
     let active = app.status.as_ref().and_then(|s| s.active);
     let applied_row = |label: String, is_active: bool| -> Element<'_, Message> {
         let glyph: Element<'_, Message> = if is_active {
-            text("▶").size(13.0).style(style::success_text).into()
+            super::icon("▶").size(13.0).style(style::success_text).into()
         } else {
             Space::new().into()
         };
@@ -99,10 +99,14 @@ pub(super) fn profiles_screen(app: &App) -> Element<'_, Message> {
     // copy-ability.
     let info = column![
         group_header("Additional information"),
+        // The arrow is inline in flowing body text, so it can't take the symbol-font pin `icon()`
+        // gives the standalone marker (one font per text widget). Use the non-emoji pointer `►`
+        // (U+25BA) rather than the marker's `▶` (U+25B6) so it stays monochrome on Windows too —
+        // cosmic-text's fallback would otherwise resolve `▶` through the colour emoji font.
         body(
             "The active profile (Main or Fallback) can be switched with chords (see the \
              Globals page). If only one of the two is assigned, it is always active. The active \
-             role is tracked even while its slot is empty — the ▶ above marks it — so assigning a \
+             role is tracked even while its slot is empty — the ► above marks it — so assigning a \
              profile to the role that's currently active makes it take over the controller right \
              away, rather than the other one continuing to drive."
         ),
