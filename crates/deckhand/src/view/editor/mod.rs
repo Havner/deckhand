@@ -1090,10 +1090,10 @@ fn activator_suffix(a: &config::Activator) -> Option<String> {
     use config::Activator::*;
     match a {
         Regular { .. } => None,
-        Start => Some("Start press".into()),
         Long { hold_ms } => Some(format!("Long press: {hold_ms}ms")),
         Double { window_ms } => Some(format!("Double press: {window_ms}ms")),
-        Release => Some("On release".into()),
+        Start => Some("Start press".into()),
+        Release => Some("Release press".into()),
     }
 }
 

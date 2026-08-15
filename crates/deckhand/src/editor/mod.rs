@@ -130,50 +130,50 @@ pub(crate) enum SettingEdit {
 /// tags just the variant; [`ActivatorKind::to_activator`] supplies the default parameter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActivatorKind {
-    Regular,
-    Start,
-    Long,
-    Double,
-    Release,
+    RegularPress,
+    LongPress,
+    DoublePress,
+    StartPress,
+    ReleasePress,
 }
 
 impl ActivatorKind {
     pub(crate) const ALL: &'static [ActivatorKind] = &[
-        ActivatorKind::Regular,
-        ActivatorKind::Start,
-        ActivatorKind::Long,
-        ActivatorKind::Double,
-        ActivatorKind::Release,
+        ActivatorKind::RegularPress,
+        ActivatorKind::LongPress,
+        ActivatorKind::DoublePress,
+        ActivatorKind::StartPress,
+        ActivatorKind::ReleasePress,
     ];
 
     pub(crate) fn of(a: &Activator) -> Self {
         match a {
-            Activator::Regular { .. } => ActivatorKind::Regular,
-            Activator::Start => ActivatorKind::Start,
-            Activator::Long { .. } => ActivatorKind::Long,
-            Activator::Double { .. } => ActivatorKind::Double,
-            Activator::Release => ActivatorKind::Release,
+            Activator::Regular { .. } => ActivatorKind::RegularPress,
+            Activator::Long { .. } => ActivatorKind::LongPress,
+            Activator::Double { .. } => ActivatorKind::DoublePress,
+            Activator::Start => ActivatorKind::StartPress,
+            Activator::Release => ActivatorKind::ReleasePress,
         }
     }
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            ActivatorKind::Regular => "Regular",
-            ActivatorKind::Start => "Start press",
-            ActivatorKind::Long => "Long press",
-            ActivatorKind::Double => "Double press",
-            ActivatorKind::Release => "On release",
+            ActivatorKind::RegularPress => "Regular press",
+            ActivatorKind::LongPress => "Long press",
+            ActivatorKind::DoublePress => "Double press",
+            ActivatorKind::StartPress => "Start press",
+            ActivatorKind::ReleasePress => "Release press",
         }
     }
 
     /// Build the activator with its default parameter (Long = 450 ms, Double = 200 ms).
     pub(crate) fn to_activator(self) -> Activator {
         match self {
-            ActivatorKind::Regular => Activator::Regular { interruptible: false },
-            ActivatorKind::Start => Activator::Start,
-            ActivatorKind::Long => Activator::Long { hold_ms: 450 },
-            ActivatorKind::Double => Activator::Double { window_ms: 200 },
-            ActivatorKind::Release => Activator::Release,
+            ActivatorKind::RegularPress => Activator::Regular { interruptible: false },
+            ActivatorKind::LongPress => Activator::Long { hold_ms: 450 },
+            ActivatorKind::DoublePress => Activator::Double { window_ms: 200 },
+            ActivatorKind::StartPress => Activator::Start,
+            ActivatorKind::ReleasePress => Activator::Release,
         }
     }
 }

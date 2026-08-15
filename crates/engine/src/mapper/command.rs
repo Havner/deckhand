@@ -163,13 +163,6 @@ fn fires(
     match activator {
         // Held while the node is held.
         Activator::Regular { .. } => held,
-        // One-shot tap from the press edge.
-        Activator::Start => {
-            if pressed {
-                cs.tap_until = Some(Tick(now.0 + TAP_MS));
-            }
-            tap_active(cs, now)
-        }
         // Held once the press has lasted `hold_ms`, until release.
         Activator::Long { hold_ms } => {
             held && press_start.as_ref().is_some_and(|ps| now.0.saturating_sub(ps.0) >= *hold_ms as u64)
@@ -185,6 +178,13 @@ fn fires(
                 cs.double_active = false;
             }
             held && cs.double_active
+        }
+        // One-shot tap from the press edge.
+        Activator::Start => {
+            if pressed {
+                cs.tap_until = Some(Tick(now.0 + TAP_MS));
+            }
+            tap_active(cs, now)
         }
         // One-shot tap from the release edge.
         Activator::Release => {

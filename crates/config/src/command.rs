@@ -33,12 +33,12 @@ pub enum Activator {
     /// If unset, it fires whenever held regardless of siblings. Meaningful only here (a
     /// short-vs-long distinction needs the held Regular), hence a field of the variant.
     Regular { interruptible: bool },
-    /// Fires once, on the initial press edge.
-    Start,
     /// Fires after the input is held for at least `hold_ms`.
     Long { hold_ms: u32 },
     /// Fires on a second press within `window_ms`.
     Double { window_ms: u32 },
+    /// Fires once, on the initial press edge.
+    Start,
     /// Fires on release.
     Release,
 }
