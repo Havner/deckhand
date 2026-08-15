@@ -202,7 +202,14 @@ fn accept_client(listener: &TcpListener, shared: &ServerShared) -> Option<TcpStr
             return None;
         }
         match listener.accept() {
-            Ok((s, _)) => return Some(s),
+            Ok((s, _)) => {
+                // Windows: an accepted socket inherits the listener's non-blocking flag (Linux
+                // does not), which would make `serve_connection`'s blocking reads return WouldBlock
+                // and drop the client immediately. Force blocking — the serve loop relies on it (and
+                // `Drop` unblocks it via `shutdown`).
+                let _ = s.set_nonblocking(false);
+                return Some(s);
+            }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(50));
             }
