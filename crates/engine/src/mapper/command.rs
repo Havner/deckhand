@@ -103,11 +103,11 @@ pub(super) fn eval_commands(
     }
     let press_start = slot.press_start.clone();
 
-    // --- Pass 1: raw activity of the hold-takers (Long/Double); they never contest, so no winner. ---
-    let n = commands.len();
-    let mut raws = vec![false; n];
+    // --- Pass 1: is each hold-taker (Long/Double) active this tick? They never contest, so this is
+    // the whole story for them; the OR is the signal that interrupts a Regular. ---
+    let mut hold_active = vec![false; commands.len()];
     for (i, cmd) in commands.iter().enumerate() {
-        raws[i] = match &cmd.activator {
+        hold_active[i] = match &cmd.activator {
             Activator::Long { hold_ms } => {
                 held && press_start.as_ref().is_some_and(|ps| now.0.saturating_sub(ps.0) >= *hold_ms as u64)
             }
@@ -125,27 +125,16 @@ pub(super) fn eval_commands(
         };
     }
     // Any hold-taker active this tick = the signal that an interruptible `Regular` is interrupted.
-    let interrupter_active = raws.iter().any(|&a| a);
+    let interrupter_active = hold_active.iter().any(|&a| a);
 
     // --- Pass 2: resolve each command's output level and apply it. ---
     for (i, cmd) in commands.iter().enumerate() {
         let active = match &cmd.activator {
             // A hold-taker holds from its fire until release; all active ones coexist.
-            Activator::Long { .. } | Activator::Double { .. } => raws[i],
-            Activator::Start => {
-                let cs = slot.command(i);
-                if pressed {
-                    cs.tap_until = Some(Tick(now.0 + TAP_MS));
-                }
-                tap_active(cs, now)
-            }
-            Activator::Release => {
-                let cs = slot.command(i);
-                if released {
-                    cs.tap_until = Some(Tick(now.0 + TAP_MS));
-                }
-                tap_active(cs, now)
-            }
+            Activator::Long { .. } | Activator::Double { .. } => hold_active[i],
+            // One-shot taps: arm a `TAP_MS` window on the press / release edge, output while it runs.
+            Activator::Start => tap_on_edge(slot.command(i), pressed, now),
+            Activator::Release => tap_on_edge(slot.command(i), released, now),
             Activator::Regular { interruptible } => {
                 if !interruptible || !has_interrupter {
                     held // plain press/release hold: non-interruptible, or nothing to interrupt it
@@ -185,53 +174,38 @@ fn regular_deferred(
     now: &Tick,
 ) -> bool {
     if pressed {
-        if interrupter_active {
-            // This very press formed a `Double` (a hold-taker went active this tick) → interrupted.
-            cs.deferred = Deferred::Done;
-        } else {
-            cs.deferred = Deferred::Pending; // a fresh interaction
-            cs.deferred_start = Some(now.clone());
-        }
+        cs.deferred = Deferred::Pending; // a fresh interaction (a double-forming press is caught below)
+        cs.deferred_start = Some(now.clone());
     }
     match cs.deferred {
         Deferred::Pending => {
             if interrupter_active {
-                cs.deferred = Deferred::Done; // a Long fired (or a Double formed) → interrupted
+                cs.deferred = Deferred::Idle; // a Long fired (or a Double formed) → interrupted
                 return false;
             }
             let start = cs.deferred_start.as_ref().map_or(now.0, |t| t.0);
             let window_closed = now.0.saturating_sub(start) >= max_double_window.unwrap_or(0);
-            if held {
-                // Safe-while-held requires no `Long` (a `Long` would interrupt at its threshold
-                // before we ever reach a safe point) and every `Double` window closed.
-                if !has_long && window_closed {
-                    cs.deferred = Deferred::Holding;
-                    true
-                } else {
-                    false // still threatened — keep waiting
-                }
-            } else if window_closed {
-                // Released, the window has closed with no second press → a delayed tap.
+            if held && !has_long && window_closed {
+                // Safe while still held (no `Long` to fire, every `Double` window closed) → the real,
+                // delayed press-and-hold.
+                cs.deferred = Deferred::Holding;
+                true
+            } else if !held && window_closed {
+                // Safe on release (window closed with no second press) → a delayed tap.
                 cs.tap_until = Some(Tick(now.0 + TAP_MS));
-                cs.deferred = Deferred::Done;
+                cs.deferred = Deferred::Idle;
                 true
             } else {
-                false // released but still inside the double window — wait for a possible second press
+                false // still threatened (a `Long` may fire, or the double window is still open) — wait
             }
         }
         Deferred::Holding => {
-            if interrupter_active {
-                cs.deferred = Deferred::Done; // defensive: a committed hold implies no live interrupter
-                false
-            } else if !held {
+            if !held {
                 cs.deferred = Deferred::Idle; // physical release ends the hold
-                false
-            } else {
-                true
             }
+            held
         }
-        // A committed tap plays out its `TAP_MS`; an interrupted interaction stays silent.
-        Deferred::Idle | Deferred::Done => tap_active(cs, now),
+        Deferred::Idle => tap_active(cs, now), // a committed tap plays out; otherwise silent
     }
 }
 
@@ -290,6 +264,15 @@ fn apply_turbo(active: bool, turbo: Option<&Turbo>, cs: &mut CmdState, now: &Tic
 
 fn tap_active(cs: &CmdState, now: &Tick) -> bool {
     cs.tap_until.as_ref().is_some_and(|tu| now.0 < tu.0)
+}
+
+/// Arm a `TAP_MS` output window when `fire` (the activator's edge), then report whether one is
+/// running — the shared body of the `Start`/`Release` one-shot taps.
+fn tap_on_edge(cs: &mut CmdState, fire: bool, now: &Tick) -> bool {
+    if fire {
+        cs.tap_until = Some(Tick(now.0 + TAP_MS));
+    }
+    tap_active(cs, now)
 }
 
 /// Apply one action of a firing command: output leaves become desired levels; layer/set actions

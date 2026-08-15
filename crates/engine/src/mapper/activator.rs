@@ -107,13 +107,12 @@ pub(super) struct CmdState {
 /// is deferred. See [`super::command`]'s module docs for the full rule.
 #[derive(Default, Clone, PartialEq, Eq)]
 pub(super) enum Deferred {
-    /// No interaction in progress (or one that has fully resolved with nothing pending).
+    /// Not deferring: no interaction in progress, an interrupted one, or a committed tap playing out
+    /// (any leftover tap is still honoured via `tap_until`).
     #[default]
     Idle,
     /// Pressed, not yet resolved — could still be interrupted, or commit to a hold or a tap.
     Pending,
     /// Committed to a real press-and-hold (safe while still held); outputs until release.
     Holding,
-    /// Resolved for this interaction — interrupted (no output) or a committed tap playing out.
-    Done,
 }
