@@ -4,7 +4,8 @@
 //! `Unbound`). It's the value type the behaviour picker selects, and the seam for constructing a
 //! fresh binding when the user picks a behaviour: [`Behavior::default_binding`] builds the right
 //! variant with UI-authored **starting values** — tuned per behaviour, and per input where it
-//! matters (e.g. a stick's larger inner deadzone). `config` owns the data model + neutral `Default`;
+//! matters (side-aware output; a trackpad DirectionalPad gated on that pad's click). Deadzones
+//! default to 0.0 (neutral), like `config`. `config` owns the data model + neutral `Default`;
 //! these *authoring* defaults live here in the UI, since no non-UI path ever needs them (this
 //! session's decision).
 //!
@@ -15,7 +16,7 @@
 //! `default_binding` are ready for when the editor reflects and constructs bindings.
 
 use config::{
-    Acceleration, Activation, ActivationMode, AsMouseSettings, Deadzone, DirectionalPadSettings,
+    Acceleration, Activation, ActivationMode, AsMouseSettings, DirectionalPadSettings,
     GyroToMouseSettings, InputSource, JoystickMouseSettings, JoystickSettings, MouseOutput,
     OneEuroFilter, Sensitivity, Side, SourceBinding, SourceKind, StickOutput, TriggerOutput,
     TriggerSettings,
@@ -125,16 +126,9 @@ impl Behavior {
                 right: Vec::new(),
             },
             Behavior::Joystick => SourceBinding::Joystick {
-                settings: JoystickSettings {
-                    // Drive the gamepad stick on the input's own side (left input → left stick).
-                    output: stick_output(input),
-                    // A stick rests off-centre (mechanical jitter), so it wants a larger inner
-                    // deadzone than an absolute-touch pad — the one genuinely per-input default.
-                    deadzone: Deadzone {
-                        inner: if input.kind() == SourceKind::Stick { 0.15 } else { 0.0 },
-                    },
-                    ..Default::default()
-                },
+                // Drive the gamepad stick on the input's own side (left input → left stick).
+                // Deadzone defaults to 0.0 (neutral) like every other behaviour — tune per profile.
+                settings: JoystickSettings { output: stick_output(input), ..Default::default() },
                 outer_ring: Vec::new(),
             },
             Behavior::DirectionalPad => SourceBinding::DirectionalPad {
@@ -266,14 +260,5 @@ mod tests {
                 assert!(binding.is_valid_for(&kind), "{b:?} should be valid for {kind:?}");
             }
         }
-    }
-
-    #[test]
-    fn stick_joystick_default_deadzone_exceeds_pad() {
-        let inner = |input: InputSource| match Behavior::Joystick.default_binding(&input) {
-            SourceBinding::Joystick { settings, .. } => settings.deadzone.inner,
-            _ => unreachable!(),
-        };
-        assert!(inner(InputSource::LeftStick) > inner(InputSource::LeftPad));
     }
 }
