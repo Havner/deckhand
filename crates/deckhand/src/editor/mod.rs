@@ -169,7 +169,10 @@ impl ActivatorKind {
     /// Build the activator with its default parameter (Long = 450 ms, Double = 200 ms).
     pub(crate) fn to_activator(self) -> Activator {
         match self {
-            ActivatorKind::RegularPress => Activator::Regular { interruptible: false },
+            // New commands default to interruptible: harmless when it's the node's only command
+            // (nothing to interrupt it → a plain hold), and the intent one wants the moment a
+            // Long/Double is added alongside it.
+            ActivatorKind::RegularPress => Activator::Regular { interruptible: true },
             ActivatorKind::LongPress => Activator::Long { hold_ms: 450 },
             ActivatorKind::DoublePress => Activator::Double { window_ms: 200 },
             ActivatorKind::StartPress => Activator::Start,
@@ -905,7 +908,7 @@ fn apply_action(app: &mut App, target: ActionTarget, action: Action) {
                 && let Some(commands) = slot_commands_mut(binding, slot)
             {
                 commands.push(Command {
-                    activator: Activator::Regular { interruptible: false },
+                    activator: ActivatorKind::RegularPress.to_activator(), // the authoring default
                     actions: vec![action],
                     settings: CommandSettings::default(),
                 });

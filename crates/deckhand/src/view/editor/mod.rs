@@ -324,7 +324,7 @@ fn activator_additional_settings(cref: &CommandRef, cmd: &Command) -> Option<Ele
         }
         Activator::Double { window_ms } => {
             let cref = cref.clone();
-            Some(slider_row("Double window", window_ms, 100..=600, 25, move |v| {
+            Some(slider_row("Double window", window_ms, 100..=1000, 25, move |v| {
                 Message::Editor(EditorMessage::SetWindowMs(cref.clone(), v))
             }))
         }
