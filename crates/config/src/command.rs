@@ -11,13 +11,15 @@ use crate::action::Action;
 
 /// One command (activator) on a button-like node.
 ///
-/// `actions` is an ordered combo: the 1st is the "command", the rest are **subcommands**
-/// (action-only) for key combos — pressed in order, released in reverse (`Ctrl↓ C↓ /
-/// C↑ Ctrl↑`), so modifiers wrap the key. `settings` apply to the whole combo.
+/// `actions` is a combo: the 1st is the "command", the rest are **subcommands** (action-only) for
+/// key combos (e.g. `Ctrl` + `C`). All of them are **held together** while the command fires — they
+/// are *not* sequenced; the engine's level reconciler emits them as one set per tick, sorted by the
+/// output enum's order, so **declared order does not affect output** (modifier combos work only
+/// because modifiers occupy the lowest `Key` ordinals). `settings` apply to the whole combo.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
     pub activator: Activator,
-    /// Ordered combo; ≥1 in a well-formed config (validation flags empty).
+    /// The combo; ≥1 in a well-formed config (validation flags empty).
     pub actions: Vec<Action>,
     #[serde(default)]
     pub settings: CommandSettings,
