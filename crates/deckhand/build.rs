@@ -45,8 +45,8 @@ fn embed_icon() {
 /// Decode a PNG to straight RGBA8 with its dimensions.
 #[cfg(windows)]
 fn decode_png(bytes: &[u8]) -> (Vec<u8>, u32, u32) {
-    let mut reader = png::Decoder::new(bytes).read_info().expect("read png info");
-    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().expect("read png info");
+    let mut buf = vec![0u8; reader.output_buffer_size().expect("png buffer size")];
     let info = reader.next_frame(&mut buf).expect("decode png");
     assert_eq!(info.bit_depth, png::BitDepth::Eight, "icon png must be 8-bit");
     let px = &buf[..info.buffer_size()];

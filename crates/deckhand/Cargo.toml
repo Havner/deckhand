@@ -52,5 +52,5 @@ windows = { version = "0.62", features = [
 # png decodes it, ico assembles the sizes, winresource compiles + links the resource.
 [target.'cfg(target_os = "windows")'.build-dependencies]
 png.workspace = true
-ico = "0.4"
+ico = "0.5"
 winresource = "0.1"

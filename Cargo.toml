@@ -74,4 +74,4 @@ tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
 # Linux). Not a UI toolkit here — iced owns the UI; this is Linux-only tray plumbing.
 gtk = { version = "0.18", package = "gtk" }
 # Decode the bundled tray-icon PNG to RGBA for tray-icon's `Icon::from_rgba` (image-rs, small).
-png = "0.17"
+png = "0.18"
