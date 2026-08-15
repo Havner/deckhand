@@ -66,11 +66,9 @@ pub(super) struct SlotState {
     pub(super) prev_held: bool,
     /// When the current press began (`None` while released) — the `Long` timer base.
     pub(super) press_start: Option<Tick>,
-    /// When the node was last released — the `Double` window base.
-    pub(super) last_release: Option<Tick>,
-    /// Whether any non-interruptible command on this node fired during the current press — the
-    /// signal an `interruptible` Regular reads on release (short-vs-long, S7b).
-    pub(super) sibling_fired: bool,
+    /// The **previous** press's start, retained across release — `Double`'s press-to-press window
+    /// base (a double = second press within `window_ms` of the *first press*, not its release).
+    pub(super) last_press: Option<Tick>,
     commands: Vec<CmdState>,
 }
 
@@ -87,10 +85,18 @@ impl SlotState {
 /// Per-command latch state carried across ticks.
 #[derive(Default, Clone)]
 pub(super) struct CmdState {
-    /// Tap-style activators (`Start`/`Release`) hold their action until this stamp.
+    /// A tap-style output window — one-shot `Start`/`Release` taps, and the interruptible-`Regular`
+    /// tap once it commits — held until this stamp.
     pub(super) tap_until: Option<Tick>,
+    /// When this hold-taker (`Long`/`Double`) last became active — its **fire time**, used for the
+    /// fire-time takeover (latest fire wins the hold) and the minimum-click floor. `None` while
+    /// inactive.
+    pub(super) hold_since: Option<Tick>,
     /// `Double`: the current press qualified as the second-within-window and is held.
     pub(super) double_active: bool,
+    /// Interruptible-`Regular` deferral state, and its interaction's first-press time.
+    pub(super) deferred: Deferred,
+    pub(super) deferred_start: Option<Tick>,
     /// `toggle`: the latch state, and the previous raw activation (to flip on its rising edge).
     pub(super) toggle_on: bool,
     pub(super) raw_prev: bool,
@@ -98,4 +104,20 @@ pub(super) struct CmdState {
     pub(super) turbo_start: Option<Tick>,
     /// The command's previous-tick output level, for firing command-haptic pulses on its edges.
     pub(super) haptic_prev: bool,
+}
+
+/// The state of an interruptible `Regular` command that shares its node with an interrupter
+/// (`Long`/`Double`). It presses-and-holds as soon as it is *safe* from interruption; until then it
+/// is deferred. See [`super::command`]'s module docs for the full rule.
+#[derive(Default, Clone, PartialEq, Eq)]
+pub(super) enum Deferred {
+    /// No interaction in progress (or one that has fully resolved with nothing pending).
+    #[default]
+    Idle,
+    /// Pressed, not yet resolved — could still be interrupted, or commit to a hold or a tap.
+    Pending,
+    /// Committed to a real press-and-hold (safe while still held); outputs until release.
+    Holding,
+    /// Resolved for this interaction — interrupted (no output) or a committed tap playing out.
+    Done,
 }
