@@ -83,7 +83,7 @@ mod tests {
             InputSource::LeftBumper,
             SourceBinding::Button {
                 commands: vec![Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: false },
                     actions: vec![Action::GamepadButton(GamepadButton::LeftBumper)],
                     settings: Default::default(),
                 }],

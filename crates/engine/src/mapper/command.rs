@@ -54,7 +54,7 @@ pub(super) fn eval_commands(
 
     for (i, cmd) in commands.iter().enumerate() {
         let settings = &cmd.settings;
-        let interruptible = settings.interruptible && matches!(cmd.activator, Activator::Regular);
+        let interruptible = matches!(cmd.activator, Activator::Regular { interruptible: true });
         let cs = slot.command(i);
 
         let out = if interruptible {
@@ -162,7 +162,7 @@ fn fires(
 ) -> bool {
     match activator {
         // Held while the node is held.
-        Activator::Regular => held,
+        Activator::Regular { .. } => held,
         // One-shot tap from the press edge.
         Activator::Start => {
             if pressed {
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn regular_holds_while_held() {
-        let c = cmd(Activator::Regular);
+        let c = cmd(Activator::Regular { interruptible: false });
         let mut s = SlotState::default();
         assert!(step(&c, &mut s, true, 0)); // press → held
         assert!(step(&c, &mut s, true, 4)); // still held
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn toggle_latches_on_alternate_presses() {
         let c = cmd_key(
-            Activator::Regular,
+            Activator::Regular { interruptible: false },
             Key::A,
             CommandSettings { toggle: true, ..Default::default() },
         );
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn turbo_pulses_a_square_wave_while_held() {
         let c = cmd_key(
-            Activator::Regular,
+            Activator::Regular { interruptible: false },
             Key::A,
             CommandSettings { turbo: Some(Turbo { interval_ms: 100 }), ..Default::default() },
         );
@@ -384,7 +384,7 @@ mod tests {
     fn scroll_button_rides_the_level_path_and_turbo_repeats() {
         use vocab_out::MouseButton;
         let up = |settings| CompiledCommand {
-            activator: Activator::Regular,
+            activator: Activator::Regular { interruptible: false },
             actions: vec![CompiledAction::MouseButton(MouseButton::ScrollUp)],
             settings,
         };
@@ -413,7 +413,7 @@ mod tests {
         use config::{HapticEdge, HapticStrength, Haptics};
         let with = |on| {
             cmd_key(
-                Activator::Regular,
+                Activator::Regular { interruptible: false },
                 Key::A,
                 CommandSettings {
                     haptics: Haptics { on, strength: HapticStrength::High },
@@ -453,9 +453,9 @@ mod tests {
         // Node: interruptible Regular → A (short), Long{100} → B (long).
         let cmds = [
             cmd_key(
-                Activator::Regular,
+                Activator::Regular { interruptible: true },
                 Key::A,
-                CommandSettings { interruptible: true, ..Default::default() },
+                CommandSettings::default(),
             ),
             cmd_key(Activator::Long { hold_ms: 100 }, Key::B, CommandSettings::default()),
         ];

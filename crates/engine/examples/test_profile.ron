@@ -13,28 +13,28 @@
             bindings: {
                 // Face diamond → A/B/X/Y (up = Y, down = A, left = X, right = B).
                 FaceButtons: ButtonPad(
-                    up:    [(activator: Regular, actions: [GamepadButton(Y)])],
-                    down:  [(activator: Regular, actions: [GamepadButton(A)])],
-                    left:  [(activator: Regular, actions: [GamepadButton(X)])],
-                    right: [(activator: Regular, actions: [GamepadButton(B)])],
+                    up:    [(activator: Regular(interruptible: false), actions: [GamepadButton(Y)])],
+                    down:  [(activator: Regular(interruptible: false), actions: [GamepadButton(A)])],
+                    left:  [(activator: Regular(interruptible: false), actions: [GamepadButton(X)])],
+                    right: [(activator: Regular(interruptible: false), actions: [GamepadButton(B)])],
                 ),
                 // Left-pad quadrant classifiers → dpad.
                 DPad: ButtonPad(
-                    up:    [(activator: Regular, actions: [GamepadButton(DpadUp)])],
-                    down:  [(activator: Regular, actions: [GamepadButton(DpadDown)])],
-                    left:  [(activator: Regular, actions: [GamepadButton(DpadLeft)])],
-                    right: [(activator: Regular, actions: [GamepadButton(DpadRight)])],
+                    up:    [(activator: Regular(interruptible: false), actions: [GamepadButton(DpadUp)])],
+                    down:  [(activator: Regular(interruptible: false), actions: [GamepadButton(DpadDown)])],
+                    left:  [(activator: Regular(interruptible: false), actions: [GamepadButton(DpadLeft)])],
+                    right: [(activator: Regular(interruptible: false), actions: [GamepadButton(DpadRight)])],
                 ),
-                LeftBumper:  Button(commands: [(activator: Regular, actions: [GamepadButton(LeftBumper)])]),
-                RightBumper: Button(commands: [(activator: Regular, actions: [GamepadButton(RightBumper)])]),
-                View:  Button(commands: [(activator: Regular, actions: [GamepadButton(Back)])]),
-                Menu:  Button(commands: [(activator: Regular, actions: [GamepadButton(Start)])]),
-                Steam: Button(commands: [(activator: Regular, actions: [GamepadButton(Guide)])]),
+                LeftBumper:  Button(commands: [(activator: Regular(interruptible: false), actions: [GamepadButton(LeftBumper)])]),
+                RightBumper: Button(commands: [(activator: Regular(interruptible: false), actions: [GamepadButton(RightBumper)])]),
+                View:  Button(commands: [(activator: Regular(interruptible: false), actions: [GamepadButton(Back)])]),
+                Menu:  Button(commands: [(activator: Regular(interruptible: false), actions: [GamepadButton(Start)])]),
+                Steam: Button(commands: [(activator: Regular(interruptible: false), actions: [GamepadButton(Guide)])]),
                 // Back grips → stick clicks (like the bridge).
-                LeftGrip:  Button(commands: [(activator: Regular, actions: [GamepadButton(LeftStick)])]),
-                RightGrip: Button(commands: [(activator: Regular, actions: [GamepadButton(RightStick)])]),
+                LeftGrip:  Button(commands: [(activator: Regular(interruptible: false), actions: [GamepadButton(LeftStick)])]),
+                RightGrip: Button(commands: [(activator: Regular(interruptible: false), actions: [GamepadButton(RightStick)])]),
                 // Left-stick click → keyboard L.
-                LeftStickClick: Button(commands: [(activator: Regular, actions: [Key(L)])]),
+                LeftStickClick: Button(commands: [(activator: Regular(interruptible: false), actions: [Key(L)])]),
                 // Triggers → gamepad triggers.
                 LeftTrigger:  Trigger(settings: (output: Left)),
                 RightTrigger: Trigger(settings: (output: Right)),
@@ -42,7 +42,7 @@
                 LeftStick: Joystick(settings: (output: Left)),
                 // Right pad → relative mouse cursor; its click holds the aim_stick layer.
                 RightPad: AsMouse(settings: (output: Cursor)),
-                RightPadClick: Button(commands: [(activator: Regular, actions: [HoldLayer("aim_stick")])]),
+                RightPadClick: Button(commands: [(activator: Regular(interruptible: false), actions: [HoldLayer("aim_stick")])]),
                 // Gyro → mouse (vertical inverted), only while the left full-pull is held.
                 Gyro: GyroToMouse(settings: (
                     output: Cursor,

@@ -164,7 +164,7 @@ mod tests {
     use vocab_out::{GamepadButton, Key};
 
     fn press(action: Action) -> Command {
-        Command { activator: Activator::Regular, actions: vec![action], settings: Default::default() }
+        Command { activator: Activator::Regular { interruptible: false }, actions: vec![action], settings: Default::default() }
     }
 
     /// A two-set profile with a layer and cross-references, to exercise id resolution.

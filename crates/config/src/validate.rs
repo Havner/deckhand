@@ -145,7 +145,7 @@ mod tests {
     use crate::profile::{ActionSet, Layer};
 
     fn cmd(action: Action) -> Command {
-        Command { activator: Activator::Regular, actions: vec![action], settings: Default::default() }
+        Command { activator: Activator::Regular { interruptible: false }, actions: vec![action], settings: Default::default() }
     }
 
     fn errors(ds: &[Diagnostic]) -> usize {

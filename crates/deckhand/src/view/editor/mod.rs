@@ -258,9 +258,9 @@ pub(super) fn settings_screen(app: &App) -> Option<Element<'static, Message>> {
 /// Fixed label column for a settings row, so the controls line up down the form.
 const SET_LABEL: f32 = 160.0;
 
-/// The per-command settings form: activator (kind + its time), then interruptible / toggle / turbo /
-/// haptics. Applicability-gated (interruptible only on Regular, turbo hidden on Release, the time bar
-/// only for Long/Double, haptic strength only when the pulse is on) — decision B, invalid-unrepresentable.
+/// The per-command settings form: activator (kind + its own parameter — Long/Double time or the
+/// Regular's interruptible flag), then toggle / turbo / haptics. Applicability-gated (turbo hidden on
+/// Release, haptic strength only when the pulse is on) — decision B, invalid-unrepresentable.
 fn command_settings(app: &App, cref: &CommandRef) -> Element<'static, Message> {
     let back = button(text("‹ Back"))
         .style(style::option_button)
@@ -276,15 +276,9 @@ fn command_settings(app: &App, cref: &CommandRef) -> Element<'static, Message> {
     };
 
     let mut col = column![header, activator_setting(cref, cmd)].spacing(16.0);
-    if let Some(time) = activator_time_setting(cref, cmd) {
-        col = col.push(time);
-    }
-    // Interruptible applies only to a Regular command (suppress it when a longer activator fires).
-    if matches!(cmd.activator, Activator::Regular) {
-        let cref = cref.clone();
-        col = col.push(check_setting("Interruptible", cmd.settings.interruptible, move |b| {
-            Message::Editor(EditorMessage::SetInterruptible(cref.clone(), b))
-        }));
+    // The activator's own parameter(s): Long/Double time, or Regular's interruptible flag.
+    if let Some(extra) = activator_additional_settings(cref, cmd) {
+        col = col.push(extra);
     }
     let cref_toggle = cref.clone();
     col = col.push(check_setting("Toggle", cmd.settings.toggle, move |b| {
@@ -311,10 +305,17 @@ fn activator_setting(cref: &CommandRef, cmd: &Command) -> Element<'static, Messa
     row![setting_label("Activator"), combo].spacing(12.0).align_y(Center).into()
 }
 
-/// The activator's time parameter, when it has one: Long's hold time / Double's window. `None` for
-/// the parameter-less kinds (Regular/Start/Release).
-fn activator_time_setting(cref: &CommandRef, cmd: &Command) -> Option<Element<'static, Message>> {
+/// The activator's own parameter row, when it has one: Long's hold time / Double's window, or the
+/// Regular's `interruptible` toggle (suppress it when a longer activator on the same node fires).
+/// `None` for the parameter-less kinds (Start/Release).
+fn activator_additional_settings(cref: &CommandRef, cmd: &Command) -> Option<Element<'static, Message>> {
     match cmd.activator {
+        Activator::Regular { interruptible } => {
+            let cref = cref.clone();
+            Some(check_setting("Interruptible", interruptible, move |b| {
+                Message::Editor(EditorMessage::SetInterruptible(cref.clone(), b))
+            }))
+        }
         Activator::Long { hold_ms } => {
             let cref = cref.clone();
             Some(slider_row("Hold time", hold_ms, 100..=2000, 50, move |v| {
@@ -1088,7 +1089,7 @@ fn action_button(action: Option<&Action>, target: ActionTarget) -> Element<'stat
 fn activator_suffix(a: &config::Activator) -> Option<String> {
     use config::Activator::*;
     match a {
-        Regular => None,
+        Regular { .. } => None,
         Start => Some("Start press".into()),
         Long { hold_ms } => Some(format!("Long press: {hold_ms}ms")),
         Double { window_ms } => Some(format!("Double press: {window_ms}ms")),

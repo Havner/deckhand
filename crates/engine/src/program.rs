@@ -252,7 +252,7 @@ mod tests {
                     InputSource::LeftBumper,
                     CompiledBinding::Button {
                         commands: vec![CompiledCommand {
-                            activator: Activator::Regular,
+                            activator: Activator::Regular { interruptible: false },
                             actions: vec![CompiledAction::HoldLayer(LayerId::new(0))],
                             settings: Default::default(),
                         }],

@@ -522,7 +522,7 @@ mod tests {
 
     fn regular(key: Key) -> Vec<CompiledCommand> {
         vec![CompiledCommand {
-            activator: Activator::Regular,
+            activator: Activator::Regular { interruptible: false },
             actions: vec![CompiledAction::Key(key)],
             settings: CommandSettings::default(),
         }]

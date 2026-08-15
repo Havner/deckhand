@@ -27,7 +27,12 @@ pub struct Command {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Activator {
     /// Active while the input is held (press → down, release → up). The default.
-    Regular,
+    ///
+    /// `interruptible`: suppress this command when another command on the same node fires
+    /// (`Long`/`Double`/…) — so one key on short, another on long, without the short firing.
+    /// If unset, it fires whenever held regardless of siblings. Meaningful only here (a
+    /// short-vs-long distinction needs the held Regular), hence a field of the variant.
+    Regular { interruptible: bool },
     /// Fires once, on the initial press edge.
     Start,
     /// Fires after the input is held for at least `hold_ms`.
@@ -39,15 +44,11 @@ pub enum Activator {
 }
 
 /// Per-command settings (Round C). Applicability is activator-dependent (`turbo` is moot on
-/// `Release`, `interruptible` only on `Regular`) — the UI shows what applies; validation may
-/// warn.
+/// `Release`) — the UI shows what applies; validation may warn. (Interruptibility is not here:
+/// it's Regular-only, so it's a field of [`Activator::Regular`].)
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CommandSettings {
-    /// **`Regular` only.** If set, this Regular command is suppressed when another command
-    /// on the same node fires (`Long`/`Double`/…) — so one key on short, another on long,
-    /// without the short firing. If unset, all matching commands fire.
-    pub interruptible: bool,
     /// Latch the combo on/off per activation instead of hold-to-hold.
     pub toggle: bool,
     /// Re-fire the combo while held (rapid-fire); `None` = off.
@@ -115,7 +116,7 @@ mod tests {
     #[test]
     fn defaults_are_all_off() {
         let d = CommandSettings::default();
-        assert!(!d.interruptible && !d.toggle && d.turbo.is_none());
+        assert!(!d.toggle && d.turbo.is_none());
         assert_eq!(d.haptics.on, HapticEdge::Off);
     }
 }

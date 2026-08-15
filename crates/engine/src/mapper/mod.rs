@@ -287,7 +287,7 @@ mod tests {
 
     /// A `Regular` command firing the given actions.
     fn regular(actions: Vec<CompiledAction>) -> CompiledCommand {
-        CompiledCommand { activator: Activator::Regular, actions, settings: CommandSettings::default() }
+        CompiledCommand { activator: Activator::Regular { interruptible: false }, actions, settings: CommandSettings::default() }
     }
 
     /// A `Button` binding firing `action` on a `Regular` press.

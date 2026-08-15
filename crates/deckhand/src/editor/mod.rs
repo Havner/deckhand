@@ -148,7 +148,7 @@ impl ActivatorKind {
 
     pub(crate) fn of(a: &Activator) -> Self {
         match a {
-            Activator::Regular => ActivatorKind::Regular,
+            Activator::Regular { .. } => ActivatorKind::Regular,
             Activator::Start => ActivatorKind::Start,
             Activator::Long { .. } => ActivatorKind::Long,
             Activator::Double { .. } => ActivatorKind::Double,
@@ -169,7 +169,7 @@ impl ActivatorKind {
     /// Build the activator with its default parameter (Long = 450 ms, Double = 200 ms).
     pub(crate) fn to_activator(self) -> Activator {
         match self {
-            ActivatorKind::Regular => Activator::Regular,
+            ActivatorKind::Regular => Activator::Regular { interruptible: false },
             ActivatorKind::Start => Activator::Start,
             ActivatorKind::Long => Activator::Long { hold_ms: 450 },
             ActivatorKind::Double => Activator::Double { window_ms: 200 },
@@ -466,6 +466,13 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
             }
             Task::none()
         }
+        EditorMessage::SetInterruptible(cmd, v) => {
+            if let Some(c) = command_mut(app, &cmd) {
+                c.activator = Activator::Regular { interruptible: v };
+            }
+            app.save_editing();
+            Task::none()
+        }
         EditorMessage::SetHoldMs(cmd, ms) => {
             if let Some(c) = command_mut(app, &cmd) {
                 c.activator = Activator::Long { hold_ms: ms };
@@ -476,13 +483,6 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
         EditorMessage::SetWindowMs(cmd, ms) => {
             if let Some(c) = command_mut(app, &cmd) {
                 c.activator = Activator::Double { window_ms: ms };
-            }
-            app.save_editing();
-            Task::none()
-        }
-        EditorMessage::SetInterruptible(cmd, v) => {
-            if let Some(c) = command_mut(app, &cmd) {
-                c.settings.interruptible = v;
             }
             app.save_editing();
             Task::none()
@@ -905,7 +905,7 @@ fn apply_action(app: &mut App, target: ActionTarget, action: Action) {
                 && let Some(commands) = slot_commands_mut(binding, slot)
             {
                 commands.push(Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: false },
                     actions: vec![action],
                     settings: CommandSettings::default(),
                 });
@@ -1148,7 +1148,7 @@ mod tests {
     fn button_with(actions: Vec<Action>) -> SourceBinding {
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions,
                 settings: CommandSettings::default(),
             }],

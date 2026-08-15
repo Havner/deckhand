@@ -154,7 +154,7 @@ mod tests {
 
     fn press(action: Action) -> Command {
         Command {
-            activator: Activator::Regular,
+            activator: Activator::Regular { interruptible: false },
             actions: vec![action],
             settings: Default::default(),
         }

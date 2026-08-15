@@ -45,22 +45,22 @@ pub fn system_keys_layer() -> Layer {
                 InputSource::DPad,
                 SourceBinding::ButtonPad {
                     up: vec![Command {
-                        activator: Activator::Regular,
+                        activator: Activator::Regular { interruptible: false },
                         actions: vec![key(Key::VolumeUp)],
                         settings: Default::default(),
                     }],
                     down: vec![Command {
-                        activator: Activator::Regular,
+                        activator: Activator::Regular { interruptible: false },
                         actions: vec![key(Key::VolumeDown)],
                         settings: Default::default(),
                     }],
                     left: vec![Command {
-                        activator: Activator::Regular,
+                        activator: Activator::Regular { interruptible: false },
                         actions: vec![key(Key::PlayPause)],
                         settings: Default::default(),
                     }],
                     right: vec![Command {
-                        activator: Activator::Regular,
+                        activator: Activator::Regular { interruptible: false },
                         actions: vec![key(Key::NextSong)],
                         settings: Default::default(),
                     }],
@@ -92,12 +92,9 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::ButtonPad {
             up: vec![
                 Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: true },
                     actions: vec![key(Key::PageUp)],
-                    settings: CommandSettings {
-                        interruptible: true,
-                        ..Default::default()
-                    },
+                    settings: Default::default(),
                 },
                 Command {
                     activator: Activator::Long { hold_ms: 250 },
@@ -109,18 +106,15 @@ pub fn desktop_profile() -> ConfigDoc {
                 },
             ],
             down: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Enter)],
                 settings: Default::default(),
             }],
             left: vec![
                 Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: true },
                     actions: vec![key(Key::PageDown)],
-                    settings: CommandSettings {
-                        interruptible: true,
-                        ..Default::default()
-                    },
+                    settings: Default::default(),
                 },
                 Command {
                     activator: Activator::Long { hold_ms: 250 },
@@ -132,7 +126,7 @@ pub fn desktop_profile() -> ConfigDoc {
                 },
             ],
             right: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Esc)],
                 settings: Default::default(),
             }],
@@ -144,7 +138,7 @@ pub fn desktop_profile() -> ConfigDoc {
         InputSource::LeftBumper,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Backspace)],
                 settings: Default::default(),
             }],
@@ -155,7 +149,7 @@ pub fn desktop_profile() -> ConfigDoc {
         InputSource::RightBumper,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Space)],
                 settings: Default::default(),
             }],
@@ -169,12 +163,9 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::Button {
             commands: vec![
                 Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: true },
                     actions: vec![key(Key::LeftCtrl), key(Key::C)],
-                    settings: CommandSettings {
-                        interruptible: true,
-                        ..Default::default()
-                    },
+                    settings: Default::default(),
                 },
                 Command {
                     activator: Activator::Long { hold_ms: 250 },
@@ -196,12 +187,9 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::Button {
             commands: vec![
                 Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: true },
                     actions: vec![key(Key::LeftCtrl), key(Key::V)],
-                    settings: CommandSettings {
-                        interruptible: true,
-                        ..Default::default()
-                    },
+                    settings: Default::default(),
                 },
                 Command {
                     activator: Activator::Long { hold_ms: 250 },
@@ -223,7 +211,7 @@ pub fn desktop_profile() -> ConfigDoc {
         InputSource::View,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::LeftAlt)],
                 settings: Default::default(),
             }],
@@ -234,7 +222,7 @@ pub fn desktop_profile() -> ConfigDoc {
         InputSource::Menu,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Tab)],
                 settings: Default::default(),
             }],
@@ -245,7 +233,7 @@ pub fn desktop_profile() -> ConfigDoc {
         InputSource::Steam,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
@@ -256,7 +244,7 @@ pub fn desktop_profile() -> ConfigDoc {
         InputSource::QuickAccess,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
@@ -276,7 +264,7 @@ pub fn desktop_profile() -> ConfigDoc {
                 ..Default::default()
             },
             soft_pull: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![mouse(MouseButton::Left)],
                 settings: CommandSettings {
                     haptics: Haptics {
@@ -304,7 +292,7 @@ pub fn desktop_profile() -> ConfigDoc {
                 ..Default::default()
             },
             soft_pull: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![mouse(MouseButton::Right)],
                 settings: CommandSettings {
                     haptics: Haptics {
@@ -334,22 +322,22 @@ pub fn desktop_profile() -> ConfigDoc {
                 ..Default::default()
             },
             up: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Up)],
                 settings: Default::default(),
             }],
             down: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Down)],
                 settings: Default::default(),
             }],
             left: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Left)],
                 settings: Default::default(),
             }],
             right: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Right)],
                 settings: Default::default(),
             }],
@@ -361,7 +349,7 @@ pub fn desktop_profile() -> ConfigDoc {
         InputSource::LeftStickClick,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::LeftMeta)],
                 settings: Default::default(),
             }],
@@ -411,7 +399,7 @@ pub fn desktop_profile() -> ConfigDoc {
         InputSource::RightPadClick,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("alternative_mouse".into()))],
                 settings: Default::default(),
             }],
@@ -439,7 +427,7 @@ pub fn desktop_profile() -> ConfigDoc {
         InputSource::LeftPadClick,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![mouse(MouseButton::Middle)],
                 settings: Default::default(),
             }],
@@ -456,27 +444,27 @@ pub fn desktop_profile() -> ConfigDoc {
     //     InputSource::LeftPad,
     //     SourceBinding::DirectionalPad {
     //         up: vec![Command {
-    //             activator: Activator::Regular,
+    //             activator: Activator::Regular { interruptible: false },
     //             actions: vec![key(Key::Up)],
     //             settings: Default::default(),
     //         }],
     //         down: vec![Command {
-    //             activator: Activator::Regular,
+    //             activator: Activator::Regular { interruptible: false },
     //             actions: vec![key(Key::Down)],
     //             settings: Default::default(),
     //         }],
     //         left: vec![Command {
-    //             activator: Activator::Regular,
+    //             activator: Activator::Regular { interruptible: false },
     //             actions: vec![key(Key::Left)],
     //             settings: Default::default(),
     //         }],
     //         right: vec![Command {
-    //             activator: Activator::Regular,
+    //             activator: Activator::Regular { interruptible: false },
     //             actions: vec![key(Key::Right)],
     //             settings: Default::default(),
     //         }],
     //         outer_ring: vec![Command {
-    //             activator: Activator::Regular,
+    //             activator: Activator::Regular { interruptible: false },
     //             actions: vec![key(Key::LeftShift)],
     //             settings: Default::default(),
     //         }],
@@ -566,22 +554,22 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::FaceButtons,
         SourceBinding::ButtonPad {
             down: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::A)],
                 settings: Default::default(),
             }],
             right: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::B)],
                 settings: Default::default(),
             }],
             left: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::X)],
                 settings: Default::default(),
             }],
             up: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::Y)],
                 settings: Default::default(),
             }],
@@ -593,7 +581,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::LeftBumper,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::LeftBumper)],
                 settings: Default::default(),
             }],
@@ -604,7 +592,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::RightBumper,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::RightBumper)],
                 settings: Default::default(),
             }],
@@ -616,7 +604,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::LeftGrip,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::LeftStick)],
                 settings: Default::default(),
             }],
@@ -627,7 +615,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::RightGrip,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::RightStick)],
                 settings: Default::default(),
             }],
@@ -639,7 +627,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::View,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::Back)],
                 settings: Default::default(),
             }],
@@ -650,7 +638,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::Menu,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::Start)],
                 settings: Default::default(),
             }],
@@ -661,7 +649,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::Steam,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
@@ -672,7 +660,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::QuickAccess,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
@@ -730,7 +718,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::LeftStickClick,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::L)],
                 settings: Default::default(),
             }],
@@ -780,7 +768,7 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::RightPadClick,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("aim_stick".into()))],
                 settings: Default::default(),
             }],
@@ -803,22 +791,22 @@ pub fn cp2077_profile() -> ConfigDoc {
         InputSource::DPad,
         SourceBinding::ButtonPad {
             up: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::DpadUp)],
                 settings: Default::default(),
             }],
             down: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::DpadDown)],
                 settings: Default::default(),
             }],
             left: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::DpadLeft)],
                 settings: Default::default(),
             }],
             right: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::DpadRight)],
                 settings: Default::default(),
             }],
@@ -905,28 +893,28 @@ pub fn control_profile() -> ConfigDoc {
         SourceBinding::ButtonPad {
             down: vec![
                 Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: false },
                     actions: vec![key(Key::Space)],
                     settings: Default::default(),
                 },
                 Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: false },
                     actions: vec![key(Key::Enter)],
                     settings: Default::default(),
                 }
             ],
             right: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::LeftAlt)],
                 settings: Default::default(),
             }],
             left: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::F)],
                 settings: Default::default(),
             }],
             up: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::V)],
                 settings: Default::default()
             }],
@@ -937,7 +925,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::LeftBumper,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Q)],
                 settings: Default::default(),
             }],
@@ -947,7 +935,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::RightBumper,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::E)],
                 settings: Default::default(),
             }],
@@ -958,7 +946,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::LeftGrip,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::LeftShift)],
                 settings: Default::default()
             }],
@@ -968,7 +956,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::RightGrip,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::LeftCtrl)],
                 settings: Default::default()
             }],
@@ -979,7 +967,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::View,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Esc)],
                 settings: Default::default(),
             }],
@@ -989,7 +977,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::Menu,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Esc)],
                 settings: Default::default(),
             }],
@@ -1000,7 +988,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::Steam,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
@@ -1011,7 +999,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::QuickAccess,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
@@ -1029,7 +1017,7 @@ pub fn control_profile() -> ConfigDoc {
                 ..Default::default()
             },
             soft_pull: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![mouse(MouseButton::Left)],
                 settings: CommandSettings {
                     haptics: Haptics {
@@ -1055,7 +1043,7 @@ pub fn control_profile() -> ConfigDoc {
                 ..Default::default()
             },
             soft_pull: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![mouse(MouseButton::Right)],
                 settings: CommandSettings {
                     haptics: Haptics {
@@ -1083,22 +1071,22 @@ pub fn control_profile() -> ConfigDoc {
                 ..Default::default()
             },
             up: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::W)],
                 settings: Default::default(),
             }],
             down: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::S)],
                 settings: Default::default(),
             }],
             left: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::A)],
                 settings: Default::default(),
             }],
             right: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::D)],
                 settings: Default::default(),
             }],
@@ -1109,7 +1097,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::LeftStickClick,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Slash)],
                 settings: Default::default(),
             }],
@@ -1157,7 +1145,7 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::RightPadClick,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::LeftCtrl)],
                 settings: Default::default(),
             }],
@@ -1177,29 +1165,25 @@ pub fn control_profile() -> ConfigDoc {
         InputSource::DPad,
         SourceBinding::ButtonPad {
             up: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::Tab)],
                 settings: Default::default(),
             }],
             down: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::R)],
                 settings: Default::default(),
             }],
             left: vec![
                 Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: true },
                     actions: vec![key(Key::G)],
-                    settings: CommandSettings {
-                        interruptible: true,
-                        ..Default::default()
-                    },
+                    settings: Default::default(),
                 },
                 Command {
                     activator: Activator::Long { hold_ms: 450 },
                     actions: vec![key(Key::M)],
                     settings: CommandSettings {
-                        interruptible: true,
                         haptics: Haptics {
                             on: HapticEdge::OnPress,
                             strength: HapticStrength::Medium,
@@ -1210,18 +1194,14 @@ pub fn control_profile() -> ConfigDoc {
             ],
             right: vec![
                 Command {
-                    activator: Activator::Regular,
+                    activator: Activator::Regular { interruptible: true },
                     actions: vec![key(Key::I)],
-                    settings: CommandSettings {
-                        interruptible: true,
-                        ..Default::default()
-                    },
+                    settings: Default::default(),
                 },
                 Command {
                     activator: Activator::Long { hold_ms: 450 },
                     actions: vec![key(Key::N)],
                     settings: CommandSettings {
-                        interruptible: true,
                         haptics: Haptics {
                             on: HapticEdge::OnPress,
                             strength: HapticStrength::Medium,
@@ -1282,22 +1262,22 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::FaceButtons,
         SourceBinding::ButtonPad {
             down: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::A)],
                 settings: Default::default(),
             }],
             right: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::B)],
                 settings: Default::default(),
             }],
             left: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::X)],
                 settings: Default::default(),
             }],
             up: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::Y)],
                 settings: Default::default(),
             }],
@@ -1309,7 +1289,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::LeftBumper,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::LeftBumper)],
                 settings: Default::default(),
             }],
@@ -1320,7 +1300,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::RightBumper,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::RightBumper)],
                 settings: Default::default(),
             }],
@@ -1332,7 +1312,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::LeftGrip,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::LeftStick)],
                 settings: Default::default(),
             }],
@@ -1343,7 +1323,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::RightGrip,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("aim_stick".into()))],
                 settings: Default::default(),
             }],
@@ -1355,7 +1335,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::View,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::Back)],
                 settings: Default::default(),
             }],
@@ -1366,7 +1346,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::Menu,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::Start)],
                 settings: Default::default(),
             }],
@@ -1377,7 +1357,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::Steam,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
@@ -1388,7 +1368,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::QuickAccess,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
                 settings: Default::default(),
             }],
@@ -1465,7 +1445,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::LeftStickClick,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![key(Key::L)],
                 settings: Default::default(),
             }],
@@ -1496,7 +1476,7 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::RightPadClick,
         SourceBinding::Button {
             commands: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::RightStick)],
                 settings: Default::default(),
             }],
@@ -1519,22 +1499,22 @@ pub fn system_shock_profile() -> ConfigDoc {
         InputSource::DPad,
         SourceBinding::ButtonPad {
             up: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::DpadUp)],
                 settings: Default::default(),
             }],
             down: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::DpadDown)],
                 settings: Default::default(),
             }],
             left: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::DpadLeft)],
                 settings: Default::default(),
             }],
             right: vec![Command {
-                activator: Activator::Regular,
+                activator: Activator::Regular { interruptible: false },
                 actions: vec![pad(GamepadButton::DpadRight)],
                 settings: Default::default(),
             }],
