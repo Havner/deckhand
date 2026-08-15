@@ -88,10 +88,6 @@ pub(super) struct CmdState {
     /// A tap-style output window — one-shot `Start`/`Release` taps, and the interruptible-`Regular`
     /// tap once it commits — held until this stamp.
     pub(super) tap_until: Option<Tick>,
-    /// When this hold-taker (`Long`/`Double`) last became active — its **fire time**, used for the
-    /// fire-time takeover (latest fire wins the hold) and the minimum-click floor. `None` while
-    /// inactive.
-    pub(super) hold_since: Option<Tick>,
     /// `Double`: the current press qualified as the second-within-window and is held.
     pub(super) double_active: bool,
     /// Interruptible-`Regular` deferral state, and its interaction's first-press time.

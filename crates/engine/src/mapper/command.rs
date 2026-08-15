@@ -14,14 +14,10 @@
 //!   interrupt and are never interrupted; they don't participate in anything below.
 //! - **`Long` / `Double`** — the *interrupters* and *hold-takers*. Each fires when its condition
 //!   holds (`Long`: held past `hold_ms`; `Double`: a second press within `window_ms` **of the first
-//!   press**). While any of them is active, an interruptible `Regular` on the node is killed.
-//!   - **Fire-time takeover:** several may fire in one interaction, but only **one** holds at a time
-//!     — the one that fired **most recently** (ties broken by *declaration order*, last wins). The
-//!     others are released. So `long(300),long(500)` held long gives you 300 briefly, then 500.
-//!   - **Minimum-click floor:** a hold-taker that is superseded *while still held* stays down for at
-//!     least `TAP_MS` from its fire, so pathologically-close thresholds (`long(290),long(300)`)
-//!     still register a clean click rather than a sub-tick blip. A hold ended by the user's own
-//!     *release* is not floored — it ends when released.
+//!   press**) and then **holds from that point until release**. They **never contest each other** —
+//!   several may be active at once and they all stay held (`double(200),long(300),long(500)` held
+//!   long → all three down until you release). While any of them is active, an interruptible
+//!   `Regular` on the node is killed.
 //! - **`Regular`** — the only interruptible command, and the whole model collapses to one rule:
 //!
 //!   > **A `Regular` presses-and-holds the moment it becomes *safe* from interruption** — where
@@ -58,8 +54,8 @@ use super::{HapticReq, Tick};
 use crate::program::{CompiledAction, CompiledCommand};
 
 /// How long a tap-style output holds from its trigger edge, in ms — one-shot `Start`/`Release`
-/// taps, the committed interruptible-`Regular` tap, and the minimum-click floor on a superseded
-/// hold-taker. Long enough for a game to register, short enough to feel like a tap. HW-tuned later.
+/// taps and the committed interruptible-`Regular` tap. Long enough for a game to register, short
+/// enough to feel like a tap. HW-tuned later.
 const TAP_MS: u64 = 40;
 
 /// Advance a node's commands one tick and apply the firing ones' actions — output leaves into
@@ -69,9 +65,9 @@ const TAP_MS: u64 = 40;
 /// `held` is the node's digital level this tick; `node` describes how to re-derive that held
 /// state later (for `HoldLayer` latching); `slot` carries its retained timing/latches.
 ///
-/// Two passes: pass 1 computes each `Long`/`Double`'s raw activity and picks the takeover winner;
-/// pass 2 resolves every command's output (winner-hold + floor, taps, the deferred-`Regular` state
-/// machine) and applies it. See the module docs for the rules.
+/// Two passes: pass 1 computes each `Long`/`Double`'s raw activity (and thus whether an interrupter
+/// is active); pass 2 resolves every command's output (hold-takers hold, taps tap, the deferred-
+/// `Regular` state machine) and applies it. See the module docs for the rules.
 pub(super) fn eval_commands(
     commands: &[CompiledCommand],
     held: bool,
@@ -107,12 +103,11 @@ pub(super) fn eval_commands(
     }
     let press_start = slot.press_start.clone();
 
-    // --- Pass 1: raw activity of the hold-takers (Long/Double) + the fire-time takeover winner. ---
+    // --- Pass 1: raw activity of the hold-takers (Long/Double); they never contest, so no winner. ---
     let n = commands.len();
     let mut raws = vec![false; n];
-    let mut winner: Option<(u64, usize)> = None; // (fire time, index); latest fire wins, ties by index.
     for (i, cmd) in commands.iter().enumerate() {
-        let active = match &cmd.activator {
+        raws[i] = match &cmd.activator {
             Activator::Long { hold_ms } => {
                 held && press_start.as_ref().is_some_and(|ps| now.0.saturating_sub(ps.0) >= *hold_ms as u64)
             }
@@ -128,34 +123,15 @@ pub(super) fn eval_commands(
             }
             _ => false,
         };
-        let cs = slot.command(i);
-        if active && cs.hold_since.is_none() {
-            cs.hold_since = Some(now.clone()); // rising edge → record the fire time
-        } else if !active {
-            cs.hold_since = None;
-        }
-        raws[i] = active;
-        if active {
-            let hs = cs.hold_since.as_ref().map_or(now.0, |t| t.0);
-            let better = winner.is_none_or(|(whs, wi)| hs > whs || (hs == whs && i > wi));
-            if better {
-                winner = Some((hs, i));
-            }
-        }
     }
-    let winner_idx = winner.map(|(_, i)| i);
     // Any hold-taker active this tick = the signal that an interruptible `Regular` is interrupted.
     let interrupter_active = raws.iter().any(|&a| a);
 
     // --- Pass 2: resolve each command's output level and apply it. ---
     for (i, cmd) in commands.iter().enumerate() {
         let active = match &cmd.activator {
-            Activator::Long { .. } | Activator::Double { .. } => {
-                let cs = slot.command(i);
-                let hs = cs.hold_since.as_ref().map_or(now.0, |t| t.0);
-                // The winner holds; a superseded-but-still-held hold-taker floors to a min click.
-                raws[i] && (winner_idx == Some(i) || now.0.saturating_sub(hs) < TAP_MS)
-            }
+            // A hold-taker holds from its fire until release; all active ones coexist.
+            Activator::Long { .. } | Activator::Double { .. } => raws[i],
             Activator::Start => {
                 let cs = slot.command(i);
                 if pressed {
@@ -508,8 +484,8 @@ mod tests {
     }
 
     #[test]
-    fn two_longs_take_over_and_interrupt_the_regular() {
-        // Example 1 (held to 1000): 300 fires (winner), 500 takes over, regular interrupted.
+    fn two_longs_both_hold_and_interrupt_the_regular() {
+        // Example 1 (held to 1000): both longs fire and both hold (no contest); regular interrupted.
         let cmds = [
             cmd_key(regular(true), Key::A, CommandSettings::default()),
             cmd_key(Activator::Long { hold_ms: 300 }, Key::B, CommandSettings::default()),
@@ -517,14 +493,14 @@ mod tests {
         ];
         let mut s = SlotState::default();
         step_many(&cmds, &mut s, true, 0);
-        let d = step_many(&cmds, &mut s, true, 300); // long(300) wins
+        let d = step_many(&cmds, &mut s, true, 300); // long(300) fires
         assert!(d.has_key(&Key::B) && !d.has_key(&Key::C) && !d.has_key(&Key::A));
-        let d = step_many(&cmds, &mut s, true, 500); // long(500) takes over; 300 released (held 200ms > floor)
-        assert!(d.has_key(&Key::C) && !d.has_key(&Key::B) && !d.has_key(&Key::A));
+        let d = step_many(&cmds, &mut s, true, 500); // long(500) fires too → both held
+        assert!(d.has_key(&Key::B) && d.has_key(&Key::C) && !d.has_key(&Key::A));
         let d = step_many(&cmds, &mut s, true, 900);
-        assert!(d.has_key(&Key::C) && !d.has_key(&Key::B));
+        assert!(d.has_key(&Key::B) && d.has_key(&Key::C));
         let d = step_many(&cmds, &mut s, false, 1000); // release → all up
-        assert!(!d.has_key(&Key::C) && !d.has_key(&Key::A));
+        assert!(!d.has_key(&Key::B) && !d.has_key(&Key::C) && !d.has_key(&Key::A));
     }
 
     #[test]
@@ -575,60 +551,29 @@ mod tests {
         assert!(!step_many(&cmds, &mut s, false, 200).has_key(&Key::A)); // no late regular tap
     }
 
-    // --- Takeover: fire-time, tiebreak, floor -------------------------------------------
+    // --- Hold-takers coexist (Long/Double never contest) --------------------------------
 
     #[test]
-    fn takeover_is_by_fire_time_not_declaration() {
-        // long(500) declared first, long(300) second: past 500 you hold long(500) (latest fire).
+    fn two_longs_both_hold_independently() {
+        // long(300), long(500): each holds from its own threshold to release; they overlap.
         let cmds = [
-            cmd_key(Activator::Long { hold_ms: 500 }, Key::A, CommandSettings::default()),
-            cmd_key(Activator::Long { hold_ms: 300 }, Key::B, CommandSettings::default()),
+            cmd_key(Activator::Long { hold_ms: 300 }, Key::A, CommandSettings::default()),
+            cmd_key(Activator::Long { hold_ms: 500 }, Key::B, CommandSettings::default()),
         ];
         let mut s = SlotState::default();
         step_many(&cmds, &mut s, true, 0);
-        let d = step_many(&cmds, &mut s, true, 300); // long(300) fires first → held
-        assert!(d.has_key(&Key::B) && !d.has_key(&Key::A));
-        let d = step_many(&cmds, &mut s, true, 600); // long(500) fired later → takes over
+        let d = step_many(&cmds, &mut s, true, 300);
         assert!(d.has_key(&Key::A) && !d.has_key(&Key::B));
+        let d = step_many(&cmds, &mut s, true, 500); // both held, no takeover
+        assert!(d.has_key(&Key::A) && d.has_key(&Key::B));
+        let d = step_many(&cmds, &mut s, false, 600);
+        assert!(!d.has_key(&Key::A) && !d.has_key(&Key::B));
     }
 
     #[test]
-    fn same_tick_fires_break_the_tie_by_declaration_order() {
-        // long(400), long(400): both fire at 400 → last-declared held, first floored to a click.
-        let cmds = [
-            cmd_key(Activator::Long { hold_ms: 400 }, Key::A, CommandSettings::default()),
-            cmd_key(Activator::Long { hold_ms: 400 }, Key::B, CommandSettings::default()),
-        ];
-        let mut s = SlotState::default();
-        step_many(&cmds, &mut s, true, 0);
-        let d = step_many(&cmds, &mut s, true, 400); // both fire; B (last) wins, A floors
-        assert!(d.has_key(&Key::A) && d.has_key(&Key::B));
-        let d = step_many(&cmds, &mut s, true, 450); // A's 40ms floor expired
-        assert!(!d.has_key(&Key::A) && d.has_key(&Key::B));
-    }
-
-    #[test]
-    fn superseded_hold_floors_to_a_minimum_click() {
-        // long(290), long(300): the 290 would be a 10ms blip; the floor gives it a clean ~40ms.
-        let cmds = [
-            cmd_key(Activator::Long { hold_ms: 290 }, Key::A, CommandSettings::default()),
-            cmd_key(Activator::Long { hold_ms: 300 }, Key::B, CommandSettings::default()),
-        ];
-        let mut s = SlotState::default();
-        step_many(&cmds, &mut s, true, 0);
-        let d = step_many(&cmds, &mut s, true, 290); // A wins (only one fired)
-        assert!(d.has_key(&Key::A) && !d.has_key(&Key::B));
-        let d = step_many(&cmds, &mut s, true, 300); // B takes over; A floored (300 − 290 < 40)
-        assert!(d.has_key(&Key::A) && d.has_key(&Key::B));
-        let d = step_many(&cmds, &mut s, true, 325); // still within A's floor
-        assert!(d.has_key(&Key::A) && d.has_key(&Key::B));
-        let d = step_many(&cmds, &mut s, true, 335); // 335 − 290 ≥ 40 → A off
-        assert!(!d.has_key(&Key::A) && d.has_key(&Key::B));
-    }
-
-    #[test]
-    fn two_doubles_both_fire_last_declared_held() {
-        // Example 3: double(500), double(200); second press within 200 → both fire, double(200) held.
+    fn two_doubles_both_hold() {
+        // Example 3 (corrected): double(500), double(200); second press within 200 → both fire and
+        // both stay held until release.
         let cmds = [
             cmd_key(Activator::Double { window_ms: 500 }, Key::A, CommandSettings::default()),
             cmd_key(Activator::Double { window_ms: 200 }, Key::B, CommandSettings::default()),
@@ -636,10 +581,12 @@ mod tests {
         let mut s = SlotState::default();
         step_many(&cmds, &mut s, true, 0);
         step_many(&cmds, &mut s, false, 10);
-        let d = step_many(&cmds, &mut s, true, 50); // both windows include 50; B (last) held, A floors
+        let d = step_many(&cmds, &mut s, true, 50); // both windows include 50
         assert!(d.has_key(&Key::A) && d.has_key(&Key::B));
-        let d = step_many(&cmds, &mut s, true, 100); // A's floor expired (50 + 40)
-        assert!(!d.has_key(&Key::A) && d.has_key(&Key::B));
+        let d = step_many(&cmds, &mut s, true, 100); // still both held (no floor to expire)
+        assert!(d.has_key(&Key::A) && d.has_key(&Key::B));
+        let d = step_many(&cmds, &mut s, false, 120);
+        assert!(!d.has_key(&Key::A) && !d.has_key(&Key::B));
     }
 
     #[test]
@@ -657,8 +604,9 @@ mod tests {
     }
 
     #[test]
-    fn double_then_two_longs_escalate_on_the_second_press() {
-        // Example 5: double(200), long(300), long(600); double then hold → 200 click, 300 click, 600 held.
+    fn double_then_two_longs_all_hold_on_the_second_press() {
+        // Example 5 (corrected): double(200), long(300), long(600); double then hold → the double
+        // and both longs each fire and all three stay held until release.
         let cmds = [
             cmd_key(Activator::Double { window_ms: 200 }, Key::A, CommandSettings::default()),
             cmd_key(Activator::Long { hold_ms: 300 }, Key::B, CommandSettings::default()),
@@ -669,12 +617,12 @@ mod tests {
         step_many(&cmds, &mut s, false, 10);
         let d = step_many(&cmds, &mut s, true, 50); // double fires (second press within 200 of first)
         assert!(d.has_key(&Key::A) && !d.has_key(&Key::B) && !d.has_key(&Key::C));
-        let d = step_many(&cmds, &mut s, true, 350); // long(300) off the second press (50 + 300) takes over
-        assert!(d.has_key(&Key::B) && !d.has_key(&Key::A) && !d.has_key(&Key::C));
-        let d = step_many(&cmds, &mut s, true, 650); // long(600) takes over (50 + 600)
-        assert!(d.has_key(&Key::C) && !d.has_key(&Key::B) && !d.has_key(&Key::A));
+        let d = step_many(&cmds, &mut s, true, 350); // long(300) off the 2nd press (50 + 300) adds
+        assert!(d.has_key(&Key::A) && d.has_key(&Key::B) && !d.has_key(&Key::C));
+        let d = step_many(&cmds, &mut s, true, 650); // long(600) (50 + 600) adds; all three held
+        assert!(d.has_key(&Key::A) && d.has_key(&Key::B) && d.has_key(&Key::C));
         let d = step_many(&cmds, &mut s, false, 700);
-        assert!(!d.has_key(&Key::C));
+        assert!(!d.has_key(&Key::A) && !d.has_key(&Key::B) && !d.has_key(&Key::C));
     }
 
     // --- S7b settings modifiers ---------------------------------------------------------
