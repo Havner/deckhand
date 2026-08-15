@@ -93,7 +93,7 @@ pub struct OneEuroFilter {
 
 impl Default for OneEuroFilter {
     fn default() -> Self {
-        OneEuroFilter { min_cutoff: 1.0, beta: 0.0 }
+        OneEuroFilter { min_cutoff: 5.0, beta: 0.5 }
     }
 }
 

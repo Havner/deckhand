@@ -16,10 +16,9 @@
 //! `default_binding` are ready for when the editor reflects and constructs bindings.
 
 use config::{
-    Acceleration, Activation, ActivationMode, AsMouseSettings, DirectionalPadSettings,
-    GyroToMouseSettings, InputSource, JoystickMouseSettings, JoystickSettings, MouseOutput,
-    OneEuroFilter, Sensitivity, Side, SourceBinding, SourceKind, StickOutput, TriggerOutput,
-    TriggerSettings,
+    Activation, ActivationMode, AsMouseSettings, DirectionalPadSettings, GyroToMouseSettings,
+    InputSource, JoystickMouseSettings, JoystickSettings, MouseOutput, Side, SourceBinding,
+    SourceKind, StickOutput, TriggerOutput, TriggerSettings,
 };
 
 /// A behaviour choice — the picker's value type, one per [`SourceBinding`] variant (+ `Unbound`).
@@ -111,10 +110,11 @@ impl Behavior {
         )
     }
 
-    /// Build a fresh binding of this behaviour for `input`, with UI-authored starting values. The
-    /// tuned values differ by behaviour (and, for `Joystick`, by pad-vs-stick); every other field
-    /// is config's neutral `Default`. This is the *authoring* default — distinct from serde's
-    /// `Default`, which stays the minimal/neutral on-disk fallback.
+    /// Build a fresh binding of this behaviour for `input`. The only per-input tuning is **side-aware
+    /// output** (left/right stick/trigger; left pad/stick → scroll, right → cursor) and the
+    /// **trackpad DirectionalPad** gated on that pad's click; every value field is config's neutral
+    /// `Default` (sensitivity 1.0, acceleration 0.0, deadzones 0.0, smoothing off). This is the
+    /// *authoring* default — distinct from serde's `Default`, which is the on-disk fallback.
     #[allow(dead_code)] // wired when the behaviour picker constructs a binding
     pub(crate) fn default_binding(self, input: &InputSource) -> SourceBinding {
         match self {
@@ -144,27 +144,20 @@ impl Behavior {
                 right: Vec::new(),
                 outer_ring: Vec::new(),
             },
-            // Pad-velocity mouse — sensitivity/accel/1€ tuned for pad-units/s (see the example
-            // profiles; the difference from gyro is a per-behaviour thing, absorbed here). Left side
-            // scrolls, right side moves the cursor.
+            // Pad-velocity mouse. Left side scrolls, right side moves the cursor; everything else
+            // (sensitivity 1.0, acceleration 0.0, smoothing off) is config's neutral default.
             Behavior::AsMouse => SourceBinding::AsMouse {
-                settings: AsMouseSettings {
-                    output: mouse_output(input),
-                    sensitivity: Sensitivity { x: 0.5, y: 0.5 },
-                    acceleration: Acceleration { factor: 0.05 },
-                    smoothing: Some(OneEuroFilter { min_cutoff: 3.0, beta: 0.5 }),
-                    ..Default::default()
-                },
+                settings: AsMouseSettings { output: mouse_output(input), ..Default::default() },
             },
             Behavior::JoystickMouse => SourceBinding::JoystickMouse {
                 settings: JoystickMouseSettings { output: mouse_output(input), ..Default::default() },
             },
-            // Gyro-velocity mouse — the same knobs tuned for deg/s (smaller accel, lower cutoff).
+            // Gyro-velocity mouse — neutral value defaults (sensitivity 1.0, acceleration 0.0,
+            // smoothing off), cursor output; but **hold-to-enable** so gyro stays off until the user
+            // adds a gater (the usual hold-to-aim pattern), rather than always-on.
             Behavior::GyroToMouse => SourceBinding::GyroToMouse {
                 settings: GyroToMouseSettings {
-                    sensitivity: Sensitivity { x: 0.5, y: 0.5 },
-                    acceleration: Acceleration { factor: 0.02 },
-                    smoothing: Some(OneEuroFilter { min_cutoff: 1.0, beta: 0.5 }),
+                    activation: Activation { mode: ActivationMode::HoldToEnable, ..Default::default() },
                     ..Default::default()
                 },
             },

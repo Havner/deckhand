@@ -684,7 +684,7 @@ fn curve(input: &InputSource, curve: &Curve) -> Element<'static, Message> {
         col = col.push(
             row![
                 setting_label("Exponent"),
-                slider(0.2..=4.0f32, e, move |v| Message::Editor(EditorMessage::SetSetting(
+                slider(0.2..=5.0f32, e, move |v| Message::Editor(EditorMessage::SetSetting(
                     i2.clone(),
                     SettingEdit::Curve(Curve::Power(v))
                 )))
