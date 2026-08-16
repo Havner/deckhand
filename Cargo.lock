@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "config"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ron",
  "serde",
@@ -836,7 +836,7 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
 name = "deckhand"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "config",
  "crossbeam-channel",
@@ -857,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "deckhandctl"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clap",
  "config",
@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "deckhandd"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clap",
  "config",
@@ -1029,7 +1029,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "config",
  "crossbeam-channel",
@@ -1847,7 +1847,7 @@ dependencies = [
 
 [[package]]
 name = "ipc"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "config",
  "interprocess",
@@ -3627,7 +3627,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steam-hid"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bitflags 2.13.1",
  "ctrlc",
@@ -4075,7 +4075,7 @@ dependencies = [
 
 [[package]]
 name = "virt-out"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ctrlc",
  "evdev",
@@ -4091,14 +4091,14 @@ dependencies = [
 
 [[package]]
 name = "vocab-hid"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "vocab-out"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "serde",
 ]

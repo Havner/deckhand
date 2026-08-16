@@ -11,7 +11,7 @@ default-members = ["crates/vocab-out", "crates/vocab-hid", "crates/steam-hid", "
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false          # internal crates for now; not for crates.io (see PLAN §0)
-version = "0.0.0"
+version = "0.1.0"
 
 [workspace.dependencies]
 # Well-maintained, widely-used only (PLAN §0). hidraw backend: no libusb, and it
