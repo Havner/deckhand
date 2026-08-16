@@ -90,6 +90,10 @@ pub(super) struct CmdState {
     pub(super) tap_until: Option<Tick>,
     /// `Double`: the current press qualified as the second-within-window and is held.
     pub(super) double_active: bool,
+    /// `Double`: the time of the press that most recently *completed* a double for this command.
+    /// That press must not also serve as the *first* press of the next double — doubles form in
+    /// separate cycles (a triple click = one double + one single, not two overlapping doubles).
+    pub(super) double_consumed: Option<Tick>,
     /// Interruptible-`Regular` deferral state, and its interaction's first-press time.
     pub(super) deferred: Deferred,
     pub(super) deferred_start: Option<Tick>,

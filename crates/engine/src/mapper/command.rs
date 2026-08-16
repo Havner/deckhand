@@ -114,8 +114,16 @@ pub(super) fn eval_commands(
             Activator::Double { window_ms } => {
                 let cs = slot.command(i);
                 if pressed {
-                    cs.double_active =
-                        prev_press.as_ref().is_some_and(|pp| now.0.saturating_sub(pp.0) <= *window_ms as u64);
+                    // A double forms when the previous press is within the window — but only if that
+                    // previous press did not itself *complete* a double for this command (cycles don't
+                    // chain: the 2nd click of a triple can't be the 1st of another double).
+                    let forms = prev_press.as_ref().is_some_and(|pp| {
+                        now.0.saturating_sub(pp.0) <= *window_ms as u64 && cs.double_consumed.as_ref() != Some(pp)
+                    });
+                    cs.double_active = forms;
+                    if forms {
+                        cs.double_consumed = Some(now.clone());
+                    }
                 } else if released {
                     cs.double_active = false;
                 }
@@ -532,6 +540,23 @@ mod tests {
         let d = step_many(&cmds, &mut s, true, 150);
         assert!(d.has_key(&Key::B) && !d.has_key(&Key::A));
         assert!(!step_many(&cmds, &mut s, false, 200).has_key(&Key::A)); // no late regular tap
+    }
+
+    #[test]
+    fn triple_click_is_one_double_then_a_single_not_two_doubles() {
+        // A quick triple click: presses 1+2 form a double; press 3 must NOT pair with press 2 (which
+        // already completed a double) — cycles don't chain, so press 3 is a fresh single (no double).
+        let c = cmd(Activator::Double { window_ms: 200 });
+        let mut s = SlotState::default();
+        assert!(!step(&c, &mut s, true, 0)); // press 1
+        assert!(!step(&c, &mut s, false, 20));
+        assert!(step(&c, &mut s, true, 60)); // press 2 within window → double fires
+        assert!(!step(&c, &mut s, false, 80));
+        assert!(!step(&c, &mut s, true, 120)); // press 3 within window of press 2, but no double
+        assert!(!step(&c, &mut s, false, 140));
+
+        // A fourth click *does* pair with the third (the next cycle) — clicks group 1-2, 3-4.
+        assert!(step(&c, &mut s, true, 180)); // press 4 within window of press 3 → double fires
     }
 
     // --- Hold-takers coexist (Long/Double never contest) --------------------------------
