@@ -46,6 +46,8 @@ pub enum InputSource {
     QuickAccess,   // Deck '⋯' (Neptune)
     LeftStickClick,
     RightStickClick, // Neptune (no right stick on Gordon)
+    LeftStickTouch,  // Neptune — sticks are capacitive (Gordon's stick isn't touch-sensitive)
+    RightStickTouch, // Neptune
     LeftPadClick,
     RightPadClick,
     LeftPadTouch,
@@ -92,7 +94,8 @@ impl InputSource {
             // Everything else is a standalone button.
             LeftBumper | RightBumper | LeftTriggerFull | RightTriggerFull | LeftGrip | RightGrip
             | LeftGrip2 | RightGrip2 | View | Menu | Steam | QuickAccess | LeftStickClick
-            | RightStickClick | LeftPadClick | RightPadClick | LeftPadTouch | RightPadTouch => {
+            | RightStickClick | LeftStickTouch | RightStickTouch | LeftPadClick | RightPadClick
+            | LeftPadTouch | RightPadTouch => {
                 SourceKind::Button
             }
         }
@@ -105,12 +108,12 @@ impl InputSource {
         use InputSource::*;
         match self {
             FaceButtons | RightPad | RightStick | RightTrigger | RightBumper | RightTriggerFull
-            | RightGrip | RightGrip2 | RightStickClick | RightPadClick | RightPadTouch
-            | Menu | QuickAccess => Side::Right,
+            | RightGrip | RightGrip2 | RightStickClick | RightStickTouch | RightPadClick
+            | RightPadTouch | Menu | QuickAccess => Side::Right,
             // DPad, all Left*, View, Steam, Gyro → Left.
             DPad | LeftPad | LeftStick | LeftTrigger | Gyro | LeftBumper | LeftTriggerFull
-            | LeftGrip | LeftGrip2 | View | Steam | LeftStickClick | LeftPadClick
-            | LeftPadTouch => {
+            | LeftGrip | LeftGrip2 | View | Steam | LeftStickClick | LeftStickTouch
+            | LeftPadClick | LeftPadTouch => {
                 Side::Left
             }
         }
@@ -141,6 +144,8 @@ impl InputSource {
         InputSource::QuickAccess,
         InputSource::LeftStickClick,
         InputSource::RightStickClick,
+        InputSource::LeftStickTouch,
+        InputSource::RightStickTouch,
         InputSource::LeftPadClick,
         InputSource::RightPadClick,
         InputSource::LeftPadTouch,
@@ -167,7 +172,13 @@ impl Shape {
         use InputSource::*;
         let neptune_only = matches!(
             input,
-            RightStick | RightStickClick | LeftGrip2 | RightGrip2 | QuickAccess
+            RightStick
+                | RightStickClick
+                | LeftStickTouch
+                | RightStickTouch
+                | LeftGrip2
+                | RightGrip2
+                | QuickAccess
         );
         match self {
             Shape::Gordon => !neptune_only,
@@ -199,8 +210,8 @@ mod tests {
         assert!(g.has(&InputSource::LeftStick));
         assert!(g.has(&InputSource::DPad));
         assert!(Shape::Neptune.has(&InputSource::RightStick));
-        // Gordon has 5 fewer inputs than the superset.
-        assert_eq!(g.inputs().count(), InputSource::ALL.len() - 5);
+        // Gordon has 7 fewer inputs than the superset (5 above + both stick touches).
+        assert_eq!(g.inputs().count(), InputSource::ALL.len() - 7);
         assert_eq!(Shape::Neptune.inputs().count(), InputSource::ALL.len());
     }
 

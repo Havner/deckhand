@@ -531,6 +531,8 @@ pub(crate) fn input_label(input: &InputSource) -> &'static str {
         InputSource::QuickAccess => "Quick Access",
         InputSource::LeftStickClick => "Left Stick Click",
         InputSource::RightStickClick => "Right Stick Click",
+        InputSource::LeftStickTouch => "Left Stick Touch",
+        InputSource::RightStickTouch => "Right Stick Touch",
         InputSource::LeftPadClick => "Left Trackpad Click",
         InputSource::RightPadClick => "Right Trackpad Click",
         InputSource::LeftPadTouch => "Left Trackpad Touch",

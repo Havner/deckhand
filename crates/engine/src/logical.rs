@@ -137,6 +137,8 @@ fn button_flag(source: &InputSource) -> Option<Buttons> {
         I::QuickAccess => Buttons::QUICK_ACCESS,
         I::LeftStickClick => Buttons::LSTICK_PRESS,
         I::RightStickClick => Buttons::RSTICK_PRESS,
+        I::LeftStickTouch => Buttons::LSTICK_TOUCH,
+        I::RightStickTouch => Buttons::RSTICK_TOUCH,
         I::LeftPadClick => Buttons::LPAD_PRESS,
         I::RightPadClick => Buttons::RPAD_PRESS,
         I::LeftPadTouch => Buttons::LPAD_TOUCH,

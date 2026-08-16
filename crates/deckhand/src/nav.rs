@@ -131,8 +131,8 @@ const TRIGGER_GROUPS: &[InputGroup] = &[
 
 /// Joysticks page — each stick with its click nested under it.
 const STICK_GROUPS: &[InputGroup] = &[
-    InputGroup { header: "Left Stick", primary: &[I::LeftStick], sub: &[I::LeftStickClick] },
-    InputGroup { header: "Right Stick", primary: &[I::RightStick], sub: &[I::RightStickClick] },
+    InputGroup { header: "Left Stick", primary: &[I::LeftStick], sub: &[I::LeftStickClick, I::LeftStickTouch] },
+    InputGroup { header: "Right Stick", primary: &[I::RightStick], sub: &[I::RightStickClick, I::RightStickTouch] },
 ];
 
 /// Trackpads page — each pad with its click + touch nested under it.
