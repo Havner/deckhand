@@ -1,6 +1,6 @@
 [package]
 name = "deckhandd"
-description = "The deckhand daemon: runs the headless engine, seeded from the CLI, and serves a control socket for clients (deckhandctl, the daemon-mode UI). PLAN §4.4."
+description = "The deckhand daemon: runs the headless engine, seeded from the CLI, and serves a control socket for clients."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

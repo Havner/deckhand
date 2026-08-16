@@ -1,6 +1,6 @@
 [package]
 name = "deckhandctl"
-description = "Thin CLI client for the deckhand daemon (deckhandd): one-shot control commands over the local socket. Depends on ipc + config, never engine. PLAN §4.4."
+description = "Thin CLI client for the deckhand daemon (deckhandd): one-shot control commands over the local socket."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

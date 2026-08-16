@@ -1,6 +1,6 @@
 [package]
 name = "engine"
-description = "Deckhand headless runtime/manager: compiles config to a Program, runs the mapping loop over steam-hid input, emits via virt-out. See PLAN §4."
+description = "Deckhand headless runtime/manager: compiles config to a Program, runs the mapping loop over steam-hid input, emits via virt-out."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
