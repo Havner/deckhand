@@ -9,8 +9,8 @@
 //!   `SetSetting(input, SettingEdit)`; the edit is applied by `editor::settings::apply_setting`.
 //!   Adding a behaviour = one compose fn from existing blocks.
 //!
-//! Form primitives ([`setting_label`], [`check_setting`], [`slider_row`], …) live here; the shared
-//! `CMD_SLOT` width and the page's `input_label` come from the parent module.
+//! Form primitives ([`check_setting`], [`slider_row`], …) live here; the shared `setting_label` row
+//! label, the `CMD_SLOT` width, and the page's `input_label` come from the parent modules.
 
 use std::ops::RangeInclusive;
 
@@ -25,7 +25,7 @@ use config::{
 
 use super::{CMD_SLOT, input_label};
 use crate::editor::{ActivatorKind, Behavior, CommandRef, EditorMessage, SettingEdit, SettingsView};
-use crate::view::{button_chips, label_row, slot_display, small};
+use crate::view::{button_chips, label_row, setting_label, slot_display, small};
 use crate::{App, ButtonTarget, Message, style};
 
 /// The active settings sub-page, rendered *instead of* the current category page — `None` when no
@@ -37,9 +37,6 @@ pub(in crate::view) fn settings_screen(app: &App) -> Option<Element<'static, Mes
         SettingsView::Behavior(input) => Some(behavior_settings(app, input)),
     }
 }
-
-/// Fixed label column for a settings row, so the controls line up down the form.
-const SET_LABEL: f32 = 160.0;
 
 /// The per-command settings form: activator (kind + its own parameter — Long/Double time or the
 /// Regular's interruptible flag), then toggle / turbo / haptics. Applicability-gated (turbo hidden on
@@ -199,12 +196,6 @@ fn slider_row(
     .spacing(12.0)
     .align_y(Center)
     .into()
-}
-
-/// A fixed-width settings-row label so the controls line up down the form. `pub(super)` because the
-/// Rumble page (in the parent module) shares the same form aesthetic.
-pub(super) fn setting_label(s: &'static str) -> Element<'static, Message> {
-    text(s).width(SET_LABEL).into()
 }
 
 /// Display label for a haptic edge (UI-owned — `config` stays presentation-free).

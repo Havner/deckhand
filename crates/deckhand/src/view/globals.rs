@@ -7,7 +7,7 @@ use config::{GlobalAction, GlobalChord, StartProfile, SwitchMode};
 use iced::widget::{Space, button, checkbox, column, pick_list, row, slider, text, text_input};
 use iced::{Center, Element, Fill};
 
-use super::{button_chips, group_header, section_header, small};
+use super::{button_chips, group_header, section_header, setting_label, small};
 use crate::{App, ButtonTarget, ChordActionKind, IDLE_TIMEOUT_MINUTES, Message, style};
 
 /// The global-config page (Category::Globals).
@@ -17,7 +17,7 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
     // Start profile: Main / Fallback. The label closure supplies the display strings, so the enum
     // needs no `Display` impl.
     let start = row![
-        glabel("Start profile:"),
+        setting_label("Start profile"),
         pick_list(
             Some(g.start_profile.clone()),
             vec![StartProfile::Main, StartProfile::Fallback],
@@ -35,7 +35,7 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
 
     // Master rumble: a 0–100% slider with a live readout.
     let master = row![
-        glabel("Master rumble:"),
+        setting_label("Master rumble"),
         slider(0..=100u8, g.master_rumble, Message::GlobalsMasterRumble),
         pct_text(Some(g.master_rumble)),
     ]
@@ -53,7 +53,7 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
         slider(0..=100u8, led_val, |_| Message::Ignored).style(style::disabled_slider).into()
     };
     let led = row![
-        glabel("LED brightness:"),
+        setting_label("LED brightness"),
         checkbox(led_on).on_toggle(Message::GlobalsLedEnabled),
         led_bar,
         pct_text(led_on.then_some(led_val)),
@@ -75,7 +75,7 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
         idle_combo = idle_combo.on_select(|m| Message::GlobalsIdleTimeout(m * 60));
     }
     let idle = row![
-        glabel("Idle timeout:"),
+        setting_label("Idle timeout"),
         checkbox(idle_on).on_toggle(Message::GlobalsIdleEnabled),
         idle_combo,
     ]
@@ -176,11 +176,6 @@ fn switch_mode_label(m: &SwitchMode) -> &'static str {
         SwitchMode::SetMain => "Set main",
         SwitchMode::SetFallback => "Set fallback",
     }
-}
-
-/// A fixed-width row label for the Globals screen, so the controls line up in a column.
-fn glabel(s: &'static str) -> Element<'static, Message> {
-    text(s).width(140.0).into()
 }
 
 /// A fixed-width trailing percentage readout (`None` → "default"), keeping the sliders aligned.

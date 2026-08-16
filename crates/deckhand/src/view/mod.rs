@@ -86,6 +86,16 @@ fn card<'a>(inner: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     container(inner).padding(10.0).width(Fill).style(style::panel).into()
 }
 
+/// Fixed label-column width for a form row (settings pages, rumble, globals), so the controls line
+/// up down the form. One value shared by every form screen.
+pub(in crate::view) const SET_LABEL: f32 = 160.0;
+
+/// A fixed-width row label for any form screen (settings / rumble / globals), so the controls line up
+/// in a column. The single label primitive shared across those pages.
+pub(in crate::view) fn setting_label(s: &'static str) -> Element<'static, Message> {
+    text(s).width(SET_LABEL).into()
+}
+
 /// An optional glyph-colour dot (a theme-role text style) for a button label.
 pub(in crate::view) type Dot = Option<fn(&Theme) -> text::Style>;
 

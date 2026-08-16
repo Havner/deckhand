@@ -12,7 +12,7 @@ use iced::{Center, Element, Fill};
 
 use config::{Action, Curve, InputSource, SourceBinding, SourceKind};
 
-use super::{Dot, card, group_header, label_row, section_header, slot_display, small};
+use super::{Dot, card, group_header, label_row, section_header, setting_label, slot_display, small};
 use crate::editor::{ActionTarget, Behavior, CommandRef, CommandSlot, EditorMessage};
 use crate::nav::{Category, InputGroup};
 use crate::view::modal::action_label;
@@ -158,7 +158,7 @@ pub(super) fn rumble_screen(app: &App) -> Element<'static, Message> {
 
     // Strength is a percent that may exceed 100 (u8 → 255) to boost under-driven games.
     let strength = row![
-        settings::setting_label("Strength"),
+        setting_label("Strength"),
         slider(0..=255u8, r.strength, |v| Message::Editor(EditorMessage::SetRumbleStrength(v))).step(1u8),
         text(format!("{}%", r.strength)).width(70.0),
     ]
@@ -166,7 +166,7 @@ pub(super) fn rumble_screen(app: &App) -> Element<'static, Message> {
     .align_y(Center);
 
     let frequency = row![
-        settings::setting_label("Frequency"),
+        setting_label("Frequency"),
         slider(30..=150u16, r.hz, |v| Message::Editor(EditorMessage::SetRumbleHz(v))).step(1u16),
         text(format!("{} Hz", r.hz)).width(70.0),
     ]
@@ -205,12 +205,12 @@ fn rumble_curve(curve: &Curve) -> Element<'static, Message> {
         Message::Editor(EditorMessage::SetRumbleCurve(c))
     })
     .width(CMD_SLOT);
-    let mut col = column![row![settings::setting_label("Curve"), combo].spacing(12.0).align_y(Center)].spacing(8.0);
+    let mut col = column![row![setting_label("Curve"), combo].spacing(12.0).align_y(Center)].spacing(8.0);
     if let Curve::Power(e) = *curve {
         col = col.push(
             row![
-                settings::setting_label("Exponent"),
-                slider(0.2..=4.0f32, e, |v| Message::Editor(EditorMessage::SetRumbleCurve(Curve::Power(v))))
+                setting_label("Exponent"),
+                slider(0.2..=5.0f32, e, |v| Message::Editor(EditorMessage::SetRumbleCurve(Curve::Power(v))))
                     .step(0.05f32),
                 text(format!("{e:.2}")).width(70.0),
             ]
