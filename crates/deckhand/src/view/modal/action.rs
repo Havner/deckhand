@@ -23,6 +23,11 @@ use crate::{App, Message, style};
 /// exists and a `use Key::*` would shadow a bare `U`.)
 const KW: f32 = 42.0;
 
+/// The key-cell height unit (px); the numpad's tall keys span two cells plus the inter-row gap.
+const KH: f32 = 30.0;
+/// The row spacing shared by the keyboard/numpad grids — a tall key must swallow one to line up.
+const KEY_GAP: f32 = 4.0;
+
 /// Fixed card footprint — sized to the largest tab (gamepad) so switching tabs doesn't resize the
 /// modal. Deliberately a little roomier than any one tab needs; taller content (numpad extras)
 /// scrolls within it.
@@ -206,10 +211,15 @@ fn mouse() -> Element<'static, Message> {
 
 /// A single key tile (fixed height, variable width), confirming `Action::Key` on press.
 fn key(k: Key, w: f32) -> Element<'static, Message> {
+    key_sized(k, w, KH)
+}
+
+/// A key tile at an explicit width *and* height — used by the numpad's two-cell-tall `+`/Enter.
+fn key_sized(k: Key, w: f32, h: f32) -> Element<'static, Message> {
     let label = key_label(&k);
     button(text(label).size(11.0).center())
         .width(w)
-        .height(30.0)
+        .height(h)
         .padding(2.0)
         .style(style::option_button)
         .on_press(Message::Editor(EditorMessage::ActionPicked(Action::Key(k))))
@@ -316,23 +326,32 @@ fn row_of(keys: &[Key]) -> Element<'static, Message> {
 fn numpad() -> Element<'static, Message> {
     use Key::*;
     // The keyboard-like top: the nav island (left) and the numeric keypad (right), nothing between.
+    // Fix the nav island to the keypad's full height with a filling gap between the Ins/Del block and
+    // the arrows, so the arrow cluster's bottom lines up with the keypad's bottom (real-keyboard look).
     let nav = column![
         row_of(&[Insert, Home, PageUp]),
         row_of(&[Delete, End, PageDown]),
-        iced::widget::Space::new().height(8.0),
+        iced::widget::Space::new().height(Fill),
         row_of(&[Up]),
         row_of(&[Left, Down, Right]),
     ]
-    .spacing(4.0)
+    .spacing(KEY_GAP)
+    .height(5.0 * KH + 4.0 * KEY_GAP)
     .align_x(Center);
-    let keypad = column![
-        row_of(&[NumLock, KpSlash, KpAsterisk, KpMinus]),
-        row_of(&[Kp7, Kp8, Kp9, KpPlus]),
+    // Real-numpad geometry: `+` and Enter run down the right column two cells tall, and `0` is two
+    // cells wide on the bottom row. The left block (cols 1-3) is plain rows; the right column carries
+    // `-` then the two tall keys, so the two columns end at the same height and line up.
+    let tall = 2.0 * KH + KEY_GAP;
+    let left = column![
+        row_of(&[NumLock, KpSlash, KpAsterisk]),
+        row_of(&[Kp7, Kp8, Kp9]),
         row_of(&[Kp4, Kp5, Kp6]),
-        row_of(&[Kp1, Kp2, Kp3, KpEnter]),
-        row_of(&[Kp0, KpDot]),
+        row_of(&[Kp1, Kp2, Kp3]),
+        row![key(Kp0, 2.0 * KW + KEY_GAP), key(KpDot, KW)].spacing(KEY_GAP),
     ]
-    .spacing(4.0);
+    .spacing(KEY_GAP);
+    let right = column![key(KpMinus, KW), key_sized(KpPlus, KW, tall), key_sized(KpEnter, KW, tall)].spacing(KEY_GAP);
+    let keypad = row![left, right].spacing(KEY_GAP);
     let top = row![nav, keypad].spacing(28.0);
 
     // The remaining keys as static, categorised rows.
