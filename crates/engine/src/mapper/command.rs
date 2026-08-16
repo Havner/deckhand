@@ -114,16 +114,12 @@ pub(super) fn eval_commands(
             Activator::Double { window_ms } => {
                 let cs = slot.command(i);
                 if pressed {
-                    // A double forms when the previous press is within the window — but only if that
-                    // previous press did not itself *complete* a double for this command (cycles don't
-                    // chain: the 2nd click of a triple can't be the 1st of another double).
-                    let forms = prev_press.as_ref().is_some_and(|pp| {
-                        now.0.saturating_sub(pp.0) <= *window_ms as u64 && cs.double_consumed.as_ref() != Some(pp)
-                    });
-                    cs.double_active = forms;
-                    if forms {
-                        cs.double_consumed = Some(now.clone());
-                    }
+                    // A double forms when the previous press is within the window — unless that press
+                    // already completed a double (cycles don't chain: the 2nd click of a triple can't
+                    // open another pair). Carrying that one fact forward is all it takes.
+                    let within = prev_press.as_ref().is_some_and(|pp| now.0.saturating_sub(pp.0) <= *window_ms as u64);
+                    cs.double_active = within && !cs.double_completed;
+                    cs.double_completed = cs.double_active;
                 } else if released {
                     cs.double_active = false;
                 }
