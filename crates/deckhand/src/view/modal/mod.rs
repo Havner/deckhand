@@ -211,6 +211,7 @@ fn command_menu_card<'a>(app: &'a App, cmd: &'a CommandRef) -> Element<'a, Messa
     let activator = pick_list(current, ActivatorKind::ALL.to_vec(), |k: &ActivatorKind| {
         k.label().to_string()
     })
+    .menu_style(style::combo_menu)
     .on_select(move |k| Message::Editor(ed(cmd_for_select.clone(), k)))
     .width(Fill);
 

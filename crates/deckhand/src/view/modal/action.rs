@@ -419,6 +419,7 @@ fn action_sets(app: &App) -> Element<'static, Message> {
     let change: Element<'static, Message> = pick_list(None::<String>, sets, |s: &String| s.clone())
         .placeholder("Change Action Set")
         .style(style::labeled_pick)
+        .menu_style(style::combo_menu)
         .on_select(|name| {
             Message::Editor(EditorMessage::ActionPicked(Action::ChangeActionSet(ActionSetRef(name))))
         })
@@ -446,6 +447,7 @@ fn layer_pick(
     pick_list(None::<String>, layers, |s: &String| s.clone())
         .placeholder(placeholder)
         .style(style::labeled_pick)
+        .menu_style(style::combo_menu)
         .on_select(move |name| Message::Editor(EditorMessage::ActionPicked(make(LayerRef(name)))))
         .width(280.0)
         .into()

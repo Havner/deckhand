@@ -204,6 +204,7 @@ fn rumble_curve(curve: &Curve) -> Element<'static, Message> {
         };
         Message::Editor(EditorMessage::SetRumbleCurve(c))
     })
+    .menu_style(style::combo_menu)
     .width(CMD_SLOT);
     let mut col = column![row![setting_label("Curve"), combo].spacing(12.0).align_y(Center)].spacing(8.0);
     if let Curve::Power(e) = *curve {
@@ -333,6 +334,7 @@ fn behavior_row(input: &InputSource, current: Behavior, kind: SourceKind, on_lay
         if on_layer && *b == Behavior::Unbound { "Inherited".to_string() } else { b.label().to_string() }
     })
     .on_select(move |b| Message::Editor(EditorMessage::SetBehavior(input.clone(), b)))
+    .menu_style(style::combo_menu)
     .width(CMD_SLOT);
     // The "Behavior" label dims when this layer entry is inherited (the passthrough state).
     let inherited = on_layer && current == Behavior::Unbound;

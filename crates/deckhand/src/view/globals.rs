@@ -28,6 +28,7 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
             .to_string(),
         )
         .on_select(Message::GlobalsStartProfile)
+        .menu_style(style::combo_menu)
         .width(160.0),
     ]
     .spacing(12.0)
@@ -70,6 +71,7 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
         |m: &u16| format!("{m} minutes"),
     )
     .placeholder("default")
+    .menu_style(style::combo_menu)
     .width(160.0);
     if idle_on {
         idle_combo = idle_combo.on_select(|m| Message::GlobalsIdleTimeout(m * 60));
@@ -130,6 +132,7 @@ fn chord_bar(i: usize, chord: &GlobalChord) -> Element<'static, Message> {
         |k: &ChordActionKind| chord_kind_label(k).to_string(),
     )
     .on_select(move |k| Message::ChordSetKind(i, k))
+    .menu_style(style::combo_menu)
     .width(150.0);
 
     let detail: Element<'static, Message> = match &chord.action {
@@ -139,6 +142,7 @@ fn chord_bar(i: usize, chord: &GlobalChord) -> Element<'static, Message> {
             |m: &SwitchMode| switch_mode_label(m).to_string(),
         )
         .on_select(move |m| Message::ChordSetMode(i, m))
+        .menu_style(style::combo_menu)
         .width(150.0)
         .into(),
         GlobalAction::CommandExecute { command, args } => text_input("command args…", command_line(command, args))

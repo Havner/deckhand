@@ -234,6 +234,7 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     let input_pick = pick_list(selected_input, inputs, String::clone)
         .on_select(Message::InputSelected)
         .placeholder("input")
+        .menu_style(style::combo_menu)
         .width(200.0);
 
     let mut outputs: Vec<String> = OUTPUT_PRESETS.iter().map(|s| s.to_string()).collect();
@@ -242,6 +243,7 @@ fn top_bar(app: &App) -> Element<'_, Message> {
     let output_pick = pick_list(selected_output, outputs, String::clone)
         .on_select(Message::OutputSelected)
         .placeholder("output")
+        .menu_style(style::combo_menu)
         .width(200.0);
 
     // Manual device re-enumeration (no USB hotplug).

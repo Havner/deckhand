@@ -81,6 +81,7 @@ fn activator_setting(cref: &CommandRef, cmd: &Command) -> Element<'static, Messa
         k.label().to_string()
     })
     .on_select(move |k| Message::Editor(EditorMessage::SetActivator(cref.clone(), k)))
+    .menu_style(style::combo_menu)
     .width(CMD_SLOT);
     row![setting_label("Activator"), combo].spacing(12.0).align_y(Center).into()
 }
@@ -149,6 +150,7 @@ fn haptic_settings(cref: &CommandRef, cmd: &Command) -> Element<'static, Message
         |e: &HapticEdge| haptic_edge_label(e).to_string(),
     )
     .on_select(move |e| Message::Editor(EditorMessage::SetHapticEdge(cref_edge.clone(), e)))
+    .menu_style(style::combo_menu)
     .width(CMD_SLOT);
     let mut col =
         column![row![setting_label("Haptics"), edge_combo].spacing(12.0).align_y(Center)].spacing(8.0);
@@ -160,6 +162,7 @@ fn haptic_settings(cref: &CommandRef, cmd: &Command) -> Element<'static, Message
             |s: &HapticStrength| haptic_strength_label(s).to_string(),
         )
         .on_select(move |s| Message::Editor(EditorMessage::SetHapticStrength(cref_strength.clone(), s)))
+        .menu_style(style::combo_menu)
         .width(CMD_SLOT);
         col = col.push(row![setting_label("Strength"), strength_combo].spacing(12.0).align_y(Center));
     }
@@ -448,6 +451,7 @@ fn curve(input: &InputSource, curve: &Curve) -> Element<'static, Message> {
         };
         Message::Editor(EditorMessage::SetSetting(i1.clone(), SettingEdit::Curve(c)))
     })
+    .menu_style(style::combo_menu)
     .width(CMD_SLOT);
     let mut col = column![row![setting_label("Curve"), combo].spacing(12.0).align_y(Center)].spacing(8.0);
     if let Curve::Power(e) = *curve {
@@ -494,6 +498,7 @@ fn activation(input: &InputSource, a: &Activation) -> Element<'static, Message> 
         |m: &ActivationMode| activation_mode_label(m).to_string(),
     )
     .on_select(move |m| Message::Editor(EditorMessage::SetSetting(i.clone(), SettingEdit::ActivationMode(m))))
+    .menu_style(style::combo_menu)
     .width(CMD_SLOT);
     let rm = input.clone();
     let add = input.clone();
@@ -529,6 +534,7 @@ where
     let input = input.clone();
     let combo = pick_list(Some(selected), options, to_label)
         .on_select(move |v: T| Message::Editor(EditorMessage::SetSetting(input.clone(), make(v))))
+        .menu_style(style::combo_menu)
         .width(CMD_SLOT);
     row![setting_label(label), combo].spacing(12.0).align_y(Center).into()
 }

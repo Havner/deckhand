@@ -5,7 +5,7 @@ use iced::widget::{Space, button, checkbox, column, pick_list, row, text, text_i
 use iced::{Center, Element, Fill, Theme};
 
 use super::{group_header, section_header, small};
-use crate::{App, Message};
+use crate::{App, Message, style};
 
 /// The application-settings page (Category::Settings).
 pub(super) fn settings_screen(app: &App) -> Element<'_, Message> {
@@ -14,7 +14,8 @@ pub(super) fn settings_screen(app: &App) -> Element<'_, Message> {
     let theme_pick = row![
         text("Theme:").size(14.0),
         pick_list(Some(app.active_theme()), Theme::ALL, |t: &Theme| t.to_string())
-            .on_select(Message::SetTheme),
+            .on_select(Message::SetTheme)
+            .menu_style(style::combo_menu),
     ]
     .spacing(8.0)
     .align_y(Center);

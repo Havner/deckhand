@@ -11,6 +11,7 @@
 //! `text(...).style(...)` and re-resolve against whatever theme iced passes — no need to thread the
 //! theme through the view functions.
 
+use iced::widget::overlay::menu;
 use iced::widget::{button, container, pick_list, slider, text};
 use iced::{Background, Border, Color, Theme};
 
@@ -133,6 +134,17 @@ pub(crate) fn panel(theme: &Theme) -> container::Style {
 pub(crate) fn labeled_pick(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
     let mut style = pick_list::default(theme, status);
     style.placeholder_color = style.text_color;
+    style
+}
+
+/// The dropdown menu for a combobox. A `pick_list` field's border switches to `primary.strong` while
+/// hovered/open, but the menu's own frame defaults to `background.strong` (the field's *resting*
+/// border) — so an open combobox looked like two mismatched frames. Recolor the menu frame to the
+/// same `primary.strong`, so the field and its list read as one highlighted unit. Apply with
+/// `.menu_style(combo_menu)` on any combobox worth the polish.
+pub(crate) fn combo_menu(theme: &Theme) -> menu::Style {
+    let mut style = menu::default(theme);
+    style.border.color = theme.palette().primary.strong.color;
     style
 }
 

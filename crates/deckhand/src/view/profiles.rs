@@ -21,6 +21,7 @@ pub(super) fn profiles_screen(app: &App) -> Element<'_, Message> {
     })
     .on_select(Message::ProfileSelected)
     .placeholder("select a profile")
+    .menu_style(style::combo_menu)
     .width(Fill);
     let disk = button(text("Select from disk")).style(button::secondary).on_press(Message::ProfileBrowse);
     let row1 = row![refresh, combo, disk].spacing(8.0).align_y(Center);
