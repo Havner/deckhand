@@ -234,8 +234,7 @@ fn fmt_event(ev: &Event) -> String {
             format!("profile set: {role:?} = {}", name.as_deref().unwrap_or("(none)"))
         }
         Event::GlobalConfigSet(g) => format!(
-            "globals set: start={:?}, master_rumble={}%, {} chord(s)",
-            g.start_profile,
+            "globals set: master_rumble={}%, {} chord(s)",
             g.master_rumble,
             g.chords.len(),
         ),
@@ -293,8 +292,7 @@ fn print_status(s: &StatusSnapshot) {
     println!("fallback:   {}", s.fallback.as_deref().unwrap_or("(none)"));
     println!("active:     {active}");
     println!(
-        "globals:    start={:?}, master_rumble={}%, {} chord(s)",
-        s.globals.start_profile,
+        "globals:    master_rumble={}%, {} chord(s)",
         s.globals.master_rumble,
         s.globals.chords.len(),
     );

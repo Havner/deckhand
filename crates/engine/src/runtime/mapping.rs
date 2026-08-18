@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{RecvError, select};
 
-use config::{GlobalConfig, RumbleSettings, StartProfile};
+use config::{GlobalConfig, RumbleSettings};
 use steam_hid::Report;
 use virt_out::{OutputEvent, Rumble, Sink};
 
@@ -39,10 +39,10 @@ pub(super) fn run_mapper(
     events: EventSink,
 ) -> Result<()> {
     let start = Instant::now();
-    // Boot into the role named by `start_profile` (read once here — it's a start-only setting).
-    let mut role = start_role(&globals);
-    // Publish the initial live role unconditionally so a subscriber can seed purely from the event
-    // (no need to derive it from `start_profile`); subsequent emits are on the chord switch only.
+    // The engine always boots into Main; chords flip the role from there.
+    let mut role = Role::Main;
+    // Publish the initial live role unconditionally so a subscriber can seed purely from the event;
+    // subsequent emits are on the chord switch only.
     set_active(&fallback_active, &events, role.clone());
     let mut chords = Chords::new(&globals.chords, role == Role::Fallback);
     let mut mapper = Mapper::new(program_for(&role, &main, &fallback));
@@ -184,7 +184,7 @@ fn apply_control(
         }
         Ok(Control::SetGlobals(g)) => {
             *globals = *g;
-            // Preserve the current role base across the swap — `start_profile` is start-only.
+            // Preserve the current role base across the swap.
             *chords = Chords::new(&globals.chords, chords.fallback_base());
             // REVISIT (globals): a live SetGlobals only takes effect for chords here.
             // `master_rumble`/`led_brightness`/`idle_timeout` live in the reader's `DeviceCfg` (built
@@ -312,13 +312,6 @@ fn set_active(flag: &AtomicBool, events: &EventSink, role: Role) {
     events.emit(EngineEvent::ActiveRole(role));
 }
 
-/// The role the engine boots into, from `GlobalConfig::start_profile` (read once at loop start).
-fn start_role(globals: &GlobalConfig) -> Role {
-    match globals.start_profile {
-        StartProfile::Main => Role::Main,
-        StartProfile::Fallback => Role::Fallback,
-    }
-}
 
 #[cfg(test)]
 mod tests {

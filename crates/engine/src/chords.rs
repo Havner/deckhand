@@ -19,10 +19,10 @@ use crate::program::Role;
 /// Retained per-chord runtime state (toggle latch + engage edge).
 #[derive(Default)]
 pub(crate) struct Chords {
-    /// The persistent base "fallback engaged?" state — seeded from `GlobalConfig::start_profile`
+    /// The persistent base "fallback engaged?" state — starts `false` (the engine boots into Main)
     /// and flipped by each `SwitchProfile` **Toggle**. Survives releases (unlike a hold), so a
-    /// start-in-Fallback boot sticks until toggled. A **HoldFallback** chord forces Fallback *on top* of
-    /// this while held.
+    /// toggle sticks until toggled back. A **HoldFallback** chord forces Fallback *on top* of this
+    /// while held.
     persistent_fallback: bool,
     states: Vec<ChordState>,
 }
@@ -49,15 +49,15 @@ pub(crate) struct ChordOutcome {
 }
 
 impl Chords {
-    /// A fresh runtime for `chords`, starting in `Fallback` if `start_fallback` (from
-    /// `GlobalConfig::start_profile`). On a live `GlobalConfig` hot-swap, pass the current base
-    /// ([`Self::fallback_base`]) instead — `start_profile` is a start-only setting.
+    /// A fresh runtime for `chords`, starting in `Fallback` if `start_fallback` (always `false` at
+    /// boot — the engine boots into Main). On a live `GlobalConfig` hot-swap, pass the current base
+    /// ([`Self::fallback_base`]) instead, so the persistent role isn't reset.
     pub fn new(chords: &[GlobalChord], start_fallback: bool) -> Self {
         Chords { persistent_fallback: start_fallback, states: vec![ChordState::default(); chords.len()] }
     }
 
     /// The current persistent base role (`true` = Fallback) — used to preserve the role across a
-    /// hot-swap of the globals (so `start_profile` doesn't retroactively yank the role).
+    /// hot-swap of the globals (so the swap doesn't retroactively yank the role).
     pub fn fallback_base(&self) -> bool {
         self.persistent_fallback
     }

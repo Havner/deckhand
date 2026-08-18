@@ -3,7 +3,7 @@
 //! `app.globals` (the source of truth), never the daemon's status snapshot. Chords aren't editable
 //! yet (that lands with the profile editor) — only their count is shown.
 
-use config::{GlobalAction, GlobalChord, StartProfile, SwitchMode};
+use config::{GlobalAction, GlobalChord, SwitchMode};
 use iced::widget::{Space, button, checkbox, column, pick_list, row, slider, text, text_input};
 use iced::{Center, Element, Fill};
 
@@ -13,26 +13,6 @@ use crate::{App, ButtonTarget, ChordActionKind, IDLE_TIMEOUT_MINUTES, Message, s
 /// The global-config page (Category::Globals).
 pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
     let g = &app.globals;
-
-    // Start profile: Main / Fallback. The label closure supplies the display strings, so the enum
-    // needs no `Display` impl.
-    let start = row![
-        setting_label("Start profile"),
-        pick_list(
-            Some(g.start_profile.clone()),
-            vec![StartProfile::Main, StartProfile::Fallback],
-            |p: &StartProfile| match p {
-                StartProfile::Main => "Main",
-                StartProfile::Fallback => "Fallback",
-            }
-            .to_string(),
-        )
-        .on_select(Message::GlobalsStartProfile)
-        .menu_style(style::combo_menu)
-        .width(160.0),
-    ]
-    .spacing(12.0)
-    .align_y(Center);
 
     // Master rumble: a 0–100% slider with a live readout.
     let master = row![
@@ -85,12 +65,11 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
     .align_y(Center);
 
     let note =
-        small("'Start profile', 'LED brightness' and 'Idle timeout' take effect only on engine start.");
+        small("'Master rumble', 'LED brightness' and 'Idle timeout' take effect only on engine start.");
 
     column![
         section_header("Global daemon settings"),
         note,
-        start,
         master,
         led,
         idle,

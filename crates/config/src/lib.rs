@@ -25,7 +25,7 @@ mod validate;
 
 pub use action::{Action, ActionSetRef, LayerRef};
 pub use binding::SourceBinding;
-pub use global::{GlobalAction, GlobalChord, GlobalConfig, StartProfile, SwitchMode};
+pub use global::{GlobalAction, GlobalChord, GlobalConfig, SwitchMode};
 pub use profile::{ActionSet, ConfigDoc, Layer, RumbleSettings};
 pub use command::{
     Activator, Command, CommandSettings, HapticEdge, HapticStrength, Haptics, Turbo,

@@ -1,5 +1,4 @@
 (
-    start_profile: Main,
     master_rumble: 100,
     led_brightness: None,
     idle_timeout: None,

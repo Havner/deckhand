@@ -178,12 +178,11 @@ pub struct StatusInfo {
     pub fallback: Option<String>,
     /// The **live** role — which of main/fallback is currently active — or `None` when there's no
     /// local mapper (idle, or the network client role, where the role lives on the remote server).
-    /// Unlike `globals.start_profile` (the boot setting), this tracks live chord switches.
+    /// This tracks live chord switches.
     pub active: Option<Role>,
-    /// The full global config (master rumble, chords, device toggles, `start_profile`). Included
-    /// whole so a client connecting to a running daemon can seed its complete view in one call;
-    /// subsequent changes arrive as `GlobalConfigSet` events. (`start_profile` here is the boot
-    /// setting, read once at `start()` — not the currently-live role.)
+    /// The full global config (master rumble, chords, device toggles). Included whole so a client
+    /// connecting to a running daemon can seed its complete view in one call; subsequent changes
+    /// arrive as `GlobalConfigSet` events.
     pub globals: GlobalConfig,
 }
 

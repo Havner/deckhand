@@ -96,11 +96,10 @@ pub struct StatusSnapshot {
     /// Name of the loaded **Fallback** program, or `None`.
     pub fallback: Option<String>,
     /// The **live** role (which of main/fallback is active now), or `None` when there's no local
-    /// mapper (idle, or the network client role). Tracks live chord switches, unlike
-    /// `globals.start_profile`.
+    /// mapper (idle, or the network client role). Tracks live chord switches.
     pub active: Option<ProfileRole>,
-    /// The full global config (master rumble, chords, device toggles, `start_profile`). Sent whole
-    /// so a connecting client seeds its complete view in one `Status` call; later changes arrive as
+    /// The full global config (master rumble, chords, device toggles). Sent whole so a connecting
+    /// client seeds its complete view in one `Status` call; later changes arrive as
     /// [`Event::GlobalConfigSet`].
     pub globals: GlobalConfig,
 }

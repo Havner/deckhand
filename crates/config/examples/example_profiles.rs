@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 
 use config::{
-    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, GlobalAction, GlobalChord, GlobalConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StartProfile, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, GlobalAction, GlobalChord, GlobalConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
 };
 use vocab_hid::Button;
 use vocab_out::{GamepadButton, Key, MouseButton};
@@ -1593,7 +1593,6 @@ pub fn system_shock_profile() -> ConfigDoc {
 /// The above-profile globals: full master rumble and a Steam + RightGrip fallback toggle.
 pub fn globals() -> GlobalConfig {
     GlobalConfig {
-        start_profile: StartProfile::Main,
         master_rumble: 100,
         chords: vec![
             GlobalChord {
