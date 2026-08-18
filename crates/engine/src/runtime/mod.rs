@@ -44,6 +44,9 @@ pub(crate) struct DeviceCfg {
     /// Sleep/idle timeout in seconds, or leave the device default. `None` where idle is meaningless
     /// for the transport ([`Transport::has_idle`]).
     pub idle_timeout: Option<u16>,
+    /// Global rumble attenuator `0..=100 %`, applied reader-side to every haptic amplitude (the
+    /// mapper sends game+profile-scaled rumble; master scales it here, device-local).
+    pub master_rumble: u8,
     /// Periodically re-assert lizard-off ([`DeviceKind::needs_keepalive`]).
     pub keepalive: bool,
 }
@@ -55,6 +58,7 @@ impl DeviceCfg {
         DeviceCfg {
             led_brightness: kind.has_led_intensity().then_some(globals.led_brightness).flatten(),
             idle_timeout: transport.has_idle().then_some(globals.idle_timeout).flatten(),
+            master_rumble: globals.master_rumble,
             keepalive: kind.needs_keepalive(),
         }
     }

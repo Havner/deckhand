@@ -143,10 +143,11 @@ fn read_session(
             last_keepalive = Instant::now();
         }
 
-        // Latest rumble level wins.
+        // Latest rumble level wins. Apply the global master attenuator here (device-local): the
+        // mapper sends game+profile-scaled rumble, master scales every amplitude before the hardware.
         let mut changed = false;
         while let Ok(r) = link.rumble_rx().try_recv() {
-            level = r;
+            level = scale_master(r, cfg.master_rumble);
             changed = true;
         }
         // Non-fatal on write error: a transient hiccup must not kill the reader (a real disconnect
@@ -244,6 +245,14 @@ fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) {
     if let Err(e) = result {
         log::warn!("device cfg: {e}");
     }
+}
+
+/// Attenuate a rumble command's amplitudes by the global master percentage (`0..=100`); `hz` is
+/// unchanged. Applied reader-side so `master_rumble` stays a device-local setting (PLAN §1.9): the
+/// mapper already folded in the game FF and the profile strength/curve.
+fn scale_master(cmd: RumbleCmd, master: u8) -> RumbleCmd {
+    let scale = |v: u16| ((v as u32 * master.min(100) as u32) / 100) as u16;
+    RumbleCmd { strong: scale(cmd.strong), weak: scale(cmd.weak), hz: cmd.hz }
 }
 
 /// Route a rumble command to Gordon's trackpad actuators as pulse-trains (strong→left, weak→right;
@@ -366,5 +375,18 @@ mod tests {
         // resolution) rather than being clamped up or to silence.
         let tiny = train(327, 80); // ~0.5% strength
         assert!(tiny.duration >= 1 && (tiny.duration as f32) < train(u16::MAX / 10, 80).duration as f32);
+    }
+
+    #[test]
+    fn scale_master_attenuates_amplitudes_only() {
+        let cmd = RumbleCmd { strong: u16::MAX, weak: 10_000, hz: 80 };
+        // 100% is identity; hz always passes through.
+        assert_eq!(scale_master(cmd.clone(), 100), cmd);
+        // 50% halves both amplitudes, hz untouched.
+        let half = scale_master(cmd.clone(), 50);
+        assert!((half.strong as i32 - (u16::MAX / 2) as i32).abs() <= 1);
+        assert_eq!((half.weak, half.hz), (5_000, 80));
+        // 0% silences.
+        assert_eq!(scale_master(cmd, 0), RumbleCmd { strong: 0, weak: 0, hz: 80 });
     }
 }

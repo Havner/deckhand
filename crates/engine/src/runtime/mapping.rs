@@ -126,10 +126,11 @@ pub(super) fn run_mapper(
                 break; // → waiting phase
             }
 
-            // Rumble back-channel (game → virtual pad → real controller): scale by the global
-            // master % and the *main* profile's strength/curve, carrying its pulse Hz. On change.
+            // Rumble back-channel (game → virtual pad → real controller): scale by the *main*
+            // profile's strength/curve, carrying its pulse Hz. The global master % is applied
+            // reader-side (device-local, see `DeviceCfg::master_rumble`). On change.
             let prog = program_for(&role, &main, &fallback);
-            let cmd = rumble_cmd(sink.poll_rumble()?, globals.master_rumble, &prog.rumble);
+            let cmd = rumble_cmd(sink.poll_rumble()?, &prog.rumble);
             if cmd != last_rumble {
                 let _ = link.rumble_tx().send(cmd.clone());
                 last_rumble = cmd;
@@ -185,10 +186,10 @@ fn apply_control(
             *globals = *g;
             // Preserve the current role base across the swap — `start_profile` is start-only.
             *chords = Chords::new(&globals.chords, chords.fallback_base());
-            // REVISIT (globals): a live SetGlobals only takes effect for master_rumble + chords
-            // here. `led_brightness`/`idle_timeout` live in the reader's `DeviceCfg` (built once at
-            // start, re-applied on each `Connected`), so changing them via SetGlobals does NOT push
-            // to the hardware until the next start/reconnect. To make LED/idle live too, the new
+            // REVISIT (globals): a live SetGlobals only takes effect for chords here.
+            // `master_rumble`/`led_brightness`/`idle_timeout` live in the reader's `DeviceCfg` (built
+            // once at start, re-applied on each `Connected`), so changing them via SetGlobals does
+            // NOT push to the hardware until the next start/reconnect. To make LED/idle live too, the new
             // values must reach the reader (e.g. thread them through the link so the reader re-runs
             // its apply). The UI can't work around this itself — it only sends SetGlobals. Part of a
             // broader globals rework (see the UI Globals screen).
@@ -249,14 +250,15 @@ fn run_waiting(
     Ok(WaitOutcome::Stopped)
 }
 
-/// Compute the effective per-pad drive from a raw game rumble, the global master %, and the main
-/// profile's rumble settings (strength % + response curve); `hz` passes through from the profile.
-fn rumble_cmd(raw: Rumble, master: u8, s: &RumbleSettings) -> RumbleCmd {
-    // `master` (0..=100) attenuates globally; per-profile `strength` MAY exceed 100 to *boost* a
-    // game that under-drives its FF — many cap well below full range (observed: 25%), so at
-    // `MAX_DUTY` they'd never reach the actuator's saturation. The boost normalizes such a game
-    // back up; the drive still clamps at `u16::MAX` (→ RUMBLE_MAX_DUTY), so it can't overshoot.
-    let scale = (master.min(100) as f32 / 100.0) * (s.strength as f32 / 100.0);
+/// Compute the effective per-pad drive from a raw game rumble and the main profile's rumble settings
+/// (strength % + response curve); `hz` passes through from the profile. The global master % is NOT
+/// applied here — the reader does that (device-local, see `DeviceCfg::master_rumble`).
+fn rumble_cmd(raw: Rumble, s: &RumbleSettings) -> RumbleCmd {
+    // Per-profile `strength` MAY exceed 100 to *boost* a game that under-drives its FF — many cap
+    // well below full range (observed: 25%), so at `MAX_DUTY` they'd never reach the actuator's
+    // saturation. The boost normalizes such a game back up; the drive still clamps at `u16::MAX`
+    // (→ RUMBLE_MAX_DUTY), so it can't overshoot.
+    let scale = s.strength as f32 / 100.0;
     let drive = |v: u16| {
         let full = (v as f32 / u16::MAX as f32) * scale;
         (s.curve.apply(full.clamp(0.0, 1.0)).clamp(0.0, 1.0) * u16::MAX as f32) as u16
@@ -334,33 +336,30 @@ mod tests {
     }
 
     #[test]
-    fn rumble_cmd_applies_master_strength_and_hz() {
+    fn rumble_cmd_applies_strength_and_hz() {
         let full = Rumble { strong: u16::MAX, weak: u16::MAX / 2 };
 
-        // master 50% × strength 100% (defaults) = half; hz carried from the profile.
+        // strength 100% (default) passes through unchanged; hz carried from the profile. Master is
+        // NOT applied here — the reader does that (see `reader::scale_master`).
         let s = RumbleSettings { hz: 60, strength: 100, curve: Curve::Linear };
-        let cmd = rumble_cmd(full.clone(), 50, &s);
+        let cmd = rumble_cmd(full.clone(), &s);
         assert_eq!(cmd.hz, 60);
-        assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 1);
-        assert!((cmd.weak as i32 - (u16::MAX / 4) as i32).abs() <= 1);
+        assert_eq!(cmd.strong, u16::MAX);
+        assert!((cmd.weak as i32 - (u16::MAX / 2) as i32).abs() <= 1);
 
-        // master 100% × strength 50% = half too; different hz passes through.
+        // strength 50% halves; different hz passes through.
         let s = RumbleSettings { hz: 200, strength: 50, curve: Curve::Linear };
-        let cmd = rumble_cmd(full.clone(), 100, &s);
+        let cmd = rumble_cmd(full, &s);
         assert_eq!(cmd.hz, 200);
         assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 1);
-
-        // master 0% → silent.
-        let cmd = rumble_cmd(full, 0, &s);
-        assert_eq!((cmd.strong, cmd.weak), (0, 0));
 
         // strength > 100 boosts a game that under-drives its FF: a quarter-range input at 200%
         // reaches half drive, and the boost clamps at the packet max instead of overflowing.
         let boost = RumbleSettings { hz: 80, strength: 200, curve: Curve::Linear };
         let quarter = Rumble { strong: u16::MAX / 4, weak: 0 };
-        let cmd = rumble_cmd(quarter, 100, &boost);
+        let cmd = rumble_cmd(quarter, &boost);
         assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 2);
-        let cmd = rumble_cmd(Rumble { strong: u16::MAX, weak: 0 }, 100, &boost);
+        let cmd = rumble_cmd(Rumble { strong: u16::MAX, weak: 0 }, &boost);
         assert_eq!(cmd.strong, u16::MAX);
     }
 
