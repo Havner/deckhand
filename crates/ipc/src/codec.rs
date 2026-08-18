@@ -76,10 +76,11 @@ mod tests {
                 input: "dongle".into(),
                 bound: None,
                 controller: None,
+                device_config: Default::default(),
                 main: None,
                 fallback: None,
                 active: None,
-                device_config: Default::default(),
+                chords: None,
             }),
         )
         .unwrap();

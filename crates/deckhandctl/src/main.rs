@@ -10,20 +10,21 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use config::{ConfigDoc, DeviceConfig};
+use config::{Chords, ConfigDoc, DeviceConfig};
 use ipc::{Client, Event, ProfileRole, Request, Response, StatusSnapshot};
 
 /// The command reference, shown under `--help` (the commands are raw args, so clap can't describe
 /// them itself).
 const COMMANDS_HELP: &str = "\
 Commands (run in sequence; put --socket/-h/-V first):
-  status                show engine status (state, staged input/output, profiles, devcfg)
+  status                show engine status (state, staged input/output, profiles, chords, devcfg)
   list-devices          list the enumerated devices (id, kind, transport, slot)
   input <spec>          stage input: auto | dongle | wired | bt | <device-id> | host:port
   output <spec>         stage output: local | host:port
   main <file.ron>       load + apply a Main profile (empty string clears it: reverts to Fallback)
   fallback <file.ron>   load + apply a Fallback profile (empty string clears it)
-  devcfg <file.ron>     load + apply the device config (LED/idle, master rumble, frequency, chords)
+  chords <file.ron>     load + apply the top-level switch/command chords
+  devcfg <file.ron>     load + apply the device config (LED/idle, master rumble, frequency)
   start                 acquire hardware and start the mapping loop
   stop                  stop the mapping loop (release hardware, keep config)
   shutdown              shut the daemon down (must be last)
@@ -142,10 +143,20 @@ fn parse_steps(tokens: &[String]) -> Result<Vec<Step>, String> {
             }
             "main" => call_apply(ProfileRole::Main, "main", tokens, &mut i)?,
             "fallback" => call_apply(ProfileRole::Fallback, "fallback", tokens, &mut i)?,
+            "chords" => {
+                let p = take_arg(tokens, &mut i, "chords")?;
+                // An empty argument (`chords ""`) clears the chords, mirroring `main ""`.
+                let (label, chords) = if p.is_empty() {
+                    ("chords (clear)".to_string(), None)
+                } else {
+                    (format!("chords {p}"), Some(load_chords(&p)?))
+                };
+                call(&label, Request::SetChords(chords))
+            }
             "devcfg" => {
                 let p = take_arg(tokens, &mut i, "devcfg")?;
                 let d = load_device_config(&p)?;
-                call(&format!("devcfg {p}"), Request::SetDeviceConfig(Box::new(d)))
+                call(&format!("devcfg {p}"), Request::SetDeviceConfig(d))
             }
             other => return Err(format!("unknown command '{other}' — try `deckhandctl --help`")),
         };
@@ -233,12 +244,14 @@ fn fmt_event(ev: &Event) -> String {
         Event::ProfileSet { role, name } => {
             format!("profile set: {role:?} = {}", name.as_deref().unwrap_or("(none)"))
         }
-        Event::DeviceConfigSet(g) => format!(
-            "devcfg set: master_rumble={}%, {} chord(s)",
-            g.master_rumble,
-            g.chords.len(),
-        ),
+        Event::ChordsSet(c) => format!("chords set: {}", chord_summary(c)),
+        Event::DeviceConfigSet(d) => format!("devcfg set: master_rumble={}%", d.master_rumble),
     }
+}
+
+/// `(none)` when no chords are set, else the count — the shared rendering for status + events.
+fn chord_summary(chords: &Option<Chords>) -> String {
+    chords.as_ref().map_or_else(|| "(none)".to_string(), |c| c.chords.len().to_string())
 }
 
 /// Print a reply, prefixed with the command `label` so a chain's acks/errors are attributable.
@@ -288,14 +301,11 @@ fn print_status(s: &StatusSnapshot) {
     println!("input:      {}", s.input);
     println!("bound:      {}", s.bound.as_deref().unwrap_or("(none)"));
     println!("controller: {controller}");
-    println!(
-        "devcfg:     master_rumble={}%, {} chord(s)",
-        s.device_config.master_rumble,
-        s.device_config.chords.len(),
-    );
+    println!("devcfg:     master_rumble={}%", s.device_config.master_rumble);
     println!("main:       {}", s.main.as_deref().unwrap_or("(none)"));
     println!("fallback:   {}", s.fallback.as_deref().unwrap_or("(none)"));
     println!("active:     {active}");
+    println!("chords:     {}", chord_summary(&s.chords));
 }
 
 fn print_devices(ids: &[String]) {
@@ -309,6 +319,11 @@ fn print_devices(ids: &[String]) {
 }
 
 fn load_doc(path: &str) -> Result<ConfigDoc, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    ron::from_str(&text).map_err(|e| format!("{path}: {e}"))
+}
+
+fn load_chords(path: &str) -> Result<Chords, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
     ron::from_str(&text).map_err(|e| format!("{path}: {e}"))
 }

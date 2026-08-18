@@ -37,6 +37,11 @@ impl Daemon {
         Ok(())
     }
 
+    /// Replace the chords (CLI `-c` and `SetChords`); `None` clears them.
+    pub fn set_chords(&mut self, chords: Option<config::Chords>) {
+        self.engine.set_chords(chords);
+    }
+
     /// Replace the device config (CLI `-d` and `SetDeviceConfig`).
     pub fn set_device_config(&mut self, device_config: config::DeviceConfig) {
         self.engine.set_device_config(device_config);
@@ -61,8 +66,12 @@ impl Daemon {
     pub fn handle(&mut self, req: Request) -> Response {
         match req {
             Request::Apply { role, config } => self.apply_config(role, config.map(|c| *c)),
+            Request::SetChords(c) => {
+                self.set_chords(c);
+                Response::Ok
+            }
             Request::SetDeviceConfig(d) => {
-                self.set_device_config(*d);
+                self.set_device_config(d);
                 Response::Ok
             }
             Request::SetInput(spec) => match self.set_input(&spec) {
@@ -123,10 +132,11 @@ impl Daemon {
             input: s.input.to_string(),
             bound: s.bound.map(|id| id.to_string()),
             controller: s.controller,
+            device_config: s.device_config,
             main: s.main,
             fallback: s.fallback,
             active: s.active.map(profile_role),
-            device_config: s.device_config,
+            chords: s.chords,
         }
     }
 
@@ -190,6 +200,7 @@ pub fn to_wire_event(ev: EngineEvent) -> Event {
         EngineEvent::InputStaged(i) => Event::InputStaged(i.to_string()),
         EngineEvent::OutputStaged(o) => Event::OutputStaged(o.to_string()),
         EngineEvent::ProfileSet { role, name } => Event::ProfileSet { role: profile_role(role), name },
+        EngineEvent::ChordsSet(c) => Event::ChordsSet(c),
         EngineEvent::DeviceConfigSet(d) => Event::DeviceConfigSet(d),
     }
 }

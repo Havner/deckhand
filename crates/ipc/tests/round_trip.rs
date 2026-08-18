@@ -26,10 +26,11 @@ fn client_server_round_trip() {
                         input: "dongle".into(),
                         bound: None,
                         controller: Some(true),
+                        device_config: Default::default(),
                         main: Some("game".into()),
                         fallback: None,
                         active: Some(ProfileRole::Main),
-                        device_config: Default::default(),
+                        chords: None,
                     }),
                     Request::ListDevices => Response::Devices(vec!["gordon:dongle:1:".into()]),
                     Request::Shutdown => {

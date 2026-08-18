@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
-use config::DeviceConfig;
+use config::{Chords, DeviceConfig};
 use steam_hid::DeviceId;
 
 use crate::handle::{Input, Output, Status};
@@ -47,6 +47,9 @@ pub enum EngineEvent {
     /// A program was applied to a role (live hot-swap if running, else staged). Carries the role and
     /// the program's name (`None` reserved for a future clear). Absolute value.
     ProfileSet { role: Role, name: Option<String> },
+    /// The chords were set (live if running, else staged); `None` = no chords. Carries the whole
+    /// set so a client can mirror it without a round-trip. Absolute value.
+    ChordsSet(Option<Chords>),
     /// The device config was set (live if running, else staged). Carries the whole config so a client
     /// can mirror it without a round-trip. Absolute value.
     DeviceConfigSet(DeviceConfig),

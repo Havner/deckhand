@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use crate::action::Action;
 use crate::binding::SourceBinding;
+use crate::chords::Chords;
 use crate::device::DeviceConfig;
 use crate::input::InputSource;
 use crate::profile::ConfigDoc;
@@ -59,14 +60,22 @@ impl ConfigDoc {
 }
 
 impl DeviceConfig {
-    /// Validate the device config: chords must be non-empty, master rumble ≤ 100. (Chord/gater members
-    /// are `vocab_hid::Button`s now — every value is a real hardware button, so "is it a physical
-    /// button" is no longer representable-as-invalid.)
+    /// Validate the device config: master rumble ≤ 100 (a soft cap — `strength` may boost past it).
     pub fn validate(&self) -> Vec<Diagnostic> {
         let mut out = Vec::new();
         if self.master_rumble > 100 {
             warning(&mut out, format!("master_rumble is {} (> 100%)", self.master_rumble));
         }
+        out
+    }
+}
+
+impl Chords {
+    /// Validate the chords: each must name at least one button. (Chord members are
+    /// `vocab_hid::Button`s now — every value is a real hardware button, so "is it a physical
+    /// button" is no longer representable-as-invalid.)
+    pub fn validate(&self) -> Vec<Diagnostic> {
+        let mut out = Vec::new();
         for (i, chord) in self.chords.iter().enumerate() {
             if chord.buttons.is_empty() {
                 error(&mut out, format!("chord #{i} has no buttons"));

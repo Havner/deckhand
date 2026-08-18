@@ -6,12 +6,13 @@
 //! release the device + sink while **config is retained** across the pair; `shutdown()` consumes
 //! the handle.
 //!
-//! **Mutability:** `apply`/`set_device_config` are live hot-swaps while running (and stage while idle);
+//! **Mutability:** `apply`/`set_chords` are live hot-swaps while running (and stage while idle);
+//! `set_device_config` always stages — device settings are applied reader-side at the next start;
 //! `set_input`/`set_output` are **staged-only** — they take effect at the next `start()` and are
 //! fixed within a start/stop pair. The network variants of input/output are stubs for now
 //! (Local-only built; the seam is kept — PLAN §4.1/§6).
 
-use config::DeviceConfig;
+use config::{Chords, DeviceConfig};
 use steam_hid::{Device, DeviceId, DeviceInfo, Manager, RawReport, Transport};
 use std::fmt;
 use std::net::SocketAddr;
@@ -172,6 +173,10 @@ pub struct StatusInfo {
     /// there's no local reader (idle, or the network server role). Distinct from `state`: on the
     /// dongle the controller can power off (→ `Some(false)`) while the loop stays `Running`.
     pub controller: Option<bool>,
+    /// The full device config (master rumble, frequency, LED/idle). Included whole so a client
+    /// connecting to a running daemon can seed its complete view in one call; subsequent changes
+    /// arrive as `DeviceConfigSet` events.
+    pub device_config: DeviceConfig,
     /// Name of the loaded **Main** program, or `None` if none is applied.
     pub main: Option<String>,
     /// Name of the loaded **Fallback** program, or `None`.
@@ -180,10 +185,9 @@ pub struct StatusInfo {
     /// local mapper (idle, or the network client role, where the role lives on the remote server).
     /// This tracks live chord switches.
     pub active: Option<Role>,
-    /// The full device config (master rumble, chords, device toggles). Included whole so a client
-    /// connecting to a running daemon can seed its complete view in one call; subsequent changes
-    /// arrive as `DeviceConfigSet` events.
-    pub device_config: DeviceConfig,
+    /// The chords, or `None` if none are configured. Included whole so a client connecting to a
+    /// running daemon seeds its complete view in one call; subsequent changes arrive as `ChordsSet`.
+    pub chords: Option<Chords>,
 }
 
 /// The engine handle. Holds the staged input/output, the program(s) + device config (retained across
@@ -194,6 +198,7 @@ pub struct Engine {
     output: Output,
     main: Option<Program>,
     fallback: Option<Program>,
+    chords: Option<Chords>,
     device_config: DeviceConfig,
     runtime: Option<Runtime>,
     /// The concrete device the running loop is bound to (the reader's pinned id), or `None` when
@@ -220,6 +225,7 @@ impl Engine {
             output: Output::Local,
             main: None,
             fallback: None,
+            chords: None,
             device_config: DeviceConfig::default(),
             runtime: None,
             bound: None,
@@ -274,19 +280,25 @@ impl Engine {
         self.events.emit(EngineEvent::ProfileSet { role, name });
     }
 
-    /// Set the device config (master rumble + chords). Retained; hot-swapped live if running.
+    /// Set the device config (LED/idle, master rumble, frequency). Retained; applied reader-side at
+    /// the next start/reconnect. Device settings have no live path to the reader, so — unlike
+    /// [`set_chords`](Self::set_chords) — this does not hot-swap a running loop.
     pub fn set_device_config(&mut self, device_config: DeviceConfig) {
-        let mode = if self.runtime.is_some() { "live" } else { "staged" };
-        log::info!(
-            "set_device_config: master_rumble={}%, {} chord(s) ({mode})",
-            device_config.master_rumble,
-            device_config.chords.len(),
-        );
-        self.device_config = device_config.clone();
-        if let Some(rt) = &self.runtime {
-            let _ = rt.control().send(Control::SetDeviceConfig(Box::new(device_config)));
-        }
+        log::info!("set_device_config: master_rumble={}%", device_config.master_rumble);
+        self.device_config = device_config;
         self.events.emit(EngineEvent::DeviceConfigSet(self.device_config.clone()));
+    }
+
+    /// Set the chords (`None` clears them). Retained; hot-swapped live if running.
+    pub fn set_chords(&mut self, chords: Option<Chords>) {
+        let mode = if self.runtime.is_some() { "live" } else { "staged" };
+        let n = chords.as_ref().map_or(0, |c| c.chords.len());
+        log::info!("set_chords: {n} chord(s) ({mode})");
+        self.chords = chords;
+        if let Some(rt) = &self.runtime {
+            let _ = rt.control().send(Control::SetChords(self.chords.clone()));
+        }
+        self.events.emit(EngineEvent::ChordsSet(self.chords.clone()));
     }
 
     // --- lifecycle ---------------------------------------------------------------------
@@ -326,7 +338,7 @@ impl Engine {
             sink,
             self.main.clone(),
             self.fallback.clone(),
-            self.device_config.clone(),
+            self.chords.clone(),
             self.events.clone(),
         ));
         self.events.emit(EngineEvent::BindingAcquired(pinned_id));
@@ -336,7 +348,7 @@ impl Engine {
 
     /// `output=Network` (client): open the device and forward its frames to the server at `addr`.
     /// **No main program is required** — the server maps, with its own config or the config we push
-    /// here on connect (config is ordinary `Apply`/`SetDeviceConfig`, PLAN §6.1).
+    /// here on connect (config is ordinary `Apply`/`SetChords`, PLAN §6.1).
     fn start_client(&mut self, addr: SocketAddr) -> Result<()> {
         let device = self.open_device()?;
         let cfg = ReaderCfg::for_device(&device.info().kind, &device.info().transport, &self.device_config);
@@ -368,7 +380,7 @@ impl Engine {
             sink,
             self.main.clone(),
             self.fallback.clone(),
-            self.device_config.clone(),
+            self.chords.clone(),
             self.events.clone(),
         )?);
         // No local device → no `bound` and no `BindingAcquired`. No `State(Running)` either: with no
@@ -383,8 +395,10 @@ impl Engine {
                 self.fallback.as_ref().map(|f| f.meta.name.as_str()).unwrap_or("(none)"))
     }
 
-    /// Ship the currently-staged programs + device config to a running (network) runtime as ordinary
-    /// control messages — the forwarder uses this to seed the server on connect.
+    /// Ship the currently-staged programs + chords to a running (network) runtime as ordinary
+    /// control messages — the forwarder uses this to seed the server on connect. Device settings are
+    /// reader-side (never sent). Chords are pushed **only when set**, so a thin client (chords `None`)
+    /// leaves the server's own chords untouched.
     fn push_staged_config(&self) {
         let Some(rt) = &self.runtime else { return };
         if let Some(m) = &self.main {
@@ -397,7 +411,9 @@ impl Engine {
                 .control()
                 .send(Control::Apply { program: Some(Box::new(f.clone())), role: Role::Fallback });
         }
-        let _ = rt.control().send(Control::SetDeviceConfig(Box::new(self.device_config.clone())));
+        if self.chords.is_some() {
+            let _ = rt.control().send(Control::SetChords(self.chords.clone()));
+        }
     }
 
     /// Halt the loop and release hardware (device → lizard restored, virtual pad unplugged).
@@ -435,10 +451,11 @@ impl Engine {
             input: self.input.clone(),
             bound: self.bound.clone(),
             controller,
+            device_config: self.device_config.clone(),
             main: self.main.as_ref().map(|p| p.meta.name.clone()),
             fallback: self.fallback.as_ref().map(|p| p.meta.name.clone()),
             active,
-            device_config: self.device_config.clone(),
+            chords: self.chords.clone(),
         }
     }
 

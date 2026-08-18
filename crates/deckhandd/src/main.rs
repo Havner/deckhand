@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use clap::Parser;
-use config::{ConfigDoc, DeviceConfig};
+use config::{Chords, ConfigDoc, DeviceConfig};
 use engine::{EventStream, Program, Role, compile};
 use ipc::{Client, Conn, Request, Response, Server};
 
@@ -37,7 +37,10 @@ struct Args {
     /// Fallback profile (RON) → applied to the Fallback role.
     #[arg(short, long, value_name = "RON")]
     fallback: Option<PathBuf>,
-    /// Device config (RON): LED/idle, master rumble, frequency, switch chords.
+    /// Chords (RON): the top-level switch/command chords.
+    #[arg(short = 'c', long, value_name = "RON")]
+    chords: Option<PathBuf>,
+    /// Device config (RON): LED/idle, master rumble, frequency.
     #[arg(short = 'd', long, value_name = "RON")]
     devcfg: Option<PathBuf>,
     /// Input source: auto | dongle | wired | bt | <device-id> | host:port.
@@ -120,6 +123,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     if let Some(p) = &args.fallback {
         daemon.apply(Role::Fallback, load_program(p)?);
         log::info!("fallback profile: {}", p.display());
+    }
+    if let Some(p) = &args.chords {
+        daemon.set_chords(Some(load_chords(p)?));
+        log::info!("chords: {}", p.display());
     }
     if let Some(p) = &args.devcfg {
         daemon.set_device_config(load_device_config(p)?);
@@ -393,6 +400,10 @@ fn load_program(path: &Path) -> Result<Program, Box<dyn Error>> {
         let msg = format_diags(&diags).join("\n  ");
         Box::<dyn Error>::from(format!("{}: did not compile:\n  {msg}", path.display()))
     })
+}
+
+fn load_chords(path: &Path) -> Result<Chords, Box<dyn Error>> {
+    Ok(ron::from_str(&std::fs::read_to_string(path)?)?)
 }
 
 fn load_device_config(path: &Path) -> Result<DeviceConfig, Box<dyn Error>> {

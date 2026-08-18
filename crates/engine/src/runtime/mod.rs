@@ -23,7 +23,7 @@ use std::thread::{self, JoinHandle};
 use crossbeam_channel::Sender;
 use serde::{Deserialize, Serialize};
 
-use config::{DeviceConfig, HapticStrength, Side};
+use config::{Chords, DeviceConfig, HapticStrength, Side};
 use steam_hid::{Device, DeviceId, DeviceKind, Transport};
 use virt_out::Sink;
 
@@ -73,8 +73,9 @@ pub(crate) enum Control {
     /// Replace one role's program (main↔fallback), or clear it (`program: None`), re-seeding the
     /// mapper if the affected role is the one live.
     Apply { program: Option<Box<Program>>, role: Role },
-    /// Replace the device config (master rumble + chords).
-    SetDeviceConfig(Box<DeviceConfig>),
+    /// Replace the chords (`None` clears them). Device settings never reach the mapper — they're
+    /// reader-side — so there is no device-config control message.
+    SetChords(Option<Chords>),
     /// Stop the loop (the running flag also gates it; this just wakes the `select!`).
     Stop,
 }
@@ -132,7 +133,7 @@ impl Runtime {
         sink: Sink,
         main: Option<Program>,
         fallback: Option<Program>,
-        device_config: DeviceConfig,
+        chords: Option<Chords>,
         events: EventSink,
     ) -> Runtime {
         let running = Arc::new(AtomicBool::new(true));
@@ -146,7 +147,7 @@ impl Runtime {
             device, pinned_id, cfg, client, running.clone(), connected.clone(), events.clone(),
         );
         let mapper = spawn_mapper(
-            sink, main, fallback, device_config, server, running.clone(), fallback_active.clone(), events,
+            sink, main, fallback, chords, server, running.clone(), fallback_active.clone(), events,
         );
         Runtime {
             running,
@@ -161,7 +162,7 @@ impl Runtime {
 
     /// **Client** role (output=Network): reader only — it reads the device and forwards frames to
     /// the remote server at `addr`; there is no local mapper or `Sink`. The link's config uplink
-    /// becomes the runtime's `control_tx`, so the handle's `apply`/`set_device_config` travel to the
+    /// becomes the runtime's `control_tx`, so the handle's `apply`/`set_chords` travel to the
     /// server. Errors if the dial fails.
     pub fn start_client(
         addr: SocketAddr,
@@ -201,7 +202,7 @@ impl Runtime {
         sink: Sink,
         main: Option<Program>,
         fallback: Option<Program>,
-        device_config: DeviceConfig,
+        chords: Option<Chords>,
         events: EventSink,
     ) -> Result<Runtime> {
         let running = Arc::new(AtomicBool::new(true));
@@ -212,7 +213,7 @@ impl Runtime {
         // a remote client, so `controller_connected` is `None`).
         let fallback_active = Arc::new(AtomicBool::new(false));
         let mapper = spawn_mapper(
-            sink, main, fallback, device_config, link, running.clone(), fallback_active.clone(), events,
+            sink, main, fallback, chords, link, running.clone(), fallback_active.clone(), events,
         );
         Ok(Runtime {
             running,
@@ -244,7 +245,7 @@ impl Runtime {
             .map(|f| if f.load(Ordering::SeqCst) { Role::Fallback } else { Role::Main })
     }
 
-    /// The control channel, for live `apply`/`set_device_config` while running.
+    /// The control channel, for live `apply`/`set_chords` while running.
     pub fn control(&self) -> &Sender<Control> {
         &self.control_tx
     }
@@ -299,7 +300,7 @@ fn spawn_mapper(
     sink: Sink,
     main: Option<Program>,
     fallback: Option<Program>,
-    device_config: DeviceConfig,
+    chords: Option<Chords>,
     link: LinkServer,
     running: Arc<AtomicBool>,
     fallback_active: Arc<AtomicBool>,
@@ -308,7 +309,7 @@ fn spawn_mapper(
     thread::Builder::new()
         .name("deckhand-mapper".into())
         .spawn(move || {
-            run_mapper(sink, main, fallback, device_config, link, running, fallback_active, events)
+            run_mapper(sink, main, fallback, chords, link, running, fallback_active, events)
         })
         .expect("spawn mapper thread")
 }

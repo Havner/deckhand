@@ -250,8 +250,8 @@ fn serve_connection(
                 Uplink::Apply { program, role } => {
                     let _ = control_tx.send(Control::Apply { program: program.map(Box::new), role });
                 }
-                Uplink::SetDeviceConfig(d) => {
-                    let _ = control_tx.send(Control::SetDeviceConfig(Box::new(d)));
+                Uplink::SetChords(c) => {
+                    let _ = control_tx.send(Control::SetChords(c));
                 }
                 Uplink::Event(report) => {
                     let _ = frame_tx.send(report);
@@ -522,7 +522,7 @@ fn pump(
             recv(control_rx) -> m => {
                 let msg = match m {
                     Ok(Control::Apply { program, role }) => Uplink::Apply { program: program.map(|p| *p), role },
-                    Ok(Control::SetDeviceConfig(d)) => Uplink::SetDeviceConfig(*d),
+                    Ok(Control::SetChords(c)) => Uplink::SetChords(c),
                     Ok(Control::Stop) => return PumpEnd::Stop, // local stop
                     Err(_) => return PumpEnd::Stop,
                 };

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{RecvError, select};
 
-use config::{DeviceConfig, RumbleSettings};
+use config::{Chord, Chords, RumbleSettings};
 use steam_hid::Report;
 use virt_out::{OutputEvent, Rumble, Sink};
 
@@ -32,7 +32,7 @@ pub(super) fn run_mapper(
     mut sink: Sink,
     mut main: Option<Program>,
     mut fallback: Option<Program>,
-    mut device_config: DeviceConfig,
+    mut chords: Option<Chords>,
     mut link: LinkServer,
     running: Arc<AtomicBool>,
     fallback_active: Arc<AtomicBool>,
@@ -44,7 +44,7 @@ pub(super) fn run_mapper(
     // Publish the initial live role unconditionally so a subscriber can seed purely from the event;
     // subsequent emits are on the chord switch only.
     set_active(&fallback_active, &events, role.clone());
-    let mut chords = ChordStates::new(&device_config.chords, role == Role::Fallback);
+    let mut chord_states = ChordStates::new(chord_list(&chords), role == Role::Fallback);
     let mut mapper = Mapper::new(program_for(&role, &main, &fallback));
     let mut out: Vec<OutputEvent> = Vec::new();
     let mut haptics: Vec<HapticReq> = Vec::new();
@@ -60,7 +60,7 @@ pub(super) fn run_mapper(
                     Ok(Report::State(state)) => {
                         let frame = LogicalFrame::new(state);
                         // Chords first: they may switch the main/fallback role and consume buttons.
-                        let outcome = chords.eval(&device_config.chords, &frame);
+                        let outcome = chord_states.eval(chord_list(&chords), &frame);
                         if outcome.role != role {
                             role = outcome.role;
                             let prog = program_for(&role, &main, &fallback);
@@ -107,7 +107,7 @@ pub(super) fn run_mapper(
                 },
                 recv(link.control_rx()) -> msg => {
                     stop = apply_control(
-                        msg, &mut main, &mut fallback, &mut device_config, &mut mapper, &role, &mut chords,
+                        msg, &mut main, &mut fallback, &mut chords, &mut mapper, &role, &mut chord_states,
                     );
                 }
                 // Insurance: devices stream ~250 Hz, but tick anyway so rumble is polled when idle.
@@ -142,7 +142,7 @@ pub(super) fn run_mapper(
 
         // ---- waiting phase: release outputs, keep the pad plugged, await reattach / stop ----
         match run_waiting(
-            &mut sink, &mut main, &mut fallback, &mut device_config, &mut mapper, &role, &mut chords,
+            &mut sink, &mut main, &mut fallback, &mut chords, &mut mapper, &role, &mut chord_states,
             &mut link, &running, &events,
         )? {
             WaitOutcome::Stopped => return Ok(()),
@@ -158,15 +158,20 @@ pub(super) fn run_mapper(
     }
 }
 
+/// The chord list a mapper is driving, or an empty slice when its `Chords` slot is `None`.
+fn chord_list(chords: &Option<Chords>) -> &[Chord] {
+    chords.as_ref().map_or(&[], |c| &c.chords)
+}
+
 /// Handle one control message (shared by the connected and waiting phases). Returns true to stop.
 fn apply_control(
     msg: std::result::Result<Control, RecvError>,
     main: &mut Option<Program>,
     fallback: &mut Option<Program>,
-    device_config: &mut DeviceConfig,
+    chords: &mut Option<Chords>,
     mapper: &mut Mapper,
     role: &Role,
-    chords: &mut ChordStates,
+    chord_states: &mut ChordStates,
 ) -> bool {
     match msg {
         Ok(Control::Apply { program, role: target }) => {
@@ -182,17 +187,10 @@ fn apply_control(
             }
             false
         }
-        Ok(Control::SetDeviceConfig(d)) => {
-            *device_config = *d;
+        Ok(Control::SetChords(c)) => {
+            *chords = c; // `None` clears the chords
             // Preserve the current role base across the swap.
-            *chords = ChordStates::new(&device_config.chords, chords.fallback_base());
-            // REVISIT (device config): a live SetDeviceConfig only takes effect for chords here.
-            // `master_rumble`/`led_brightness`/`idle_timeout` live in the reader's `ReaderCfg` (built
-            // once at start, re-applied on each `Connected`), so changing them via SetDeviceConfig does
-            // NOT push to the hardware until the next start/reconnect. To make LED/idle live too, the new
-            // values must reach the reader (e.g. thread them through the link so the reader re-runs
-            // its apply). The UI can't work around this itself — it only sends SetDeviceConfig. Part of a
-            // broader device config rework (see the Device screen).
+            *chord_states = ChordStates::new(chord_list(chords), chord_states.fallback_base());
             false
         }
         Ok(Control::Stop) | Err(_) => true,
@@ -216,10 +214,10 @@ fn run_waiting(
     sink: &mut Sink,
     main: &mut Option<Program>,
     fallback: &mut Option<Program>,
-    device_config: &mut DeviceConfig,
+    chords: &mut Option<Chords>,
     mapper: &mut Mapper,
     role: &Role,
-    chords: &mut ChordStates,
+    chord_states: &mut ChordStates,
     link: &mut LinkServer,
     running: &AtomicBool,
     events: &EventSink,
@@ -234,7 +232,7 @@ fn run_waiting(
     while running.load(Ordering::Relaxed) {
         select! {
             recv(control) -> msg => {
-                if apply_control(msg, main, fallback, device_config, mapper, role, chords) {
+                if apply_control(msg, main, fallback, chords, mapper, role, chord_states) {
                     return Ok(WaitOutcome::Stopped);
                 }
             }
