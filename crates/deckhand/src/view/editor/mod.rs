@@ -3,7 +3,8 @@
 //! The **Profile** page ([`profile_screen`]) and the per-input pages ([`input_screen`]) are wired:
 //! they render from, and mutate, the loaded profile's [`ConfigDoc`](config::ConfigDoc). Input pages
 //! are data-driven from [`Category::groups`] (headers, behaviour selectors, per-slot command
-//! bars with their gear menus, subcommands). Only [`rumble_screen`] is still a mockup.
+//! bars with their gear menus, subcommands). The **Profile** page also carries the profile-level
+//! rumble feel (strength + curve).
 
 use std::collections::BTreeMap;
 
@@ -12,7 +13,7 @@ use iced::{Center, Element, Fill};
 
 use config::{Action, Curve, InputSource, SourceBinding, SourceKind};
 
-use super::{Dot, card, group_header, label_row, section_header, setting_label, slot_display, small};
+use super::{Dot, card, group_header, label_row, section_header, setting_label, slot_display};
 use crate::editor::{ActionTarget, Behavior, CommandRef, CommandSlot, EditorMessage};
 use crate::nav::{Category, InputGroup};
 use crate::view::modal::action_label;
@@ -62,7 +63,25 @@ pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
         .padding(iced::padding::top(6.0)),
     );
 
-    column![section_header("Profile"), name, list].spacing(20.0).into()
+    column![section_header("Profile"), name, profile_rumble(app), list].spacing(20.0).into()
+}
+
+/// The profile-level rumble feel (`ConfigDoc.rumble`: strength + the strength→drive curve), shown as
+/// a section on the Profile page. Frequency is a global (device-local), not a per-profile setting.
+/// Standalone widgets + curve control, deliberately NOT the reusable per-behaviour settings blocks.
+fn profile_rumble(app: &App) -> Element<'static, Message> {
+    let r = app.editing.as_ref().map(|e| e.doc.rumble.clone()).unwrap_or_default();
+
+    // Strength is a percent that may exceed 100 (u8 → 255) to boost under-driven games.
+    let strength = row![
+        setting_label("Strength"),
+        slider(0..=255u8, r.strength, |v| Message::Editor(EditorMessage::SetRumbleStrength(v))).step(1u8),
+        text(format!("{}%", r.strength)).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+
+    column![group_header("Rumble"), strength, rumble_curve(&r.curve)].spacing(12.0).into()
 }
 
 /// A full-width action-set bar with its gear (opens the set's context menu).
@@ -150,44 +169,7 @@ pub(super) fn input_screen(app: &App, category: Category) -> Element<'static, Me
     col.into()
 }
 
-/// Rumble screen — the profile-level rumble feel (`ConfigDoc.rumble`: strength / frequency / the
-/// strength→drive curve). A **standalone** page (its own widgets + curve control), deliberately NOT
-/// built from the reusable settings blocks — those stay solely for the per-behaviour pages.
-pub(super) fn rumble_screen(app: &App) -> Element<'static, Message> {
-    let r = app.editing.as_ref().map(|e| e.doc.rumble.clone()).unwrap_or_default();
-
-    // Strength is a percent that may exceed 100 (u8 → 255) to boost under-driven games.
-    let strength = row![
-        setting_label("Strength"),
-        slider(0..=255u8, r.strength, |v| Message::Editor(EditorMessage::SetRumbleStrength(v))).step(1u8),
-        text(format!("{}%", r.strength)).width(70.0),
-    ]
-    .spacing(12.0)
-    .align_y(Center);
-
-    let frequency = row![
-        setting_label("Frequency"),
-        slider(30..=150u16, r.hz, |v| Message::Editor(EditorMessage::SetRumbleHz(v))).step(1u16),
-        text(format!("{} Hz", r.hz)).width(70.0),
-    ]
-    .spacing(12.0)
-    .align_y(Center);
-
-    column![
-        section_header("Rumble"),
-        small(
-            "Per-profile rumble feel: game force-feedback → controller rumble. Strength may exceed \
-             100% to boost games that under-drive their force-feedback.",
-        ),
-        strength,
-        frequency,
-        rumble_curve(&r.curve),
-    ]
-    .spacing(16.0)
-    .into()
-}
-
-/// This page's own Curve control (kind picker + exponent slider) — a standalone copy of the
+/// The Rumble section's own Curve control (kind picker + exponent slider) — a standalone copy of the
 /// settings-page shape, NOT the reusable `curve` block, so the behaviour-settings blocks stay
 /// untouched. Its own `RumbleCurveKind`, so the two evolve independently (accepted duplication).
 fn rumble_curve(curve: &Curve) -> Element<'static, Message> {

@@ -340,7 +340,6 @@ fn content(app: &App) -> Element<'_, Message> {
         None => match app.category {
             Category::Profiles => profiles::profiles_screen(app),
             Category::Profile => editor::profile_screen(app),
-            Category::Rumble => editor::rumble_screen(app),
             Category::Settings => settings::settings_screen(app),
             Category::Globals => globals::globals_screen(app),
             // The per-input editor pages (Buttons/Triggers/Joysticks/Trackpads/Gyro) are data-driven

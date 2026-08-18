@@ -251,8 +251,8 @@ fn run_waiting(
 }
 
 /// Compute the effective per-pad drive from a raw game rumble and the main profile's rumble settings
-/// (strength % + response curve); `hz` passes through from the profile. The global master % is NOT
-/// applied here — the reader does that (device-local, see `DeviceCfg::master_rumble`).
+/// (strength % + response curve). The global master % and the pulse frequency are NOT applied here —
+/// the reader does that (device-local; see `DeviceCfg::master_rumble` / `DeviceCfg::rumble_hz`).
 fn rumble_cmd(raw: Rumble, s: &RumbleSettings) -> RumbleCmd {
     // Per-profile `strength` MAY exceed 100 to *boost* a game that under-drives its FF — many cap
     // well below full range (observed: 25%), so at `MAX_DUTY` they'd never reach the actuator's
@@ -263,7 +263,7 @@ fn rumble_cmd(raw: Rumble, s: &RumbleSettings) -> RumbleCmd {
         let full = (v as f32 / u16::MAX as f32) * scale;
         (s.curve.apply(full.clamp(0.0, 1.0)).clamp(0.0, 1.0) * u16::MAX as f32) as u16
     };
-    RumbleCmd { strong: drive(raw.strong), weak: drive(raw.weak), hz: s.hz }
+    RumbleCmd { strong: drive(raw.strong), weak: drive(raw.weak) }
 }
 
 /// The program driving a given role. Each role prefers its own slot, falls through to the other,
@@ -329,26 +329,24 @@ mod tests {
     }
 
     #[test]
-    fn rumble_cmd_applies_strength_and_hz() {
+    fn rumble_cmd_applies_strength() {
         let full = Rumble { strong: u16::MAX, weak: u16::MAX / 2 };
 
-        // strength 100% (default) passes through unchanged; hz carried from the profile. Master is
-        // NOT applied here — the reader does that (see `reader::scale_master`).
-        let s = RumbleSettings { hz: 60, strength: 100, curve: Curve::Linear };
+        // strength 100% (default) passes through unchanged. Master and frequency are NOT applied
+        // here — the reader does that (see `reader::scale_master` / `DeviceCfg::rumble_hz`).
+        let s = RumbleSettings { strength: 100, curve: Curve::Linear };
         let cmd = rumble_cmd(full.clone(), &s);
-        assert_eq!(cmd.hz, 60);
         assert_eq!(cmd.strong, u16::MAX);
         assert!((cmd.weak as i32 - (u16::MAX / 2) as i32).abs() <= 1);
 
-        // strength 50% halves; different hz passes through.
-        let s = RumbleSettings { hz: 200, strength: 50, curve: Curve::Linear };
+        // strength 50% halves.
+        let s = RumbleSettings { strength: 50, curve: Curve::Linear };
         let cmd = rumble_cmd(full, &s);
-        assert_eq!(cmd.hz, 200);
         assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 1);
 
         // strength > 100 boosts a game that under-drives its FF: a quarter-range input at 200%
         // reaches half drive, and the boost clamps at the packet max instead of overflowing.
-        let boost = RumbleSettings { hz: 80, strength: 200, curve: Curve::Linear };
+        let boost = RumbleSettings { strength: 200, curve: Curve::Linear };
         let quarter = Rumble { strong: u16::MAX / 4, weak: 0 };
         let cmd = rumble_cmd(quarter, &boost);
         assert!((cmd.strong as i32 - (u16::MAX / 2) as i32).abs() <= 2);

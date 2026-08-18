@@ -71,12 +71,12 @@ pub struct ProgramMeta {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Program {
     pub meta: ProgramMeta,
+    /// Per-profile rumble feel (strength %, curve) — the manager applies these to the
+    /// game→controller haptics for whichever program is the active role (PLAN §3 Round E).
+    pub rumble: RumbleSettings,
     pub sets: Vec<CompiledSet>,
     /// The set active on load (the profile's first action set).
     pub default_set: SetId,
-    /// Per-profile rumble feel (pulse Hz, strength %, curve) — the manager applies these to the
-    /// game→controller haptics for whichever program is the active role (PLAN §3 Round E).
-    pub rumble: RumbleSettings,
 }
 
 impl Program {
@@ -95,9 +95,9 @@ pub(crate) fn empty_program() -> &'static Program {
     static EMPTY: OnceLock<Program> = OnceLock::new();
     EMPTY.get_or_init(|| Program {
         meta: ProgramMeta { name: "EMPTY_PROFILE".into(), role: Role::Main },
+        rumble: RumbleSettings::default(),
         sets: vec![CompiledSet { name: "empty".into(), base: SourceMap::new(), layers: vec![] }],
         default_set: SetId::new(0),
-        rumble: RumbleSettings::default(),
     })
 }
 

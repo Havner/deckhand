@@ -64,15 +64,27 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
     .spacing(12.0)
     .align_y(Center);
 
-    let note =
-        small("'Master rumble', 'LED brightness' and 'Idle timeout' take effect only on engine start.");
+    // Rumble frequency: the Gordon pulse-train rate (same format as the old profile Rumble page).
+    let frequency = row![
+        setting_label("Frequency"),
+        slider(30..=150u16, g.rumble_hz, Message::GlobalsRumbleHz).step(1u16),
+        text(format!("{} Hz", g.rumble_hz)).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+
+    let note = small(
+        "'LED brightness', 'Idle timeout', 'Master rumble' and 'Frequency' take effect only on \
+         engine start.",
+    );
 
     column![
         section_header("Global daemon settings"),
         note,
-        master,
         led,
         idle,
+        master,
+        frequency,
         chords_section(g),
     ]
     .spacing(16.0)

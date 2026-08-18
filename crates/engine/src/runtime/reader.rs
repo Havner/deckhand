@@ -177,7 +177,7 @@ fn read_session(
                 if (level.strong > 0 || level.weak > 0)
                     && last_haptic.elapsed() >= Duration::from_millis(RUMBLE_REFIRE_MS)
                 {
-                    if let Err(e) = apply_haptics(device, &level) {
+                    if let Err(e) = apply_haptics(device, &level, cfg.rumble_hz) {
                         log::warn!("rumble write failed: {e}");
                     }
                     last_haptic = Instant::now();
@@ -247,23 +247,23 @@ fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) {
     }
 }
 
-/// Attenuate a rumble command's amplitudes by the global master percentage (`0..=100`); `hz` is
-/// unchanged. Applied reader-side so `master_rumble` stays a device-local setting (PLAN §1.9): the
-/// mapper already folded in the game FF and the profile strength/curve.
+/// Attenuate a rumble command's amplitudes by the global master percentage (`0..=100`). Applied
+/// reader-side so `master_rumble` stays a device-local setting (PLAN §1.9): the mapper already
+/// folded in the game FF and the profile strength/curve.
 fn scale_master(cmd: RumbleCmd, master: u8) -> RumbleCmd {
     let scale = |v: u16| ((v as u32 * master.min(100) as u32) / 100) as u16;
-    RumbleCmd { strong: scale(cmd.strong), weak: scale(cmd.weak), hz: cmd.hz }
+    RumbleCmd { strong: scale(cmd.strong), weak: scale(cmd.weak) }
 }
 
 /// Route a rumble command to Gordon's trackpad actuators as pulse-trains (strong→left, weak→right;
 /// PLAN §1.9). Re-fired by the reader while the level stays non-zero. (Gordon only; the Deck uses
 /// [`Device::rumble_cmd`] directly — see `read_session`.)
-fn apply_haptics(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
+fn apply_haptics(device: &mut Device, cmd: &RumbleCmd, hz: u16) -> Result<()> {
     if cmd.strong > 0 {
-        device.haptic_pulse(Motor::Left, train(cmd.strong, cmd.hz))?;
+        device.haptic_pulse(Motor::Left, train(cmd.strong, hz))?;
     }
     if cmd.weak > 0 {
-        device.haptic_pulse(Motor::Right, train(cmd.weak, cmd.hz))?;
+        device.haptic_pulse(Motor::Right, train(cmd.weak, hz))?;
     }
     Ok(())
 }
@@ -379,14 +379,14 @@ mod tests {
 
     #[test]
     fn scale_master_attenuates_amplitudes_only() {
-        let cmd = RumbleCmd { strong: u16::MAX, weak: 10_000, hz: 80 };
-        // 100% is identity; hz always passes through.
+        let cmd = RumbleCmd { strong: u16::MAX, weak: 10_000 };
+        // 100% is identity.
         assert_eq!(scale_master(cmd.clone(), 100), cmd);
-        // 50% halves both amplitudes, hz untouched.
+        // 50% halves both amplitudes.
         let half = scale_master(cmd.clone(), 50);
         assert!((half.strong as i32 - (u16::MAX / 2) as i32).abs() <= 1);
-        assert_eq!((half.weak, half.hz), (5_000, 80));
+        assert_eq!(half.weak, 5_000);
         // 0% silences.
-        assert_eq!(scale_master(cmd, 0), RumbleCmd { strong: 0, weak: 0, hz: 80 });
+        assert_eq!(scale_master(cmd, 0), RumbleCmd { strong: 0, weak: 0 });
     }
 }

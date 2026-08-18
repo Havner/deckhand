@@ -211,7 +211,7 @@ mod tests {
 
         // UDP back-channel: rumble level + one-shot click.
         for msg in [
-            Downlink::Rumble(RumbleCmd { strong: 30000, weak: 12000, hz: 80 }),
+            Downlink::Rumble(RumbleCmd { strong: 30000, weak: 12000 }),
             Downlink::Click(Click { side: Side::Left, strength: HapticStrength::Medium }),
         ] {
             let bytes = encode(&msg).unwrap();

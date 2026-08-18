@@ -1,8 +1,8 @@
 //! Global / engine-level config — Tier B (PLAN §3, Round E).
 //!
 //! Profile-independent settings handed to the engine **once** (uncompiled): the master
-//! rumble %, device toggles, and the top-level chords. The engine evaluates chords before
-//! any profile binding and consumes their buttons (§4).
+//! rumble % + pulse frequency, device toggles, and the top-level chords. The engine evaluates
+//! chords before any profile binding and consumes their buttons (§4).
 
 use serde::{Deserialize, Serialize};
 
@@ -10,13 +10,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GlobalConfig {
-    /// `0..=100 %` — scales **all** haptic output (activator haptics + rumble back-channel). A
-    /// global attenuator only; per-profile `strength` (which may exceed 100) does per-game gain.
-    pub master_rumble: u8,
     /// LED brightness `0..=100 %` (applied on connect); `None` = leave default.
     pub led_brightness: Option<u8>,
     /// Sleep/idle timeout, seconds (applied on connect); `None` = leave default.
     pub idle_timeout: Option<u16>,
+    /// `0..=100 %` — scales **all** haptic output (activator haptics + rumble back-channel). A
+    /// global attenuator only; per-profile `strength` (which may exceed 100) does per-game gain.
+    pub master_rumble: u8,
+    /// Rumble pulse frequency, Hz — the Gordon pulse-train rate (applied reader-side; the Deck's
+    /// motor rumble ignores it). Was per-profile (`RumbleSettings.hz`); now global.
+    pub rumble_hz: u16,
     /// Top-level switch/command chords.
     pub chords: Vec<GlobalChord>,
 }
@@ -24,9 +27,10 @@ pub struct GlobalConfig {
 impl Default for GlobalConfig {
     fn default() -> Self {
         GlobalConfig {
-            master_rumble: 100,
             led_brightness: None,
             idle_timeout: None,
+            master_rumble: 100,
+            rumble_hz: 60,
             chords: vec![],
         }
     }
@@ -83,9 +87,10 @@ mod tests {
     #[test]
     fn global_config_round_trips_ron() {
         let g = GlobalConfig {
-            master_rumble: 80,
             led_brightness: Some(50),
             idle_timeout: None,
+            master_rumble: 80,
+            rumble_hz: 90,
             chords: vec![
                 GlobalChord {
                     buttons: vec![vocab_hid::Button::Steam, vocab_hid::Button::RGrip],

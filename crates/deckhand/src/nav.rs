@@ -1,8 +1,8 @@
 //! The left-sidebar navigation model — one enum for every screen the content pane can show.
 //!
 //! Two sections, split by a flex spacer (declared top-to-bottom):
-//! - **Top** — the **profile-editor** bands ([`Category::EDITOR_BANDS`]: Profile / per-input pages /
-//!   Rumble), which edit the loaded profile, so they're disabled until one is loaded (see
+//! - **Top** — the **profile-editor** bands ([`Category::EDITOR_BANDS`]: Profile / per-input pages),
+//!   which edit the loaded profile, so they're disabled until one is loaded (see
 //!   `App::editing`).
 //! - **Bottom** ([`Category::BOTTOM`]) — profile *management* (Profiles) plus the app-level pages
 //!   (Globals, Settings); always available.
@@ -21,7 +21,6 @@ pub(crate) enum Category {
     Joysticks,
     Trackpads,
     Gyro,
-    Rumble,
     // Bottom section: profile management + app-level pages.
     Profiles,
     Globals,
@@ -29,10 +28,9 @@ pub(crate) enum Category {
 }
 
 impl Category {
-    /// The profile-editor categories, split into the sidebar's three bands (rendered with a rule
-    /// between each): the profile-level **Profile** page, the per-input pages, and the profile-level
-    /// **Rumble** page. They operate on the loaded profile, so they're greyed until one is loaded
-    /// ([`Self::is_editor`]).
+    /// The profile-editor categories, split into the sidebar's two bands (rendered with a rule
+    /// between them): the profile-level **Profile** page and the per-input pages. They operate on the
+    /// loaded profile, so they're greyed until one is loaded ([`Self::is_editor`]).
     pub(crate) const EDITOR_BANDS: &'static [&'static [Category]] = &[
         &[Category::Profile],
         &[
@@ -42,7 +40,6 @@ impl Category {
             Category::Trackpads,
             Category::Gyro,
         ],
-        &[Category::Rumble],
     ];
 
     /// The bottom-section pages, in order: profile management (Profiles) then the app-level pages
@@ -64,7 +61,6 @@ impl Category {
             Category::Joysticks => "Joysticks",
             Category::Trackpads => "Trackpads",
             Category::Gyro => "Gyro",
-            Category::Rumble => "Rumble",
             Category::Profiles => "Profiles",
             Category::Globals => "Globals",
             Category::Settings => "Settings",
@@ -72,9 +68,9 @@ impl Category {
     }
 
     /// The input groups shown on this category's editor page, in display order. Empty for the
-    /// non-input categories (Profile / Rumble / Globals / Settings / Profiles) — those render
-    /// bespoke screens (action sets + name, rumble feel, app settings). See [`InputGroup`] for the
-    /// header + primary + sub-button layout.
+    /// non-input categories (Profile / Globals / Settings / Profiles) — those render bespoke screens
+    /// (action sets + name + rumble feel, app settings). See [`InputGroup`] for the header + primary
+    /// + sub-button layout.
     ///
     /// This is the static, device-independent superset (Gordon lacks a handful — greyed at render
     /// time via [`config::Shape`], not filtered here). Every [`InputSource`] appears in exactly one
@@ -176,7 +172,7 @@ mod tests {
     /// The non-input categories carry no groups (they render bespoke screens).
     #[test]
     fn non_input_categories_have_no_groups() {
-        for cat in [Category::Profile, Category::Rumble, Category::Globals, Category::Settings, Category::Profiles] {
+        for cat in [Category::Profile, Category::Globals, Category::Settings, Category::Profiles] {
             assert!(cat.groups().is_empty(), "{:?} should have no input groups", cat.label());
         }
     }

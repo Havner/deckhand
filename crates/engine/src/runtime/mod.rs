@@ -47,6 +47,8 @@ pub(crate) struct DeviceCfg {
     /// Global rumble attenuator `0..=100 %`, applied reader-side to every haptic amplitude (the
     /// mapper sends game+profile-scaled rumble; master scales it here, device-local).
     pub master_rumble: u8,
+    /// Rumble pulse frequency, Hz — the Gordon pulse-train rate ([`train`]); the Deck ignores it.
+    pub rumble_hz: u16,
     /// Periodically re-assert lizard-off ([`DeviceKind::needs_keepalive`]).
     pub keepalive: bool,
 }
@@ -59,6 +61,7 @@ impl DeviceCfg {
             led_brightness: kind.has_led_intensity().then_some(globals.led_brightness).flatten(),
             idle_timeout: transport.has_idle().then_some(globals.idle_timeout).flatten(),
             master_rumble: globals.master_rumble,
+            rumble_hz: globals.rumble_hz,
             keepalive: kind.needs_keepalive(),
         }
     }
@@ -83,7 +86,6 @@ pub(crate) enum Control {
 pub(crate) struct RumbleCmd {
     pub(crate) strong: u16,
     pub(crate) weak: u16,
-    pub(crate) hz: u16,
 }
 
 /// One-shot command-haptic click for the reader to fire immediately on `side`'s pad, at one of three

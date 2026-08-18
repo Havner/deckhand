@@ -300,11 +300,12 @@ pub(crate) enum Message {
     Editor(editor::EditorMessage),
     /// Globals-screen edits. Each mutates the UI-owned `globals`, then persists it and ships it to
     /// the daemon ([`App::apply_globals`]). The two `Option` fields toggle via the `*Enabled` pair.
-    GlobalsMasterRumble(u8),
     GlobalsLedEnabled(bool),
     GlobalsLedBrightness(u8),
     GlobalsIdleEnabled(bool),
     GlobalsIdleTimeout(u16),
+    GlobalsMasterRumble(u8),
+    GlobalsRumbleHz(u16),
     /// Tray settings.
     ToggleUseTray(bool),
     ToggleCloseToTray(bool),
@@ -586,10 +587,6 @@ impl App {
             }
             // Globals edits: mutate the in-memory config, then persist + push to the daemon. The
             // two Option fields default to a sensible value when their checkbox is switched on.
-            Message::GlobalsMasterRumble(v) => {
-                self.globals.master_rumble = v;
-                return self.apply_globals();
-            }
             Message::GlobalsLedEnabled(on) => {
                 self.globals.led_brightness = on.then_some(DEFAULT_LED_BRIGHTNESS);
                 return self.apply_globals();
@@ -604,6 +601,14 @@ impl App {
             }
             Message::GlobalsIdleTimeout(secs) => {
                 self.globals.idle_timeout = Some(secs);
+                return self.apply_globals();
+            }
+            Message::GlobalsMasterRumble(v) => {
+                self.globals.master_rumble = v;
+                return self.apply_globals();
+            }
+            Message::GlobalsRumbleHz(v) => {
+                self.globals.rumble_hz = v;
                 return self.apply_globals();
             }
 

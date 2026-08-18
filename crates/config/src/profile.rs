@@ -21,10 +21,10 @@ pub struct ConfigDoc {
     pub version: u32,
     #[serde(default)]
     pub name: String,
-    /// At least one; the first is the initially-active set.
-    pub action_sets: Vec<ActionSet>,
     #[serde(default)]
     pub rumble: RumbleSettings,
+    /// At least one; the first is the initially-active set.
+    pub action_sets: Vec<ActionSet>,
 }
 
 /// A full-controller mode; exactly one active at a time (`ChangeActionSet` swaps it).
@@ -52,8 +52,6 @@ pub struct Layer {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RumbleSettings {
-    /// Pulse frequency, Hz.
-    pub hz: u16,
     /// Strength, percent (before the global master %). **May exceed 100 to boost** (a `u8`, so up
     /// to 255): many games under-drive their FF — some cap at ~25% of range — so a value like ~200
     /// lifts such a game back toward the controller's saturation. The engine clamps the final drive
@@ -65,7 +63,7 @@ pub struct RumbleSettings {
 
 impl Default for RumbleSettings {
     fn default() -> Self {
-        RumbleSettings { hz: 60, strength: 100, curve: Curve::Linear }
+        RumbleSettings { strength: 100, curve: Curve::Linear }
     }
 }
 
@@ -108,7 +106,7 @@ mod tests {
     #[test]
     fn rumble_defaults() {
         let r = RumbleSettings::default();
-        assert_eq!((r.hz, r.strength), (60, 100));
+        assert_eq!(r.strength, 100);
         assert_eq!(r.curve, Curve::Linear);
     }
 }

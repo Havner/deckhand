@@ -599,7 +599,7 @@ mod tests {
         assert_eq!(server.frame_rx().recv_timeout(secs(2)).unwrap(), Report::Connected);
 
         // Server → client: rumble over the UDP back-channel (address learned from the frame above).
-        let cmd = RumbleCmd { strong: 30000, weak: 0, hz: 80 };
+        let cmd = RumbleCmd { strong: 30000, weak: 0 };
         let got = loop_backchannel(&server, &client, cmd.clone());
         assert_eq!(got, cmd);
 
