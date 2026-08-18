@@ -5,9 +5,9 @@
 //!   which edit the loaded profile, so they're disabled until one is loaded (see
 //!   `App::editing`).
 //! - **Bottom** ([`Category::BOTTOM`]) — profile *management* (Profiles) plus the app-level pages
-//!   (Globals, Settings); always available.
+//!   (Device, Settings); always available.
 //!
-//! Profiles, Settings, and Globals are wired; the editor pages are still mock screens.
+//! Profiles, Settings, and Device are wired; the editor pages are still mock screens.
 
 use config::InputSource;
 
@@ -23,7 +23,7 @@ pub(crate) enum Category {
     Gyro,
     // Bottom section: profile management + app-level pages.
     Profiles,
-    Globals,
+    Device,
     Settings,
 }
 
@@ -43,9 +43,9 @@ impl Category {
     ];
 
     /// The bottom-section pages, in order: profile management (Profiles) then the app-level pages
-    /// (Globals, Settings). Rendered flat (no separators), pinned below the flex spacer.
+    /// (Device, Settings). Rendered flat (no separators), pinned below the flex spacer.
     pub(crate) const BOTTOM: &'static [Category] =
-        &[Category::Profiles, Category::Globals, Category::Settings];
+        &[Category::Profiles, Category::Device, Category::Settings];
 
     /// Whether this category is part of the profile editor (disabled when no profile is loaded).
     pub(crate) fn is_editor(self) -> bool {
@@ -62,13 +62,13 @@ impl Category {
             Category::Trackpads => "Trackpads",
             Category::Gyro => "Gyro",
             Category::Profiles => "Profiles",
-            Category::Globals => "Globals",
+            Category::Device => "Device",
             Category::Settings => "Settings",
         }
     }
 
     /// The input groups shown on this category's editor page, in display order. Empty for the
-    /// non-input categories (Profile / Globals / Settings / Profiles) — those render bespoke screens
+    /// non-input categories (Profile / Device / Settings / Profiles) — those render bespoke screens
     /// (action sets + name + rumble feel, app settings). See [`InputGroup`] for the header + primary
     /// + sub-button layout.
     ///
@@ -172,7 +172,7 @@ mod tests {
     /// The non-input categories carry no groups (they render bespoke screens).
     #[test]
     fn non_input_categories_have_no_groups() {
-        for cat in [Category::Profile, Category::Globals, Category::Settings, Category::Profiles] {
+        for cat in [Category::Profile, Category::Device, Category::Settings, Category::Profiles] {
             assert!(cat.groups().is_empty(), "{:?} should have no input groups", cat.label());
         }
     }

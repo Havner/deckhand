@@ -173,7 +173,7 @@ impl LinkClient {
         Ok(LinkClient::Network(net::NetClient::connect(server)?))
     }
 
-    /// The config uplink — the handle routes `apply`/`set_globals` here (Network only). `None` for a
+    /// The config uplink — the handle routes `apply`/`set_device_config` here (Network only). `None` for a
     /// loopback client: its control reaches the co-located mapper via [`LocalLink::control_tx`].
     pub(crate) fn control_tx(&self) -> Option<&Sender<Control>> {
         match self {

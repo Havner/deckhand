@@ -1,4 +1,4 @@
-//! Validation — **collect-all** diagnostics over a [`ConfigDoc`] / [`GlobalConfig`]
+//! Validation — **collect-all** diagnostics over a [`ConfigDoc`] / [`DeviceConfig`]
 //! (PLAN §3). Not fail-fast: the UI surfaces every problem at once. This is where the
 //! (deferred) `compile()` will hook in; today it stops at diagnostics.
 //!
@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use crate::action::Action;
 use crate::binding::SourceBinding;
-use crate::global::GlobalConfig;
+use crate::device::DeviceConfig;
 use crate::input::InputSource;
 use crate::profile::ConfigDoc;
 
@@ -58,8 +58,8 @@ impl ConfigDoc {
     }
 }
 
-impl GlobalConfig {
-    /// Validate the globals: chords must be non-empty, master rumble ≤ 100. (Chord/gater members
+impl DeviceConfig {
+    /// Validate the device config: chords must be non-empty, master rumble ≤ 100. (Chord/gater members
     /// are `vocab_hid::Button`s now — every value is a real hardware button, so "is it a physical
     /// button" is no longer representable-as-invalid.)
     pub fn validate(&self) -> Vec<Diagnostic> {

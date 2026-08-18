@@ -3,7 +3,7 @@
 //! Owns the modal **shell** ([`overlay`]/`shell`), the [`Popup`] state enum, and every popup's
 //! card: the network I/O dialog, the Profile-page context menu, the name-entry dialog, and the two
 //! big pickers ([`action`] = choose an output/mode [`Action`](config::Action); [`button`] = choose a
-//! `SourceKind::Button` [`InputSource`](config::InputSource) for gaters/globals). Only one popup is
+//! `SourceKind::Button` [`InputSource`](config::InputSource) for gaters/chords). Only one popup is
 //! shown at a time. Rendering lives here; the *semantic* types it produces (`EditTarget`,
 //! `NameEntryKind`, the picked values) stay in [`crate::editor`].
 

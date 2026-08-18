@@ -37,9 +37,9 @@ impl Daemon {
         Ok(())
     }
 
-    /// Replace the global config (CLI `-g` and `SetGlobals`).
-    pub fn set_globals(&mut self, globals: config::GlobalConfig) {
-        self.engine.set_globals(globals);
+    /// Replace the device config (CLI `-d` and `SetDeviceConfig`).
+    pub fn set_device_config(&mut self, device_config: config::DeviceConfig) {
+        self.engine.set_device_config(device_config);
     }
 
     /// Acquire hardware and start the mapping loop (CLI `--start`).
@@ -61,8 +61,8 @@ impl Daemon {
     pub fn handle(&mut self, req: Request) -> Response {
         match req {
             Request::Apply { role, config } => self.apply_config(role, config.map(|c| *c)),
-            Request::SetGlobals(g) => {
-                self.set_globals(*g);
+            Request::SetDeviceConfig(d) => {
+                self.set_device_config(*d);
                 Response::Ok
             }
             Request::SetInput(spec) => match self.set_input(&spec) {
@@ -126,7 +126,7 @@ impl Daemon {
             main: s.main,
             fallback: s.fallback,
             active: s.active.map(profile_role),
-            globals: s.globals,
+            device_config: s.device_config,
         }
     }
 
@@ -190,6 +190,6 @@ pub fn to_wire_event(ev: EngineEvent) -> Event {
         EngineEvent::InputStaged(i) => Event::InputStaged(i.to_string()),
         EngineEvent::OutputStaged(o) => Event::OutputStaged(o.to_string()),
         EngineEvent::ProfileSet { role, name } => Event::ProfileSet { role: profile_role(role), name },
-        EngineEvent::GlobalConfigSet(g) => Event::GlobalConfigSet(g),
+        EngineEvent::DeviceConfigSet(d) => Event::DeviceConfigSet(d),
     }
 }

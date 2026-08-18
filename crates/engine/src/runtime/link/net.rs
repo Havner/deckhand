@@ -67,7 +67,7 @@ pub(crate) struct NetServer {
     frame_rx: Receiver<Report>,
     control_rx: Receiver<Control>,
     /// A clone of the control sender the TCP thread feeds — exposed so the server's *own* handle can
-    /// merge local `apply`/`set_globals` into the same stream as the client's wire config (the
+    /// merge local `apply`/`set_device_config` into the same stream as the client's wire config (the
     /// two-feeder `control_rx`, PLAN §6.1).
     control_tx: Sender<Control>,
     rumble_tx: Sender<RumbleCmd>,
@@ -250,8 +250,8 @@ fn serve_connection(
                 Uplink::Apply { program, role } => {
                     let _ = control_tx.send(Control::Apply { program: program.map(Box::new), role });
                 }
-                Uplink::SetGlobals(g) => {
-                    let _ = control_tx.send(Control::SetGlobals(Box::new(g)));
+                Uplink::SetDeviceConfig(d) => {
+                    let _ = control_tx.send(Control::SetDeviceConfig(Box::new(d)));
                 }
                 Uplink::Event(report) => {
                     let _ = frame_tx.send(report);
@@ -522,7 +522,7 @@ fn pump(
             recv(control_rx) -> m => {
                 let msg = match m {
                     Ok(Control::Apply { program, role }) => Uplink::Apply { program: program.map(|p| *p), role },
-                    Ok(Control::SetGlobals(g)) => Uplink::SetGlobals(*g),
+                    Ok(Control::SetDeviceConfig(d)) => Uplink::SetDeviceConfig(*d),
                     Ok(Control::Stop) => return PumpEnd::Stop, // local stop
                     Err(_) => return PumpEnd::Stop,
                 };

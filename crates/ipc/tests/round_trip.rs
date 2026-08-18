@@ -29,7 +29,7 @@ fn client_server_round_trip() {
                         main: Some("game".into()),
                         fallback: None,
                         active: Some(ProfileRole::Main),
-                        globals: Default::default(),
+                        device_config: Default::default(),
                     }),
                     Request::ListDevices => Response::Devices(vec!["gordon:dongle:1:".into()]),
                     Request::Shutdown => {

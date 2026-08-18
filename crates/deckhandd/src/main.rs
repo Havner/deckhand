@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use clap::Parser;
-use config::{ConfigDoc, GlobalConfig};
+use config::{ConfigDoc, DeviceConfig};
 use engine::{EventStream, Program, Role, compile};
 use ipc::{Client, Conn, Request, Response, Server};
 
@@ -37,9 +37,9 @@ struct Args {
     /// Fallback profile (RON) → applied to the Fallback role.
     #[arg(short, long, value_name = "RON")]
     fallback: Option<PathBuf>,
-    /// Global config (RON): master rumble, boot role, switch chords.
-    #[arg(short, long, value_name = "RON")]
-    globals: Option<PathBuf>,
+    /// Device config (RON): LED/idle, master rumble, frequency, switch chords.
+    #[arg(short = 'd', long, value_name = "RON")]
+    devcfg: Option<PathBuf>,
     /// Input source: auto | dongle | wired | bt | <device-id> | host:port.
     ///
     /// A <device-id> is `kind:transport:interface:serial` — e.g. `gordon:dongle:1:` (see
@@ -121,9 +121,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         daemon.apply(Role::Fallback, load_program(p)?);
         log::info!("fallback profile: {}", p.display());
     }
-    if let Some(p) = &args.globals {
-        daemon.set_globals(load_globals(p)?);
-        log::info!("globals: {}", p.display());
+    if let Some(p) = &args.devcfg {
+        daemon.set_device_config(load_device_config(p)?);
+        log::info!("devcfg: {}", p.display());
     }
     if let Some(spec) = &args.input {
         daemon.set_input(spec).map_err(cli_err)?;
@@ -395,7 +395,7 @@ fn load_program(path: &Path) -> Result<Program, Box<dyn Error>> {
     })
 }
 
-fn load_globals(path: &Path) -> Result<GlobalConfig, Box<dyn Error>> {
+fn load_device_config(path: &Path) -> Result<DeviceConfig, Box<dyn Error>> {
     Ok(ron::from_str(&std::fs::read_to_string(path)?)?)
 }
 

@@ -2,14 +2,14 @@
 //!
 //! This module owns the **chrome** — the top daemon bar, left sidebar, scrollable content pane, and
 //! bottom status bar — and dispatches the content pane to a per-category screen. The screens live in
-//! submodules: [`profiles`] (profile management), [`settings`], [`globals`], and [`editor`] (the
+//! submodules: [`profiles`] (profile management), [`settings`], [`device`], and [`editor`] (the
 //! profile-edit pages — the Profile page plus the still-mock per-input tabs).
 //!
 //! Small shared building blocks (headings, body/caption/monospace text, the panel card, the status
 //! separator, the modal shell) stay here; the submodules reach them via `super::`.
 
 mod editor;
-mod globals;
+mod device;
 pub(crate) mod modal;
 mod profiles;
 mod settings;
@@ -86,11 +86,11 @@ fn card<'a>(inner: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     container(inner).padding(10.0).width(Fill).style(style::panel).into()
 }
 
-/// Fixed label-column width for a form row (settings pages, rumble, globals), so the controls line
+/// Fixed label-column width for a form row (settings pages, rumble, device), so the controls line
 /// up down the form. One value shared by every form screen.
 pub(in crate::view) const SET_LABEL: f32 = 160.0;
 
-/// A fixed-width row label for any form screen (settings / rumble / globals), so the controls line up
+/// A fixed-width row label for any form screen (settings / rumble / device), so the controls line up
 /// in a column. The single label primitive shared across those pages.
 pub(in crate::view) fn setting_label(s: &'static str) -> Element<'static, Message> {
     text(s).width(SET_LABEL).into()
@@ -142,7 +142,7 @@ pub(in crate::view) fn label_row(label: &str, dot: Dot) -> Row<'static, Message>
 const CHIP_H: f32 = 30.0;
 
 /// A small removable "chip": a button's name in a pill with a ✕ that emits `on_remove`. Shared by
-/// the gater list (Activation) and chord triggers (Globals) — the compact set representation.
+/// the gater list (Activation) and chord triggers (Device) — the compact set representation.
 pub(in crate::view) fn chip(label: &str, on_remove: Message) -> Element<'static, Message> {
     let x = button(text("✕").size(11.0)).style(style::combo_button).padding([1.0, 5.0]).on_press(on_remove);
     container(row![text(label.to_string()).size(12.0), x].spacing(6.0).align_y(Center))
@@ -288,7 +288,7 @@ fn top_bar(app: &App) -> Element<'_, Message> {
 
 /// Left sidebar: the profile-editor bands (Profile / per-input pages / Rumble, each split by a rule,
 /// with the action-set/layer selector heading the input band) at the top; profile management +
-/// app-level pages (Profiles / Globals / Settings) pinned at the bottom.
+/// app-level pages (Profiles / Device / Settings) pinned at the bottom.
 fn sidebar(app: &App) -> Element<'_, Message> {
     // Top: the editor bands, a rule between each. The action-set/layer selector heads the per-input
     // band (index 1); always shown (inert when no profile is loaded) so the layout never shifts.
@@ -304,7 +304,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
             top = top.push(nav_button(app, c));
         }
     }
-    // Bottom: profile management + app-level pages (Profiles / Globals / Settings), no separators.
+    // Bottom: profile management + app-level pages (Profiles / Device / Settings), no separators.
     let mut bottom = column![].spacing(4.0);
     for &c in Category::BOTTOM {
         bottom = bottom.push(nav_button(app, c));
@@ -341,7 +341,7 @@ fn content(app: &App) -> Element<'_, Message> {
             Category::Profiles => profiles::profiles_screen(app),
             Category::Profile => editor::profile_screen(app),
             Category::Settings => settings::settings_screen(app),
-            Category::Globals => globals::globals_screen(app),
+            Category::Device => device::device_screen(app),
             // The per-input editor pages (Buttons/Triggers/Joysticks/Trackpads/Gyro) are data-driven
             // mockups rendered from the category's input groups.
             cat => editor::input_screen(app, cat),
@@ -393,7 +393,7 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
             .push(sep())
             .push(role_label("fallback", s.fallback.as_deref(), s.active == Some(ProfileRole::Fallback)))
             .push(sep())
-            .push(text(format!("chords: {}", s.globals.chords.len())).size(13.0));
+            .push(text(format!("chords: {}", s.device_config.chords.len())).size(13.0));
     }
     if let Some(err) = &app.error {
         bar = bar

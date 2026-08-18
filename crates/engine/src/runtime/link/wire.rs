@@ -20,7 +20,7 @@ use std::io::{self, Read, Write};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use config::GlobalConfig;
+use config::DeviceConfig;
 use steam_hid::{ControllerState, Report};
 
 use crate::program::{Program, Role};
@@ -42,7 +42,7 @@ pub(super) const PROTOCOL_VERSION: u16 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) enum Uplink {
     /// The handshake — always the first frame. The server validates `version` and drops the
-    /// connection on a mismatch. Carries no config (config is ordinary `Apply`/`SetGlobals`).
+    /// connection on a mismatch. Carries no config (config is ordinary `Apply`/`SetDeviceConfig`).
     Hello { version: u16 },
     /// A keep-alive so the client detects a dead server over the otherwise-idle TCP link (`State`
     /// frames ride UDP). The server no-ops it.
@@ -50,8 +50,8 @@ pub(super) enum Uplink {
     /// Apply a compiled program to a role (main↔fallback), or clear it (`program: None`), like the
     /// local `Control::Apply`.
     Apply { program: Option<Program>, role: Role },
-    /// Replace the global config (master rumble, chords, ...).
-    SetGlobals(GlobalConfig),
+    /// Replace the device config (master rumble, chords, ...).
+    SetDeviceConfig(DeviceConfig),
     /// A device lifecycle event — `Connected` / `Disconnected` / `Battery` (never `State`). Merged
     /// into the server's frame stream so the mapper (release-on-`Disconnected`) and the synthesized
     /// event surface see it.
@@ -171,9 +171,9 @@ mod tests {
     }
 
     #[test]
-    fn uplink_globals_and_events_round_trip() {
+    fn uplink_device_config_and_events_round_trip() {
         for msg in [
-            Uplink::SetGlobals(GlobalConfig::default()),
+            Uplink::SetDeviceConfig(DeviceConfig::default()),
             Uplink::Event(Report::Connected),
             Uplink::Event(Report::Disconnected),
         ] {
@@ -188,7 +188,7 @@ mod tests {
         let msgs = [
             Uplink::Event(Report::Connected),
             Uplink::Apply { program: Some(sample_program()), role: Role::Fallback },
-            Uplink::SetGlobals(GlobalConfig::default()),
+            Uplink::SetDeviceConfig(DeviceConfig::default()),
         ];
         let mut buf = Vec::new();
         for m in &msgs {

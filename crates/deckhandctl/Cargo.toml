@@ -8,7 +8,7 @@ publish.workspace = true
 
 [dependencies]
 ipc = { path = "../ipc" }
-# Read RON profiles/globals to ship as ConfigDoc/GlobalConfig (client ships config, daemon compiles).
+# Read RON profiles/configs to ship as ConfigDoc/DeviceConfig (client ships config, daemon compiles).
 config = { path = "../config" }
 ron.workspace = true
 clap.workspace = true

@@ -76,12 +76,12 @@ _deckhandd() {
     local cur prev words cword
     _deckhand_get_words
 
-    local opts="-l --list-devices -m --main -f --fallback -g --globals -i --input -o --output \
+    local opts="-l --list-devices -m --main -f --fallback -d --devcfg -i --input -o --output \
 -k --socket -p --prevent-sleep -s --start -v --verbose -h --help -V --version"
 
     # Value completion for the option that takes one.
     case $prev in
-        -m|--main|-f|--fallback|-g|--globals)
+        -m|--main|-f|--fallback|-d|--devcfg)
             _deckhand_ron_files
             return
             ;;
@@ -120,7 +120,7 @@ _deckhandctl() {
             ;;
     esac
 
-    local cmds="status list-devices input output main fallback globals \
+    local cmds="status list-devices input output main fallback devcfg \
 start stop shutdown monitor"
 
     # Walk the words before the cursor: `need` holds a command still awaiting its argument (else empty
@@ -139,7 +139,7 @@ start stop shutdown monitor"
             need=""                                # this word is the awaited argument
         else
             case $tok in
-                input|output|main|fallback|globals) need=$tok ;;  # awaits an argument
+                input|output|main|fallback|devcfg) need=$tok ;;  # awaits an argument
                 *) need="" ;;                                     # 0-arg command
             esac
         fi
@@ -150,7 +150,7 @@ start stop shutdown monitor"
         case $need in
             input) _deckhand_input ;;
             output) COMPREPLY=( $(compgen -W "$_deckhand_output_specs" -- "$cur") ) ;;
-            main|fallback|globals) _deckhand_ron_files ;;
+            main|fallback|devcfg) _deckhand_ron_files ;;
         esac
     elif [[ -z $started ]]; then
         # At the very start: commands plus the global flags.

@@ -48,11 +48,11 @@ pub struct Layer {
 }
 
 /// Per-profile rumble feel (the back-channel: game rumble → Gordon trackpad haptics). The
-/// profile tunes the texture; `GlobalConfig::master_rumble` scales it (Round E).
+/// profile tunes the texture; `DeviceConfig::master_rumble` scales it (Round E).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RumbleSettings {
-    /// Strength, percent (before the global master %). **May exceed 100 to boost** (a `u8`, so up
+    /// Strength, percent (before the device master %). **May exceed 100 to boost** (a `u8`, so up
     /// to 255): many games under-drive their FF — some cap at ~25% of range — so a value like ~200
     /// lifts such a game back toward the controller's saturation. The engine clamps the final drive
     /// at the actuator's max, so an over-large value simply saturates rather than overflowing.

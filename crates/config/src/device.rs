@@ -1,4 +1,4 @@
-//! Global / engine-level config — Tier B (PLAN §3, Round E).
+//! Device / engine-level config — Tier B (PLAN §3, Round E).
 //!
 //! Profile-independent settings handed to the engine **once** (uncompiled): the master
 //! rumble % + pulse frequency, device toggles, and the top-level chords. The engine evaluates
@@ -6,10 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The global (above-profile) configuration.
+/// The device (above-profile) configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct GlobalConfig {
+pub struct DeviceConfig {
     /// LED brightness `0..=100 %` (applied on connect); `None` = leave default.
     pub led_brightness: Option<u8>,
     /// Sleep/idle timeout, seconds (applied on connect); `None` = leave default.
@@ -24,9 +24,9 @@ pub struct GlobalConfig {
     pub chords: Vec<Chord>,
 }
 
-impl Default for GlobalConfig {
+impl Default for DeviceConfig {
     fn default() -> Self {
-        GlobalConfig {
+        DeviceConfig {
             led_brightness: None,
             idle_timeout: None,
             master_rumble: 100,
@@ -44,7 +44,7 @@ pub struct Chord {
     pub action: ChordAction,
 }
 
-/// What a global chord does — each variant carries its own params.
+/// What a chord does — each variant carries its own params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChordAction {
     /// Switch main ↔ fallback profile (`HoldFallback` = while held; `Toggle` = latch; `SetMain`/
@@ -81,12 +81,12 @@ mod tests {
 
     #[test]
     fn default_master_rumble_is_full() {
-        assert_eq!(GlobalConfig::default().master_rumble, 100);
+        assert_eq!(DeviceConfig::default().master_rumble, 100);
     }
 
     #[test]
-    fn global_config_round_trips_ron() {
-        let g = GlobalConfig {
+    fn device_config_round_trips_ron() {
+        let d = DeviceConfig {
             led_brightness: Some(50),
             idle_timeout: None,
             master_rumble: 80,
@@ -105,7 +105,7 @@ mod tests {
                 },
             ],
         };
-        let s = ron::to_string(&g).unwrap();
-        assert_eq!(ron::from_str::<GlobalConfig>(&s).unwrap(), g);
+        let s = ron::to_string(&d).unwrap();
+        assert_eq!(ron::from_str::<DeviceConfig>(&s).unwrap(), d);
     }
 }

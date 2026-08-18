@@ -20,7 +20,7 @@
 
 mod daemon;
 mod editor;
-mod globals;
+mod device;
 mod nav;
 mod persist;
 mod profiles;
@@ -32,7 +32,7 @@ mod view;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use config::{ConfigDoc, GlobalConfig};
+use config::{ConfigDoc, DeviceConfig};
 use daemon::{Client, DaemonUpdate, Handle, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::window;
@@ -52,10 +52,10 @@ pub(crate) const OUTPUT_PRESETS: &[&str] = &["local"];
 pub(crate) const DEFAULT_LED_BRIGHTNESS: u8 = 50;
 
 /// Value `idle_timeout` snaps to when its checkbox is first enabled — 5 minutes (the shortest
-/// offered option). In **seconds**, matching [`GlobalConfig::idle_timeout`].
+/// offered option). In **seconds**, matching [`DeviceConfig::idle_timeout`].
 pub(crate) const DEFAULT_IDLE_TIMEOUT: u16 = 300;
 
-/// The idle-timeout options offered in the Globals combobox, in **minutes**.
+/// The idle-timeout options offered in the Device combobox, in **minutes**.
 pub(crate) const IDLE_TIMEOUT_MINUTES: &[u16] = &[5, 10, 15];
 
 /// The sentinel pick-list entry that opens the network (`host:port`) popup instead of staging a
@@ -81,11 +81,11 @@ pub(crate) enum IoTarget {
 pub(crate) enum ButtonTarget {
     /// Append to the behaviour's `Activation.gaters` for this input (in the edited profile).
     Gater(config::InputSource),
-    /// Append to `globals.chords[i].buttons`.
+    /// Append to `device_config.chords[i].buttons`.
     Chord(usize),
 }
 
-/// A global chord's action kind — the pick-list value for the chord's action-type combobox (the
+/// A chord's action kind — the pick-list value for the chord's action-type combobox (the
 /// concrete [`config::ChordAction`] carries params; this tags just the variant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChordActionKind {
@@ -182,7 +182,7 @@ pub(crate) struct App {
     settings: AppSettings,
     /// The UI's central macro-state: a profile loaded **for editing**, or not. The whole app has
     /// exactly two modes — **no profile loaded** (`None`: the profile-editor sidebar tabs are
-    /// disabled; only profile *management*, Globals, Settings, and the daemon controls work) and
+    /// disabled; only profile *management*, Device, Settings, and the daemon controls work) and
     /// **a profile loaded** (`Some`: the editor tabs are active and the title bar shows the path).
     /// Editing is entirely local to the UI — it is separate from whatever profiles are applied to
     /// the daemon's roles.
@@ -193,10 +193,10 @@ pub(crate) struct App {
     /// The Profiles combobox selection: a bare filename from `profile_files`, or a full path chosen
     /// via the disk picker (`None` until the user picks). Resolved by [`App::selected_profile_path`].
     selected_profile: Option<String>,
-    /// The UI-owned global (engine) config — the Globals screen's source of truth. Loaded from
-    /// `globals.ron` at boot and kept in lock-step with that file and the daemon (see
-    /// [`globals`] and [`Self::apply_globals`]).
-    globals: GlobalConfig,
+    /// The UI-owned device config — the Device screen's source of truth. Loaded from
+    /// `device_config.ron` at boot and kept in lock-step with that file and the daemon (see
+    /// [`device_config`] and [`Self::apply_device_config`]).
+    device_config: DeviceConfig,
     /// Socket/pipe override (`None` = default). Identifies the event subscription and seeds the
     /// short-lived per-command connections opened on the executor thread.
     socket: Option<String>,
@@ -298,14 +298,14 @@ pub(crate) enum Message {
     /// An editor-scoped message — profile edits, the action-set/layer selector, … (see
     /// [`editor::EditorMessage`]). Routed to [`editor::update`], the single doc-mutation site.
     Editor(editor::EditorMessage),
-    /// Globals-screen edits. Each mutates the UI-owned `globals`, then persists it and ships it to
-    /// the daemon ([`App::apply_globals`]). The two `Option` fields toggle via the `*Enabled` pair.
-    GlobalsLedEnabled(bool),
-    GlobalsLedBrightness(u8),
-    GlobalsIdleEnabled(bool),
-    GlobalsIdleTimeout(u16),
-    GlobalsMasterRumble(u8),
-    GlobalsRumbleHz(u16),
+    /// Device-screen edits. Each mutates the UI-owned `device_config`, then persists it and ships it to
+    /// the daemon ([`App::apply_device_config`]). The two `Option` fields toggle via the `*Enabled` pair.
+    DeviceLedEnabled(bool),
+    DeviceLedBrightness(u8),
+    DeviceIdleEnabled(bool),
+    DeviceIdleTimeout(u16),
+    DeviceMasterRumble(u8),
+    DeviceRumbleHz(u16),
     /// Tray settings.
     ToggleUseTray(bool),
     ToggleCloseToTray(bool),
@@ -317,7 +317,7 @@ pub(crate) enum Message {
     /// Open the Button (gater/chord) picker, targeting where the pick lands.
     OpenButtonPicker(ButtonTarget),
     ButtonPicked(vocab_hid::Button),
-    /// Globals-page chord edits (each mutates `globals.chords`, then persists + pushes to the daemon).
+    /// Device-page chord edits (each mutates `device_config.chords`, then persists + pushes to the daemon).
     ChordAdd,
     ChordRemove(usize),
     ChordRemoveButton(usize, usize),
@@ -360,7 +360,7 @@ impl App {
             editing: None,
             profile_files,
             selected_profile: None,
-            globals: globals::load(),
+            device_config: device::load(),
             socket: None,
             connected: false,
             status: None,
@@ -418,16 +418,16 @@ impl App {
         })
     }
 
-    /// Persist the UI-owned globals to `globals.ron` and ship them to the daemon. Called after every
-    /// Globals-screen edit — the file, the in-memory copy, and the daemon stay in lock-step (the
-    /// daemon's echoed `GlobalConfigSet` re-lands the identical value in [`Self::apply_event`], a
+    /// Persist the UI-owned device_config to `device_config.ron` and ship them to the daemon. Called after every
+    /// Device-screen edit — the file, the in-memory copy, and the daemon stay in lock-step (the
+    /// daemon's echoed `DeviceConfigSet` re-lands the identical value in [`Self::apply_event`], a
     /// harmless no-op).
-    fn apply_globals(&mut self) -> Task<Message> {
-        if let Err(e) = globals::save(&self.globals) {
-            self.error = Some(format!("save globals: {e}"));
+    fn apply_device_config(&mut self) -> Task<Message> {
+        if let Err(e) = device::save(&self.device_config) {
+            self.error = Some(format!("save device_config: {e}"));
         }
-        let g = self.globals.clone();
-        self.cmd_task(move |c| c.set_globals(g))
+        let d = self.device_config.clone();
+        self.cmd_task(move |c| c.set_device_config(d))
     }
 
     /// The window title: `deckhand`, or `deckhand: <path>` while a profile is loaded for editing.
@@ -585,31 +585,31 @@ impl App {
                 }
                 return self.apply_output(spec);
             }
-            // Globals edits: mutate the in-memory config, then persist + push to the daemon. The
+            // Device edits: mutate the in-memory config, then persist + push to the daemon. The
             // two Option fields default to a sensible value when their checkbox is switched on.
-            Message::GlobalsLedEnabled(on) => {
-                self.globals.led_brightness = on.then_some(DEFAULT_LED_BRIGHTNESS);
-                return self.apply_globals();
+            Message::DeviceLedEnabled(on) => {
+                self.device_config.led_brightness = on.then_some(DEFAULT_LED_BRIGHTNESS);
+                return self.apply_device_config();
             }
-            Message::GlobalsLedBrightness(v) => {
-                self.globals.led_brightness = Some(v);
-                return self.apply_globals();
+            Message::DeviceLedBrightness(v) => {
+                self.device_config.led_brightness = Some(v);
+                return self.apply_device_config();
             }
-            Message::GlobalsIdleEnabled(on) => {
-                self.globals.idle_timeout = on.then_some(DEFAULT_IDLE_TIMEOUT);
-                return self.apply_globals();
+            Message::DeviceIdleEnabled(on) => {
+                self.device_config.idle_timeout = on.then_some(DEFAULT_IDLE_TIMEOUT);
+                return self.apply_device_config();
             }
-            Message::GlobalsIdleTimeout(secs) => {
-                self.globals.idle_timeout = Some(secs);
-                return self.apply_globals();
+            Message::DeviceIdleTimeout(secs) => {
+                self.device_config.idle_timeout = Some(secs);
+                return self.apply_device_config();
             }
-            Message::GlobalsMasterRumble(v) => {
-                self.globals.master_rumble = v;
-                return self.apply_globals();
+            Message::DeviceMasterRumble(v) => {
+                self.device_config.master_rumble = v;
+                return self.apply_device_config();
             }
-            Message::GlobalsRumbleHz(v) => {
-                self.globals.rumble_hz = v;
-                return self.apply_globals();
+            Message::DeviceRumbleHz(v) => {
+                self.device_config.rumble_hz = v;
+                return self.apply_device_config();
             }
 
             // Network popup edits.
@@ -652,39 +652,39 @@ impl App {
                         );
                     }
                     Some(ButtonTarget::Chord(i)) => {
-                        if let Some(ch) = self.globals.chords.get_mut(i)
+                        if let Some(ch) = self.device_config.chords.get_mut(i)
                             && !ch.buttons.contains(&src)
                         {
                             ch.buttons.push(src);
                         }
-                        return self.apply_globals();
+                        return self.apply_device_config();
                     }
                     None => {}
                 }
             }
             Message::ChordAdd => {
-                self.globals.chords.push(config::Chord {
+                self.device_config.chords.push(config::Chord {
                     buttons: Vec::new(),
                     action: config::ChordAction::SwitchProfile { mode: config::SwitchMode::HoldFallback },
                 });
-                return self.apply_globals();
+                return self.apply_device_config();
             }
             Message::ChordRemove(i) => {
-                if i < self.globals.chords.len() {
-                    self.globals.chords.remove(i);
+                if i < self.device_config.chords.len() {
+                    self.device_config.chords.remove(i);
                 }
-                return self.apply_globals();
+                return self.apply_device_config();
             }
             Message::ChordRemoveButton(i, j) => {
-                if let Some(ch) = self.globals.chords.get_mut(i)
+                if let Some(ch) = self.device_config.chords.get_mut(i)
                     && j < ch.buttons.len()
                 {
                     ch.buttons.remove(j);
                 }
-                return self.apply_globals();
+                return self.apply_device_config();
             }
             Message::ChordSetKind(i, kind) => {
-                if let Some(ch) = self.globals.chords.get_mut(i) {
+                if let Some(ch) = self.device_config.chords.get_mut(i) {
                     ch.action = match kind {
                         ChordActionKind::SwitchProfile => {
                             config::ChordAction::SwitchProfile { mode: config::SwitchMode::HoldFallback }
@@ -694,16 +694,16 @@ impl App {
                         }
                     };
                 }
-                return self.apply_globals();
+                return self.apply_device_config();
             }
             Message::ChordSetMode(i, mode) => {
-                if let Some(ch) = self.globals.chords.get_mut(i) {
+                if let Some(ch) = self.device_config.chords.get_mut(i) {
                     ch.action = config::ChordAction::SwitchProfile { mode };
                 }
-                return self.apply_globals();
+                return self.apply_device_config();
             }
             Message::ChordSetCommandLine(i, line) => {
-                if let Some(ch) = self.globals.chords.get_mut(i) {
+                if let Some(ch) = self.device_config.chords.get_mut(i) {
                     // Split on the literal space (keeping empties) so command+args round-trip the
                     // field's exact text — no whitespace normalisation to fight the cursor mid-type.
                     let mut parts = line.split(' ').map(String::from);
@@ -711,7 +711,7 @@ impl App {
                     let args: Vec<String> = parts.collect();
                     ch.action = config::ChordAction::CommandExecute { command, args };
                 }
-                return self.apply_globals();
+                return self.apply_device_config();
             }
 
             // --- window + tray arms (may drive a window Task) ---
@@ -1089,13 +1089,13 @@ impl App {
     /// Ignored until the first snapshot has seeded `status` (the seed, fetched after subscribe, is
     /// itself absolute, so nothing is missed).
     fn apply_event(&mut self, ev: Event) {
-        // A global-config change (our own echoed push, or another client's `SetGlobals`) syncs the
-        // UI-owned copy and the file regardless of seed state — the Globals screen reads
-        // `self.globals`, and the three (file / UI / daemon) stay in lock-step.
-        if let Event::GlobalConfigSet(g) = &ev {
-            self.globals = g.clone();
-            if let Err(e) = globals::save(&self.globals) {
-                self.error = Some(format!("save globals: {e}"));
+        // A device-config change (our own echoed push, or another client's `SetDeviceConfig`) syncs the
+        // UI-owned copy and the file regardless of seed state — the Device screen reads
+        // `self.device_config`, and the three (file / UI / daemon) stay in lock-step.
+        if let Event::DeviceConfigSet(d) = &ev {
+            self.device_config = d.clone();
+            if let Err(e) = device::save(&self.device_config) {
+                self.error = Some(format!("save device_config: {e}"));
             }
         }
         let Some(status) = self.status.as_mut() else { return };
@@ -1119,7 +1119,7 @@ impl App {
                 ProfileRole::Main => status.main = name,
                 ProfileRole::Fallback => status.fallback = name,
             },
-            Event::GlobalConfigSet(g) => status.globals = g,
+            Event::DeviceConfigSet(d) => status.device_config = d,
             // Battery has no field in the bars yet.
             Event::Battery { .. } => {}
         }

@@ -113,7 +113,7 @@ fn activator_additional_settings(cref: &CommandRef, cmd: &Command) -> Option<Ele
     }
 }
 
-/// Turbo: a checkbox gating a rate slider (inert same-geometry slider when off, mirroring the Globals
+/// Turbo: a checkbox gating a rate slider (inert same-geometry slider when off, mirroring the Device
 /// LED/idle pattern so toggling doesn't reflow the row).
 fn turbo_setting(cref: &CommandRef, cmd: &Command) -> Element<'static, Message> {
     let on = cmd.settings.turbo.is_some();
@@ -170,7 +170,7 @@ fn haptic_settings(cref: &CommandRef, cmd: &Command) -> Element<'static, Message
 }
 
 /// A settings-form checkbox row: a fixed-width label + a bare checkbox (label lives in the row, not
-/// the widget, matching the Globals form).
+/// the widget, matching the Device form).
 fn check_setting(
     label: &'static str,
     value: bool,

@@ -6,7 +6,7 @@
 //! depends on `engine`). Selection specs travel as strings the daemon parses (the same grammar as
 //! its `-i`/`-o` CLI); config travels as [`config::ConfigDoc`] (the daemon compiles it).
 
-use config::{ConfigDoc, GlobalConfig};
+use config::{ConfigDoc, DeviceConfig};
 use serde::{Deserialize, Serialize};
 
 /// Which profile role a config applies to (wire mirror of the engine's `Role`).
@@ -24,8 +24,8 @@ pub enum Request {
     /// **compiles** a shipped `ConfigDoc`; on failure it replies [`Response::Diagnostics`] (not
     /// applied), on success [`Response::Ok`]. Boxed to keep the enum small.
     Apply { role: ProfileRole, config: Option<Box<ConfigDoc>> },
-    /// Replace the global config (rumble master, chords, boot role, …).
-    SetGlobals(Box<GlobalConfig>),
+    /// Replace the device config (rumble master, chords, boot role, …).
+    SetDeviceConfig(Box<DeviceConfig>),
     /// Stage the input source — spec string `dongle|wired|<device-id>|host:port` (the daemon
     /// parses it, same grammar as `-i`). Applied at the next `Start`.
     SetInput(String),
@@ -98,10 +98,10 @@ pub struct StatusSnapshot {
     /// The **live** role (which of main/fallback is active now), or `None` when there's no local
     /// mapper (idle, or the network client role). Tracks live chord switches.
     pub active: Option<ProfileRole>,
-    /// The full global config (master rumble, chords, device toggles). Sent whole so a connecting
+    /// The full device config (master rumble, chords, device toggles). Sent whole so a connecting
     /// client seeds its complete view in one `Status` call; later changes arrive as
-    /// [`Event::GlobalConfigSet`].
-    pub globals: GlobalConfig,
+    /// [`Event::DeviceConfigSet`].
+    pub device_config: DeviceConfig,
 }
 
 /// An asynchronous event pushed to a subscribed connection (PLAN §4.3, D7). A future native
@@ -129,6 +129,6 @@ pub enum Event {
     OutputStaged(String),
     /// A program was applied to a role — the role plus the program's name (`None` if cleared).
     ProfileSet { role: ProfileRole, name: Option<String> },
-    /// The global config was set — the whole new config (mirrors [`StatusSnapshot::globals`]).
-    GlobalConfigSet(GlobalConfig),
+    /// The device config was set — the whole new config (mirrors [`StatusSnapshot::device_config`]).
+    DeviceConfigSet(DeviceConfig),
 }

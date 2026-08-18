@@ -1,4 +1,4 @@
-//! The central mapping loop (PLAN §4.2 S9): owns the `Sink` + `Mapper` + programs + globals, maps
+//! The central mapping loop (PLAN §4.2 S9): owns the `Sink` + `Mapper` + programs + device config, maps
 //! one tick per device frame, evaluates global chords first, and polls the pad's rumble back to the
 //! reader. It alternates a **connected phase** with a **waiting phase** (transport gone → release
 //! outputs, keep the pad plugged, await reattach/stop), swapping the frame/rumble/click channels on
@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{RecvError, select};
 
-use config::{GlobalConfig, RumbleSettings};
+use config::{DeviceConfig, RumbleSettings};
 use steam_hid::Report;
 use virt_out::{OutputEvent, Rumble, Sink};
 
@@ -24,7 +24,7 @@ use crate::{HapticReq, Mapper, Result, Tick};
 use super::link::LinkServer;
 use super::{Click, Control, RumbleCmd};
 
-/// The central mapping loop. Owns the `Sink` + `Mapper` + programs + globals; alternates a connected
+/// The central mapping loop. Owns the `Sink` + `Mapper` + programs + device config; alternates a connected
 /// phase (map frames, poll rumble) with a waiting phase (transport gone → release + keep pad plugged
 /// until reattach/stop). Frame/rumble/click channels are swapped on reattach.
 #[allow(clippy::too_many_arguments)]
@@ -32,7 +32,7 @@ pub(super) fn run_mapper(
     mut sink: Sink,
     mut main: Option<Program>,
     mut fallback: Option<Program>,
-    mut globals: GlobalConfig,
+    mut device_config: DeviceConfig,
     mut link: LinkServer,
     running: Arc<AtomicBool>,
     fallback_active: Arc<AtomicBool>,
@@ -44,7 +44,7 @@ pub(super) fn run_mapper(
     // Publish the initial live role unconditionally so a subscriber can seed purely from the event;
     // subsequent emits are on the chord switch only.
     set_active(&fallback_active, &events, role.clone());
-    let mut chords = ChordStates::new(&globals.chords, role == Role::Fallback);
+    let mut chords = ChordStates::new(&device_config.chords, role == Role::Fallback);
     let mut mapper = Mapper::new(program_for(&role, &main, &fallback));
     let mut out: Vec<OutputEvent> = Vec::new();
     let mut haptics: Vec<HapticReq> = Vec::new();
@@ -60,7 +60,7 @@ pub(super) fn run_mapper(
                     Ok(Report::State(state)) => {
                         let frame = LogicalFrame::new(state);
                         // Chords first: they may switch the main/fallback role and consume buttons.
-                        let outcome = chords.eval(&globals.chords, &frame);
+                        let outcome = chords.eval(&device_config.chords, &frame);
                         if outcome.role != role {
                             role = outcome.role;
                             let prog = program_for(&role, &main, &fallback);
@@ -107,7 +107,7 @@ pub(super) fn run_mapper(
                 },
                 recv(link.control_rx()) -> msg => {
                     stop = apply_control(
-                        msg, &mut main, &mut fallback, &mut globals, &mut mapper, &role, &mut chords,
+                        msg, &mut main, &mut fallback, &mut device_config, &mut mapper, &role, &mut chords,
                     );
                 }
                 // Insurance: devices stream ~250 Hz, but tick anyway so rumble is polled when idle.
@@ -127,7 +127,7 @@ pub(super) fn run_mapper(
             }
 
             // Rumble back-channel (game → virtual pad → real controller): scale by the *main*
-            // profile's strength/curve, carrying its pulse Hz. The global master % is applied
+            // profile's strength/curve, carrying its pulse Hz. The device master % is applied
             // reader-side (device-local, see `ReaderCfg::master_rumble`). On change.
             let prog = program_for(&role, &main, &fallback);
             let cmd = rumble_cmd(sink.poll_rumble()?, &prog.rumble);
@@ -142,7 +142,7 @@ pub(super) fn run_mapper(
 
         // ---- waiting phase: release outputs, keep the pad plugged, await reattach / stop ----
         match run_waiting(
-            &mut sink, &mut main, &mut fallback, &mut globals, &mut mapper, &role, &mut chords,
+            &mut sink, &mut main, &mut fallback, &mut device_config, &mut mapper, &role, &mut chords,
             &mut link, &running, &events,
         )? {
             WaitOutcome::Stopped => return Ok(()),
@@ -163,7 +163,7 @@ fn apply_control(
     msg: std::result::Result<Control, RecvError>,
     main: &mut Option<Program>,
     fallback: &mut Option<Program>,
-    globals: &mut GlobalConfig,
+    device_config: &mut DeviceConfig,
     mapper: &mut Mapper,
     role: &Role,
     chords: &mut ChordStates,
@@ -182,17 +182,17 @@ fn apply_control(
             }
             false
         }
-        Ok(Control::SetGlobals(g)) => {
-            *globals = *g;
+        Ok(Control::SetDeviceConfig(d)) => {
+            *device_config = *d;
             // Preserve the current role base across the swap.
-            *chords = ChordStates::new(&globals.chords, chords.fallback_base());
-            // REVISIT (globals): a live SetGlobals only takes effect for chords here.
+            *chords = ChordStates::new(&device_config.chords, chords.fallback_base());
+            // REVISIT (device config): a live SetDeviceConfig only takes effect for chords here.
             // `master_rumble`/`led_brightness`/`idle_timeout` live in the reader's `ReaderCfg` (built
-            // once at start, re-applied on each `Connected`), so changing them via SetGlobals does
+            // once at start, re-applied on each `Connected`), so changing them via SetDeviceConfig does
             // NOT push to the hardware until the next start/reconnect. To make LED/idle live too, the new
             // values must reach the reader (e.g. thread them through the link so the reader re-runs
-            // its apply). The UI can't work around this itself — it only sends SetGlobals. Part of a
-            // broader globals rework (see the UI Globals screen).
+            // its apply). The UI can't work around this itself — it only sends SetDeviceConfig. Part of a
+            // broader device config rework (see the Device screen).
             false
         }
         Ok(Control::Stop) | Err(_) => true,
@@ -216,7 +216,7 @@ fn run_waiting(
     sink: &mut Sink,
     main: &mut Option<Program>,
     fallback: &mut Option<Program>,
-    globals: &mut GlobalConfig,
+    device_config: &mut DeviceConfig,
     mapper: &mut Mapper,
     role: &Role,
     chords: &mut ChordStates,
@@ -234,7 +234,7 @@ fn run_waiting(
     while running.load(Ordering::Relaxed) {
         select! {
             recv(control) -> msg => {
-                if apply_control(msg, main, fallback, globals, mapper, role, chords) {
+                if apply_control(msg, main, fallback, device_config, mapper, role, chords) {
                     return Ok(WaitOutcome::Stopped);
                 }
             }
@@ -251,7 +251,7 @@ fn run_waiting(
 }
 
 /// Compute the effective per-pad drive from a raw game rumble and the main profile's rumble settings
-/// (strength % + response curve). The global master % and the pulse frequency are NOT applied here —
+/// (strength % + response curve). The device master % and the pulse frequency are NOT applied here —
 /// the reader does that (device-local; see `ReaderCfg::master_rumble` / `ReaderCfg::rumble_hz`).
 fn rumble_cmd(raw: Rumble, s: &RumbleSettings) -> RumbleCmd {
     // Per-profile `strength` MAY exceed 100 to *boost* a game that under-drives its FF — many cap

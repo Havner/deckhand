@@ -143,7 +143,7 @@ fn read_session(
             last_keepalive = Instant::now();
         }
 
-        // Latest rumble level wins. Apply the global master attenuator here (device-local): the
+        // Latest rumble level wins. Apply the device master attenuator here (device-local): the
         // mapper sends game+profile-scaled rumble, master scales every amplitude before the hardware.
         let mut changed = false;
         while let Ok(r) = link.rumble_rx().try_recv() {
@@ -247,7 +247,7 @@ fn apply_device_cfg(device: &mut Device, cfg: &ReaderCfg) {
     }
 }
 
-/// Attenuate a rumble command's amplitudes by the global master percentage (`0..=100`). Applied
+/// Attenuate a rumble command's amplitudes by the device master percentage (`0..=100`). Applied
 /// reader-side so `master_rumble` stays a device-local setting (PLAN §1.9): the mapper already
 /// folded in the game FF and the profile strength/curve.
 fn scale_master(cmd: RumbleCmd, master: u8) -> RumbleCmd {

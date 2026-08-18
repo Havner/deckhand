@@ -23,7 +23,7 @@ use std::thread::{self, JoinHandle};
 use crossbeam_channel::Sender;
 use serde::{Deserialize, Serialize};
 
-use config::{GlobalConfig, HapticStrength, Side};
+use config::{DeviceConfig, HapticStrength, Side};
 use steam_hid::{Device, DeviceId, DeviceKind, Transport};
 use virt_out::Sink;
 
@@ -44,7 +44,7 @@ pub(crate) struct ReaderCfg {
     /// Sleep/idle timeout in seconds, or leave the device default. `None` where idle is meaningless
     /// for the transport ([`Transport::has_idle`]).
     pub idle_timeout: Option<u16>,
-    /// Global rumble attenuator `0..=100 %`, applied reader-side to every haptic amplitude (the
+    /// Master rumble attenuator `0..=100 %`, applied reader-side to every haptic amplitude (the
     /// mapper sends game+profile-scaled rumble; master scales it here, device-local).
     pub master_rumble: u8,
     /// Rumble pulse frequency, Hz — the Gordon pulse-train rate ([`train`]); the Deck ignores it.
@@ -54,14 +54,14 @@ pub(crate) struct ReaderCfg {
 }
 
 impl ReaderCfg {
-    /// The config for a device from the globals, with each device-specific setting dropped to
+    /// The config for a device from the device config, with each device-specific setting dropped to
     /// `None`/`false` where the hardware can't honor it (so the reader applies it blindly).
-    pub fn for_device(kind: &DeviceKind, transport: &Transport, globals: &GlobalConfig) -> Self {
+    pub fn for_device(kind: &DeviceKind, transport: &Transport, device_config: &DeviceConfig) -> Self {
         ReaderCfg {
-            led_brightness: kind.has_led_intensity().then_some(globals.led_brightness).flatten(),
-            idle_timeout: transport.has_idle().then_some(globals.idle_timeout).flatten(),
-            master_rumble: globals.master_rumble,
-            rumble_hz: globals.rumble_hz,
+            led_brightness: kind.has_led_intensity().then_some(device_config.led_brightness).flatten(),
+            idle_timeout: transport.has_idle().then_some(device_config.idle_timeout).flatten(),
+            master_rumble: device_config.master_rumble,
+            rumble_hz: device_config.rumble_hz,
             keepalive: kind.needs_keepalive(),
         }
     }
@@ -73,8 +73,8 @@ pub(crate) enum Control {
     /// Replace one role's program (main↔fallback), or clear it (`program: None`), re-seeding the
     /// mapper if the affected role is the one live.
     Apply { program: Option<Box<Program>>, role: Role },
-    /// Replace the global config (master rumble + chords).
-    SetGlobals(Box<GlobalConfig>),
+    /// Replace the device config (master rumble + chords).
+    SetDeviceConfig(Box<DeviceConfig>),
     /// Stop the loop (the running flag also gates it; this just wakes the `select!`).
     Stop,
 }
@@ -132,7 +132,7 @@ impl Runtime {
         sink: Sink,
         main: Option<Program>,
         fallback: Option<Program>,
-        globals: GlobalConfig,
+        device_config: DeviceConfig,
         events: EventSink,
     ) -> Runtime {
         let running = Arc::new(AtomicBool::new(true));
@@ -146,7 +146,7 @@ impl Runtime {
             device, pinned_id, cfg, client, running.clone(), connected.clone(), events.clone(),
         );
         let mapper = spawn_mapper(
-            sink, main, fallback, globals, server, running.clone(), fallback_active.clone(), events,
+            sink, main, fallback, device_config, server, running.clone(), fallback_active.clone(), events,
         );
         Runtime {
             running,
@@ -161,7 +161,7 @@ impl Runtime {
 
     /// **Client** role (output=Network): reader only — it reads the device and forwards frames to
     /// the remote server at `addr`; there is no local mapper or `Sink`. The link's config uplink
-    /// becomes the runtime's `control_tx`, so the handle's `apply`/`set_globals` travel to the
+    /// becomes the runtime's `control_tx`, so the handle's `apply`/`set_device_config` travel to the
     /// server. Errors if the dial fails.
     pub fn start_client(
         addr: SocketAddr,
@@ -201,7 +201,7 @@ impl Runtime {
         sink: Sink,
         main: Option<Program>,
         fallback: Option<Program>,
-        globals: GlobalConfig,
+        device_config: DeviceConfig,
         events: EventSink,
     ) -> Result<Runtime> {
         let running = Arc::new(AtomicBool::new(true));
@@ -212,7 +212,7 @@ impl Runtime {
         // a remote client, so `controller_connected` is `None`).
         let fallback_active = Arc::new(AtomicBool::new(false));
         let mapper = spawn_mapper(
-            sink, main, fallback, globals, link, running.clone(), fallback_active.clone(), events,
+            sink, main, fallback, device_config, link, running.clone(), fallback_active.clone(), events,
         );
         Ok(Runtime {
             running,
@@ -244,7 +244,7 @@ impl Runtime {
             .map(|f| if f.load(Ordering::SeqCst) { Role::Fallback } else { Role::Main })
     }
 
-    /// The control channel, for live `apply`/`set_globals` while running.
+    /// The control channel, for live `apply`/`set_device_config` while running.
     pub fn control(&self) -> &Sender<Control> {
         &self.control_tx
     }
@@ -299,7 +299,7 @@ fn spawn_mapper(
     sink: Sink,
     main: Option<Program>,
     fallback: Option<Program>,
-    globals: GlobalConfig,
+    device_config: DeviceConfig,
     link: LinkServer,
     running: Arc<AtomicBool>,
     fallback_active: Arc<AtomicBool>,
@@ -308,7 +308,7 @@ fn spawn_mapper(
     thread::Builder::new()
         .name("deckhand-mapper".into())
         .spawn(move || {
-            run_mapper(sink, main, fallback, globals, link, running, fallback_active, events)
+            run_mapper(sink, main, fallback, device_config, link, running, fallback_active, events)
         })
         .expect("spawn mapper thread")
 }

@@ -1,11 +1,11 @@
 //! Small shared RON persistence helpers.
 //!
 //! The UI keeps several files on disk in RON — the app settings ([`crate::settings`]), the UI-owned
-//! global config ([`crate::globals`]), and the profile documents ([`crate::profiles`]). They all
+//! device config ([`crate::device`]), and the profile documents ([`crate::profiles`]). They all
 //! (de)serialize the same way, so the read/parse/pretty-write boilerplate lives here once. Two load
 //! flavours, one save:
 //!
-//! - [`load_or_default`] — a stale/missing file must never stop the UI launching (settings, globals).
+//! - [`load_or_default`] — a stale/missing file must never stop the UI launching (settings, device config).
 //! - [`load`] — a caller that wants the parse error surfaced, with the path (profiles).
 
 use std::path::Path;

@@ -17,7 +17,7 @@
 mod action;
 mod binding;
 mod command;
-mod global;
+mod device;
 mod input;
 mod profile;
 mod settings;
@@ -25,7 +25,7 @@ mod validate;
 
 pub use action::{Action, ActionSetRef, LayerRef};
 pub use binding::SourceBinding;
-pub use global::{ChordAction, Chord, GlobalConfig, SwitchMode};
+pub use device::{ChordAction, Chord, DeviceConfig, SwitchMode};
 pub use profile::{ActionSet, ConfigDoc, Layer, RumbleSettings};
 pub use command::{
     Activator, Command, CommandSettings, HapticEdge, HapticStrength, Haptics, Turbo,

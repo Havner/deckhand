@@ -50,14 +50,14 @@ pub(crate) struct ChordOutcome {
 
 impl ChordStates {
     /// A fresh runtime for `chords`, starting in `Fallback` if `start_fallback` (always `false` at
-    /// boot — the engine boots into Main). On a live `GlobalConfig` hot-swap, pass the current base
+    /// boot — the engine boots into Main). On a live `DeviceConfig` hot-swap, pass the current base
     /// ([`Self::fallback_base`]) instead, so the persistent role isn't reset.
     pub fn new(chords: &[Chord], start_fallback: bool) -> Self {
         ChordStates { persistent_fallback: start_fallback, states: vec![ChordState::default(); chords.len()] }
     }
 
     /// The current persistent base role (`true` = Fallback) — used to preserve the role across a
-    /// hot-swap of the globals (so the swap doesn't retroactively yank the role).
+    /// hot-swap of the device config (so the swap doesn't retroactively yank the role).
     pub fn fallback_base(&self) -> bool {
         self.persistent_fallback
     }

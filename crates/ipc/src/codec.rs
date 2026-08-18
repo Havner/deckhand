@@ -79,7 +79,7 @@ mod tests {
                 main: None,
                 fallback: None,
                 active: None,
-                globals: Default::default(),
+                device_config: Default::default(),
             }),
         )
         .unwrap();

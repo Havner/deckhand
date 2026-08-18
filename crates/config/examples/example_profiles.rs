@@ -1,15 +1,15 @@
 //! `example_profiles` — build real `ConfigDoc`s (a **game** profile and a **desktop** profile)
-//! plus a `GlobalConfig`, and write them to RON. A worked example of the whole config model and
+//! plus a `DeviceConfig`, and write them to RON. A worked example of the whole config model and
 //! the source of the profiles `deckhand-run` drives for manual testing.
 //!
 //! - `desktop_profile` is a keyboard/mouse mapping for the fallback (desktop) role.
 //! - `cp2077_profile` mirrors `crates/virt-out/examples/bridge.rs` (Gordon → virtual Xbox pad +
 //!   kbd/mouse + gyro-mouse): a mode-shift **layer** (left stick → right stick while the right
 //!   pad is clicked), gyro gated by the left full-pull (vertical inverted, as in the bridge).
-//! - `globals` carries the master rumble and a **Steam + RightGrip** fallback-toggle chord.
+//! - `device_config` carries the master rumble and a **Steam + RightGrip** fallback-toggle chord.
 //!
 //! Run `cargo run -p config --example example_profiles [out_dir]` to write the profiles into
-//! `<out_dir>/profiles/` and `globals.ron` into `<out_dir>` — the same layout the UI uses under
+//! `<out_dir>/profiles/` and `device.ron` into `<out_dir>` — the same layout the UI uses under
 //! `$XDG_CONFIG_HOME/deckhand`, so `out_dir` can be your deckhand config dir (defaults to the temp
 //! dir). The test builds each and checks it validates and round-trips.
 //!
@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 
 use config::{
-    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, ChordAction, Chord, GlobalConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, ChordAction, Chord, DeviceConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
 };
 use vocab_hid::Button;
 use vocab_out::{GamepadButton, Key, MouseButton};
@@ -1598,11 +1598,11 @@ pub fn system_shock_profile() -> ConfigDoc {
     }
 }
 
-// --- globals ----------------------------------------------------------------------------
+// --- device_config ----------------------------------------------------------------------------
 
-/// The above-profile globals: full master rumble and a Steam + RightGrip fallback toggle.
-pub fn globals() -> GlobalConfig {
-    GlobalConfig {
+/// The above-profile device_config: full master rumble and a Steam + RightGrip fallback toggle.
+pub fn device_config() -> DeviceConfig {
+    DeviceConfig {
         master_rumble: 100,
         chords: vec![
             Chord {
@@ -1649,7 +1649,7 @@ fn main() -> std::io::Result<()> {
     let pretty = ron::ser::PrettyConfig::default();
 
     // Mirror the UI's on-disk layout ($XDG_CONFIG_HOME/deckhand): the profiles live under a
-    // `profiles/` subdirectory, `globals.ron` sits directly in the passed directory. So pointing the
+    // `profiles/` subdirectory, `device.ron` sits directly in the passed directory. So pointing the
     // example at your deckhand config dir drops everything into the right place.
     let profiles_dir = dir.join("profiles");
     std::fs::create_dir_all(&profiles_dir)?;
@@ -1668,7 +1668,7 @@ fn main() -> std::io::Result<()> {
     ] {
         write(profiles_dir.join(name), ron::ser::to_string_pretty(&doc, pretty.clone()).unwrap())?;
     }
-    write(dir.join("globals.ron"), ron::ser::to_string_pretty(&globals(), pretty).unwrap())?;
+    write(dir.join("device.ron"), ron::ser::to_string_pretty(&device_config(), pretty).unwrap())?;
     Ok(())
 }
 
@@ -1694,15 +1694,15 @@ mod tests {
         assert_valid_and_round_trips(&control_profile());
         assert_valid_and_round_trips(&system_shock_profile());
 
-        let g = globals();
+        let d = device_config();
         assert!(
-            g.validate()
+            d.validate()
                 .iter()
                 .all(|d| d.severity != config::Severity::Error)
         );
         assert_eq!(
-            ron::from_str::<GlobalConfig>(&ron::to_string(&g).unwrap()).unwrap(),
-            g
+            ron::from_str::<DeviceConfig>(&ron::to_string(&d).unwrap()).unwrap(),
+            d
         );
     }
 }

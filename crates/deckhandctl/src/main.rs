@@ -10,20 +10,20 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use config::{ConfigDoc, GlobalConfig};
+use config::{ConfigDoc, DeviceConfig};
 use ipc::{Client, Event, ProfileRole, Request, Response, StatusSnapshot};
 
 /// The command reference, shown under `--help` (the commands are raw args, so clap can't describe
 /// them itself).
 const COMMANDS_HELP: &str = "\
 Commands (run in sequence; put --socket/-h/-V first):
-  status                show engine status (state, staged input/output, profiles, globals)
+  status                show engine status (state, staged input/output, profiles, devcfg)
   list-devices          list the enumerated devices (id, kind, transport, slot)
   input <spec>          stage input: auto | dongle | wired | bt | <device-id> | host:port
   output <spec>         stage output: local | host:port
   main <file.ron>       load + apply a Main profile (empty string clears it: reverts to Fallback)
   fallback <file.ron>   load + apply a Fallback profile (empty string clears it)
-  globals <file.ron>    load + apply the global config
+  devcfg <file.ron>     load + apply the device config (LED/idle, master rumble, frequency, chords)
   start                 acquire hardware and start the mapping loop
   stop                  stop the mapping loop (release hardware, keep config)
   shutdown              shut the daemon down (must be last)
@@ -142,10 +142,10 @@ fn parse_steps(tokens: &[String]) -> Result<Vec<Step>, String> {
             }
             "main" => call_apply(ProfileRole::Main, "main", tokens, &mut i)?,
             "fallback" => call_apply(ProfileRole::Fallback, "fallback", tokens, &mut i)?,
-            "globals" => {
-                let p = take_arg(tokens, &mut i, "globals")?;
-                let g = load_globals(&p)?;
-                call(&format!("globals {p}"), Request::SetGlobals(Box::new(g)))
+            "devcfg" => {
+                let p = take_arg(tokens, &mut i, "devcfg")?;
+                let d = load_device_config(&p)?;
+                call(&format!("devcfg {p}"), Request::SetDeviceConfig(Box::new(d)))
             }
             other => return Err(format!("unknown command '{other}' — try `deckhandctl --help`")),
         };
@@ -233,8 +233,8 @@ fn fmt_event(ev: &Event) -> String {
         Event::ProfileSet { role, name } => {
             format!("profile set: {role:?} = {}", name.as_deref().unwrap_or("(none)"))
         }
-        Event::GlobalConfigSet(g) => format!(
-            "globals set: master_rumble={}%, {} chord(s)",
+        Event::DeviceConfigSet(g) => format!(
+            "devcfg set: master_rumble={}%, {} chord(s)",
             g.master_rumble,
             g.chords.len(),
         ),
@@ -288,14 +288,14 @@ fn print_status(s: &StatusSnapshot) {
     println!("input:      {}", s.input);
     println!("bound:      {}", s.bound.as_deref().unwrap_or("(none)"));
     println!("controller: {controller}");
+    println!(
+        "devcfg:     master_rumble={}%, {} chord(s)",
+        s.device_config.master_rumble,
+        s.device_config.chords.len(),
+    );
     println!("main:       {}", s.main.as_deref().unwrap_or("(none)"));
     println!("fallback:   {}", s.fallback.as_deref().unwrap_or("(none)"));
     println!("active:     {active}");
-    println!(
-        "globals:    master_rumble={}%, {} chord(s)",
-        s.globals.master_rumble,
-        s.globals.chords.len(),
-    );
 }
 
 fn print_devices(ids: &[String]) {
@@ -313,7 +313,7 @@ fn load_doc(path: &str) -> Result<ConfigDoc, String> {
     ron::from_str(&text).map_err(|e| format!("{path}: {e}"))
 }
 
-fn load_globals(path: &str) -> Result<GlobalConfig, String> {
+fn load_device_config(path: &str) -> Result<DeviceConfig, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
     ron::from_str(&text).map_err(|e| format!("{path}: {e}"))
 }

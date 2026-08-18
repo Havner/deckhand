@@ -31,7 +31,7 @@ fn ctl_drives_a_fake_daemon() {
                         main: Some("game".into()),
                         fallback: None,
                         active: Some(ProfileRole::Main),
-                        globals: Default::default(),
+                        device_config: Default::default(),
                     }),
                     Request::SetInput(spec) if spec == "gordon:dongle:1:" => Response::Ok,
                     Request::SetInput(_) => Response::Error("bad spec".into()),
