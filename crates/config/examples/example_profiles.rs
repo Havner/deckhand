@@ -8,9 +8,10 @@
 //!   pad is clicked), gyro gated by the left full-pull (vertical inverted, as in the bridge).
 //! - `globals` carries the master rumble and a **Steam + RightGrip** fallback-toggle chord.
 //!
-//! Run `cargo run -p config --example example_profiles [out_dir]` to write `game_profile.ron`,
-//! `desktop_profile.ron`, and `globals.ron` (defaults to the temp dir). The test builds each and
-//! checks it validates and round-trips.
+//! Run `cargo run -p config --example example_profiles [out_dir]` to write the profiles into
+//! `<out_dir>/profiles/` and `globals.ron` into `<out_dir>` — the same layout the UI uses under
+//! `$XDG_CONFIG_HOME/deckhand`, so `out_dir` can be your deckhand config dir (defaults to the temp
+//! dir). The test builds each and checks it validates and round-trips.
 //!
 //! Deliberately **verbose**: every binding is spelled out in full so any single one can be
 //! retuned without touching a shared builder. Only the leaf action constructors (`pad`/`key`/
@@ -523,6 +524,25 @@ pub fn desktop_profile() -> ConfigDoc {
                     },
                 },
             ),
+            (
+                InputSource::Gyro,
+                SourceBinding::GyroToMouse {
+                    settings: GyroToMouseSettings {
+                        output: MouseOutput::Cursor,
+                        space: GyroSpace::PlayerSpace,
+                        smoothing: Some(OneEuroFilter {
+                            min_cutoff: 5.0,
+                            beta: 0.5,
+                        }),
+                        deadzone: Deadzone { inner: 0.01 },
+                        activation: Activation {
+                            mode: ActivationMode::HoldToDisable,
+                            gaters: vec![],
+                        },
+                        ..Default::default()
+                    },
+                },
+            ),
             (InputSource::RightPad, SourceBinding::None),
         ]),
     };
@@ -532,12 +552,12 @@ pub fn desktop_profile() -> ConfigDoc {
     ConfigDoc {
         version: 0,
         name: "Desktop".into(),
+        rumble: RumbleSettings::default(),
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
             layers: vec![alt_mouse, system_keys_layer()],
         }],
-        rumble: RumbleSettings::default(),
     }
 }
 
@@ -826,7 +846,7 @@ pub fn cp2077_profile() -> ConfigDoc {
                 sensitivity: Sensitivity { x: 0.5, y: 0.5 },
                 acceleration: Acceleration { factor: 0.02 },
                 smoothing: Some(OneEuroFilter {
-                    min_cutoff: 1.0,
+                    min_cutoff: 3.0,
                     beta: 0.5,
                 }),
                 deadzone: Deadzone { inner: 0.1 },
@@ -867,17 +887,12 @@ pub fn cp2077_profile() -> ConfigDoc {
     ConfigDoc {
         version: 0,
         name: "Cyberpunk 2077".into(),
+        rumble: RumbleSettings::default(),
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
             layers: vec![aim_stick, system_keys_layer()],
         }],
-        // 60 Hz feel; the global master % scales it (see `globals`).
-        rumble: RumbleSettings {
-            hz: 60,
-            strength: 100,
-            ..Default::default()
-        },
     }
 }
 
@@ -1243,12 +1258,12 @@ pub fn control_profile() -> ConfigDoc {
     ConfigDoc {
         version: 0,
         name: "Control".into(),
+        rumble: RumbleSettings::default(),
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
             layers: vec![system_keys_layer()],
         }],
-        rumble: RumbleSettings::default(),
     }
 }
 
@@ -1574,17 +1589,12 @@ pub fn system_shock_profile() -> ConfigDoc {
     ConfigDoc {
         version: 0,
         name: "System Shock".into(),
+        rumble: RumbleSettings::default(),
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
             layers: vec![aim_stick, system_keys_layer()],
         }],
-        // 60 Hz feel; the global master % scales it (see `globals`).
-        rumble: RumbleSettings {
-            hz: 60,
-            strength: 100,
-            ..Default::default()
-        },
     }
 }
 
@@ -1638,32 +1648,27 @@ fn main() -> std::io::Result<()> {
         .unwrap_or_else(std::env::temp_dir);
     let pretty = ron::ser::PrettyConfig::default();
 
-    for (name, doc_ron) in [
-        (
-            "desktop_profile.ron",
-            ron::ser::to_string_pretty(&desktop_profile(), pretty.clone()).unwrap(),
-        ),
-        (
-            "cp2077_profile.ron",
-            ron::ser::to_string_pretty(&cp2077_profile(), pretty.clone()).unwrap(),
-        ),
-        (
-            "control_profile.ron",
-            ron::ser::to_string_pretty(&control_profile(), pretty.clone()).unwrap(),
-        ),
-        (
-            "system_shock_profile.ron",
-            ron::ser::to_string_pretty(&system_shock_profile(), pretty.clone()).unwrap(),
-        ),
-        // (
-        //     "globals.ron",
-        //     ron::ser::to_string_pretty(&globals(), pretty.clone()).unwrap(),
-        // ),
-    ] {
-        let path = dir.join(name);
-        std::fs::write(&path, doc_ron)?;
+    // Mirror the UI's on-disk layout ($XDG_CONFIG_HOME/deckhand): the profiles live under a
+    // `profiles/` subdirectory, `globals.ron` sits directly in the passed directory. So pointing the
+    // example at your deckhand config dir drops everything into the right place.
+    let profiles_dir = dir.join("profiles");
+    std::fs::create_dir_all(&profiles_dir)?;
+
+    let write = |path: std::path::PathBuf, ron: String| -> std::io::Result<()> {
+        std::fs::write(&path, ron)?;
         println!("wrote {}", path.display());
+        Ok(())
+    };
+
+    for (name, doc) in [
+        ("desktop_profile.ron", desktop_profile()),
+        ("cp2077_profile.ron", cp2077_profile()),
+        ("control_profile.ron", control_profile()),
+        ("system_shock_profile.ron", system_shock_profile()),
+    ] {
+        write(profiles_dir.join(name), ron::ser::to_string_pretty(&doc, pretty.clone()).unwrap())?;
     }
+    write(dir.join("globals.ron"), ron::ser::to_string_pretty(&globals(), pretty).unwrap())?;
     Ok(())
 }
 
