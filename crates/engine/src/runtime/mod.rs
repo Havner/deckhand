@@ -1,7 +1,7 @@
 //! The manager shell — the runtime that owns the two device-driving threads and the control channel
 //! (PLAN §4.1, §4.2 S9). Split across three files:
 //! - **this module** — the [`Runtime`] lifecycle (spawn/join the threads) + the inter-thread message
-//!   types ([`Control`], [`RumbleCmd`], [`Click`]) + per-device [`DeviceCfg`];
+//!   types ([`Control`], [`RumbleCmd`], [`Click`]) + per-device [`ReaderCfg`];
 //! - [`reader`] — the reader thread: a persistent device-session loop that owns the `Device`, is its
 //!   only writer, and reacquires the pinned device across a transport outage (D6);
 //! - [`mapping`] — the central mapping loop: owns the `Sink` + `Mapper`, maps frames to outputs, and
@@ -37,7 +37,7 @@ use reader::run_reader;
 
 /// Device-level settings the reader applies on start and on every `Connected` (the controller
 /// resets its config when it re-joins a dongle; PLAN §1.9). Profile-independent.
-pub(crate) struct DeviceCfg {
+pub(crate) struct ReaderCfg {
     /// LED intensity `0..=100 %`, or leave the device default. `None` where the device has no
     /// settable LED ([`DeviceKind::has_led_intensity`]).
     pub led_brightness: Option<u8>,
@@ -53,11 +53,11 @@ pub(crate) struct DeviceCfg {
     pub keepalive: bool,
 }
 
-impl DeviceCfg {
+impl ReaderCfg {
     /// The config for a device from the globals, with each device-specific setting dropped to
     /// `None`/`false` where the hardware can't honor it (so the reader applies it blindly).
     pub fn for_device(kind: &DeviceKind, transport: &Transport, globals: &GlobalConfig) -> Self {
-        DeviceCfg {
+        ReaderCfg {
             led_brightness: kind.has_led_intensity().then_some(globals.led_brightness).flatten(),
             idle_timeout: transport.has_idle().then_some(globals.idle_timeout).flatten(),
             master_rumble: globals.master_rumble,
@@ -128,7 +128,7 @@ impl Runtime {
     pub fn start_local(
         device: Device,
         pinned_id: DeviceId,
-        cfg: DeviceCfg,
+        cfg: ReaderCfg,
         sink: Sink,
         main: Option<Program>,
         fallback: Option<Program>,
@@ -167,7 +167,7 @@ impl Runtime {
         addr: SocketAddr,
         device: Device,
         pinned_id: DeviceId,
-        cfg: DeviceCfg,
+        cfg: ReaderCfg,
         events: EventSink,
     ) -> Result<Runtime> {
         let running = Arc::new(AtomicBool::new(true));
@@ -274,7 +274,7 @@ impl Runtime {
 fn spawn_reader(
     device: Device,
     pinned_id: DeviceId,
-    cfg: DeviceCfg,
+    cfg: ReaderCfg,
     link: LinkClient,
     running: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,

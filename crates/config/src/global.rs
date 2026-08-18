@@ -21,7 +21,7 @@ pub struct GlobalConfig {
     /// motor rumble ignores it). Was per-profile (`RumbleSettings.hz`); now global.
     pub rumble_hz: u16,
     /// Top-level switch/command chords.
-    pub chords: Vec<GlobalChord>,
+    pub chords: Vec<Chord>,
 }
 
 impl Default for GlobalConfig {
@@ -37,16 +37,16 @@ impl Default for GlobalConfig {
 }
 
 /// A top-level chord: raw controller buttons, **AND-combined** (all held), firing a
-/// [`GlobalAction`]. Any hardware button (`vocab_hid::Button`) — face buttons / dpad included.
+/// [`ChordAction`]. Any hardware button (`vocab_hid::Button`) — face buttons / dpad included.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GlobalChord {
+pub struct Chord {
     pub buttons: Vec<vocab_hid::Button>,
-    pub action: GlobalAction,
+    pub action: ChordAction,
 }
 
 /// What a global chord does — each variant carries its own params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GlobalAction {
+pub enum ChordAction {
     /// Switch main ↔ fallback profile (`HoldFallback` = while held; `Toggle` = latch; `SetMain`/
     /// `SetFallback` = latch a specific role on engage).
     SwitchProfile { mode: SwitchMode },
@@ -92,13 +92,13 @@ mod tests {
             master_rumble: 80,
             rumble_hz: 90,
             chords: vec![
-                GlobalChord {
+                Chord {
                     buttons: vec![vocab_hid::Button::Steam, vocab_hid::Button::RGrip],
-                    action: GlobalAction::SwitchProfile { mode: SwitchMode::Toggle },
+                    action: ChordAction::SwitchProfile { mode: SwitchMode::Toggle },
                 },
-                GlobalChord {
+                Chord {
                     buttons: vec![vocab_hid::Button::Steam, vocab_hid::Button::LGrip],
-                    action: GlobalAction::CommandExecute {
+                    action: ChordAction::CommandExecute {
                         command: "wvkbd".into(),
                         args: vec!["--toggle".into()],
                     },

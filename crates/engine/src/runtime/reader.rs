@@ -16,7 +16,7 @@ use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
 
 use super::link::LinkClient;
-use super::{Click, DeviceCfg, RumbleCmd};
+use super::{Click, ReaderCfg, RumbleCmd};
 
 /// How often the reader re-enumerates while waiting for the pinned device to return (D6).
 const REACQUIRE_POLL_MS: u64 = 1000;
@@ -39,7 +39,7 @@ enum SessionEnd {
 pub(super) fn run_reader(
     mut device: Device,
     pinned_id: DeviceId,
-    cfg: DeviceCfg,
+    cfg: ReaderCfg,
     mut link: LinkClient,
     running: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
@@ -86,7 +86,7 @@ pub(super) fn run_reader(
 /// controller alive, and write rumble/click. Returns when the session ends (stop or transport-gone).
 fn read_session(
     device: &mut Device,
-    cfg: &DeviceCfg,
+    cfg: &ReaderCfg,
     link: &LinkClient,
     running: &AtomicBool,
     connected: &AtomicBool,
@@ -230,7 +230,7 @@ fn reacquire(mgr: &mut Manager, pinned_id: &DeviceId, running: &AtomicBool) -> O
 /// Apply lizard-off + gyro + optional LED/idle (on start and every `Connected`). **Non-fatal:** a
 /// transient feature-write hiccup is logged and ignored — it must not tear down the reader thread; a
 /// genuinely-gone device surfaces as a read error → reacquire.
-fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) {
+fn apply_device_cfg(device: &mut Device, cfg: &ReaderCfg) {
     let result: Result<()> = (|| {
         device.set_lizard_mode(false)?;
         device.set_gyro(true)?; // every current device has an IMU; always on

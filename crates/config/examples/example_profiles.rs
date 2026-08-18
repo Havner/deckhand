@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 
 use config::{
-    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, GlobalAction, GlobalChord, GlobalConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, ChordAction, Chord, GlobalConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
 };
 use vocab_hid::Button;
 use vocab_out::{GamepadButton, Key, MouseButton};
@@ -1605,33 +1605,33 @@ pub fn globals() -> GlobalConfig {
     GlobalConfig {
         master_rumble: 100,
         chords: vec![
-            GlobalChord {
+            Chord {
                 buttons: vec![Button::Steam, Button::RGrip],
-                action: GlobalAction::SwitchProfile {
+                action: ChordAction::SwitchProfile {
                     mode: SwitchMode::SetMain,
                 },
             },
-            GlobalChord {
+            Chord {
                 buttons: vec![Button::QuickAccess, Button::RGrip],
-                action: GlobalAction::SwitchProfile {
+                action: ChordAction::SwitchProfile {
                     mode: SwitchMode::SetMain,
                 },
             },
-            GlobalChord {
+            Chord {
                 buttons: vec![Button::Steam, Button::LGrip],
-                action: GlobalAction::SwitchProfile {
+                action: ChordAction::SwitchProfile {
                     mode: SwitchMode::SetFallback,
                 },
             },
-            GlobalChord {
+            Chord {
                 buttons: vec![Button::QuickAccess, Button::LGrip],
-                action: GlobalAction::SwitchProfile {
+                action: ChordAction::SwitchProfile {
                     mode: SwitchMode::SetFallback,
                 },
             },
-            // GlobalChord {
+            // Chord {
             //     buttons: vec![Button::Steam, Button::LGrip],
-            //     action: GlobalAction::CommandExecute {
+            //     action: ChordAction::CommandExecute {
             //         command: "ls".into(),
             //         args: vec!["-l".into(), "/home/havner/Documents/Steam-Claude".into()],
             //     },

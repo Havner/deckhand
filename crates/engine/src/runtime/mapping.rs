@@ -14,7 +14,7 @@ use config::{GlobalConfig, RumbleSettings};
 use steam_hid::Report;
 use virt_out::{OutputEvent, Rumble, Sink};
 
-use crate::chords::{Chords, ExecReq};
+use crate::chords::{ChordStates, ExecReq};
 use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
 use crate::logical::LogicalFrame;
@@ -44,7 +44,7 @@ pub(super) fn run_mapper(
     // Publish the initial live role unconditionally so a subscriber can seed purely from the event;
     // subsequent emits are on the chord switch only.
     set_active(&fallback_active, &events, role.clone());
-    let mut chords = Chords::new(&globals.chords, role == Role::Fallback);
+    let mut chords = ChordStates::new(&globals.chords, role == Role::Fallback);
     let mut mapper = Mapper::new(program_for(&role, &main, &fallback));
     let mut out: Vec<OutputEvent> = Vec::new();
     let mut haptics: Vec<HapticReq> = Vec::new();
@@ -128,7 +128,7 @@ pub(super) fn run_mapper(
 
             // Rumble back-channel (game → virtual pad → real controller): scale by the *main*
             // profile's strength/curve, carrying its pulse Hz. The global master % is applied
-            // reader-side (device-local, see `DeviceCfg::master_rumble`). On change.
+            // reader-side (device-local, see `ReaderCfg::master_rumble`). On change.
             let prog = program_for(&role, &main, &fallback);
             let cmd = rumble_cmd(sink.poll_rumble()?, &prog.rumble);
             if cmd != last_rumble {
@@ -166,7 +166,7 @@ fn apply_control(
     globals: &mut GlobalConfig,
     mapper: &mut Mapper,
     role: &Role,
-    chords: &mut Chords,
+    chords: &mut ChordStates,
 ) -> bool {
     match msg {
         Ok(Control::Apply { program, role: target }) => {
@@ -185,9 +185,9 @@ fn apply_control(
         Ok(Control::SetGlobals(g)) => {
             *globals = *g;
             // Preserve the current role base across the swap.
-            *chords = Chords::new(&globals.chords, chords.fallback_base());
+            *chords = ChordStates::new(&globals.chords, chords.fallback_base());
             // REVISIT (globals): a live SetGlobals only takes effect for chords here.
-            // `master_rumble`/`led_brightness`/`idle_timeout` live in the reader's `DeviceCfg` (built
+            // `master_rumble`/`led_brightness`/`idle_timeout` live in the reader's `ReaderCfg` (built
             // once at start, re-applied on each `Connected`), so changing them via SetGlobals does
             // NOT push to the hardware until the next start/reconnect. To make LED/idle live too, the new
             // values must reach the reader (e.g. thread them through the link so the reader re-runs
@@ -219,7 +219,7 @@ fn run_waiting(
     globals: &mut GlobalConfig,
     mapper: &mut Mapper,
     role: &Role,
-    chords: &mut Chords,
+    chords: &mut ChordStates,
     link: &mut LinkServer,
     running: &AtomicBool,
     events: &EventSink,
@@ -252,7 +252,7 @@ fn run_waiting(
 
 /// Compute the effective per-pad drive from a raw game rumble and the main profile's rumble settings
 /// (strength % + response curve). The global master % and the pulse frequency are NOT applied here —
-/// the reader does that (device-local; see `DeviceCfg::master_rumble` / `DeviceCfg::rumble_hz`).
+/// the reader does that (device-local; see `ReaderCfg::master_rumble` / `ReaderCfg::rumble_hz`).
 fn rumble_cmd(raw: Rumble, s: &RumbleSettings) -> RumbleCmd {
     // Per-profile `strength` MAY exceed 100 to *boost* a game that under-drives its FF — many cap
     // well below full range (observed: 25%), so at `MAX_DUTY` they'd never reach the actuator's
@@ -333,7 +333,7 @@ mod tests {
         let full = Rumble { strong: u16::MAX, weak: u16::MAX / 2 };
 
         // strength 100% (default) passes through unchanged. Master and frequency are NOT applied
-        // here — the reader does that (see `reader::scale_master` / `DeviceCfg::rumble_hz`).
+        // here — the reader does that (see `reader::scale_master` / `ReaderCfg::rumble_hz`).
         let s = RumbleSettings { strength: 100, curve: Curve::Linear };
         let cmd = rumble_cmd(full.clone(), &s);
         assert_eq!(cmd.strong, u16::MAX);

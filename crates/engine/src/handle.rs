@@ -21,7 +21,7 @@ use virt_out::Sink;
 
 use crate::event::{EngineEvent, EventSink, EventStream};
 use crate::program::{Program, Role};
-use crate::runtime::{Control, DeviceCfg, Runtime};
+use crate::runtime::{Control, ReaderCfg, Runtime};
 use crate::{Error, Result};
 
 /// Where input comes from: a local controller, or a bound network endpoint that receives a remote
@@ -313,7 +313,7 @@ impl Engine {
     /// No main is required — the mapper runs the empty placeholder program until one is applied.
     fn start_local(&mut self) -> Result<()> {
         let device = self.open_device()?;
-        let cfg = DeviceCfg::for_device(&device.info().kind, &device.info().transport, &self.globals);
+        let cfg = ReaderCfg::for_device(&device.info().kind, &device.info().transport, &self.globals);
         let info = device.info();
         let pinned_id = info.id();
         self.bound = Some(pinned_id.clone());
@@ -339,7 +339,7 @@ impl Engine {
     /// here on connect (config is ordinary `Apply`/`SetGlobals`, PLAN §6.1).
     fn start_client(&mut self, addr: SocketAddr) -> Result<()> {
         let device = self.open_device()?;
-        let cfg = DeviceCfg::for_device(&device.info().kind, &device.info().transport, &self.globals);
+        let cfg = ReaderCfg::for_device(&device.info().kind, &device.info().transport, &self.globals);
         let info = device.info();
         let pinned_id = info.id();
         self.bound = Some(pinned_id.clone());

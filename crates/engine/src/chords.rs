@@ -6,11 +6,11 @@
 //! programs — `HoldFallback` while the chord is held, `Toggle` latched on each engage. A `CommandExecute`
 //! chord runs a headless external program on its **engage edge** (buttons still consumed).
 //!
-//! Pure and golden-testable — the threaded loop (S9b) owns a [`Chords`] and calls [`Chords::eval`]
+//! Pure and golden-testable — the threaded loop (S9b) owns a [`ChordStates`] and calls [`ChordStates::eval`]
 //! each frame, then masks the frame, spawns any [`ExecReq`], and selects the program for the
 //! returned [`Role`]. `eval` itself never spawns (that's the runtime's job), so it stays testable.
 
-use config::{GlobalAction, GlobalChord, SwitchMode};
+use config::{ChordAction, Chord, SwitchMode};
 use steam_hid::Button;
 
 use crate::logical::LogicalFrame;
@@ -18,7 +18,7 @@ use crate::program::Role;
 
 /// Retained per-chord runtime state (toggle latch + engage edge).
 #[derive(Default)]
-pub(crate) struct Chords {
+pub(crate) struct ChordStates {
     /// The persistent base "fallback engaged?" state — starts `false` (the engine boots into Main)
     /// and flipped by each `SwitchProfile` **Toggle**. Survives releases (unlike a hold), so a
     /// toggle sticks until toggled back. A **HoldFallback** chord forces Fallback *on top* of this
@@ -48,12 +48,12 @@ pub(crate) struct ChordOutcome {
     pub execute: Vec<ExecReq>,
 }
 
-impl Chords {
+impl ChordStates {
     /// A fresh runtime for `chords`, starting in `Fallback` if `start_fallback` (always `false` at
     /// boot — the engine boots into Main). On a live `GlobalConfig` hot-swap, pass the current base
     /// ([`Self::fallback_base`]) instead, so the persistent role isn't reset.
-    pub fn new(chords: &[GlobalChord], start_fallback: bool) -> Self {
-        Chords { persistent_fallback: start_fallback, states: vec![ChordState::default(); chords.len()] }
+    pub fn new(chords: &[Chord], start_fallback: bool) -> Self {
+        ChordStates { persistent_fallback: start_fallback, states: vec![ChordState::default(); chords.len()] }
     }
 
     /// The current persistent base role (`true` = Fallback) — used to preserve the role across a
@@ -65,7 +65,7 @@ impl Chords {
     /// Evaluate every chord against `frame`: an all-buttons-held chord is *active* (consumes its
     /// buttons); a `SwitchProfile` Toggle flips the persistent base on its rising edge, a HoldFallback
     /// forces Fallback while held. Role = base OR any hold.
-    pub fn eval(&mut self, chords: &[GlobalChord], frame: &LogicalFrame) -> ChordOutcome {
+    pub fn eval(&mut self, chords: &[Chord], frame: &LogicalFrame) -> ChordOutcome {
         if self.states.len() != chords.len() {
             self.states = vec![ChordState::default(); chords.len()];
         }
@@ -81,7 +81,7 @@ impl Chords {
                 consumed.extend(chord.buttons.iter().cloned());
             }
             match &chord.action {
-                GlobalAction::SwitchProfile { mode } => match mode {
+                ChordAction::SwitchProfile { mode } => match mode {
                     SwitchMode::HoldFallback => hold_fallback |= active,
                     SwitchMode::Toggle => {
                         if active && !st.prev_active {
@@ -100,7 +100,7 @@ impl Chords {
                     }
                 },
                 // Fire once on the engage edge; the runtime spawns it (eval stays side-effect-free).
-                GlobalAction::CommandExecute { command, args } => {
+                ChordAction::CommandExecute { command, args } => {
                     if active && !st.prev_active {
                         execute.push(ExecReq { command: command.clone(), args: args.clone() });
                     }
@@ -125,22 +125,22 @@ mod tests {
         LogicalFrame::new(ControllerState { buttons, ..Default::default() })
     }
 
-    fn hold_chord(buttons: Vec<Button>) -> GlobalChord {
-        GlobalChord { buttons, action: GlobalAction::SwitchProfile { mode: SwitchMode::HoldFallback } }
+    fn hold_chord(buttons: Vec<Button>) -> Chord {
+        Chord { buttons, action: ChordAction::SwitchProfile { mode: SwitchMode::HoldFallback } }
     }
 
-    fn toggle_chord(buttons: Vec<Button>) -> GlobalChord {
-        GlobalChord { buttons, action: GlobalAction::SwitchProfile { mode: SwitchMode::Toggle } }
+    fn toggle_chord(buttons: Vec<Button>) -> Chord {
+        Chord { buttons, action: ChordAction::SwitchProfile { mode: SwitchMode::Toggle } }
     }
 
-    fn set_chord(buttons: Vec<Button>, mode: SwitchMode) -> GlobalChord {
-        GlobalChord { buttons, action: GlobalAction::SwitchProfile { mode } }
+    fn set_chord(buttons: Vec<Button>, mode: SwitchMode) -> Chord {
+        Chord { buttons, action: ChordAction::SwitchProfile { mode } }
     }
 
     #[test]
     fn hold_chord_switches_and_consumes_while_held() {
         let chords = vec![hold_chord(vec![Button::Steam, Button::RGrip])];
-        let mut c = Chords::new(&chords, false);
+        let mut c = ChordStates::new(&chords, false);
 
         // Both held → Fallback, both consumed.
         let out = c.eval(&chords, &frame(Buttons::STEAM | Buttons::RGRIP));
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn toggle_chord_latches_on_each_engage() {
         let chords = vec![toggle_chord(vec![Button::Steam, Button::RGrip])];
-        let mut c = Chords::new(&chords, false);
+        let mut c = ChordStates::new(&chords, false);
         let both = || frame(Buttons::STEAM | Buttons::RGRIP);
         let none = || frame(Buttons::empty());
 
@@ -169,11 +169,11 @@ mod tests {
 
     #[test]
     fn command_execute_fires_once_on_engage_and_consumes() {
-        let chords = vec![GlobalChord {
+        let chords = vec![Chord {
             buttons: vec![Button::Steam, Button::RGrip],
-            action: GlobalAction::CommandExecute { command: "true".into(), args: vec!["x".into()] },
+            action: ChordAction::CommandExecute { command: "true".into(), args: vec!["x".into()] },
         }];
-        let mut c = Chords::new(&chords, false);
+        let mut c = ChordStates::new(&chords, false);
         let both = || frame(Buttons::STEAM | Buttons::RGRIP);
 
         // Engage → one exec req (command + args), buttons consumed, role untouched (stays Main).
@@ -198,7 +198,7 @@ mod tests {
         let to_fb = set_chord(vec![Button::Steam, Button::RGrip], SwitchMode::SetFallback);
         let to_main = set_chord(vec![Button::View, Button::LGrip], SwitchMode::SetMain);
         let chords = vec![to_fb, to_main];
-        let mut c = Chords::new(&chords, false); // boot in Main
+        let mut c = ChordStates::new(&chords, false); // boot in Main
 
         let fb = || frame(Buttons::STEAM | Buttons::RGRIP);
         let main = || frame(Buttons::VIEW | Buttons::LGRIP);
@@ -214,8 +214,8 @@ mod tests {
 
     #[test]
     fn no_chords_is_always_active() {
-        let chords: Vec<GlobalChord> = vec![];
-        let mut c = Chords::new(&chords, false);
+        let chords: Vec<Chord> = vec![];
+        let mut c = ChordStates::new(&chords, false);
         let out = c.eval(&chords, &frame(Buttons::STEAM | Buttons::RGRIP));
         assert_eq!(out.role, Role::Main);
         assert!(out.consumed.is_empty());
@@ -226,7 +226,7 @@ mod tests {
         // Seeded start-in-Fallback: the first (idle) frame is already Fallback, and a Toggle chord
         // switches to Main — no spurious flip to Main on frame 1.
         let chords = vec![toggle_chord(vec![Button::Steam, Button::RGrip])];
-        let mut c = Chords::new(&chords, true);
+        let mut c = ChordStates::new(&chords, true);
         assert_eq!(c.eval(&chords, &frame(Buttons::empty())).role, Role::Fallback); // idle → stays
         assert!(c.fallback_base());
         assert_eq!(c.eval(&chords, &frame(Buttons::STEAM | Buttons::RGRIP)).role, Role::Main); // toggle
@@ -236,8 +236,8 @@ mod tests {
     #[test]
     fn start_in_fallback_sticks_even_without_a_chord() {
         // With no chord there's nothing to flip it, so a Fallback boot simply stays Fallback.
-        let chords: Vec<GlobalChord> = vec![];
-        let mut c = Chords::new(&chords, true);
+        let chords: Vec<Chord> = vec![];
+        let mut c = ChordStates::new(&chords, true);
         assert_eq!(c.eval(&chords, &frame(Buttons::empty())).role, Role::Fallback);
     }
 

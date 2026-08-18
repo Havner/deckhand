@@ -86,7 +86,7 @@ pub(crate) enum ButtonTarget {
 }
 
 /// A global chord's action kind — the pick-list value for the chord's action-type combobox (the
-/// concrete [`config::GlobalAction`] carries params; this tags just the variant).
+/// concrete [`config::ChordAction`] carries params; this tags just the variant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChordActionKind {
     SwitchProfile,
@@ -663,9 +663,9 @@ impl App {
                 }
             }
             Message::ChordAdd => {
-                self.globals.chords.push(config::GlobalChord {
+                self.globals.chords.push(config::Chord {
                     buttons: Vec::new(),
-                    action: config::GlobalAction::SwitchProfile { mode: config::SwitchMode::HoldFallback },
+                    action: config::ChordAction::SwitchProfile { mode: config::SwitchMode::HoldFallback },
                 });
                 return self.apply_globals();
             }
@@ -687,10 +687,10 @@ impl App {
                 if let Some(ch) = self.globals.chords.get_mut(i) {
                     ch.action = match kind {
                         ChordActionKind::SwitchProfile => {
-                            config::GlobalAction::SwitchProfile { mode: config::SwitchMode::HoldFallback }
+                            config::ChordAction::SwitchProfile { mode: config::SwitchMode::HoldFallback }
                         }
                         ChordActionKind::CommandExecute => {
-                            config::GlobalAction::CommandExecute { command: String::new(), args: Vec::new() }
+                            config::ChordAction::CommandExecute { command: String::new(), args: Vec::new() }
                         }
                     };
                 }
@@ -698,7 +698,7 @@ impl App {
             }
             Message::ChordSetMode(i, mode) => {
                 if let Some(ch) = self.globals.chords.get_mut(i) {
-                    ch.action = config::GlobalAction::SwitchProfile { mode };
+                    ch.action = config::ChordAction::SwitchProfile { mode };
                 }
                 return self.apply_globals();
             }
@@ -709,7 +709,7 @@ impl App {
                     let mut parts = line.split(' ').map(String::from);
                     let command = parts.next().unwrap_or_default();
                     let args: Vec<String> = parts.collect();
-                    ch.action = config::GlobalAction::CommandExecute { command, args };
+                    ch.action = config::ChordAction::CommandExecute { command, args };
                 }
                 return self.apply_globals();
             }

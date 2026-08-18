@@ -3,7 +3,7 @@
 //! `app.globals` (the source of truth), never the daemon's status snapshot. Chords aren't editable
 //! yet (that lands with the profile editor) — only their count is shown.
 
-use config::{GlobalAction, GlobalChord, SwitchMode};
+use config::{ChordAction, Chord, SwitchMode};
 use iced::widget::{Space, button, checkbox, column, pick_list, row, slider, text, text_input};
 use iced::{Center, Element, Fill};
 
@@ -92,7 +92,7 @@ pub(super) fn globals_screen(app: &App) -> Element<'_, Message> {
 }
 
 /// The chords editor: one bar per chord (trigger chips + action) and an "Add chord" button. Chords
-/// are AND-combined buttons firing a [`GlobalAction`] (profile switch / run command).
+/// are AND-combined buttons firing a [`ChordAction`] (profile switch / run command).
 fn chords_section(g: &config::GlobalConfig) -> Element<'_, Message> {
     let mut col = column![group_header("Chords")].spacing(8.0);
     for (i, chord) in g.chords.iter().enumerate() {
@@ -106,7 +106,7 @@ fn chords_section(g: &config::GlobalConfig) -> Element<'_, Message> {
 
 /// One chord bar: the trigger buttons (chips + picker), the action-kind combobox and its detail
 /// (switch mode / command line), and a ✕ to remove the whole chord.
-fn chord_bar(i: usize, chord: &GlobalChord) -> Element<'static, Message> {
+fn chord_bar(i: usize, chord: &Chord) -> Element<'static, Message> {
     let trigger = button_chips(
         &chord.buttons,
         move |j| Message::ChordRemoveButton(i, j),
@@ -114,8 +114,8 @@ fn chord_bar(i: usize, chord: &GlobalChord) -> Element<'static, Message> {
     );
 
     let kind = match chord.action {
-        GlobalAction::SwitchProfile { .. } => ChordActionKind::SwitchProfile,
-        GlobalAction::CommandExecute { .. } => ChordActionKind::CommandExecute,
+        ChordAction::SwitchProfile { .. } => ChordActionKind::SwitchProfile,
+        ChordAction::CommandExecute { .. } => ChordActionKind::CommandExecute,
     };
     let kind_combo = pick_list(
         Some(kind),
@@ -127,7 +127,7 @@ fn chord_bar(i: usize, chord: &GlobalChord) -> Element<'static, Message> {
     .width(150.0);
 
     let detail: Element<'static, Message> = match &chord.action {
-        GlobalAction::SwitchProfile { mode } => pick_list(
+        ChordAction::SwitchProfile { mode } => pick_list(
             Some(mode.clone()),
             vec![SwitchMode::HoldFallback, SwitchMode::Toggle, SwitchMode::SetMain, SwitchMode::SetFallback],
             |m: &SwitchMode| switch_mode_label(m).to_string(),
@@ -136,7 +136,7 @@ fn chord_bar(i: usize, chord: &GlobalChord) -> Element<'static, Message> {
         .menu_style(style::combo_menu)
         .width(150.0)
         .into(),
-        GlobalAction::CommandExecute { command, args } => text_input("command args…", command_line(command, args))
+        ChordAction::CommandExecute { command, args } => text_input("command args…", command_line(command, args))
             .on_input(move |s| Message::ChordSetCommandLine(i, s))
             .width(240.0)
             .into(),

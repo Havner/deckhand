@@ -1,6 +1,6 @@
 //! The button (gater/chord) picker modal — a **controller-shaped** chooser that returns one raw
 //! controller [`Button`](vocab_hid::Button). Its consumers are `Activation.gaters` and
-//! `GlobalChord.buttons` (both `Vec<vocab_hid::Button>`), so this is a single-select: click one to
+//! `Chord.buttons` (both `Vec<vocab_hid::Button>`), so this is a single-select: click one to
 //! append it. Every hardware bit is offered, laid out ~like the Action picker's Gamepad tab (each
 //! tile roughly where the button sits on the pad). Tiles carry short labels here (the chips + command
 //! bars use the full `button_label`), same split as the Gamepad tab.
