@@ -173,14 +173,14 @@ pub(crate) fn modal_card(theme: &Theme) -> container::Style {
     }
 }
 
-/// The picker / menu **option** button — one style shared by the Action picker, the Button picker,
-/// and the gear context menu, so every clickable option reads the same.
+/// The picker / back-button **option** style — shared by the Action picker, the Button picker, and
+/// the settings sub-page **Back** buttons, so every clickable option reads the same. (The gear
+/// context menu uses [`combo_button`] directly, not this.)
 ///
-/// **Light themes:** essentially `button::secondary`, but hovering only *outlines* it with the
-/// combobox's hairline border (no fill change); the fill shifts to `secondary`'s hover tone on
-/// press instead. **Dark themes:** the [`combo_button`] look (gear / `<unbound>`) but filled with
-/// the darkened [`dark_bar_color`] the bars use, so options sit on the same tone as the cards
-/// behind them (hover highlights the border like an opened combobox; press dips the fill).
+/// **Light themes:** identical to [`combo_button`] (it simply delegates), so an option reads exactly
+/// like an opened combobox. **Dark themes:** the [`combo_button`] look (gear / `<unbound>`) but
+/// filled with the darkened [`dark_bar_color`] the bars use, so options sit on the same tone as the
+/// cards behind them (hover highlights the border like an opened combobox; press dips the fill).
 pub(crate) fn option_button(theme: &Theme, status: button::Status) -> button::Style {
     let palette = theme.palette();
     if palette.is_dark {
@@ -210,20 +210,6 @@ pub(crate) fn option_button(theme: &Theme, status: button::Status) -> button::St
             }
         }
     } else {
-        // Light: base is plain `secondary`; hover only adds a border (fill unchanged), and press
-        // adopts `secondary`'s hover fill. The border matches `combo_button`'s hover highlight
-        // (`primary.strong`) so hovering an option reads like hovering an opened combobox.
-        let base = button::secondary(theme, button::Status::Active);
-        let combo_border =
-            Border { radius: 2.0.into(), width: 1.0, color: palette.primary.strong.color };
-        match status {
-            button::Status::Active => base,
-            button::Status::Hovered => button::Style { border: combo_border, ..base },
-            button::Status::Pressed => button::Style {
-                border: combo_border,
-                ..button::secondary(theme, button::Status::Hovered)
-            },
-            button::Status::Disabled => button::secondary(theme, button::Status::Disabled),
-        }
+        combo_button(theme, status)
     }
 }

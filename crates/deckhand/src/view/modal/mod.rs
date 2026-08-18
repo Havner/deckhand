@@ -98,9 +98,9 @@ fn card<'a>(app: &'a App, popup: &'a Popup) -> Element<'a, Message> {
     }
 }
 
-/// A full-width menu row: an active option button, or a greyed one when `msg` is `None`.
+/// A full-width menu row: an active combo-styled button, or a greyed one when `msg` is `None`.
 fn menu_item<'a>(label: &'a str, msg: Option<Message>) -> Element<'a, Message> {
-    let b = button(text(label)).width(Fill).style(style::option_button);
+    let b = button(text(label)).width(Fill).style(style::combo_button);
     match msg {
         Some(m) => b.on_press(m),
         None => b,
