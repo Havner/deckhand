@@ -103,7 +103,7 @@ fn read_session(
     // Haptic strategy is per-device: the Deck (Neptune) has real motors driven by `0xeb`
     // (`rumble_cmd`, re-issued periodically — see below); Gordon has only trackpad actuators,
     // driven as a re-fired pulse train (`0x8f`, `haptic_pulse`).
-    let neptune = matches!(device.info().kind, DeviceKind::Neptune);
+    let kind = device.info().kind.clone();
     let mut last_keepalive = Instant::now();
     let mut last_haptic = Instant::now();
     let mut level = RumbleCmd::default();
@@ -150,40 +150,43 @@ fn read_session(
         }
         // Non-fatal on write error: a transient hiccup must not kill the reader (a real disconnect
         // is caught by the read above → TransportGone). Same for clicks below.
-        if neptune {
-            // Deck: each `0xeb` command is a **fixed short burst** (the packet has no length field),
-            // so a sustained rumble must be **re-issued** every ~`NEPTUNE_REFIRE_MS` — send on change
-            // and on the re-fire tick while non-zero; the change to `(0,0)` stops it. `strong`→left
-            // motor, `weak`→right (kernel FF mapping, PLAN §1.9).
-            let refire = (level.strong > 0 || level.weak > 0)
-                && last_haptic.elapsed() >= Duration::from_millis(NEPTUNE_REFIRE_MS);
-            if changed || refire {
-                if let Err(e) =
-                    // intensity 0 = strongest (finer amplitude lever, unused for now — PLAN §1.9).
-                    device.rumble_cmd(0, level.strong, level.weak, NEPTUNE_L_GAIN, NEPTUNE_R_GAIN)
-                {
-                    log::warn!("rumble write failed: {e}");
+        match &kind {
+            DeviceKind::Neptune => {
+                // Deck: each `0xeb` command is a **fixed short burst** (the packet has no length
+                // field), so a sustained rumble must be **re-issued** every ~`NEPTUNE_REFIRE_MS` —
+                // send on change and on the re-fire tick while non-zero; the change to `(0,0)` stops
+                // it. `strong`→left motor, `weak`→right (kernel FF mapping, PLAN §1.9).
+                let refire = (level.strong > 0 || level.weak > 0)
+                    && last_haptic.elapsed() >= Duration::from_millis(NEPTUNE_REFIRE_MS);
+                if changed || refire {
+                    if let Err(e) =
+                        // intensity 0 = strongest (finer amplitude lever, unused for now — §1.9).
+                        device.rumble_cmd(0, level.strong, level.weak, NEPTUNE_L_GAIN, NEPTUNE_R_GAIN)
+                    {
+                        log::warn!("rumble write failed: {e}");
+                    }
+                    last_haptic = Instant::now();
                 }
-                last_haptic = Instant::now();
             }
-        } else {
-            // Gordon: re-issue the pulse train just before it ends so a sustained rumble is one
-            // contiguous drive (the actuator rings up), not a mid-train restart. Zero level →
-            // nothing (the train plays out and stops).
-            if (level.strong > 0 || level.weak > 0)
-                && last_haptic.elapsed() >= Duration::from_millis(RUMBLE_REFIRE_MS)
-            {
-                if let Err(e) = apply_haptics(device, &level) {
-                    log::warn!("rumble write failed: {e}");
+            DeviceKind::Gordon => {
+                // Gordon: re-issue the pulse train just before it ends so a sustained rumble is one
+                // contiguous drive (the actuator rings up), not a mid-train restart. Zero level →
+                // nothing (the train plays out and stops).
+                if (level.strong > 0 || level.weak > 0)
+                    && last_haptic.elapsed() >= Duration::from_millis(RUMBLE_REFIRE_MS)
+                {
+                    if let Err(e) = apply_haptics(device, &level) {
+                        log::warn!("rumble write failed: {e}");
+                    }
+                    last_haptic = Instant::now();
                 }
-                last_haptic = Instant::now();
             }
         }
 
         // One-shot command-haptic clicks fire immediately (no arbitration — a click may briefly
         // interrupt the rumble train on its pad, which the re-fire above resumes).
         while let Ok(click) = link.click_rx().try_recv() {
-            if let Err(e) = fire_click(device, &click, neptune) {
+            if let Err(e) = fire_click(device, &click, &kind) {
                 log::warn!("click write failed: {e}");
             }
         }
@@ -228,7 +231,7 @@ fn reacquire(mgr: &mut Manager, pinned_id: &DeviceId, running: &AtomicBool) -> O
 fn apply_device_cfg(device: &mut Device, cfg: &DeviceCfg) {
     let result: Result<()> = (|| {
         device.set_lizard_mode(false)?;
-        device.set_gyro(cfg.gyro)?;
+        device.set_gyro(true)?; // every current device has an IMU; always on
         if let Some(b) = cfg.led_brightness {
             device.set_led_intensity(b)?;
         }
@@ -304,17 +307,20 @@ const CLICK_INTERVAL_US: u16 = 1000;
 /// a `0x8f` pulse whose **duration** encodes strength (gain inert → 0); the Deck uses a `0xea`
 /// `haptic_cmd` (`Strong` style) whose **gain** encodes strength, **per side** (the two motors
 /// differ). `Side::Left`→left actuator, `Side::Right`→right.
-fn fire_click(device: &mut Device, click: &Click, neptune: bool) -> Result<()> {
+fn fire_click(device: &mut Device, click: &Click, kind: &DeviceKind) -> Result<()> {
     let motor = match click.side {
         Side::Left => Motor::Left,
         Side::Right => Motor::Right,
     };
-    if neptune {
-        let gain = neptune_click_gain(&click.side, &click.strength);
-        device.haptic_cmd(motor, HapticStyle::Strong, gain)?;
-    } else {
-        let duration = gordon_click_duration(&click.strength);
-        device.haptic_pulse(motor, HapticPulse { duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 })?;
+    match kind {
+        DeviceKind::Neptune => {
+            let gain = neptune_click_gain(&click.side, &click.strength);
+            device.haptic_cmd(motor, HapticStyle::Strong, gain)?;
+        }
+        DeviceKind::Gordon => {
+            let duration = gordon_click_duration(&click.strength);
+            device.haptic_pulse(motor, HapticPulse { duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 })?;
+        }
     }
     Ok(())
 }

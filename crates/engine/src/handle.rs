@@ -314,7 +314,7 @@ impl Engine {
     /// No main is required — the mapper runs the empty placeholder program until one is applied.
     fn start_local(&mut self) -> Result<()> {
         let device = self.open_device()?;
-        let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
+        let cfg = DeviceCfg::for_device(&device.info().kind, &device.info().transport, &self.globals);
         let info = device.info();
         let pinned_id = info.id();
         self.bound = Some(pinned_id.clone());
@@ -340,7 +340,7 @@ impl Engine {
     /// here on connect (config is ordinary `Apply`/`SetGlobals`, PLAN §6.1).
     fn start_client(&mut self, addr: SocketAddr) -> Result<()> {
         let device = self.open_device()?;
-        let cfg = DeviceCfg::for_device(&device.info().kind, &self.globals);
+        let cfg = DeviceCfg::for_device(&device.info().kind, &device.info().transport, &self.globals);
         let info = device.info();
         let pinned_id = info.id();
         self.bound = Some(pinned_id.clone());

@@ -18,9 +18,10 @@ use crate::value::Timestamp;
 /// made cancellable for cooperative shutdown (PLAN §1.6).
 const READ_TIMEOUT_MS: i32 = 1000;
 
-/// Which Steam device this is (Valve codenames; unified with [`RawReport`]).
+/// Which Steam device this is (Valve codenames; unified with [`RawReport`]). Deliberately **not**
+/// `#[non_exhaustive]`: a new device must break every `match` that has to handle it (same rule as
+/// the vocab enums), so nothing silently falls through.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum DeviceKind {
     /// Original Steam Controller.
     Gordon,
@@ -43,6 +44,24 @@ impl DeviceKind {
             "gordon" => Some(DeviceKind::Gordon),
             "neptune" => Some(DeviceKind::Neptune),
             _ => None,
+        }
+    }
+
+    /// Whether this device auto-reverts to lizard mode and so needs the reader to periodically
+    /// re-assert lizard-off (the Deck reverts after ~10 s; Gordon holds its config — PLAN §1.9).
+    pub fn needs_keepalive(&self) -> bool {
+        match self {
+            DeviceKind::Gordon => false,
+            DeviceKind::Neptune => true,
+        }
+    }
+
+    /// Whether this device has a front LED whose intensity is settable. Gordon does; the Deck has
+    /// no front-facing LED (only a power LED we deliberately leave alone).
+    pub fn has_led_intensity(&self) -> bool {
+        match self {
+            DeviceKind::Gordon => true,
+            DeviceKind::Neptune => false,
         }
     }
 }
@@ -81,6 +100,16 @@ impl Transport {
     /// Whether this transport uses the BLE segmented framing + compact input format.
     fn is_bluetooth(&self) -> bool {
         matches!(self, Transport::Bluetooth)
+    }
+
+    /// Whether the controller-side idle/sleep timeout is meaningful here. A wired controller is
+    /// bus-powered and never idles; wireless (dongle/BT) runs on battery and does.
+    pub fn has_idle(&self) -> bool {
+        match self {
+            Transport::UsbWired => false,
+            Transport::UsbDongle => true,
+            Transport::Bluetooth => true,
+        }
     }
 }
 

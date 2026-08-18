@@ -24,7 +24,7 @@ use crossbeam_channel::Sender;
 use serde::{Deserialize, Serialize};
 
 use config::{GlobalConfig, HapticStrength, Side};
-use steam_hid::{Device, DeviceId, DeviceKind};
+use steam_hid::{Device, DeviceId, DeviceKind, Transport};
 use virt_out::Sink;
 
 use crate::Result;
@@ -38,24 +38,24 @@ use reader::run_reader;
 /// Device-level settings the reader applies on start and on every `Connected` (the controller
 /// resets its config when it re-joins a dongle; PLAN §1.9). Profile-independent.
 pub(crate) struct DeviceCfg {
-    /// Enable the IMU (derived from whether any program maps gyro; simplest: on).
-    pub gyro: bool,
-    /// LED brightness `0..=100 %`, or leave the device default.
+    /// LED intensity `0..=100 %`, or leave the device default. `None` where the device has no
+    /// settable LED ([`DeviceKind::has_led_intensity`]).
     pub led_brightness: Option<u8>,
-    /// Sleep/idle timeout in seconds, or leave the device default.
+    /// Sleep/idle timeout in seconds, or leave the device default. `None` where idle is meaningless
+    /// for the transport ([`Transport::has_idle`]).
     pub idle_timeout: Option<u16>,
-    /// Periodically re-assert lizard-off — the Deck (Neptune) reverts after ~10 s (PLAN §1.9).
+    /// Periodically re-assert lizard-off ([`DeviceKind::needs_keepalive`]).
     pub keepalive: bool,
 }
 
 impl DeviceCfg {
-    /// A sensible config for `kind` from the globals (gyro on; keep-alive only where needed).
-    pub fn for_device(kind: &DeviceKind, globals: &GlobalConfig) -> Self {
+    /// The config for a device from the globals, with each device-specific setting dropped to
+    /// `None`/`false` where the hardware can't honor it (so the reader applies it blindly).
+    pub fn for_device(kind: &DeviceKind, transport: &Transport, globals: &GlobalConfig) -> Self {
         DeviceCfg {
-            gyro: true,
-            led_brightness: globals.led_brightness,
-            idle_timeout: globals.idle_timeout,
-            keepalive: matches!(kind, DeviceKind::Neptune),
+            led_brightness: kind.has_led_intensity().then_some(globals.led_brightness).flatten(),
+            idle_timeout: transport.has_idle().then_some(globals.idle_timeout).flatten(),
+            keepalive: kind.needs_keepalive(),
         }
     }
 }
