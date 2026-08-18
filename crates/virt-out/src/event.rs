@@ -9,7 +9,6 @@ use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
 /// the desired state; **deltas** (`MouseMove`/`Scroll`) are relative. The engine sends
 /// only changes — `virt-out` just realizes them.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum OutputEvent {
     /// Keyboard key down (`true`) / up (`false`).
     Key(Key, bool),

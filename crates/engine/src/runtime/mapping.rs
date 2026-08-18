@@ -95,8 +95,7 @@ pub(super) fn run_mapper(
                         sink.emit(&out)?;
                     }
                     // Connected / Battery: surfaced by the reader (D4); nothing to map here.
-                    // `Report` is non_exhaustive.
-                    Ok(_) => {}
+                    Ok(Report::Connected | Report::Battery(_)) => {}
                     // Frames gone: transport-lost (link detached) → waiting phase; else stop.
                     Err(_) => {
                         if link.is_detached() {

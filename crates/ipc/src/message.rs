@@ -18,7 +18,6 @@ pub enum ProfileRole {
 
 /// A request from a client to the daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
 pub enum Request {
     /// Apply a profile to a role, or **clear** it (`config: None` → the role reverts to `None`, so
     /// the other role takes over live — clearing `main` reactivates `fallback`). The daemon
@@ -49,7 +48,6 @@ pub enum Request {
 
 /// A reply from the daemon to a [`Request`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
 pub enum Response {
     /// The request succeeded with no payload.
     Ok,
@@ -68,7 +66,6 @@ pub enum Response {
 
 /// The engine's run state (wire mirror; `WaitingForDevice` lands with D4/D5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
 pub enum RunState {
     Idle,
     Running,
@@ -108,12 +105,10 @@ pub struct StatusSnapshot {
     pub globals: GlobalConfig,
 }
 
-/// An asynchronous event pushed to a subscribed connection (PLAN §4.3, D7). `#[non_exhaustive]` so
-/// a future native device-hotplug push (udev / `WM_DEVICECHANGE`) can add `DeviceAdded`/`Removed`
-/// without breaking clients — those were dropped as YAGNI (on-demand `list-devices` + a UI refresh
-/// cover topology; see §4.3).
+/// An asynchronous event pushed to a subscribed connection (PLAN §4.3, D7). A future native
+/// device-hotplug push (udev / `WM_DEVICECHANGE`) could add `DeviceAdded`/`Removed` — dropped as
+/// YAGNI (on-demand `list-devices` + a UI refresh cover topology; see §4.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
 pub enum Event {
     /// The bound controller's presence changed (`true` = connected). Absolute value.
     ControllerConnected(bool),

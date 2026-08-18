@@ -31,7 +31,6 @@ impl ImuMode {
 /// enum is the *logical* side and the mapping is handled internally (PLAN §1.4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[non_exhaustive]
 pub enum Motor {
     Left,
     Right,
@@ -42,7 +41,6 @@ pub enum Motor {
 /// trackpad "click"; `Disabled` is off, and `Weak` is weaker than `Strong` at the same `gain`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[non_exhaustive]
 pub enum HapticStyle {
     Disabled = 0,
     Weak = 1,

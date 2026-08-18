@@ -21,7 +21,6 @@ const AXIS_DEADBAND: f32 = 0.005;
 /// A change-driven event derived from the frame stream (PLAN §1.5).
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[non_exhaustive]
 pub enum Event {
     ButtonPressed(Button),
     ButtonReleased(Button),

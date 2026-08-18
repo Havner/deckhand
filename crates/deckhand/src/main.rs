@@ -1120,9 +1120,8 @@ impl App {
                 ProfileRole::Fallback => status.fallback = name,
             },
             Event::GlobalConfigSet(g) => status.globals = g,
-            // Battery has no field in the bars (yet). `Event` is #[non_exhaustive], so a `_` covers
-            // it and any future variant.
-            _ => {}
+            // Battery has no field in the bars yet.
+            Event::Battery { .. } => {}
         }
     }
 

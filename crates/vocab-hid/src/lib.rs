@@ -16,10 +16,6 @@ use serde::{Deserialize, Serialize};
 /// `LB/RB/LT/RT` are the same short abbreviations `steam-hid`'s `Buttons` bitflags use (hence the
 /// `upper_case_acronyms` allow); the grips use `LGrip`/`LGrip2`. Display labels are the consumer's
 /// concern (the UI owns them) — this stays presentation-free, like `vocab-out`.
-///
-/// Deliberately **not** `#[non_exhaustive]` (same rule as `vocab-out`): adding a bit is a breaking
-/// change that forces every mapping — `steam-hid::button_flag`, the UI's labels — to be updated, so
-/// a missing one is a compile error, not a silent drop.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

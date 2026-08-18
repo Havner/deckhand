@@ -66,7 +66,6 @@ fn main() -> steam_hid::Result<()> {
                 Report::Connected => println!("[connected]"),
                 Report::Disconnected => println!("[disconnected]"),
                 Report::Battery(b) => println!("[battery {} mV]", b.voltage_mv),
-                _ => {}
             },
         }
     }

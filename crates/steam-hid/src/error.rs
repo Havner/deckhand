@@ -15,7 +15,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// A transport that genuinely goes away (wired unplug, dongle removed) *is*
 /// [`Error::Disconnected`].
 #[derive(Debug, Error)]
-#[non_exhaustive]
 pub enum Error {
     /// Underlying HID backend failure.
     #[error("HID backend error: {0}")]

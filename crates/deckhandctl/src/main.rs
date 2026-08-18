@@ -239,8 +239,6 @@ fn fmt_event(ev: &Event) -> String {
             g.master_rumble,
             g.chords.len(),
         ),
-        // `Event` is #[non_exhaustive] — a newer daemon sent something we don't render yet.
-        other => format!("{other:?}"),
     }
 }
 
@@ -269,11 +267,6 @@ fn print_response(label: &str, resp: Response) -> ExitCode {
             for d in &diags {
                 eprintln!("  {d}");
             }
-            ExitCode::FAILURE
-        }
-        // `Response` is #[non_exhaustive] — a reply from a newer daemon.
-        other => {
-            eprintln!("{label}: unexpected reply: {other:?}");
             ExitCode::FAILURE
         }
     }

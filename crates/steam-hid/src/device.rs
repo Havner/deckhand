@@ -18,9 +18,7 @@ use crate::value::Timestamp;
 /// made cancellable for cooperative shutdown (PLAN §1.6).
 const READ_TIMEOUT_MS: i32 = 1000;
 
-/// Which Steam device this is (Valve codenames; unified with [`RawReport`]). Deliberately **not**
-/// `#[non_exhaustive]`: a new device must break every `match` that has to handle it (same rule as
-/// the vocab enums), so nothing silently falls through.
+/// Which Steam device this is (Valve codenames; unified with [`RawReport`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeviceKind {
     /// Original Steam Controller.
@@ -68,7 +66,6 @@ impl DeviceKind {
 
 /// How the device is attached.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum Transport {
     UsbWired,
     UsbDongle,

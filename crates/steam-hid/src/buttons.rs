@@ -177,7 +177,6 @@ pub fn button_flag(b: &Button) -> Buttons {
 /// Normalized analog channels (PLAN §1.5).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[non_exhaustive]
 pub enum Axis {
     LeftStickX,
     LeftStickY,

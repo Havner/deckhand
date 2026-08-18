@@ -14,10 +14,6 @@ use crate::handle::{Input, Output, Status};
 use crate::program::Role;
 
 /// An out-of-band signal from the engine.
-///
-/// Deliberately **not** `#[non_exhaustive]`: adding a variant should be a compile error at every
-/// consumer (notably the daemon's wire mapping), per the project's vocab policy — a missing map is a
-/// bug, not a silent no-op.
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
     /// The bound controller's presence changed: `true` = connected, `false` = disconnected. On the

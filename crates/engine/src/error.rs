@@ -8,7 +8,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Anything the engine can fail with.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum Error {
     /// A [`config::ConfigDoc`] failed to compile — carries the collected diagnostics
     /// (PLAN §4.2 S2; `compile()` bails on any `Error`-severity diagnostic).

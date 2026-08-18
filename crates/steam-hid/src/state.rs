@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 /// variants are the lifecycle frames passed through.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[non_exhaustive]
 pub enum Report {
     State(ControllerState),
     Connected,

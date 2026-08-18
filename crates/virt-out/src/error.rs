@@ -5,7 +5,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors from creating or driving the virtual devices.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum Error {
     /// A platform I/O error (Linux: uinput/`/dev/uinput` perms — see the udev rule;
     /// Windows: a failed `SendInput`).

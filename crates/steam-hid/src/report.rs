@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 /// A decoded wire frame: a per-device input report, or a lifecycle signal.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[non_exhaustive]
 pub enum RawReport {
     /// Original Steam Controller input — USB (`0x01`) or, accumulated from the
     /// Bluetooth delta stream, a full [`GordonReport`] snapshot (both transports

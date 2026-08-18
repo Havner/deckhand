@@ -86,10 +86,9 @@ impl Daemon {
                 Err(e) => Response::Error(e),
             },
             Request::Status => Response::Status(self.status_info()),
-            // `Shutdown` and `Subscribe` are intercepted by the serve loop (they change how the
-            // connection is served), so they never reach here — the catch-all covers them along with
-            // any future `#[non_exhaustive]` variant this daemon predates.
-            _ => Response::Error("unsupported request".into()),
+            // Intercepted by the serve loop (they change how the connection is served), so they
+            // never actually reach here.
+            Request::Shutdown | Request::Subscribe => Response::Error("unsupported request".into()),
         }
     }
 
@@ -178,8 +177,8 @@ pub fn run_state(status: Status) -> RunState {
     }
 }
 
-/// Map an engine [`EngineEvent`] to its wire [`Event`] (D7). Exhaustive on purpose — `EngineEvent`
-/// is not `#[non_exhaustive]`, so a new variant is a compile error here until it's mapped.
+/// Map an engine [`EngineEvent`] to its wire [`Event`] (D7). Exhaustive on purpose, so a new
+/// `EngineEvent` variant is a compile error here until it's mapped.
 pub fn to_wire_event(ev: EngineEvent) -> Event {
     match ev {
         EngineEvent::ControllerConnected(c) => Event::ControllerConnected(c),

@@ -3,11 +3,6 @@
 //! `vocab-hid` (the raw controller button bits). No platform deps:
 //! each backend maps these **bare names** to OS codes (`virt-out` Linux → evdev, Windows
 //! → scancode/VK). PLAN §2.1 / §3.
-//!
-//! The enums are deliberately **not** `#[non_exhaustive]`: adding a variant is a
-//! deliberate breaking change that forces every backend's mapping to be updated — a
-//! missing mapping should be a compile error, not a silent no-op (PLAN §0, "break the
-//! API freely").
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

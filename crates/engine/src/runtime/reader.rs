@@ -124,7 +124,8 @@ fn read_session(
                         events.emit(EngineEvent::BatteryChanged { percent: b.charge_percent });
                         last_battery = Some(b.charge_percent);
                     }
-                    _ => {} // State (per-frame, too noisy); unchanged Battery.
+                    // State (per-frame, too noisy) and an unchanged Battery need no event.
+                    Report::State(_) | Report::Battery(_) => {}
                 }
                 if link.frame_tx().send(report).is_err() {
                     return Ok(SessionEnd::Stop); // mapper gone
