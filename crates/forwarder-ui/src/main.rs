@@ -36,6 +36,13 @@ use settings::Settings;
 /// always a local controller.
 pub(crate) const INPUT_PRESETS: &[&str] = &["auto", "dongle", "wired", "bt"];
 
+/// Global UI scale — the Steam Deck's touch display makes default-sized widgets too small, so the
+/// whole UI is drawn at 2×. A window/render scale (not per-widget sizes) so *everything* grows
+/// uniformly: text, buttons, comboboxes and their dropdown menus, the slider, padding. Note it halves
+/// the *logical* space, so the window opens larger (see `Settings` defaults) and the content pane
+/// scrolls if it doesn't fit.
+pub(crate) const UI_SCALE: f32 = 1.75;
+
 fn main() -> iced::Result {
     let daemon = daemon::handle();
 
@@ -47,6 +54,7 @@ fn main() -> iced::Result {
         .title(|_app: &App, _window| "deckhand forwarder".to_string())
         .subscription(App::subscription)
         .theme(|app: &App, _window| app.active_theme())
+        .scale_factor(|_app: &App, _window| UI_SCALE)
         .run();
     daemon::shutdown_managed(&daemon);
     result

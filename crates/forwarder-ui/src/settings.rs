@@ -31,8 +31,10 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             theme: "Dark".to_string(),
-            window_width: 900,
-            window_height: 600,
+            // Large by default: the 2× UI scale halves the logical space, and the Deck's own display
+            // is 1280×800 — so open near full-screen so the scaled content fits without scrolling.
+            window_width: 1280,
+            window_height: 800,
             last_input: String::new(),
             last_output_network: String::new(),
         }

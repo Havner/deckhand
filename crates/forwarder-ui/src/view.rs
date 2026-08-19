@@ -4,7 +4,9 @@
 //! Everything is one window (no tray, no sidebar, no pages). The bottom bar is a trimmed version of
 //! the main UI's — just daemon status, state, device, and error (no profiles/chords).
 
-use iced::widget::{Space, button, column, container, pick_list, row, slider, text, text_input};
+use iced::widget::{
+    Space, button, column, container, pick_list, row, scrollable, slider, text, text_input,
+};
 use iced::{Center, Element, Fill, Theme};
 use ipc::RunState;
 
@@ -12,9 +14,9 @@ use crate::{App, INPUT_PRESETS, Message, style};
 
 /// The whole window: content pane on top, status bar at the bottom.
 pub(crate) fn view(app: &App) -> Element<'_, Message> {
+    // The content scrolls if the 2× UI scale leaves it taller than the window's logical height.
     column![
-        container(content(app))
-            .padding(16.0)
+        scrollable(container(content(app)).padding(16.0).width(Fill))
             .width(Fill)
             .height(Fill),
         bottom_bar(app),
@@ -100,7 +102,7 @@ fn keypad() -> Element<'static, Message> {
     }
     // Backspace matches the grid's exact height (4 keys + 3 gaps) so it aligns flush with the bottom
     // row rather than overhanging it.
-    const GRID_H: f32 = 4.0 * 60.0 + 3.0 * 8.0;
+    const GRID_H: f32 = 4.0 * 45.0 + 3.0 * 8.0;
     let back = button(text("⌫").size(22.0).center())
         .on_press(Message::Backspace)
         .width(70.0)
@@ -116,7 +118,7 @@ fn key(c: char) -> Element<'static, Message> {
     button(text(c.to_string()).size(22.0).center())
         .on_press(Message::Key(c))
         .width(70.0)
-        .height(60.0)
+        .height(45.0)
         .into()
 }
 
