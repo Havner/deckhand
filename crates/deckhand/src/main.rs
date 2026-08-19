@@ -1148,10 +1148,12 @@ impl App {
                 // clear the live thread-state here to match a fresh status() reporting None when idle.
                 if s == RunState::Idle {
                     status.controller = None;
+                    status.battery = None;
                     status.active = None;
                 }
             }
             Event::ControllerConnected(c) => status.controller = Some(c),
+            Event::Battery { percent } => status.battery = Some(percent),
             Event::ActiveRole(r) => status.active = Some(r),
             Event::BindingRemoved => status.bound = None,
             Event::BindingAcquired(id) => status.bound = Some(id),
@@ -1163,8 +1165,6 @@ impl App {
             },
             Event::ChordsSet(c) => status.chords = c,
             Event::DeviceConfigSet(d) => status.device_config = d,
-            // Battery has no field in the bars yet.
-            Event::Battery { .. } => {}
         }
     }
 

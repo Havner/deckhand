@@ -347,8 +347,8 @@ impl App {
 
     /// Apply one daemon event to the cached status in place. Events are absolute-valued, so after the
     /// initial seed the bar stays current without refetching. The forwarder tracks only what it
-    /// displays (state / controller / bound device / input) plus the shared device config; the rest
-    /// is ignored. The output text field is **never** touched by an event — it's user-owned.
+    /// displays (state / controller / bound device / battery / input) plus the shared device config;
+    /// the rest is ignored. The output text field is **never** touched by an event — it's user-owned.
     fn apply_event(&mut self, ev: Event) {
         // A device-config change (our echoed push, or another client's) syncs the UI copy + file.
         if let Event::DeviceConfigSet(d) = &ev {
@@ -365,20 +365,21 @@ impl App {
                 status.state = s;
                 if s == RunState::Idle {
                     status.controller = None;
+                    status.battery = None;
                     status.active = None;
                 }
             }
             Event::ControllerConnected(c) => status.controller = Some(c),
+            Event::Battery { percent } => status.battery = Some(percent),
             Event::BindingRemoved => status.bound = None,
             Event::BindingAcquired(id) => status.bound = Some(id),
             Event::InputStaged(i) => status.input = i,
             Event::DeviceConfigSet(d) => status.device_config = d,
-            // Not shown by the forwarder — output field is user-owned; no profiles/chords/role/battery.
+            // Not shown by the forwarder — output field is user-owned; no profiles/chords/role.
             Event::OutputStaged(_)
             | Event::ActiveRole(_)
             | Event::ProfileSet { .. }
-            | Event::ChordsSet(_)
-            | Event::Battery { .. } => {}
+            | Event::ChordsSet(_) => {}
         }
     }
 
