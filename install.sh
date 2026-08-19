@@ -6,6 +6,21 @@
 # e.g. `./install.sh --no-default-features --features viiper` to select the VIIPER controller
 # backend (deckhandctl is a thin client with no backend features).
 set -e
+
+# Optional flag: -f/--forwarder additionally installs the forwarder UI (Linux-only — it targets the
+# Steam Deck; see the forwarder block below). It's not a cargo flag, so strip it out before the
+# pass-through args that select the daemon backend.
+forwarder=0
+rest=""
+for a in "$@"; do
+    case "$a" in
+        -f|--forwarder) forwarder=1 ;;
+        *) rest="$rest $a" ;;
+    esac
+done
+# shellcheck disable=SC2086
+set -- $rest
+
 root="${CARGO_INSTALL_ROOT:-$HOME/.local}"
 cargo install --path crates/deckhandd  --root "$root" --force "$@"
 cargo install --path crates/deckhandctl --root "$root" --force
@@ -30,6 +45,22 @@ mkdir -p "$apps_dir" "$icon_dir"
 cp crates/deckhand/assets/deckhand.desktop "$apps_dir/deckhand.desktop"
 cp crates/deckhand/assets/deckhand.png "$icon_dir/deckhand.png"
 echo "installed desktop entry into $apps_dir and icon into $icon_dir"
+
+# Optional: the forwarder UI (Deck-as-network-client), only with -f/--forwarder. Its binary is
+# installed here (inside the Linux-only section) since the app targets the Steam Deck. Same
+# desktop-entry + icon layout as the main UI, plus a double-clickable launcher symlink on ~/Desktop
+# (handy on the Deck; a symlink so it tracks the installed entry).
+if [ "$forwarder" -eq 1 ]; then
+    cargo install --path crates/forwarder-ui --root "$root" --force
+    echo "installed deckhand-forwarder (UI) into $root/bin"
+    cp crates/forwarder-ui/assets/deckhand-forwarder.desktop "$apps_dir/deckhand-forwarder.desktop"
+    cp crates/forwarder-ui/assets/deckhand-forwarder.png "$icon_dir/deckhand-forwarder.png"
+    echo "installed forwarder desktop entry into $apps_dir and icon into $icon_dir"
+    desktop_dir="$HOME/Desktop"
+    mkdir -p "$desktop_dir"
+    ln -sf "$apps_dir/deckhand-forwarder.desktop" "$desktop_dir/deckhand-forwarder.desktop"
+    echo "linked forwarder launcher into $desktop_dir"
+fi
 
 # Refresh the desktop + icon caches so a running GNOME/KDE picks up the new entry and icon
 # immediately (all best-effort — absent tools / no index.theme are harmless).

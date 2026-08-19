@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Deckhand Forwarder
+GenericName=Controller Network Forwarder
+Comment=Run the Steam Deck as a network controller client, forwarding input to a remote PC
+Exec=deckhand-forwarder
+Icon=deckhand-forwarder
+Terminal=false
+Categories=Utility;
+Keywords=controller;gamepad;steam;deck;network;forwarder;
