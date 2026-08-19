@@ -34,7 +34,7 @@ pub use compile::compile;
 pub use error::{Error, Result};
 pub use event::{EngineEvent, EventStream};
 pub use handle::{DeviceSelect, Engine, Input, Output, Status, StatusInfo};
-pub use steam_hid::{DeviceId, DeviceInfo, Transport};
+pub use steam_hid::{DeviceId, DeviceInfo, DeviceKind, Transport};
 pub use logical::{Dir, LogicalFrame};
 pub use mapper::{HapticReq, Mapper, Tick};
 pub use program::{

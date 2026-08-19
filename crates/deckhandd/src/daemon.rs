@@ -3,9 +3,12 @@
 //! reports (staged input/output, which programs are loaded) is read back from the engine. Input/
 //! output specs round-trip through the engine's `Input`/`Output` `FromStr`/`Display` (PLAN §4.4).
 
-use config::{ConfigDoc, Diagnostic, Severity};
-use engine::{Engine, EngineEvent, EventStream, Input, Output, Program, Role, Status, compile};
-use ipc::{Event, ProfileRole, Request, Response, RunState, StatusSnapshot};
+use config::{ConfigDoc, Diagnostic, Severity, Shape};
+use engine::{
+    DeviceId, DeviceKind, Engine, EngineEvent, EventStream, Input, Output, Program, Role, Status,
+    compile,
+};
+use ipc::{BoundDevice, Event, ProfileRole, Request, Response, RunState, StatusSnapshot};
 
 /// The running daemon state around the engine — just the engine, no shadow copies.
 pub struct Daemon {
@@ -130,7 +133,7 @@ impl Daemon {
             state: run_state(s.state),
             output: s.output.to_string(),
             input: s.input.to_string(),
-            bound: s.bound.map(|id| id.to_string()),
+            bound: s.bound.map(bound_device),
             controller: s.controller,
             device_config: s.device_config,
             main: s.main,
@@ -153,6 +156,22 @@ fn role_of(r: ProfileRole) -> Role {
     match r {
         ProfileRole::Main => Role::Main,
         ProfileRole::Fallback => Role::Fallback,
+    }
+}
+
+/// Flatten the engine's typed [`DeviceId`] to the wire [`BoundDevice`]: the id string plus the
+/// [`Shape`] derived from its kind. The engine's `DeviceId`/`DeviceKind` don't cross the wire, so
+/// this is where kind→shape is resolved (once), for both `status().bound` and `BindingAcquired`.
+fn bound_device(id: DeviceId) -> BoundDevice {
+    let shape = shape_of(&id.kind);
+    BoundDevice { id: id.to_string(), shape }
+}
+
+/// Map a device kind to its input-layout [`Shape`] (Gordon/Neptune are 1:1 for now).
+fn shape_of(kind: &DeviceKind) -> Shape {
+    match kind {
+        DeviceKind::Gordon => Shape::Gordon,
+        DeviceKind::Neptune => Shape::Neptune,
     }
 }
 
@@ -194,7 +213,7 @@ pub fn to_wire_event(ev: EngineEvent) -> Event {
         EngineEvent::ControllerConnected(c) => Event::ControllerConnected(c),
         EngineEvent::BatteryChanged { percent } => Event::Battery { percent: Some(percent) },
         EngineEvent::BindingRemoved => Event::BindingRemoved,
-        EngineEvent::BindingAcquired(id) => Event::BindingAcquired(id.to_string()),
+        EngineEvent::BindingAcquired(id) => Event::BindingAcquired(bound_device(id)),
         EngineEvent::State(s) => Event::State(run_state(s)),
         EngineEvent::ActiveRole(r) => Event::ActiveRole(profile_role(r)),
         EngineEvent::InputStaged(i) => Event::InputStaged(i.to_string()),

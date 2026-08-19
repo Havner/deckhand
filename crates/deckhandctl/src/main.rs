@@ -11,7 +11,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use config::{Chords, ConfigDoc, DeviceConfig};
-use ipc::{Client, Event, ProfileRole, Request, Response, StatusSnapshot};
+use ipc::{BoundDevice, Client, Event, ProfileRole, Request, Response, StatusSnapshot};
 
 /// The command reference, shown under `--help` (the commands are raw args, so clap can't describe
 /// them itself).
@@ -236,7 +236,7 @@ fn fmt_event(ev: &Event) -> String {
         Event::Battery { percent: Some(p) } => format!("battery: {p}%"),
         Event::Battery { percent: None } => "battery: unknown".into(),
         Event::BindingRemoved => "binding removed".into(),
-        Event::BindingAcquired(id) => format!("binding acquired: {id}"),
+        Event::BindingAcquired(b) => format!("binding acquired: {} ({:?})", b.id, b.shape),
         Event::State(s) => format!("state: {s:?}"),
         Event::ActiveRole(r) => format!("active role: {r:?}"),
         Event::InputStaged(i) => format!("input staged: {i}"),
@@ -252,6 +252,10 @@ fn fmt_event(ev: &Event) -> String {
 /// `(none)` when no chords are set, else the count — the shared rendering for status + events.
 fn chord_summary(chords: &Option<Chords>) -> String {
     chords.as_ref().map_or_else(|| "(none)".to_string(), |c| c.chords.len().to_string())
+}
+
+fn bound_summary(bound: &Option<BoundDevice>) -> String {
+    bound.as_ref().map_or_else(|| "(none)".to_string(), |b| format!("{} ({:?})", b.id, b.shape))
 }
 
 /// Print a reply, prefixed with the command `label` so a chain's acks/errors are attributable.
@@ -299,7 +303,7 @@ fn print_status(s: &StatusSnapshot) {
     println!("state:      {:?}", s.state);
     println!("output:     {}", s.output);
     println!("input:      {}", s.input);
-    println!("bound:      {}", s.bound.as_deref().unwrap_or("(none)"));
+    println!("bound:      {}", bound_summary(&s.bound));
     println!("controller: {controller}");
     println!("devcfg:     master_rumble={}%", s.device_config.master_rumble);
     println!("main:       {}", s.main.as_deref().unwrap_or("(none)"));

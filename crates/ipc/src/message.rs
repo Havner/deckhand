@@ -6,7 +6,7 @@
 //! depends on `engine`). Selection specs travel as strings the daemon parses (the same grammar as
 //! its `-i`/`-o` CLI); config travels as [`config::ConfigDoc`] (the daemon compiles it).
 
-use config::{Chords, ConfigDoc, DeviceConfig};
+use config::{Chords, ConfigDoc, DeviceConfig, Shape};
 use serde::{Deserialize, Serialize};
 
 /// Which profile role a config applies to (wire mirror of the engine's `Role`).
@@ -74,6 +74,19 @@ pub enum RunState {
     WaitingForDevice,
 }
 
+/// The bound device on the wire: its stable id string plus the [`Shape`] the daemon derives from
+/// the device's kind, so a UI can render device-specific inputs without re-parsing the id (the
+/// engine's typed `DeviceId`/`DeviceKind` don't cross the wire). `id` and `shape` always travel
+/// together — both come from the one device, so neither is optional; the "nothing bound" case is the
+/// `Option<BoundDevice>` around this struct, never a missing field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoundDevice {
+    /// Stable `kind:transport:interface:serial` id (round-trips to the engine's `DeviceId`).
+    pub id: String,
+    /// The device's input-layout shape (Gordon / Neptune).
+    pub shape: Shape,
+}
+
 /// A snapshot of the daemon's engine (reply to [`Request::Status`]). The transport-agnostic wire
 /// mirror of `engine::StatusInfo`: `input`/`output` are the round-tripped **spec strings** (the
 /// daemon stringifies the engine's typed values), everything else maps across one-to-one.
@@ -88,8 +101,8 @@ pub struct StatusSnapshot {
     /// The **bound** device id — the concrete device the running loop resolved and is using (or
     /// reacquiring while `WaitingForDevice`) — or `None` when idle. Distinct from `input`, which is
     /// the staged *selection* (possibly a policy like `auto`); this is what's actually in use, so a
-    /// client connecting to a running daemon learns the current device.
-    pub bound: Option<String>,
+    /// client connecting to a running daemon learns the current device (and its [`Shape`]).
+    pub bound: Option<BoundDevice>,
     /// Whether the bound controller is currently present, or `None` when there's no local reader
     /// (idle, or the network server role). On the dongle it can be `Some(false)` while `Running`.
     pub controller: Option<bool>,
@@ -121,8 +134,8 @@ pub enum Event {
     /// The binding was torn down (engine stopped, nothing bound; → `Idle`). Brackets
     /// `BindingAcquired`; a transport outage does not emit this (surfaces as `WaitingForDevice`).
     BindingRemoved,
-    /// A device was acquired as the bound input at start, by id. Not re-emitted on reacquire.
-    BindingAcquired(String),
+    /// A device was acquired as the bound input at start (id + [`Shape`]). Not re-emitted on reacquire.
+    BindingAcquired(BoundDevice),
     /// The run state changed.
     State(RunState),
     /// The live role switched (chord flip, or the initial role at start). Absolute value — the

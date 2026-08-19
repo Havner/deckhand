@@ -178,7 +178,8 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
 
     if let Some(s) = &app.status {
         let device: Element<'_, Message> = {
-            let id = text(format!("device: {}", s.bound.as_deref().unwrap_or("—"))).size(13.0);
+            let dev = s.bound.as_ref().map(|b| b.id.as_str()).unwrap_or("—");
+            let id = text(format!("device: {dev}")).size(13.0);
             match s.controller {
                 Some(present) => {
                     let d: fn(&Theme) -> text::Style = if present {
