@@ -18,6 +18,7 @@
 // debug — acceptable for the UI.
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod chords;
 mod daemon;
 mod editor;
 mod device;
@@ -32,7 +33,7 @@ mod view;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use config::{ConfigDoc, DeviceConfig};
+use config::{Chords, ConfigDoc, DeviceConfig};
 use daemon::{Client, DaemonUpdate, Handle, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::window;
@@ -81,7 +82,7 @@ pub(crate) enum IoTarget {
 pub(crate) enum ButtonTarget {
     /// Append to the behaviour's `Activation.gaters` for this input (in the edited profile).
     Gater(config::InputSource),
-    /// Append to `device_config.chords[i].buttons`.
+    /// Append to `chords.chords[i].buttons` (the i-th chord's trigger buttons).
     Chord(usize),
 }
 
@@ -193,9 +194,12 @@ pub(crate) struct App {
     /// The Profiles combobox selection: a bare filename from `profile_files`, or a full path chosen
     /// via the disk picker (`None` until the user picks). Resolved by [`App::selected_profile_path`].
     selected_profile: Option<String>,
-    /// The UI-owned device config — the Device screen's source of truth. Loaded from
-    /// `device_config.ron` at boot and kept in lock-step with that file and the daemon (see
-    /// [`device_config`] and [`Self::apply_device_config`]).
+    /// The UI-owned chords — the Chords screen's source of truth. Loaded from `chords.ron` at boot
+    /// and kept in lock-step with that file and the daemon (see [`chords`] and [`Self::apply_chords`]).
+    chords: Chords,
+    /// The UI-owned device config — the Device screen's source of truth. Loaded from `devcfg.ron`
+    /// at boot and kept in lock-step with that file and the daemon (see [`device`] and
+    /// [`Self::apply_device_config`]).
     device_config: DeviceConfig,
     /// Socket/pipe override (`None` = default). Identifies the event subscription and seeds the
     /// short-lived per-command connections opened on the executor thread.
@@ -360,6 +364,7 @@ impl App {
             editing: None,
             profile_files,
             selected_profile: None,
+            chords: chords::load(),
             device_config: device::load(),
             socket: None,
             connected: false,
@@ -416,6 +421,17 @@ impl App {
             }
             Ok(())
         })
+    }
+
+    /// Persist the UI-owned chords to `chords.ron` and ship them to the daemon. Called after every
+    /// Chords-screen edit — the file, the in-memory copy, and the daemon stay in lock-step (the
+    /// daemon's echoed `ChordsSet` re-lands the identical value in [`Self::apply_event`]).
+    fn apply_chords(&mut self) -> Task<Message> {
+        if let Err(e) = chords::save(&self.chords) {
+            self.error = Some(format!("save chords: {e}"));
+        }
+        let c = chords::to_push(&self.chords);
+        self.cmd_task(move |client| client.set_chords(c))
     }
 
     /// Persist the UI-owned device_config to `device_config.ron` and ship them to the daemon. Called after every
@@ -652,39 +668,39 @@ impl App {
                         );
                     }
                     Some(ButtonTarget::Chord(i)) => {
-                        if let Some(ch) = self.device_config.chords.get_mut(i)
+                        if let Some(ch) = self.chords.chords.get_mut(i)
                             && !ch.buttons.contains(&src)
                         {
                             ch.buttons.push(src);
                         }
-                        return self.apply_device_config();
+                        return self.apply_chords();
                     }
                     None => {}
                 }
             }
             Message::ChordAdd => {
-                self.device_config.chords.push(config::Chord {
+                self.chords.chords.push(config::Chord {
                     buttons: Vec::new(),
                     action: config::ChordAction::SwitchProfile { mode: config::SwitchMode::HoldFallback },
                 });
-                return self.apply_device_config();
+                return self.apply_chords();
             }
             Message::ChordRemove(i) => {
-                if i < self.device_config.chords.len() {
-                    self.device_config.chords.remove(i);
+                if i < self.chords.chords.len() {
+                    self.chords.chords.remove(i);
                 }
-                return self.apply_device_config();
+                return self.apply_chords();
             }
             Message::ChordRemoveButton(i, j) => {
-                if let Some(ch) = self.device_config.chords.get_mut(i)
+                if let Some(ch) = self.chords.chords.get_mut(i)
                     && j < ch.buttons.len()
                 {
                     ch.buttons.remove(j);
                 }
-                return self.apply_device_config();
+                return self.apply_chords();
             }
             Message::ChordSetKind(i, kind) => {
-                if let Some(ch) = self.device_config.chords.get_mut(i) {
+                if let Some(ch) = self.chords.chords.get_mut(i) {
                     ch.action = match kind {
                         ChordActionKind::SwitchProfile => {
                             config::ChordAction::SwitchProfile { mode: config::SwitchMode::HoldFallback }
@@ -694,16 +710,16 @@ impl App {
                         }
                     };
                 }
-                return self.apply_device_config();
+                return self.apply_chords();
             }
             Message::ChordSetMode(i, mode) => {
-                if let Some(ch) = self.device_config.chords.get_mut(i) {
+                if let Some(ch) = self.chords.chords.get_mut(i) {
                     ch.action = config::ChordAction::SwitchProfile { mode };
                 }
-                return self.apply_device_config();
+                return self.apply_chords();
             }
             Message::ChordSetCommandLine(i, line) => {
-                if let Some(ch) = self.device_config.chords.get_mut(i) {
+                if let Some(ch) = self.chords.chords.get_mut(i) {
                     // Split on the literal space (keeping empties) so command+args round-trip the
                     // field's exact text — no whitespace normalisation to fight the cursor mid-type.
                     let mut parts = line.split(' ').map(String::from);
@@ -711,7 +727,7 @@ impl App {
                     let args: Vec<String> = parts.collect();
                     ch.action = config::ChordAction::CommandExecute { command, args };
                 }
-                return self.apply_device_config();
+                return self.apply_chords();
             }
 
             // --- window + tray arms (may drive a window Task) ---
@@ -1089,6 +1105,12 @@ impl App {
     /// Ignored until the first snapshot has seeded `status` (the seed, fetched after subscribe, is
     /// itself absolute, so nothing is missed).
     fn apply_event(&mut self, ev: Event) {
+        if let Event::ChordsSet(c) = &ev {
+            self.chords = c.clone().unwrap_or_default();
+            if let Err(e) = chords::save(&self.chords) {
+                self.error = Some(format!("save chords: {e}"));
+            }
+        }
         // A device-config change (our own echoed push, or another client's `SetDeviceConfig`) syncs the
         // UI-owned copy and the file regardless of seed state — the Device screen reads
         // `self.device_config`, and the three (file / UI / daemon) stay in lock-step.
@@ -1119,6 +1141,7 @@ impl App {
                 ProfileRole::Main => status.main = name,
                 ProfileRole::Fallback => status.fallback = name,
             },
+            Event::ChordsSet(c) => status.chords = c,
             Event::DeviceConfigSet(d) => status.device_config = d,
             // Battery has no field in the bars yet.
             Event::Battery { .. } => {}

@@ -2,12 +2,13 @@
 //!
 //! This module owns the **chrome** — the top daemon bar, left sidebar, scrollable content pane, and
 //! bottom status bar — and dispatches the content pane to a per-category screen. The screens live in
-//! submodules: [`profiles`] (profile management), [`settings`], [`device`], and [`editor`] (the
+//! submodules: [`profiles`] (profile management), [`settings`], [`chords`], [`device`], and [`editor`] (the
 //! profile-edit pages — the Profile page plus the still-mock per-input tabs).
 //!
 //! Small shared building blocks (headings, body/caption/monospace text, the panel card, the status
 //! separator, the modal shell) stay here; the submodules reach them via `super::`.
 
+mod chords;
 mod editor;
 mod device;
 pub(crate) mod modal;
@@ -142,7 +143,7 @@ pub(in crate::view) fn label_row(label: &str, dot: Dot) -> Row<'static, Message>
 const CHIP_H: f32 = 30.0;
 
 /// A small removable "chip": a button's name in a pill with a ✕ that emits `on_remove`. Shared by
-/// the gater list (Activation) and chord triggers (Device) — the compact set representation.
+/// the gater list (Activation) and chord triggers (Chords) — the compact set representation.
 pub(in crate::view) fn chip(label: &str, on_remove: Message) -> Element<'static, Message> {
     let x = button(text("✕").size(11.0)).style(style::combo_button).padding([1.0, 5.0]).on_press(on_remove);
     container(row![text(label.to_string()).size(12.0), x].spacing(6.0).align_y(Center))
@@ -338,10 +339,11 @@ fn content(app: &App) -> Element<'_, Message> {
     let inner: Element<'_, Message> = match editor::settings_screen(app) {
         Some(settings) => settings,
         None => match app.category {
-            Category::Profiles => profiles::profiles_screen(app),
             Category::Profile => editor::profile_screen(app),
-            Category::Settings => settings::settings_screen(app),
+            Category::Profiles => profiles::profiles_screen(app),
+            Category::Chords => chords::chords_screen(app),
             Category::Device => device::device_screen(app),
+            Category::Settings => settings::settings_screen(app),
             // The per-input editor pages (Buttons/Triggers/Joysticks/Trackpads/Gyro) are data-driven
             // mockups rendered from the category's input groups.
             cat => editor::input_screen(app, cat),
@@ -393,7 +395,7 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
             .push(sep())
             .push(role_label("fallback", s.fallback.as_deref(), s.active == Some(ProfileRole::Fallback)))
             .push(sep())
-            .push(text(format!("chords: {}", s.device_config.chords.len())).size(13.0));
+            .push(text(format!("chords: {}", s.chords.as_ref().map_or(0, |c| c.chords.len()))).size(13.0));
     }
     if let Some(err) = &app.error {
         bar = bar

@@ -89,9 +89,14 @@ impl Client {
         expect_ok(self.call(Request::SetOutput(spec))?)
     }
 
-    /// Replace the daemon's device config (rumble master, boot role, LED/idle, chords).
+    /// Replace the daemon's chords (`None` clears them).
+    pub(crate) fn set_chords(&mut self, chords: Option<config::Chords>) -> io::Result<()> {
+        expect_ok(self.call(Request::SetChords(chords))?)
+    }
+
+    /// Replace the daemon's device config (LED/idle, master rumble, frequency).
     pub(crate) fn set_device_config(&mut self, device_config: config::DeviceConfig) -> io::Result<()> {
-        expect_ok(self.call(Request::SetDeviceConfig(Box::new(device_config)))?)
+        expect_ok(self.call(Request::SetDeviceConfig(device_config))?)
     }
 
     /// Acquire hardware and start the mapping loop.
@@ -273,8 +278,10 @@ fn run_on_connect(socket: Option<&str>, s: &AppSettings, on: &mut dyn FnMut(Daem
     if s.load_fallback {
         apply_profile(&mut cmd, ProfileRole::Fallback, &s.fallback_path, on);
     }
-    // Step 5 (unconditional): push the app's saved device config, read fresh from disk (the UI
-    // owns it — see `crate::device`; it stays in lock-step with the file and the daemon).
+    // Step 5 (unconditional): push the app's saved chords + device config, read fresh from disk (the
+    // UI owns them — see `crate::chords`/`crate::device`; they stay in lock-step with the files and
+    // the daemon).
+    report(on, cmd.set_chords(crate::chords::to_push(&crate::chords::load())));
     report(on, cmd.set_device_config(crate::device::load()));
 
     // Restore the last-used input/output (before start, so they take effect at start).
