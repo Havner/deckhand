@@ -1,6 +1,10 @@
 (
     version: 0,
     name: "System Shock",
+    rumble: (
+        strength: 100,
+        curve: Linear,
+    ),
     action_sets: [
         (
             name: "base",
@@ -613,9 +617,4 @@
             ],
         ),
     ],
-    rumble: (
-        hz: 60,
-        strength: 100,
-        curve: Linear,
-    ),
 )

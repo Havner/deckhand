@@ -1,6 +1,10 @@
 (
     version: 0,
     name: "Desktop",
+    rumble: (
+        strength: 100,
+        curve: Linear,
+    ),
     action_sets: [
         (
             name: "base",
@@ -660,6 +664,37 @@
                                 ),
                             ),
                         ),
+                        Gyro: GyroToMouse(
+                            settings: (
+                                output: Cursor,
+                                space: PlayerSpace,
+                                sensitivity: (
+                                    x: 1.0,
+                                    y: 1.0,
+                                ),
+                                acceleration: (
+                                    factor: 0.0,
+                                ),
+                                smoothing: Some((
+                                    min_cutoff: 5.0,
+                                    beta: 0.5,
+                                )),
+                                deadzone: (
+                                    inner: 0.01,
+                                ),
+                                invert: (
+                                    x: false,
+                                    y: false,
+                                ),
+                                rotation: (
+                                    degrees: 0.0,
+                                ),
+                                activation: (
+                                    mode: HoldToDisable,
+                                    gaters: [],
+                                ),
+                            ),
+                        ),
                     },
                 ),
                 (
@@ -746,9 +781,4 @@
             ],
         ),
     ],
-    rumble: (
-        hz: 60,
-        strength: 100,
-        curve: Linear,
-    ),
 )

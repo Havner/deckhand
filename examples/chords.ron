@@ -1,0 +1,40 @@
+(
+    chords: [
+        (
+            buttons: [
+                Steam,
+                RGrip,
+            ],
+            action: SwitchProfile(
+                mode: SetMain,
+            ),
+        ),
+        (
+            buttons: [
+                QuickAccess,
+                RGrip,
+            ],
+            action: SwitchProfile(
+                mode: SetMain,
+            ),
+        ),
+        (
+            buttons: [
+                Steam,
+                LGrip,
+            ],
+            action: SwitchProfile(
+                mode: SetFallback,
+            ),
+        ),
+        (
+            buttons: [
+                QuickAccess,
+                LGrip,
+            ],
+            action: SwitchProfile(
+                mode: SetFallback,
+            ),
+        ),
+    ],
+)

@@ -1,6 +1,10 @@
 (
     version: 0,
     name: "Cyberpunk 2077",
+    rumble: (
+        strength: 100,
+        curve: Linear,
+    ),
     action_sets: [
         (
             name: "base",
@@ -270,7 +274,7 @@
                             factor: 0.02,
                         ),
                         smoothing: Some((
-                            min_cutoff: 1.0,
+                            min_cutoff: 3.0,
                             beta: 0.5,
                         )),
                         deadzone: (
@@ -614,9 +618,4 @@
             ],
         ),
     ],
-    rumble: (
-        hz: 60,
-        strength: 100,
-        curve: Linear,
-    ),
 )
