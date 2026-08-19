@@ -15,6 +15,9 @@ _deckhand_input_keywords="auto dongle wired bt"
 # Output sink spec.
 _deckhand_output_specs="local"
 
+# --prevent-sleep backend modes (deckhandd only; the flag's arg is optional, so bare -p also works).
+_deckhand_prevent_sleep_modes="auto screensaver powermanagement gnome login1"
+
 # --- colon handling ----------------------------------------------------------
 # Device ids are colon-delimited, but bash breaks words on ':' by default. These wrap
 # bash-completion's helpers (renamed across versions) to (a) rebuild cur/prev/words with ':'
@@ -95,6 +98,10 @@ _deckhandd() {
             ;;
         -k|--socket)
             _deckhand_socket
+            return
+            ;;
+        -p|--prevent-sleep)
+            COMPREPLY=( $(compgen -W "$_deckhand_prevent_sleep_modes" -- "$cur") )
             return
             ;;
     esac

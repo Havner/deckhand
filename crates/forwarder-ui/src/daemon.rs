@@ -2,8 +2,10 @@
 //! UI's `daemon.rs`, with the forwarder's **fixed** connect policy baked in (no toggles):
 //!
 //! - **Launch the daemon** if it isn't running (always — the forwarder's whole job is to run a
-//!   client on the Deck), spawned with `--prevent-sleep` so the Deck doesn't idle-sleep while
-//!   forwarding (the flag is Linux-only; it's accepted-and-ignored elsewhere).
+//!   client on the Deck), spawned with bare `--prevent-sleep` (= `auto`) so the Deck doesn't
+//!   auto-suspend while forwarding. `auto` is suspend-only, so the Deck screen still blanks on its
+//!   own timer (intentional — saves battery; touch wakes it) — it does NOT hold the screen on. (The
+//!   flag is Linux-only; accepted-and-ignored elsewhere.)
 //! - **No** profile / chords loading.
 //! - **Push the device config** (master rumble etc.) on every connect.
 //! - **Restore the last input** (only) — the output is set from the text field at Start, never here.
@@ -249,8 +251,9 @@ fn spawn_daemon(socket: Option<&str>, managed: &Handle, on: &mut dyn FnMut(Daemo
     let exe = daemon_bin();
     let mut cmd = std::process::Command::new(&exe);
     // The Deck acting as a network forwarder grabs the controller, so the compositor sees no local
-    // input and would idle-sleep mid-session — hold an inhibitor for the daemon's lifetime. The flag
-    // is Linux-only in effect (accepted-and-ignored off-Linux), so it's passed unconditionally.
+    // input and would auto-suspend mid-session — hold a suspend inhibitor for the daemon's lifetime.
+    // Bare = `auto` (suspend-only; screen still blanks by design). The flag is Linux-only in effect
+    // (accepted-and-ignored off-Linux), so it's passed unconditionally.
     cmd.arg("--prevent-sleep");
     if let Some(s) = socket {
         cmd.arg("--socket").arg(s);

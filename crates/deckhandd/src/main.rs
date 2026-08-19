@@ -55,10 +55,9 @@ struct Args {
     /// Acquire hardware and start immediately (defaults a missing -i/-o to auto/local).
     #[arg(short, long)]
     start: bool,
-    /// Keep the session awake while running (Linux only). Holds a freedesktop
-    /// ScreenSaver inhibitor.
-    #[arg(short = 'p', long)]
-    prevent_sleep: bool,
+    /// Prevent auto-suspend while running (Linux only).
+    #[arg(short = 'p', long, value_name = "MODE", num_args = 0..=1, default_missing_value = "auto")]
+    prevent_sleep: Option<PreventSleep>,
     /// Control socket path (Unix) / pipe name (Windows). Overrides $DECKHAND_SOCKET and the default.
     #[arg(short = 'k', long, value_name = "PATH")]
     socket: Option<String>,
@@ -68,6 +67,23 @@ struct Args {
     /// Increase log verbosity: -v info, -vv debug, -vvv trace (default warn). RUST_LOG overrides.
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
+}
+
+/// `--prevent-sleep` backend. See `inhibit.rs` for what each holds. The enum is always compiled
+/// (the flag parses on every platform, accepted-and-ignored off-Linux); it's consumed only on Linux.
+#[derive(Copy, Clone, Debug, clap::ValueEnum)]
+#[allow(dead_code)] // fields read only on Linux (inhibit.rs is cfg(linux))
+pub enum PreventSleep {
+    /// Try powermanagement, then gnome, then login1 (skips screensaver). Screen still blanks.
+    Auto,
+    /// org.freedesktop.ScreenSaver — inhibits idle, so also stops screen blanking.
+    Screensaver,
+    /// org.freedesktop.PowerManagement.Inhibit — suspend only (KDE/XFCE/MATE).
+    Powermanagement,
+    /// org.gnome.SessionManager (flags=4) — suspend only (GNOME).
+    Gnome,
+    /// org.freedesktop.login1 block sleep — suspend only, system bus, any systemd host.
+    Login1,
 }
 
 impl Args {
@@ -95,9 +111,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Hold a sleep/idle inhibitor for the daemon's lifetime (best-effort). Kept in a binding so it
     // lives across `serve` and releases on a clean exit.
     #[cfg(target_os = "linux")]
-    let _inhibitor = args.prevent_sleep.then(inhibit::SleepInhibitor::acquire).flatten();
+    let _inhibitor = args.prevent_sleep.and_then(inhibit::SleepInhibitor::acquire);
     #[cfg(not(target_os = "linux"))]
-    if args.prevent_sleep {
+    if args.prevent_sleep.is_some() {
         log::warn!("--prevent-sleep is only supported on Linux — ignored");
     }
 
