@@ -150,6 +150,17 @@ fn read_session(
             level = scale_master(r, cfg.master_rumble);
             changed = true;
         }
+        // Re-fire cadence is per-device (the Deck's fixed `0xeb` burst vs Gordon's pulse train).
+        // TODO: consider moving these reader-side rumble constants (both refire intervals, gains,
+        // train/duty knobs) down into `steam-hid` next to the packets they parameterize — they're
+        // hardware facts, not engine policy.
+        let refire_ms = match &kind {
+            DeviceKind::Neptune => NEPTUNE_REFIRE_MS,
+            DeviceKind::Gordon => RUMBLE_REFIRE_MS,
+        };
+        let refire = (level.strong > 0 || level.weak > 0)
+            && last_haptic.elapsed() >= Duration::from_millis(refire_ms);
+
         // Non-fatal on write error: a transient hiccup must not kill the reader (a real disconnect
         // is caught by the read above → TransportGone). Same for clicks below.
         match &kind {
@@ -158,13 +169,8 @@ fn read_session(
                 // field), so a sustained rumble must be **re-issued** every ~`NEPTUNE_REFIRE_MS` —
                 // send on change and on the re-fire tick while non-zero; the change to `(0,0)` stops
                 // it. `strong`→left motor, `weak`→right (kernel FF mapping, PLAN §1.9).
-                let refire = (level.strong > 0 || level.weak > 0)
-                    && last_haptic.elapsed() >= Duration::from_millis(NEPTUNE_REFIRE_MS);
                 if changed || refire {
-                    if let Err(e) =
-                        // intensity 0 = strongest (finer amplitude lever, unused for now — §1.9).
-                        device.rumble_cmd(0, level.strong, level.weak, NEPTUNE_L_GAIN, NEPTUNE_R_GAIN)
-                    {
+                    if let Err(e) = apply_rumble(device, &level) {
                         log::warn!("rumble write failed: {e}");
                     }
                     last_haptic = Instant::now();
@@ -174,9 +180,7 @@ fn read_session(
                 // Gordon: re-issue the pulse train just before it ends so a sustained rumble is one
                 // contiguous drive (the actuator rings up), not a mid-train restart. Zero level →
                 // nothing (the train plays out and stops).
-                if (level.strong > 0 || level.weak > 0)
-                    && last_haptic.elapsed() >= Duration::from_millis(RUMBLE_REFIRE_MS)
-                {
+                if refire {
                     if let Err(e) = apply_haptics(device, &level, cfg.rumble_hz) {
                         log::warn!("rumble write failed: {e}");
                     }
@@ -255,19 +259,6 @@ fn scale_master(cmd: RumbleCmd, master: u8) -> RumbleCmd {
     RumbleCmd { strong: scale(cmd.strong), weak: scale(cmd.weak) }
 }
 
-/// Route a rumble command to Gordon's trackpad actuators as pulse-trains (strong→left, weak→right;
-/// PLAN §1.9). Re-fired by the reader while the level stays non-zero. (Gordon only; the Deck uses
-/// [`Device::rumble_cmd`] directly — see `read_session`.)
-fn apply_haptics(device: &mut Device, cmd: &RumbleCmd, hz: u16) -> Result<()> {
-    if cmd.strong > 0 {
-        device.haptic_pulse(Motor::Left, train(cmd.strong, hz))?;
-    }
-    if cmd.weak > 0 {
-        device.haptic_pulse(Motor::Right, train(cmd.weak, hz))?;
-    }
-    Ok(())
-}
-
 /// Deck motor gains (dB) for `rumble_cmd` — the kernel drives `FF_RUMBLE` with left = +2 dB,
 /// right = 0 dB (the two motors aren't matched; PLAN §1.9). HW-tunable starting point.
 const NEPTUNE_L_GAIN: i8 = 2;
@@ -293,6 +284,28 @@ const RUMBLE_TRAIN_MS: u32 = 250;
 /// How often the reader re-issues the train — a hair under [`RUMBLE_TRAIN_MS`] so trains are
 /// contiguous (re-fire near the train's end, not mid-play) while never leaving a silent gap.
 const RUMBLE_REFIRE_MS: u64 = 220;
+
+/// Drive the Deck's dual motors from a rumble command via `0xeb` (`strong`→left, `weak`→right; PLAN
+/// §1.9). Re-issued by the reader while the level stays non-zero. (Neptune only; Gordon uses
+/// [`apply_haptics`] — see `read_session`.)
+fn apply_rumble(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
+    // intensity 0 = strongest (finer amplitude lever, unused for now — §1.9).
+    device.rumble_cmd(0, cmd.strong, cmd.weak, NEPTUNE_L_GAIN, NEPTUNE_R_GAIN)?;
+    Ok(())
+}
+
+/// Route a rumble command to Gordon's trackpad actuators as pulse-trains (strong→left, weak→right;
+/// PLAN §1.9). Re-fired by the reader while the level stays non-zero. (Gordon only; the Deck uses
+/// [`apply_rumble`] — see `read_session`.)
+fn apply_haptics(device: &mut Device, cmd: &RumbleCmd, hz: u16) -> Result<()> {
+    if cmd.strong > 0 {
+        device.haptic_pulse(Motor::Left, train(cmd.strong, hz))?;
+    }
+    if cmd.weak > 0 {
+        device.haptic_pulse(Motor::Right, train(cmd.weak, hz))?;
+    }
+    Ok(())
+}
 
 /// A pulse train at the profile's `hz` whose duty cycle encodes the already-scaled `drive` (the
 /// only amplitude lever — `gain` is ignored on Gordon). Maps full drive onto the actuator's
