@@ -33,7 +33,7 @@ mod view;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use config::{Chords, ConfigDoc, DeviceConfig};
+use config::{Chords, ConfigDoc, DeviceConfig, Shape};
 use daemon::{Client, DaemonUpdate, Handle, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::window;
@@ -314,6 +314,8 @@ pub(crate) enum Message {
     ToggleUseTray(bool),
     ToggleCloseToTray(bool),
     ToggleStartHidden(bool),
+    /// Which controller's inputs the profile editor shows (Settings screen).
+    SetShowInputs(settings::ShowInputs),
     /// Network (`host:port`) input/output popup.
     PopupTextChanged(String),
     PopupConfirm,
@@ -790,6 +792,10 @@ impl App {
                 self.settings.start_hidden = v;
                 self.save_settings();
             }
+            Message::SetShowInputs(v) => {
+                self.settings.show_inputs = v;
+                self.save_settings();
+            }
             Message::ToggleRestoreIo(v) => {
                 self.settings.restore_io = v;
                 self.save_settings();
@@ -1013,6 +1019,20 @@ impl App {
             Message::Ignored => {}
         }
         Task::none()
+    }
+
+    /// The [`Shape`] whose inputs the editor should show, or `None` to show the full superset (the
+    /// "All" case). Resolves the `show_inputs` setting: `All` → `None`; `Gordon`/`Neptune` → that
+    /// shape; `Auto` → the bound device's shape, or `None` (fall back to All) when nothing is bound.
+    fn input_shape(&self) -> Option<Shape> {
+        match self.settings.show_inputs {
+            settings::ShowInputs::All => None,
+            settings::ShowInputs::Gordon => Some(Shape::Gordon),
+            settings::ShowInputs::Neptune => Some(Shape::Neptune),
+            settings::ShowInputs::Auto => {
+                self.status.as_ref().and_then(|s| s.bound.as_ref()).map(|b| b.shape.clone())
+            }
+        }
     }
 
     /// The active iced theme, resolved from the persisted theme **name** (falls back to Dark for an

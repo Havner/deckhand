@@ -162,9 +162,14 @@ pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
 pub(super) fn input_screen(app: &App, category: Category) -> Element<'static, Message> {
     let binds = crate::editor::current_bindings(app);
     let on_layer = crate::editor::on_layer(app);
+    // Show-inputs filter: keep only the InputSources the chosen shape reports (`None` = show all). A
+    // group whose inputs are all filtered out is dropped entirely, header included.
+    let shape = app.input_shape();
     let mut col = column![section_header(category.label())].spacing(20.0);
     for group in category.groups() {
-        col = col.push(group_view(binds, group, on_layer));
+        if let Some(view) = group_view(binds, group, on_layer, shape.as_ref()) {
+            col = col.push(view);
+        }
     }
     col.into()
 }
@@ -226,19 +231,31 @@ impl RumbleCurveKind {
 type Binds<'a> = Option<&'a BTreeMap<InputSource, SourceBinding>>;
 
 /// One input group: its header, then its primary inputs, then any sub-buttons (each a plain button)
-/// after a small gap.
-fn group_view(binds: Binds, group: &InputGroup, on_layer: bool) -> Element<'static, Message> {
+/// after a small gap. Inputs the `shape` filter doesn't report are dropped at the source level (not
+/// greyed); `None` when every input in the group is filtered out (so the header isn't shown either).
+fn group_view(
+    binds: Binds,
+    group: &InputGroup,
+    on_layer: bool,
+    shape: Option<&config::Shape>,
+) -> Option<Element<'static, Message>> {
+    let shown = |i: &&InputSource| shape.is_none_or(|s| s.has(i));
+    let primary: Vec<&InputSource> = group.primary.iter().filter(shown).collect();
+    let sub: Vec<&InputSource> = group.sub.iter().filter(shown).collect();
+    if primary.is_empty() && sub.is_empty() {
+        return None;
+    }
     let mut col = column![group_header(group.header)].spacing(8.0);
-    for input in group.primary {
+    for input in primary {
         col = col.push(primary_view(binds, input, on_layer));
     }
-    if !group.sub.is_empty() {
+    if !sub.is_empty() {
         col = col.push(Space::new().height(4.0));
-        for input in group.sub {
+        for input in sub {
             col = col.push(slot_view(binds, input, CommandSlot::Button, on_layer));
         }
     }
-    col.into()
+    Some(col.into())
 }
 
 /// A primary input: a plain button is one command bar; a button group / rich analog source gets a

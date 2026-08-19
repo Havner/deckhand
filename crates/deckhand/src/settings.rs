@@ -8,6 +8,36 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+/// Which controller's inputs the profile editor shows. `Auto` follows the bound device's shape
+/// (falling back to `All` when nothing is bound); `Gordon`/`Neptune` force a shape; `All` shows the
+/// full device-independent superset. Inputs the shape doesn't report are dropped at the
+/// [`InputSource`](config::InputSource) level (not greyed); a group whose inputs all drop out shows
+/// no header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub(crate) enum ShowInputs {
+    #[default]
+    Auto,
+    All,
+    Gordon,
+    Neptune,
+}
+
+impl ShowInputs {
+    /// All variants in Settings-screen (pick-list) order.
+    pub(crate) const ALL: [ShowInputs; 4] =
+        [ShowInputs::Auto, ShowInputs::All, ShowInputs::Gordon, ShowInputs::Neptune];
+
+    /// The pick-list label.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            ShowInputs::Auto => "Auto",
+            ShowInputs::All => "All",
+            ShowInputs::Gordon => "Gordon",
+            ShowInputs::Neptune => "Neptune",
+        }
+    }
+}
+
 /// Application settings (see the Settings screen). `#[serde(default)]` so a partial or older file
 /// still loads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +48,8 @@ pub(crate) struct AppSettings {
     /// The UI theme, stored by **name** (e.g. `Dark`, `Dracula`) — one of iced's built-in themes,
     /// falling back to the default when the name is empty/unknown.
     pub(crate) theme: String,
+    /// Which controller's inputs the profile editor shows (Auto follows the bound device).
+    pub(crate) show_inputs: ShowInputs,
     /// Show a system-tray icon. Master switch for the two options below.
     pub(crate) use_tray: bool,
     /// Close-to-tray: a window close request hides the window instead of quitting (needs `use_tray`).
@@ -63,6 +95,7 @@ impl Default for AppSettings {
             use_tray: false,
             close_to_tray: false,
             start_hidden: false,
+            show_inputs: ShowInputs::Auto,
             use_custom_profile_dir: false,
             custom_profile_dir: String::new(),
             start_daemon: true,

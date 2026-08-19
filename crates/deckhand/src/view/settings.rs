@@ -5,6 +5,7 @@ use iced::widget::{Space, button, checkbox, column, pick_list, row, text, text_i
 use iced::{Center, Element, Fill, Theme};
 
 use super::{group_header, section_header, small};
+use crate::settings::ShowInputs;
 use crate::{App, Message, style};
 
 /// The application-settings page (Category::Settings).
@@ -30,6 +31,16 @@ pub(super) fn settings_screen(app: &App) -> Element<'_, Message> {
         close_to_tray = close_to_tray.on_toggle(Message::ToggleCloseToTray);
         start_hidden = start_hidden.on_toggle(Message::ToggleStartHidden);
     }
+
+    // Which controller's inputs the profile editor shows (per-source; Auto follows the bound device).
+    let show_inputs = row![
+        text("Show inputs:").size(14.0),
+        pick_list(Some(s.show_inputs), ShowInputs::ALL, |v: &ShowInputs| v.label().to_string())
+            .on_select(Message::SetShowInputs)
+            .menu_style(style::combo_menu),
+    ]
+    .spacing(8.0)
+    .align_y(Center);
 
     // Custom profiles directory: a toggle plus a path row greyed out until it's on.
     let use_custom_dir = checkbox(s.use_custom_profile_dir)
@@ -77,6 +88,7 @@ pub(super) fn settings_screen(app: &App) -> Element<'_, Message> {
         section_header("Application settings"),
         group_header("UI"),
         theme_pick,
+        show_inputs,
         use_tray,
         close_to_tray,
         start_hidden,
