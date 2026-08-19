@@ -2,9 +2,9 @@
 # See PLAN.md for the full design; build order is steam-hid first.
 [workspace]
 resolver = "3"
-members = ["crates/vocab-out", "crates/vocab-hid", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl", "crates/deckhand"]
-# The real UI (`deckhand`, iced) pulls heavy GUI deps and is opt-in (`cargo build -p deckhand`);
-# keep it out of a plain workspace `cargo build` for now.
+members = ["crates/vocab-out", "crates/vocab-hid", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl", "crates/deckhand", "crates/forwarder-ui"]
+# The real UI (`deckhand`, iced) and the minimal `forwarder-ui` both pull heavy GUI deps and are
+# opt-in (`cargo build -p deckhand` / `-p forwarder-ui`); keep them out of a plain workspace build.
 default-members = ["crates/vocab-out", "crates/vocab-hid", "crates/steam-hid", "crates/virt-out", "crates/config", "crates/engine", "crates/ipc", "crates/deckhandd", "crates/deckhandctl"]
 
 [workspace.package]

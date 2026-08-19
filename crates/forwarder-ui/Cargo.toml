@@ -1,0 +1,17 @@
+[package]
+name = "forwarder-ui"
+edition.workspace = true
+license.workspace = true
+publish = false
+version.workspace = true
+
+[[bin]]
+name = "deckhand-forwarder"
+path = "src/main.rs"
+
+[dependencies]
+ipc = { path = "../ipc" }
+config = { path = "../config" }
+iced.workspace = true
+serde.workspace = true
+ron.workspace = true
