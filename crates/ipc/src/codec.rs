@@ -76,6 +76,7 @@ mod tests {
                 input: "dongle".into(),
                 bound: None,
                 controller: None,
+                battery: None,
                 device_config: Default::default(),
                 main: None,
                 fallback: None,

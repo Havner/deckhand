@@ -28,6 +28,7 @@ fn ctl_drives_a_fake_daemon() {
                         input: "dongle".into(),
                         bound: None,
                         controller: Some(true),
+                        battery: Some(88),
                         device_config: Default::default(),
                         main: Some("game".into()),
                         fallback: None,
@@ -84,7 +85,7 @@ fn ctl_monitor_streams_events() {
             let mut conn = conn.expect("accept");
             if let Some(Request::Subscribe) = conn.recv().expect("recv") {
                 conn.send_event(&Event::ControllerConnected(true)).expect("send");
-                conn.send_event(&Event::Battery { percent: Some(96) }).expect("send");
+                conn.send_event(&Event::Battery { percent: 96 }).expect("send");
                 conn.send_event(&Event::State(RunState::Running)).expect("send");
                 return; // close → the client sees the stream end
             }

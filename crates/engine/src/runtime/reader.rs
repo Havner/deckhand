@@ -4,7 +4,7 @@
 //! then [`LinkClient::reattach`] re-mint the session behind the link, so the virtual pad never leaves.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -43,6 +43,7 @@ pub(super) fn run_reader(
     mut link: LinkClient,
     running: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
+    battery: Arc<AtomicU16>,
     events: EventSink,
 ) -> Result<()> {
     // A separate `Manager` (own hidapi context) used only for reacquire enumeration/open — created
@@ -50,7 +51,7 @@ pub(super) fn run_reader(
     let mut manager: Option<Manager> = None;
 
     loop {
-        match read_session(&mut device, &cfg, &link, &running, &connected, &events)? {
+        match read_session(&mut device, &cfg, &link, &running, &connected, &battery, &events)? {
             SessionEnd::Stop => return Ok(()),
             SessionEnd::TransportGone => {}
         }
@@ -90,6 +91,7 @@ fn read_session(
     link: &LinkClient,
     running: &AtomicBool,
     connected: &AtomicBool,
+    battery: &AtomicU16,
     events: &EventSink,
 ) -> Result<SessionEnd> {
     apply_device_cfg(device, cfg);
@@ -107,7 +109,6 @@ fn read_session(
     let mut last_keepalive = Instant::now();
     let mut last_haptic = Instant::now();
     let mut level = RumbleCmd::default();
-    let mut last_battery: Option<u8> = None;
 
     while running.load(Ordering::Relaxed) {
         // Short timeout so the loop laps to check `running`, keep-alive, and rumble regularly.
@@ -119,10 +120,11 @@ fn read_session(
                         apply_device_cfg(device, cfg);
                     }
                     Report::Disconnected => set_connected(connected, events, false),
-                    // Edge-triggered: the 0x04 report streams ~1 Hz, so only surface a change.
-                    Report::Battery(b) if last_battery != Some(b.charge_percent) => {
-                        events.emit(EngineEvent::BatteryChanged { percent: b.charge_percent });
-                        last_battery = Some(b.charge_percent);
+                    // Edge-triggered: the 0x04 report streams ~1 Hz, so only surface a change. The
+                    // readback atomic is the last-value source (persists across sessions), so a
+                    // reconnect at the same charge stays quiet — `status()` already reads it directly.
+                    Report::Battery(b) if battery.load(Ordering::Relaxed) != b.charge_percent as u16 => {
+                        set_battery(battery, events, b.charge_percent);
                     }
                     // State (per-frame, too noisy) and an unchanged Battery need no event.
                     Report::State(_) | Report::Battery(_) => {}
@@ -208,6 +210,14 @@ fn read_session(
 fn set_connected(flag: &AtomicBool, events: &EventSink, connected: bool) {
     flag.store(connected, Ordering::SeqCst);
     events.emit(EngineEvent::ControllerConnected(connected));
+}
+
+/// Publish the battery charge to the shared readback and emit [`EngineEvent::BatteryChanged`].
+/// Store-before-emit so a concurrent `status()` never reads staler than the last event. The caller
+/// change-guards against the readback, so this only runs on a genuine change.
+fn set_battery(flag: &AtomicU16, events: &EventSink, percent: u8) {
+    flag.store(percent as u16, Ordering::SeqCst);
+    events.emit(EngineEvent::BatteryChanged { percent });
 }
 
 /// Poll (~1 Hz) for the pinned device to reappear, then open it. `None` if `running` is cleared

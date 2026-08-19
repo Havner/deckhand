@@ -173,6 +173,10 @@ pub struct StatusInfo {
     /// there's no local reader (idle, or the network server role). Distinct from `state`: on the
     /// dongle the controller can power off (→ `Some(false)`) while the loop stays `Running`.
     pub controller: Option<bool>,
+    /// The bound controller's last-known battery charge (percent), or `None` when unknown — no
+    /// battery frame has arrived yet, the controller is wired (no battery), or there's no local
+    /// reader (the network server role). Wireless-only; subsequent changes arrive as `Battery` events.
+    pub battery: Option<u8>,
     /// The full device config (master rumble, frequency, LED/idle). Included whole so a client
     /// connecting to a running daemon can seed its complete view in one call; subsequent changes
     /// arrive as `DeviceConfigSet` events.
@@ -437,12 +441,12 @@ impl Engine {
     pub fn status(&self) -> StatusInfo {
         // `controller`/`active` come straight off the running threads' published flags (or `None`
         // when idle / when the relevant thread isn't local to this role).
-        let (state, controller, active) = match &self.runtime {
-            None => (Status::Idle, None, None),
+        let (state, controller, battery, active) = match &self.runtime {
+            None => (Status::Idle, None, None, None),
             Some(rt) => {
                 let state =
                     if rt.is_waiting() { Status::WaitingForDevice } else { Status::Running };
-                (state, rt.controller_connected(), rt.active_role())
+                (state, rt.controller_connected(), rt.battery(), rt.active_role())
             }
         };
         StatusInfo {
@@ -451,6 +455,7 @@ impl Engine {
             input: self.input.clone(),
             bound: self.bound.clone(),
             controller,
+            battery,
             device_config: self.device_config.clone(),
             main: self.main.as_ref().map(|p| p.meta.name.clone()),
             fallback: self.fallback.as_ref().map(|p| p.meta.name.clone()),

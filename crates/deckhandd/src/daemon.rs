@@ -135,6 +135,7 @@ impl Daemon {
             input: s.input.to_string(),
             bound: s.bound.map(bound_device),
             controller: s.controller,
+            battery: s.battery,
             device_config: s.device_config,
             main: s.main,
             fallback: s.fallback,
@@ -211,7 +212,7 @@ pub fn run_state(status: Status) -> RunState {
 pub fn to_wire_event(ev: EngineEvent) -> Event {
     match ev {
         EngineEvent::ControllerConnected(c) => Event::ControllerConnected(c),
-        EngineEvent::BatteryChanged { percent } => Event::Battery { percent: Some(percent) },
+        EngineEvent::BatteryChanged { percent } => Event::Battery { percent },
         EngineEvent::BindingRemoved => Event::BindingRemoved,
         EngineEvent::BindingAcquired(id) => Event::BindingAcquired(bound_device(id)),
         EngineEvent::State(s) => Event::State(run_state(s)),

@@ -17,7 +17,7 @@ mod reader;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::thread::{self, JoinHandle};
 
 use crossbeam_channel::Sender;
@@ -100,6 +100,10 @@ pub(crate) struct Click {
     pub(crate) strength: HapticStrength,
 }
 
+/// Sentinel stored in the reader's battery readback before any battery frame has arrived (charge is
+/// always 0..=100, so `u16::MAX` can never collide). Mapped back to `None` by [`Runtime::battery`].
+const BATTERY_UNKNOWN: u16 = u16::MAX;
+
 /// A running engine: the two threads + the control channel. Created by [`Runtime::start`] on
 /// `Engine::start`, torn down by [`Runtime::stop`] on `Engine::stop` (config lives in the handle).
 pub(crate) struct Runtime {
@@ -112,6 +116,12 @@ pub(crate) struct Runtime {
     /// runs** (local + client roles) — `None` in the server role (no local device). Read by
     /// `status()`; the reader emits the matching `ControllerConnected(bool)` event on each change.
     controller_connected: Option<Arc<AtomicBool>>,
+    /// Published by the reader: the bound controller's last-known battery charge (percent), or
+    /// [`BATTERY_UNKNOWN`] before any `0x04` frame arrives (wired Gordon reports a fake 100%; only
+    /// wireless controllers report real charge). `Some` **iff a reader runs** (local + client roles),
+    /// mirroring `controller_connected` — `None` in the server role. Read by `status()`; the reader
+    /// emits the matching `BatteryChanged` event on each change.
+    battery: Option<Arc<AtomicU16>>,
     /// Published by the mapper: is the live role the **fallback**? `Some` **iff a mapper runs**
     /// (local + server roles) — `None` in the client role (the live role lives on the remote server).
     /// Read by `status()`; the mapper emits the matching `ActiveRole` event on each change.
@@ -142,9 +152,11 @@ impl Runtime {
         let LocalLink { client, server, control_tx, detached } = link::local_link();
         // Both threads run locally → both readback flags are live.
         let connected = Arc::new(AtomicBool::new(false));
+        let battery = Arc::new(AtomicU16::new(BATTERY_UNKNOWN));
         let fallback_active = Arc::new(AtomicBool::new(false));
         let reader = spawn_reader(
-            device, pinned_id, cfg, client, running.clone(), connected.clone(), events.clone(),
+            device, pinned_id, cfg, client, running.clone(), connected.clone(), battery.clone(),
+            events.clone(),
         );
         let mapper = spawn_mapper(
             sink, main, fallback, chords, server, running.clone(), fallback_active.clone(), events,
@@ -153,6 +165,7 @@ impl Runtime {
             running,
             detached,
             controller_connected: Some(connected),
+            battery: Some(battery),
             fallback_active: Some(fallback_active),
             control_tx,
             reader: Some(reader),
@@ -180,12 +193,15 @@ impl Runtime {
         // Client role: a reader (→ `controller_connected`), but no local mapper (the live role is
         // on the remote server, so `fallback_active` is `None`).
         let connected = Arc::new(AtomicBool::new(false));
-        let reader =
-            spawn_reader(device, pinned_id, cfg, link, running.clone(), connected.clone(), events);
+        let battery = Arc::new(AtomicU16::new(BATTERY_UNKNOWN));
+        let reader = spawn_reader(
+            device, pinned_id, cfg, link, running.clone(), connected.clone(), battery.clone(), events,
+        );
         Ok(Runtime {
             running,
             detached,
             controller_connected: Some(connected),
+            battery: Some(battery),
             fallback_active: None,
             control_tx,
             reader: Some(reader),
@@ -219,6 +235,7 @@ impl Runtime {
             running,
             detached,
             controller_connected: None,
+            battery: None,
             fallback_active: Some(fallback_active),
             control_tx,
             reader: None,
@@ -235,6 +252,18 @@ impl Runtime {
     /// (server). Read by `status()`; kept in lock-step with the `ControllerConnected` event.
     pub(crate) fn controller_connected(&self) -> Option<bool> {
         self.controller_connected.as_ref().map(|f| f.load(Ordering::SeqCst))
+    }
+
+    /// The bound controller's last-known battery charge (percent), or `None` when this role has no
+    /// local reader (server) **or** no battery frame has arrived yet — both render as "unknown", so
+    /// the sentinel never leaks past this method. Read by `status()`; kept in lock-step with the
+    /// `BatteryChanged` event.
+    pub(crate) fn battery(&self) -> Option<u8> {
+        self.battery
+            .as_ref()
+            .map(|f| f.load(Ordering::SeqCst))
+            .filter(|&v| v != BATTERY_UNKNOWN)
+            .map(|v| v as u8)
     }
 
     /// The live role, or `None` if this role has no local mapper (client — the role lives on the
@@ -279,12 +308,14 @@ fn spawn_reader(
     link: LinkClient,
     running: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
+    battery: Arc<AtomicU16>,
     events: EventSink,
 ) -> JoinHandle<Result<()>> {
     thread::Builder::new()
         .name("deckhand-reader".into())
         .spawn(move || {
-            let result = run_reader(device, pinned_id, cfg, link, running, connected, events);
+            let result =
+                run_reader(device, pinned_id, cfg, link, running, connected, battery, events);
             // A reader error would otherwise be invisible until stop() joins it — log it now.
             if let Err(ref e) = result {
                 log::error!("reader thread exited with error: {e}");

@@ -106,6 +106,10 @@ pub struct StatusSnapshot {
     /// Whether the bound controller is currently present, or `None` when there's no local reader
     /// (idle, or the network server role). On the dongle it can be `Some(false)` while `Running`.
     pub controller: Option<bool>,
+    /// The bound controller's last-known battery charge (percent), or `None` when unknown (no
+    /// battery frame yet, a wired controller, or no local reader). Wireless-only; later changes
+    /// arrive as [`Event::Battery`].
+    pub battery: Option<u8>,
     /// The full device config (master rumble, chords, device toggles). Sent whole so a connecting
     /// client seeds its complete view in one `Status` call; later changes arrive as
     /// [`Event::DeviceConfigSet`].
@@ -129,8 +133,8 @@ pub struct StatusSnapshot {
 pub enum Event {
     /// The bound controller's presence changed (`true` = connected). Absolute value.
     ControllerConnected(bool),
-    /// Battery percentage (wireless only; `None` when unknown).
-    Battery { percent: Option<u8> },
+    /// The bound controller's battery charge changed (wireless only). Absolute value.
+    Battery { percent: u8 },
     /// The binding was torn down (engine stopped, nothing bound; → `Idle`). Brackets
     /// `BindingAcquired`; a transport outage does not emit this (surfaces as `WaitingForDevice`).
     BindingRemoved,

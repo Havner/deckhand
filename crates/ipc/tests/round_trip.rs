@@ -26,6 +26,7 @@ fn client_server_round_trip() {
                         input: "dongle".into(),
                         bound: None,
                         controller: Some(true),
+                        battery: Some(72),
                         device_config: Default::default(),
                         main: Some("game".into()),
                         fallback: None,

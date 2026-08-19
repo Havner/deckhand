@@ -233,8 +233,7 @@ fn fmt_event(ev: &Event) -> String {
     match ev {
         Event::ControllerConnected(true) => "controller connected".into(),
         Event::ControllerConnected(false) => "controller disconnected".into(),
-        Event::Battery { percent: Some(p) } => format!("battery: {p}%"),
-        Event::Battery { percent: None } => "battery: unknown".into(),
+        Event::Battery { percent } => format!("battery: {percent}%"),
         Event::BindingRemoved => "binding removed".into(),
         Event::BindingAcquired(b) => format!("binding acquired: {} ({:?})", b.id, b.shape),
         Event::State(s) => format!("state: {s:?}"),
@@ -256,6 +255,10 @@ fn chord_summary(chords: &Option<Chords>) -> String {
 
 fn bound_summary(bound: &Option<BoundDevice>) -> String {
     bound.as_ref().map_or_else(|| "(none)".to_string(), |b| format!("{} ({:?})", b.id, b.shape))
+}
+
+fn battery_summary(battery: Option<u8>) -> String {
+    battery.map_or_else(|| "(unknown)".to_string(), |p| format!("{p}%"))
 }
 
 /// Print a reply, prefixed with the command `label` so a chain's acks/errors are attributable.
@@ -305,6 +308,7 @@ fn print_status(s: &StatusSnapshot) {
     println!("input:      {}", s.input);
     println!("bound:      {}", bound_summary(&s.bound));
     println!("controller: {controller}");
+    println!("battery:    {}", battery_summary(s.battery));
     println!("devcfg:     master_rumble={}%", s.device_config.master_rumble);
     println!("main:       {}", s.main.as_deref().unwrap_or("(none)"));
     println!("fallback:   {}", s.fallback.as_deref().unwrap_or("(none)"));
