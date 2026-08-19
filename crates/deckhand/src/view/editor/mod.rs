@@ -246,58 +246,36 @@ fn group_view(binds: Binds, group: &InputGroup, on_layer: bool) -> Element<'stat
 fn primary_view(binds: Binds, input: &InputSource, on_layer: bool) -> Element<'static, Message> {
     match input.kind() {
         SourceKind::Button => slot_view(binds, input, CommandSlot::Button, on_layer),
-        SourceKind::ButtonGroup => group_view_input(binds, input, on_layer),
         kind => rich_view(binds, input, kind, on_layer),
     }
 }
 
-/// A 4-button cluster (Face Buttons / D-Pad): a behaviour selector, and — when it's a Button Pad —
-/// the four member command bars.
-fn group_view_input(binds: Binds, input: &InputSource, on_layer: bool) -> Element<'static, Message> {
-    let binding = binds.and_then(|b| b.get(input));
-    let current = binding.map_or(Behavior::Unbound, Behavior::of);
-    let mut col = column![behavior_row(input, current, SourceKind::ButtonGroup, on_layer)].spacing(8.0);
-    if matches!(binding, Some(SourceBinding::ButtonPad { .. })) {
-        for slot in group_member_slots(input) {
-            col = col.push(slot_view(binds, input, slot, on_layer));
-        }
-    }
-    col.into()
-}
-
-/// A rich analog source (Pad/Stick/Trigger/Gyro): a behaviour selector, then the virtual-button
-/// command bars its chosen behaviour exposes (none for the mouse behaviours).
+/// A source with a behaviour selector — a rich analog source (Pad/Stick/Trigger/Gyro) or a 4-button
+/// cluster (Face Buttons / D-Pad): the selector, then the virtual-button command bars its chosen
+/// behaviour exposes (none for the mouse behaviours; the four members for a Button Pad).
 fn rich_view(binds: Binds, input: &InputSource, kind: SourceKind, on_layer: bool) -> Element<'static, Message> {
     let binding = binds.and_then(|b| b.get(input));
     let current = binding.map_or(Behavior::Unbound, Behavior::of);
     let mut col = column![behavior_row(input, current, kind, on_layer)].spacing(8.0);
     if let Some(b) = binding {
-        for slot in virtual_slots(b) {
+        for slot in virtual_slots(input, b) {
             col = col.push(slot_view(binds, input, slot, on_layer));
         }
     }
     col.into()
 }
 
-/// The command slots (virtual buttons) a rich behaviour exposes, in display order (labels come from
-/// [`slot_display`]).
-fn virtual_slots(binding: &SourceBinding) -> Vec<CommandSlot> {
+/// The command slots (virtual buttons) a behaviour exposes, in display order (labels come from
+/// [`slot_display`]). Button Pad members are ordered per cluster (A, B, X, Y for Face Buttons;
+/// Up/Down/Left/Right for the D-pad), so this keys on the input too.
+fn virtual_slots(input: &InputSource, binding: &SourceBinding) -> Vec<CommandSlot> {
     use CommandSlot::*;
-    match binding {
-        SourceBinding::Joystick { .. } => vec![OuterRing],
-        SourceBinding::DirectionalPad { .. } => vec![Up, Down, Left, Right, OuterRing],
-        SourceBinding::Trigger { .. } => vec![SoftPull],
-        _ => Vec::new(),
-    }
-}
-
-/// The members of a button cluster, as their `ButtonPad` slots in display order (A, B, X, Y for Face
-/// Buttons; Up/Down/Left/Right for the D-pad). Labels/colours come from [`slot_display`].
-fn group_member_slots(input: &InputSource) -> Vec<CommandSlot> {
-    use CommandSlot::*;
-    match input {
-        InputSource::FaceButtons => vec![Down, Right, Left, Up],
-        InputSource::DPad => vec![Up, Down, Left, Right],
+    match (input, binding) {
+        (_, SourceBinding::Joystick { .. }) => vec![OuterRing],
+        (_, SourceBinding::DirectionalPad { .. }) => vec![Up, Down, Left, Right, OuterRing],
+        (_, SourceBinding::Trigger { .. }) => vec![SoftPull],
+        (InputSource::FaceButtons, SourceBinding::ButtonPad { .. }) => vec![Down, Right, Left, Up],
+        (InputSource::DPad, SourceBinding::ButtonPad { .. }) => vec![Up, Down, Left, Right],
         _ => Vec::new(),
     }
 }
