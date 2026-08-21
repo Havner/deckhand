@@ -16,9 +16,13 @@ pub(crate) struct Settings {
     /// The iced theme, stored by **name** (default `Dark`). Not exposed in the UI, but honored from
     /// the file so it can be changed by hand — falls back to Dark for an empty/unknown name.
     pub(crate) theme: String,
-    /// Last window size, restored when the window opens; saved on resize/quit.
+    /// Last *non-maximized* window size, restored when the window opens; saved on resize/quit. While
+    /// maximized we keep the pre-maximize size here (not the maximized extent) so restoring maximized
+    /// and then un-maximizing lands back on the previous floating size.
     pub(crate) window_width: u32,
     pub(crate) window_height: u32,
+    /// Whether the window was maximized when last saved; restored on open.
+    pub(crate) window_maximized: bool,
     /// The last input spec set from the UI (re-staged on connect).
     pub(crate) last_input: String,
     /// The last content of the output (`ip:port`) text field — restored into the field on launch,
@@ -35,6 +39,7 @@ impl Default for Settings {
             // is 1280×800 — so open near full-screen so the scaled content fits without scrolling.
             window_width: 1280,
             window_height: 800,
+            window_maximized: false,
             last_input: String::new(),
             last_output_network: String::new(),
         }

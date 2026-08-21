@@ -116,6 +116,10 @@ pub(crate) enum Message {
     CloseRequested,
     WindowClosed(window::Id),
     WindowResized(Size),
+    /// Result of the `is_maximized` query fired after a resize: the reported size plus whether the
+    /// window is now maximized. Lets us record the maximized flag and skip persisting the (maximized)
+    /// size so un-maximizing restores the previous floating size.
+    WindowGeometry(Size, bool),
 }
 
 impl App {
@@ -251,8 +255,21 @@ impl App {
                 }
             }
             Message::WindowResized(size) => {
-                self.settings.window_width = size.width as u32;
-                self.settings.window_height = size.height as u32;
+                // A resize also fires on maximize/un-maximize, so `size` alone can't tell us whether
+                // this is the floating size to remember. Query the maximized state and decide in
+                // `WindowGeometry`.
+                if let Some(id) = self.window {
+                    return window::is_maximized(id).map(move |m| Message::WindowGeometry(size, m));
+                }
+            }
+            Message::WindowGeometry(size, maximized) => {
+                self.settings.window_maximized = maximized;
+                // Keep the last *floating* size: while maximized we hold the pre-maximize size so
+                // restoring maximized and then un-maximizing returns to it.
+                if !maximized {
+                    self.settings.window_width = size.width as u32;
+                    self.settings.window_height = size.height as u32;
+                }
             }
             Message::CloseRequested => {
                 self.save_settings();
@@ -297,6 +314,9 @@ impl App {
         let mut win = window::Settings {
             exit_on_close_request: false,
             size,
+            // Restore maximized state. `size` stays the pre-maximize (floating) size, which winit
+            // keeps as the restore target — so un-maximizing lands back on it.
+            maximized: settings.window_maximized,
             ..window::Settings::default()
         };
         #[cfg(target_os = "linux")]

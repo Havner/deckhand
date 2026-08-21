@@ -336,6 +336,10 @@ pub(crate) enum Message {
     CloseRequested(window::Id),
     WindowClosed(window::Id),
     WindowResized(Size),
+    /// Result of the `is_maximized` query fired after a resize: the size the resize reported plus
+    /// whether the window is now maximized. Lets us record the maximized flag and skip persisting the
+    /// (maximized) size so un-maximizing restores the previous floating size.
+    WindowGeometry(Size, bool),
     /// A tray menu item was clicked.
     TrayMenu(tray::MenuAction),
     /// Theme selection (any built-in iced theme).
@@ -519,6 +523,9 @@ impl App {
         let mut settings = window::Settings {
             exit_on_close_request: false,
             size,
+            // Restore maximized state. `size` remains the pre-maximize (floating) size, which winit
+            // keeps as the restore target — so un-maximizing lands back on it.
+            maximized: self.settings.window_maximized,
             icon: window_icon(),
             ..window::Settings::default()
         };
@@ -745,9 +752,21 @@ impl App {
                 }
             }
             Message::WindowResized(size) => {
-                // In-memory only; flushed to disk on hide/quit.
-                self.settings.window_width = size.width as u32;
-                self.settings.window_height = size.height as u32;
+                // A resize also fires on maximize/un-maximize, so we can't tell from `size` alone
+                // whether this is the floating size to remember. Query the maximized state and decide
+                // in `WindowGeometry`. In-memory only; flushed to disk on hide/quit.
+                if let Some(id) = self.window {
+                    return window::is_maximized(id).map(move |m| Message::WindowGeometry(size, m));
+                }
+            }
+            Message::WindowGeometry(size, maximized) => {
+                self.settings.window_maximized = maximized;
+                // Keep the last *floating* size: while maximized we hold the pre-maximize size so
+                // restoring maximized and then un-maximizing returns to it.
+                if !maximized {
+                    self.settings.window_width = size.width as u32;
+                    self.settings.window_height = size.height as u32;
+                }
             }
             Message::CloseRequested(_id) => {
                 if self.settings.close_to_tray && self.tray.is_some() {

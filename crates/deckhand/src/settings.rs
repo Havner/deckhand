@@ -77,9 +77,13 @@ pub(crate) struct AppSettings {
     pub(crate) start_engine: bool,
 
     // --- Not shown in the UI (persisted at the end). ---
-    /// Last window size, saved on hide/quit and restored when the window (re)opens.
+    /// Last *non-maximized* window size, saved on hide/quit and restored when the window (re)opens.
+    /// While maximized we deliberately keep the pre-maximize size here (not the maximized extent) so
+    /// restoring maximized and then un-maximizing lands back on the previous floating size.
     pub(crate) window_width: u32,
     pub(crate) window_height: u32,
+    /// Whether the window was maximized when last saved; restored on (re)open.
+    pub(crate) window_maximized: bool,
     /// The last input/output spec set from the UI (restored on connect when `restore_io`).
     pub(crate) last_input: String,
     pub(crate) last_output: String,
@@ -107,6 +111,7 @@ impl Default for AppSettings {
             start_engine: true,
             window_width: 1200,
             window_height: 800,
+            window_maximized: false,
             last_input: String::new(),
             last_output: String::new(),
             last_input_network: String::new(),
