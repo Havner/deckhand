@@ -18,38 +18,38 @@ pub enum InputSource {
     FaceButtons,
     /// D-pad cluster (Gordon: left-pad quadrant classifiers; Neptune: physical).
     DPad,
-    // --- trackpads ---
-    LeftPad,
-    RightPad,
+    // --- standalone buttons ---
+    LeftBumper,       // L1
+    RightBumper,      // R1
+    LeftGrip,         // L4
+    RightGrip,        // R4
+    LeftGrip2,        // L5 (Neptune)
+    RightGrip2,       // R5 (Neptune)
+    View,             // Back / Deck ⧉ / Gordon '<'
+    Menu,             // Start / Deck ☰ / Gordon '>'
+    Steam,            // Guide
+    QuickAccess,      // Deck '⋯' (Neptune)
+    // --- triggers ---
+    LeftTrigger,
+    LeftTriggerFull,  // L2 full-pull hardware bit
+    RightTrigger,
+    RightTriggerFull, // R2 full-pull hardware bit
     // --- sticks ---
     LeftStick,
+    LeftStickClick,   // L3
+    LeftStickTouch,   // Neptune — sticks are capacitive (Gordon's stick isn't touch-sensitive)
     RightStick,
-    // --- triggers (analog output + a virtual soft-pull) ---
-    LeftTrigger,
-    RightTrigger,
+    RightStickClick,  // R3, Neptune (no right stick on Gordon)
+    RightStickTouch,  // Neptune
+    // --- trackpads ---
+    LeftPad,
+    LeftPadClick,     //
+    LeftPadTouch,     //
+    RightPad,
+    RightPadClick,    //
+    RightPadTouch,    //
     // --- motion ---
     Gyro,
-    // --- standalone buttons (hardware bits) ---
-    LeftBumper,    // L1
-    RightBumper,   // R1
-    LeftTriggerFull,  // L2 full-pull hardware bit
-    RightTriggerFull, // R2 full-pull hardware bit
-    LeftGrip,      // L4
-    RightGrip,     // R4
-    LeftGrip2,     // L5 (Neptune)
-    RightGrip2,    // R5 (Neptune)
-    View,          // Back / Deck ⧉ / Gordon '<'
-    Menu,          // Start / Deck ☰ / Gordon '>'
-    Steam,         // Guide
-    QuickAccess,   // Deck '⋯' (Neptune)
-    LeftStickClick,
-    RightStickClick, // Neptune (no right stick on Gordon)
-    LeftStickTouch,  // Neptune — sticks are capacitive (Gordon's stick isn't touch-sensitive)
-    RightStickTouch, // Neptune
-    LeftPadClick,
-    RightPadClick,
-    LeftPadTouch,
-    RightPadTouch,
 }
 
 /// The behavioural kind of a control — determines which behaviors/bindings are valid for
@@ -121,17 +121,8 @@ impl InputSource {
     pub const ALL: &'static [InputSource] = &[
         InputSource::FaceButtons,
         InputSource::DPad,
-        InputSource::LeftPad,
-        InputSource::RightPad,
-        InputSource::LeftStick,
-        InputSource::RightStick,
-        InputSource::LeftTrigger,
-        InputSource::RightTrigger,
-        InputSource::Gyro,
         InputSource::LeftBumper,
         InputSource::RightBumper,
-        InputSource::LeftTriggerFull,
-        InputSource::RightTriggerFull,
         InputSource::LeftGrip,
         InputSource::RightGrip,
         InputSource::LeftGrip2,
@@ -140,14 +131,23 @@ impl InputSource {
         InputSource::Menu,
         InputSource::Steam,
         InputSource::QuickAccess,
+        InputSource::LeftTrigger,
+        InputSource::LeftTriggerFull,
+        InputSource::RightTrigger,
+        InputSource::RightTriggerFull,
+        InputSource::LeftStick,
         InputSource::LeftStickClick,
-        InputSource::RightStickClick,
         InputSource::LeftStickTouch,
+        InputSource::RightStick,
+        InputSource::RightStickClick,
         InputSource::RightStickTouch,
+        InputSource::LeftPad,
         InputSource::LeftPadClick,
-        InputSource::RightPadClick,
         InputSource::LeftPadTouch,
+        InputSource::RightPad,
+        InputSource::RightPadClick,
         InputSource::RightPadTouch,
+        InputSource::Gyro,
     ];
 }
 
