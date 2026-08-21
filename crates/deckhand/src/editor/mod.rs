@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use config::{
-    Action, ActionSet, ActivationMode, Activator, Command, CommandSettings, ConfigDoc, Curve,
+    Action, ActionSet, ActivationMode, Activator, Axis, Command, CommandSettings, ConfigDoc, Curve,
     DpadLayout, GyroSpace, HapticEdge, HapticStrength, InputSource, Layer, MouseOutput, SourceBinding,
     StickOutput, TriggerOutput, Turbo,
 };
@@ -103,6 +103,7 @@ pub(crate) enum SettingEdit {
     StickOutput(StickOutput),
     TriggerOutput(TriggerOutput),
     MouseOutput(MouseOutput),
+    Axis(Axis),
     OuterRing(f32),
     SoftPull(f32),
     Layout(DpadLayout),

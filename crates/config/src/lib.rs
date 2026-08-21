@@ -34,7 +34,7 @@ pub use command::{
 };
 pub use input::{InputSource, Shape, Side, SourceKind};
 pub use settings::{
-    Acceleration, Activation, ActivationMode, AntiDeadzone, AsMouseSettings, Curve, Deadzone,
+    Acceleration, Activation, ActivationMode, AntiDeadzone, AsMouseSettings, Axis, Curve, Deadzone,
     DirectionalPadSettings, DpadLayout, GyroSpace, GyroToMouseSettings, Invert, JoystickMouseSettings,
     JoystickSettings, MouseOutput, OneEuroFilter, OuterRing, Rotation, Sensitivity, SoftPull,
     StickOutput, TriggerOutput, TriggerSettings,

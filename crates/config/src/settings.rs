@@ -182,6 +182,17 @@ pub enum MouseOutput {
     SmoothScroll,
 }
 
+/// Which axes a 2D behaviour is allowed to output. `Both` (the default) passes x and y through
+/// unchanged; `Horizontal` keeps x and forces y to 0; `Vertical` keeps y and forces x to 0 — so a
+/// stick or mouse behaviour can be constrained to a single screen axis. Applied by the mapper.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Axis {
+    #[default]
+    Both,
+    Horizontal,
+    Vertical,
+}
+
 /// Directional-pad layout: 4-way (cardinals only) or 8-way (diagonals fire two).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum DpadLayout {
@@ -215,6 +226,7 @@ pub enum GyroSpace {
 #[serde(default)]
 pub struct JoystickSettings {
     pub output: StickOutput,
+    pub axis: Axis,
     pub outer_ring: OuterRing,
     pub curve: Curve,
     pub deadzone: Deadzone,
@@ -243,6 +255,7 @@ pub struct DirectionalPadSettings {
 #[serde(default)]
 pub struct AsMouseSettings {
     pub output: MouseOutput,
+    pub axis: Axis,
     pub sensitivity: Sensitivity,
     pub acceleration: Acceleration,
     pub smoothing: Option<OneEuroFilter>,
@@ -260,6 +273,7 @@ pub struct AsMouseSettings {
 #[serde(default)]
 pub struct JoystickMouseSettings {
     pub output: MouseOutput,
+    pub axis: Axis,
     pub sensitivity: Sensitivity,
     pub curve: Curve,
     pub deadzone: Deadzone,
@@ -273,6 +287,7 @@ pub struct JoystickMouseSettings {
 #[serde(default)]
 pub struct GyroToMouseSettings {
     pub output: MouseOutput,
+    pub axis: Axis,
     pub space: GyroSpace,
     pub sensitivity: Sensitivity,
     pub acceleration: Acceleration,

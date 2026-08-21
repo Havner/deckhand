@@ -18,7 +18,7 @@ use iced::widget::{Space, button, checkbox, column, container, pick_list, row, s
 use iced::{Center, Element, Fill};
 
 use config::{
-    Activation, ActivationMode, Activator, Command, Curve, DpadLayout, GyroSpace, HapticEdge,
+    Activation, ActivationMode, Activator, Axis, Command, Curve, DpadLayout, GyroSpace, HapticEdge,
     HapticStrength, InputSource, Invert, MouseOutput, OneEuroFilter, Sensitivity, SourceBinding,
     StickOutput, TriggerOutput,
 };
@@ -257,6 +257,7 @@ fn behavior_settings(app: &App, input: &InputSource) -> Element<'static, Message
 fn joystick_view(input: &InputSource, s: &config::JoystickSettings) -> Element<'static, Message> {
     column![
         output_stick(input, s.output.clone()),
+        axis(input, s.axis.clone()),
         outer_ring(input, s.outer_ring.radius),
         curve(input, &s.curve),
         deadzone(input, s.deadzone.inner),
@@ -284,6 +285,7 @@ fn directional_pad_view(input: &InputSource, s: &config::DirectionalPadSettings)
 fn as_mouse_view(input: &InputSource, s: &config::AsMouseSettings) -> Element<'static, Message> {
     column![
         output_mouse(input, s.output.clone()),
+        axis(input, s.axis.clone()),
         sensitivity(input, s.sensitivity.clone()),
         acceleration(input, s.acceleration.factor),
         smoothing(input, &s.smoothing),
@@ -298,6 +300,7 @@ fn as_mouse_view(input: &InputSource, s: &config::AsMouseSettings) -> Element<'s
 fn joystick_mouse_view(input: &InputSource, s: &config::JoystickMouseSettings) -> Element<'static, Message> {
     column![
         output_mouse(input, s.output.clone()),
+        axis(input, s.axis.clone()),
         sensitivity(input, s.sensitivity.clone()),
         curve(input, &s.curve),
         deadzone(input, s.deadzone.inner),
@@ -312,6 +315,7 @@ fn joystick_mouse_view(input: &InputSource, s: &config::JoystickMouseSettings) -
 fn gyro_to_mouse_view(input: &InputSource, s: &config::GyroToMouseSettings) -> Element<'static, Message> {
     column![
         output_mouse(input, s.output.clone()),
+        axis(input, s.axis.clone()),
         space(input, s.space.clone()),
         sensitivity(input, s.sensitivity.clone()),
         acceleration(input, s.acceleration.factor),
@@ -368,6 +372,17 @@ fn output_mouse(input: &InputSource, o: MouseOutput) -> Element<'static, Message
         |o: &MouseOutput| mouse_output_label(o).to_string(),
         input,
         SettingEdit::MouseOutput,
+    )
+}
+
+fn axis(input: &InputSource, a: Axis) -> Element<'static, Message> {
+    pick_setting(
+        "Axis",
+        a,
+        vec![Axis::Both, Axis::Horizontal, Axis::Vertical],
+        |a: &Axis| axis_label(a).to_string(),
+        input,
+        SettingEdit::Axis,
     )
 }
 
@@ -600,6 +615,14 @@ fn mouse_output_label(o: &MouseOutput) -> &'static str {
         MouseOutput::Cursor => "Cursor",
         MouseOutput::Scroll => "Scroll",
         MouseOutput::SmoothScroll => "Smooth scroll",
+    }
+}
+
+fn axis_label(a: &Axis) -> &'static str {
+    match a {
+        Axis::Both => "Both",
+        Axis::Horizontal => "Horizontal",
+        Axis::Vertical => "Vertical",
     }
 }
 

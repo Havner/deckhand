@@ -24,9 +24,9 @@
 //! HW-confirmed, distinct from the evdev vertical flip above.
 
 use config::{
-    Activation, ActivationMode, AsMouseSettings, DirectionalPadSettings, DpadLayout,
-    GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings,
-    MouseOutput, Sensitivity, StickOutput, TriggerOutput, TriggerSettings,
+    Activation, ActivationMode, AsMouseSettings, Axis, DirectionalPadSettings, DpadLayout,
+    GyroSpace, GyroToMouseSettings, InputSource, JoystickMouseSettings, JoystickSettings,
+    MouseOutput, StickOutput, TriggerOutput, TriggerSettings,
 };
 use steam_hid::{GYRO_RES_PER_DPS, Vec2};
 use vocab_out::GamepadAxis;
@@ -170,6 +170,11 @@ fn eval_joystick(
 /// Deadzone-rescale → curve → anti-deadzone, direction preserved, per-axis invert.
 fn process_joystick(pos: &Vec2, s: &JoystickSettings) -> (f32, f32) {
     let (rx, ry) = rotate(pos.x, pos.y, s.rotation.degrees);
+    // Axis limit makes this a 1-D control: mask the discarded output axis *before* the radial
+    // deadzone/curve so the kept axis gates on its own magnitude and rescales <dz,1>→<0,1> alone
+    // (masking after would let a large discarded-axis deflection carry a sub-deadzone kept value
+    // through, under-scaled).
+    let (rx, ry) = limit_axis(&s.axis, rx, ry);
     let mag = (rx * rx + ry * ry).sqrt();
     if mag <= s.deadzone.inner || mag < 1e-6 {
         return (0.0, 0.0);
@@ -316,22 +321,32 @@ fn eval_as_mouse(
     if !cur.touched || !prev.touched {
         return;
     }
-    let (mut dx, mut dy) = (cur.pos.x - prev.pos.x, cur.pos.y - prev.pos.y);
-    // Optional 1€ smoothing on the *velocity* (delta/dt) — frame-rate-independent — then back to a
-    // delta. When off, this is identity.
+    // Op order matches `eval_gyro_to_mouse`: rotate into the output frame → mask to the allowed axis
+    // → 1€-smooth the velocity → accelerate on the (masked) speed → scale/invert. AsMouse's base
+    // motion is *positional* (a finger displacement, dt-independent) — only the accel multiplier and
+    // the velocity the filter sees read dt, where gyro's base is a rate·dt.
+    let (rx, ry) = rotate(cur.pos.x - prev.pos.x, cur.pos.y - prev.pos.y, s.rotation.degrees);
+    let (mut dx, mut dy) = limit_axis(&s.axis, rx, ry);
+    // Optional 1€ smoothing on the *velocity* (delta/dt, pad-units/s) — frame-rate-independent — then
+    // back to a delta. Guarded on dt>0: a stalled clock keeps the raw positional delta, unfiltered.
     if let (Some(cfg), Some(sm)) = (&s.smoothing, smoother)
         && ctx.dt > 0.0
     {
         let (vx, vy) = sm.filter(dx / ctx.dt, dy / ctx.dt, ctx.dt, cfg);
         (dx, dy) = (vx * ctx.dt, vy * ctx.dt);
     }
-    // Acceleration scales with finger **speed** (velocity = delta/dt, pad-units per second), not
-    // the per-frame delta — so it's poll-rate-independent. `factor = 0` is off. The base motion
-    // stays positional (dt-independent); only the accel multiplier reads dt.
+    // Acceleration scales with the kept axis' finger **speed** (velocity = delta/dt, pad-units/s) —
+    // poll-rate-independent. `factor = 0` is off. The base motion stays positional (dt-independent).
     let speed = if ctx.dt > 0.0 { (dx * dx + dy * dy).sqrt() / ctx.dt } else { 0.0 };
     let accel = 1.0 + speed * s.acceleration.factor;
-    let (mx, my) =
-        process_relative(dx, dy, &s.sensitivity, &s.invert, s.rotation.degrees, PAD_MOUSE_GAIN * accel);
+    let mut mx = dx * s.sensitivity.x * PAD_MOUSE_GAIN * accel;
+    let mut my = dy * s.sensitivity.y * PAD_MOUSE_GAIN * accel;
+    if s.invert.x {
+        mx = -mx;
+    }
+    if s.invert.y {
+        my = -my;
+    }
     emit_relative(&s.output, mx, my, rel);
 }
 
@@ -343,6 +358,9 @@ fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ct
     }
     let pos = ctx.cur.pos(source);
     let (rx, ry) = rotate(pos.x, pos.y, s.rotation.degrees);
+    // Axis limit → 1-D control: mask the discarded output axis before the radial deadzone/curve, so
+    // the kept axis gates and rescales on its own magnitude (see `process_joystick`).
+    let (rx, ry) = limit_axis(&s.axis, rx, ry);
     let mag = (rx * rx + ry * ry).sqrt();
     if mag <= s.deadzone.inner || mag < 1e-6 {
         return;
@@ -408,13 +426,21 @@ fn eval_gyro_to_mouse(
         }
     };
 
-    let (mut h, mut v) = rotate(horizontal, pitch, s.rotation.degrees);
-    // Optional 1€ smoothing on the angular velocity (deg/s) — the canonical gyro-aim smoothing.
-    if let (Some(cfg), Some(sm)) = (&s.smoothing, smoother) {
+    // Op order matches `eval_as_mouse`: rotate into the output frame → mask to the allowed axis →
+    // 1€-smooth the rate → accelerate on the (masked) speed → scale/invert. Gyro's base motion is a
+    // rate·dt (angular velocity integrated over the tick), where AsMouse's is a positional delta.
+    let (rx, ry) = rotate(horizontal, pitch, s.rotation.degrees);
+    let (mut h, mut v) = limit_axis(&s.axis, rx, ry);
+    // Optional 1€ smoothing on the angular velocity (deg/s) — already a velocity, so filtered
+    // directly (no /dt). Guarded on dt>0 to mirror AsMouse: a stalled clock emits nothing anyway via
+    // the ·dt below, so skip the filter and keep its state rather than re-seed it.
+    if let (Some(cfg), Some(sm)) = (&s.smoothing, smoother)
+        && ctx.dt > 0.0
+    {
         (h, v) = sm.filter(h, v, ctx.dt, cfg);
     }
-    // Angular velocity (deg/s) is already an instantaneous speed → acceleration scales by its
-    // magnitude directly (poll-rate-independent). `factor = 0` is off.
+    // Angular velocity (deg/s) is already an instantaneous speed → acceleration scales by the kept
+    // axis' magnitude directly (poll-rate-independent). `factor = 0` is off.
     let accel = 1.0 + (h * h + v * v).sqrt() * s.acceleration.factor;
     let mut mx = h * s.sensitivity.x * GYRO_MOUSE_GAIN * ctx.dt * accel;
     let mut my = v * s.sensitivity.y * GYRO_MOUSE_GAIN * ctx.dt * accel;
@@ -424,7 +450,8 @@ fn eval_gyro_to_mouse(
     if s.invert.y {
         my = -my;
     }
-    // Radial pixel deadzone kills the resting DC-bias drift (bridge finding; PLAN decision D).
+    // Radial pixel deadzone kills the resting DC-bias drift (bridge finding; PLAN decision D). The
+    // mask already ran (above), so a discarded-axis drift can't keep a tiny kept-axis value alive.
     if (mx * mx + my * my).sqrt() < s.deadzone.inner {
         return;
     }
@@ -433,25 +460,14 @@ fn eval_gyro_to_mouse(
 
 // --- shared helpers ---------------------------------------------------------------------
 
-/// Apply rotation, per-axis sensitivity, gain, and invert to a raw relative delta.
-fn process_relative(
-    dx: f32,
-    dy: f32,
-    sens: &Sensitivity,
-    invert: &Invert,
-    rotation_deg: f32,
-    gain: f32,
-) -> (f32, f32) {
-    let (rx, ry) = rotate(dx, dy, rotation_deg);
-    let mut mx = rx * sens.x * gain;
-    let mut my = ry * sens.y * gain;
-    if invert.x {
-        mx = -mx;
+/// Constrain a 2D output to the behaviour's allowed axis: `Both` passes through, `Horizontal` keeps
+/// x and zeroes y, `Vertical` keeps y and zeroes x.
+fn limit_axis(axis: &Axis, x: f32, y: f32) -> (f32, f32) {
+    match axis {
+        Axis::Both => (x, y),
+        Axis::Horizontal => (x, 0.0),
+        Axis::Vertical => (0.0, y),
     }
-    if invert.y {
-        my = -my;
-    }
-    (mx, my)
 }
 
 /// Route a relative delta to the chosen mouse output (cursor motion, discrete scroll, or smooth

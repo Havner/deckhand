@@ -6,7 +6,7 @@
 //! everything shared goes through an accessor so the logic isn't duplicated.
 
 use config::{
-    Acceleration, Activation, Curve, Deadzone, Invert, OneEuroFilter, OuterRing, Rotation,
+    Acceleration, Activation, Axis, Curve, Deadzone, Invert, OneEuroFilter, OuterRing, Rotation,
     Sensitivity, SourceBinding,
 };
 
@@ -35,6 +35,11 @@ pub(super) fn apply_setting(binding: &mut SourceBinding, edit: SettingEdit) {
             B::GyroToMouse { settings } => settings.output = o,
             _ => {}
         },
+        E::Axis(a) => {
+            if let Some(x) = axis_mut(binding) {
+                *x = a;
+            }
+        }
         E::OuterRing(r) => {
             if let Some(x) = outer_ring_mut(binding) {
                 x.radius = r;
@@ -227,6 +232,17 @@ fn outer_ring_mut(b: &mut SourceBinding) -> Option<&mut OuterRing> {
     match b {
         B::Joystick { settings, .. } => Some(&mut settings.outer_ring),
         B::DirectionalPad { settings, .. } => Some(&mut settings.outer_ring),
+        _ => None,
+    }
+}
+
+fn axis_mut(b: &mut SourceBinding) -> Option<&mut Axis> {
+    use SourceBinding as B;
+    match b {
+        B::Joystick { settings, .. } => Some(&mut settings.axis),
+        B::AsMouse { settings } => Some(&mut settings.axis),
+        B::JoystickMouse { settings } => Some(&mut settings.axis),
+        B::GyroToMouse { settings } => Some(&mut settings.axis),
         _ => None,
     }
 }
