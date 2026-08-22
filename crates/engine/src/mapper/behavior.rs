@@ -43,8 +43,8 @@ use crate::program::{CompiledBinding, CompiledCommand};
 
 /// Behavior output gains — reasonable starting points; final feel is tuned against the bridge
 /// at HW validation (S10). Pixels per normalized-pad-delta / per stick-rate·second / per degree.
-const PAD_MOUSE_GAIN: f32 = 400.0;
-const JOY_MOUSE_RATE: f32 = 800.0;
+const PAD_MOUSE_GAIN: f32 = 200.0;
+const JOY_MOUSE_RATE: f32 = 2000.0;
 const GYRO_MOUSE_GAIN: f32 = 20.0;
 /// Scroll reuses a behavior's pixel-scaled motion but a wheel is far coarser than the cursor
 /// (`REL_WHEEL` counts notches, not pixels), so scroll divides the pixel motion down by this many
@@ -900,7 +900,7 @@ mod tests {
             })
             .unwrap_or(0);
 
-        assert!(cursor_dy > 100, "cursor should move ~200 px, got {cursor_dy}");
+        assert!(cursor_dy > 50, "cursor should move ~100 px, got {cursor_dy}");
         assert!(scroll_dy > 0 && scroll_dy < 10, "scroll should be a few notches, got {scroll_dy}");
     }
 
@@ -999,9 +999,9 @@ mod tests {
                 _ => None,
             })
             .expect("a SmoothScroll event");
-        // 0.15 pad-units * 400 gain / 50 px-per-tick * 120 hi-res = ~144 units — far finer than
-        // the 1 notch discrete scroll would give.
-        assert!(dy.abs() > 100, "expected hi-res units, got {dy}");
+        // 0.15 pad-units * 200 gain / 50 px-per-tick * 120 hi-res = ~72 units — far finer than
+        // the (sub-)1-notch discrete scroll the same delta would give.
+        assert!(dy.abs() > 50, "expected hi-res units, got {dy}");
     }
 
     #[test]

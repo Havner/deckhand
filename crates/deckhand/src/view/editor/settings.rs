@@ -434,8 +434,8 @@ fn rotation(input: &InputSource, degrees: f32) -> Element<'static, Message> {
 
 fn sensitivity(input: &InputSource, s: Sensitivity) -> Element<'static, Message> {
     column![
-        slider_setting("Sensitivity X", s.x, 0.0..=5.0, 0.05, format!("{:.2}", s.x), input, SettingEdit::SensitivityX),
-        slider_setting("Sensitivity Y", s.y, 0.0..=5.0, 0.05, format!("{:.2}", s.y), input, SettingEdit::SensitivityY),
+        slider_setting("Sensitivity X", s.x, 0.0..=3.0, 0.05, format!("{:.2}", s.x), input, SettingEdit::SensitivityX),
+        slider_setting("Sensitivity Y", s.y, 0.0..=3.0, 0.05, format!("{:.2}", s.y), input, SettingEdit::SensitivityY),
     ]
     .spacing(8.0)
     .into()

@@ -325,7 +325,7 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::JoystickMouse {
             settings: JoystickMouseSettings {
                 output: MouseOutput::SmoothScroll,
-                sensitivity: Sensitivity { x: 3.0, y: 3.0 },
+                sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(2.0),
                 deadzone: Deadzone { inner: 0.1 },
                 ..Default::default()
@@ -350,9 +350,9 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::JoystickMouse {
             settings: JoystickMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 3.0, y: 3.0 },
+                sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(4.0),
-                deadzone: Deadzone { inner: 0.02 },
+                deadzone: Deadzone { inner: 0.05 },
                 ..Default::default()
             },
         },
@@ -371,13 +371,13 @@ pub fn desktop_profile() -> ConfigDoc {
 
     // ----- TRACKPADS -----
 
-    // Left pad → smooth scroll wheel. Explicit sensitivity/acceleration/smoothing knobs.
+    // Left pad → smooth scroll wheel.
     base.insert(
         InputSource::LeftPad,
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::SmoothScroll,
-                sensitivity: Sensitivity { x: 0.75, y: 0.75 },
+                sensitivity: Sensitivity { x: 1.5, y: 1.5 },
                 acceleration: Acceleration { factor: 0.05 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
@@ -399,13 +399,13 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
-    // Right pad → mouse cursor. Explicit sensitivity/acceleration/smoothing knobs.
+    // Right pad → mouse cursor.
     base.insert(
         InputSource::RightPad,
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 0.75, y: 0.75 },
+                sensitivity: Sensitivity { x: 1.5, y: 1.5 },
                 acceleration: Acceleration { factor: 0.06 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
@@ -754,9 +754,9 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
         SourceBinding::JoystickMouse {
             settings: JoystickMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 3.0, y: 3.0 },
+                sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(3.0),
-                deadzone: Deadzone { inner: 0.02 },
+                deadzone: Deadzone { inner: 0.05 },
                 ..Default::default()
             },
         },
@@ -769,13 +769,13 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
 
     // ----- TRACKPADS -----
 
-    // Left pad → smooth scroll wheel. Explicit sensitivity/acceleration/smoothing knobs.
+    // Left pad → smooth scroll wheel.
     base.insert(
         InputSource::LeftPad,
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::SmoothScroll,
-                sensitivity: Sensitivity { x: 0.75, y: 0.75 },
+                sensitivity: Sensitivity { x: 1.5, y: 1.5 },
                 acceleration: Acceleration { factor: 0.05 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
@@ -839,13 +839,13 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
     //     },
     // );
 
-    // Right pad → mouse cursor. Explicit sensitivity/acceleration/smoothing knobs.
+    // Right pad → mouse cursor.
     base.insert(
         InputSource::RightPad,
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 0.75, y: 0.75 },
+                sensitivity: Sensitivity { x: 1.5, y: 1.5 },
                 acceleration: Acceleration { factor: 0.06 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
@@ -880,7 +880,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
 
     // Hold layer: while the right pad is clicked, the left stick drives the mouse (deflection→
     // rate) instead of the arrow-key dpad, and the right pad is nullified so holding it doesn't
-    // also jitter the cursor. Explicit sensitivity/acceleration/deadzone knobs.
+    // also jitter the cursor.
     let alt_mouse = Layer {
         name: "alt_mouse".into(),
         bindings: BTreeMap::from([
@@ -889,9 +889,9 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                 SourceBinding::JoystickMouse {
                     settings: JoystickMouseSettings {
                         output: MouseOutput::Cursor,
-                        sensitivity: Sensitivity { x: 3.0, y: 3.0 },
+                        sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                         curve: Curve::Power(3.0),
-                        deadzone: Deadzone { inner: 0.02 },
+                        deadzone: Deadzone { inner: 0.05 },
                         ..Default::default()
                     },
                 },
@@ -901,7 +901,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                 SourceBinding::AsMouse {
                     settings: AsMouseSettings {
                         output: MouseOutput::Scroll,
-                        sensitivity: Sensitivity { x: 1.0, y: 1.0 },
+                        sensitivity: Sensitivity { x: 1.5, y: 1.5 },
                         acceleration: Acceleration { factor: 0.05 },
                         smoothing: Some(OneEuroFilter {
                             min_cutoff: 3.0,
@@ -1290,22 +1290,22 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
         SourceBinding::JoystickMouse {
             settings: JoystickMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 3.0, y: 3.0 },
+                sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(3.0),
-                deadzone: Deadzone { inner: 0.02 },
+                deadzone: Deadzone { inner: 0.05 },
                 ..Default::default()
             },
         },
     );
     // Right-stick click stays right stick click.
 
-    // Right pad → mouse cursor. Explicit sensitivity/acceleration/smoothing knobs.
+    // Right pad → mouse cursor.
     profile.action_sets[0].bindings.insert(
         InputSource::RightPad,
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 0.5, y: 0.5 },
+                sensitivity: Sensitivity { x: 1.0, y: 1.0 },
                 acceleration: Acceleration { factor: 0.06 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
@@ -1364,8 +1364,7 @@ pub fn xbox_mouse_gyro_profile() -> ConfigDoc {
     let mut profile = xbox_mouse_profile();
     profile.name = "Xbox+Mouse/Gyro".into();
 
-    // Gyro → mouse (vertical inverted, as in the bridge), gated by the left full-pull. Explicit
-    // sensitivity/acceleration/smoothing/deadzone knobs.
+    // Gyro → mouse (vertical inverted, as in the bridge), gated by the left full-pull.
     profile.action_sets[0].bindings.insert(
         InputSource::Gyro,
         SourceBinding::GyroToMouse {
@@ -1413,15 +1412,15 @@ pub fn cp2077_profile() -> ConfigDoc {
     // Right-pad mouse sensitivity
     if let Some(SourceBinding::AsMouse { settings }) =
         profile.action_sets[0].bindings.get_mut(&InputSource::RightPad) {
-            settings.sensitivity.x = 0.75;
-            settings.sensitivity.y = 0.75;
+            settings.sensitivity.x = 1.5;
+            settings.sensitivity.y = 1.5;
         };
 
     // Right-stick mouse sensitivity
     if let Some(SourceBinding::JoystickMouse { settings }) =
         profile.action_sets[0].bindings.get_mut(&InputSource::RightStick) {
-            settings.sensitivity.x = 5.0;
-            settings.sensitivity.y = 5.0;
+            settings.sensitivity.x = 2.0;
+            settings.sensitivity.y = 2.0;
         };
 
     profile
@@ -1724,9 +1723,9 @@ pub fn control_profile() -> ConfigDoc {
         SourceBinding::JoystickMouse {
             settings: JoystickMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 3.0, y: 3.0 },
+                sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(3.0),
-                deadzone: Deadzone { inner: 0.02 },
+                deadzone: Deadzone { inner: 0.05 },
                 ..Default::default()
             },
         },
@@ -1749,7 +1748,7 @@ pub fn control_profile() -> ConfigDoc {
         SourceBinding::AsMouse {
             settings: AsMouseSettings {
                 output: MouseOutput::Cursor,
-                sensitivity: Sensitivity { x: 0.5, y: 0.5 },
+                sensitivity: Sensitivity { x: 1.0, y: 1.0 },
                 acceleration: Acceleration { factor: 0.06 },
                 smoothing: Some(OneEuroFilter {
                     min_cutoff: 3.0,
