@@ -1448,4 +1448,99 @@ mod tests {
             "second press adds layer 0 in set 1"
         );
     }
+
+    #[test]
+    fn a_set_change_bleeds_the_new_sets_binding_through_the_same_press() {
+        // Steam-like bleed-through (no latch): pressing a button that changes to a set where the same
+        // button is bound fires the new set's binding immediately, from the same press. set0: Menu →
+        // ChangeActionSet(1). set1: Menu → Key(K). Holding Menu switches to set1 and then fires K.
+        let program = program_of(vec![
+            (
+                SourceMap::from_iter([(
+                    InputSource::Menu,
+                    btn(CompiledAction::ChangeActionSet(SetId::new(1))),
+                )]),
+                vec![],
+            ),
+            (
+                SourceMap::from_iter([(InputSource::Menu, btn(CompiledAction::Key(Key::K)))]),
+                vec![],
+            ),
+        ]);
+        let mut m = Mapper::new(&program);
+        let menu = steam_hid::Buttons::MENU;
+        // Press edge fires the set change; next tick, still held, set1's Menu → K bleeds through.
+        let _ = run(&mut m, &program, &frame(menu.clone()), 0);
+        let out = run(&mut m, &program, &frame(menu.clone()), 4);
+        assert!(down(&out, Key::K), "the new set's Menu binding bleeds through the same press");
+    }
+
+    #[test]
+    fn a_held_button_unbound_in_the_new_set_goes_silent() {
+        // Bleed-through the other way: a held button re-resolves in the new set, so if the new set
+        // doesn't bind it, it goes silent — it does NOT keep its old-set binding. set0: L1 → Key(A),
+        // Menu → ChangeActionSet(1). set1: RB → Key(M) (L1 unbound). Holding L1 across the swap
+        // releases A.
+        let program = program_of(vec![
+            (
+                SourceMap::from_iter([
+                    (InputSource::LeftBumper, btn(CompiledAction::Key(Key::A))),
+                    (InputSource::Menu, btn(CompiledAction::ChangeActionSet(SetId::new(1)))),
+                ]),
+                vec![],
+            ),
+            (
+                SourceMap::from_iter([(InputSource::RightBumper, btn(CompiledAction::Key(Key::M)))]),
+                vec![],
+            ),
+        ]);
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        // Hold L1 → A.
+        assert_eq!(run(&mut m, &program, &frame(lb.clone()), 0), vec![OutputEvent::Key(Key::A, true)]);
+        // Add Menu → the set change fires (swap queued for next tick); A still held this tick.
+        let _ = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::MENU), 4);
+        // Next tick we're in set1, where L1 is unbound → A releases.
+        let out = run(&mut m, &program, &frame(lb.clone()), 8);
+        assert!(out.contains(&OutputEvent::Key(Key::A, false)), "held L1 goes silent — unbound in set1");
+    }
+
+    #[test]
+    fn a_cross_set_add_after_a_change_set_never_fires() {
+        // The scenario that started the whole discussion, on the armed_nodes model. One button:
+        // Long(300) → ChangeActionSet(1), Long(500) → AddLayer(0). set0 has layer 0; set1 has none.
+        // After the swap the button bleeds through to set1's binding (Menu → D), so set0's Long(500)
+        // is never evaluated — AddLayer(0) never fires against the layerless set1. No panic, no stray
+        // layer. Markers: LB → C (set1 base), RB → X (the set-0 layer that must never activate).
+        let program = program_of(vec![
+            (
+                SourceMap::from_iter([(
+                    InputSource::Menu,
+                    CompiledBinding::Button {
+                        commands: vec![
+                            long_cmd(300, CompiledAction::ChangeActionSet(SetId::new(1))),
+                            long_cmd(500, CompiledAction::AddLayer(LayerId::new(0))),
+                        ],
+                    },
+                )]),
+                vec![layer("some", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::X)))])],
+            ),
+            (
+                SourceMap::from_iter([
+                    (InputSource::Menu, btn(CompiledAction::Key(Key::D))),
+                    (InputSource::LeftBumper, btn(CompiledAction::Key(Key::C))),
+                ]),
+                vec![],
+            ),
+        ]);
+        let mut m = Mapper::new(&program);
+        let menu = steam_hid::Buttons::MENU;
+        let mut t = 0u64;
+        while t < 600 {
+            let _ = run(&mut m, &program, &frame(menu.clone()), t);
+            t += 4;
+        }
+        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600), Key::C), "in set1");
+        assert!(!down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 608), Key::X), "no cross-set layer added");
+    }
 }
