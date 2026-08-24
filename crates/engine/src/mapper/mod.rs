@@ -957,9 +957,12 @@ mod tests {
                 let _ = run(&mut m, &program, &frame(lb.clone()), t);
                 t += 4;
             }
-            // Release, then a few idle ticks to let a deferred Regular tap resolve + expire.
-            for rt in [release_at, release_at + 4, release_at + 50, release_at + 100] {
+            // Release, then idle continuously past TAP_MS so a deferred Regular tap resolves + expires
+            // (ticking every tick, not sampling — a re-fire in the tap tail would show up).
+            let mut rt = release_at;
+            while rt <= release_at + 100 {
                 let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), rt);
+                rt += 4;
             }
             let out = run(&mut m, &program, &frame(rb.clone()), release_at + 200);
             (down(&out, Key::A), down(&out, Key::B))
@@ -1162,23 +1165,26 @@ mod tests {
         let lb = steam_hid::Buttons::LB;
         let rb = steam_hid::Buttons::RB;
         let empty = steam_hid::Buttons::empty();
+        // Tick `buttons` continuously (every 4 ms) over `[from, to)` — no time jumps, like the reader.
+        let run_span = |m: &mut Mapper, buttons: &steam_hid::Buttons, from: u64, to: u64| {
+            let mut t = from;
+            while t < to {
+                let _ = run(m, &program, &frame(buttons.clone()), t);
+                t += 4;
+            }
+        };
 
-        // Tap: press then release before 300 ms → still set 0, layer 0 added (RB → A), not set 1 (C).
+        // Tap: held ~150 ms (< 300) then released → still set 0, layer 0 added (RB → A), not set 1 (C).
         let mut m = Mapper::new(&program);
-        let _ = run(&mut m, &program, &frame(lb.clone()), 0);
-        let _ = run(&mut m, &program, &frame(lb.clone()), 100);
-        for t in [150, 200, 250] {
-            let _ = run(&mut m, &program, &frame(empty.clone()), t);
-        }
+        run_span(&mut m, &lb, 0, 150);
+        run_span(&mut m, &empty, 150, 300); // ride through the tap tail released
         let out = run(&mut m, &program, &frame(rb.clone()), 300);
         assert!(down(&out, Key::A) && !down(&out, Key::C), "tap → layer 0 in set 0");
 
-        // Hold: press past 300 ms → switched to set 1 (RB → C); layer 0 gone with the swap (no A).
+        // Hold: held past 300 ms → switched to set 1 (RB → C); layer 0 gone with the swap (no A).
         let mut m = Mapper::new(&program);
-        let _ = run(&mut m, &program, &frame(lb.clone()), 0);
-        let _ = run(&mut m, &program, &frame(lb.clone()), 300);
-        let _ = run(&mut m, &program, &frame(lb.clone()), 400);
-        let _ = run(&mut m, &program, &frame(empty.clone()), 450);
+        run_span(&mut m, &lb, 0, 400);
+        run_span(&mut m, &empty, 400, 480);
         let out = run(&mut m, &program, &frame(rb.clone()), 500);
         assert!(down(&out, Key::C) && !down(&out, Key::A), "hold → action set 1");
     }
