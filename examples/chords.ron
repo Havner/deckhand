@@ -11,15 +11,6 @@
         ),
         (
             buttons: [
-                QuickAccess,
-                RGrip,
-            ],
-            action: SwitchProfile(
-                mode: SetMain,
-            ),
-        ),
-        (
-            buttons: [
                 Steam,
                 LGrip,
             ],
@@ -30,10 +21,9 @@
         (
             buttons: [
                 QuickAccess,
-                LGrip,
             ],
             action: SwitchProfile(
-                mode: SetFallback,
+                mode: Toggle,
             ),
         ),
     ],

@@ -1,6 +1,6 @@
 (
     version: 0,
-    name: "Control",
+    name: "Desktop Gordon",
     rumble: (
         strength: 100,
         curve: Linear,
@@ -16,7 +16,7 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(V),
+                                Key(PageUp),
                             ],
                             settings: (
                                 toggle: false,
@@ -29,22 +29,6 @@
                         ),
                     ],
                     down: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                Key(Space),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
                         (
                             activator: Regular(
                                 interruptible: true,
@@ -68,7 +52,7 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(F),
+                                Key(PageDown),
                             ],
                             settings: (
                                 toggle: false,
@@ -86,7 +70,7 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(LeftAlt),
+                                Key(Esc),
                             ],
                             settings: (
                                 toggle: false,
@@ -99,348 +83,7 @@
                         ),
                     ],
                 ),
-                DPad: ButtonPad(
-                    up: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                Key(Tab),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                    ],
-                    down: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                Key(R),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                    ],
-                    left: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                Key(G),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                        (
-                            activator: Long(
-                                hold_ms: 450,
-                            ),
-                            actions: [
-                                Key(M),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: OnPress,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                    ],
-                    right: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                Key(I),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                        (
-                            activator: Long(
-                                hold_ms: 450,
-                            ),
-                            actions: [
-                                Key(N),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: OnPress,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                    ],
-                ),
-                LeftPad: r#None,
-                RightPad: AsMouse(
-                    settings: (
-                        output: Cursor,
-                        sensitivity: (
-                            x: 0.5,
-                            y: 0.5,
-                        ),
-                        acceleration: (
-                            factor: 0.06,
-                        ),
-                        smoothing: Some((
-                            min_cutoff: 3.0,
-                            beta: 0.5,
-                        )),
-                        invert: (
-                            x: false,
-                            y: false,
-                        ),
-                        rotation: (
-                            degrees: 0.0,
-                        ),
-                        activation: (
-                            mode: HoldToDisable,
-                            gaters: [],
-                        ),
-                    ),
-                ),
-                LeftStick: DirectionalPad(
-                    settings: (
-                        layout: EightWay,
-                        outer_ring: (
-                            radius: 0.9,
-                        ),
-                        deadzone: (
-                            inner: 0.3,
-                        ),
-                        rotation: (
-                            degrees: 0.0,
-                        ),
-                        activation: (
-                            mode: HoldToDisable,
-                            gaters: [],
-                        ),
-                    ),
-                    up: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                Key(W),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                    ],
-                    down: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                Key(S),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                    ],
-                    left: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                Key(A),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                    ],
-                    right: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                Key(D),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                    ],
-                    outer_ring: [],
-                ),
-                RightStick: JoystickMouse(
-                    settings: (
-                        output: Cursor,
-                        sensitivity: (
-                            x: 5.0,
-                            y: 5.0,
-                        ),
-                        curve: Power(3.0),
-                        deadzone: (
-                            inner: 0.02,
-                        ),
-                        invert: (
-                            x: false,
-                            y: false,
-                        ),
-                        rotation: (
-                            degrees: 0.0,
-                        ),
-                        activation: (
-                            mode: HoldToDisable,
-                            gaters: [],
-                        ),
-                    ),
-                ),
-                LeftTrigger: Trigger(
-                    settings: (
-                        output: r#None,
-                        soft_pull: (
-                            threshold: 0.3,
-                        ),
-                        curve: Linear,
-                        deadzone: (
-                            inner: 0.0,
-                        ),
-                    ),
-                    soft_pull: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                MouseButton(Right),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Both,
-                                    strength: Low,
-                                ),
-                            ),
-                        ),
-                    ],
-                ),
-                RightTrigger: Trigger(
-                    settings: (
-                        output: r#None,
-                        soft_pull: (
-                            threshold: 0.3,
-                        ),
-                        curve: Linear,
-                        deadzone: (
-                            inner: 0.0,
-                        ),
-                    ),
-                    soft_pull: [
-                        (
-                            activator: Regular(
-                                interruptible: true,
-                            ),
-                            actions: [
-                                MouseButton(Left),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Both,
-                                    strength: Low,
-                                ),
-                            ),
-                        ),
-                    ],
-                ),
-                Gyro: GyroToMouse(
-                    settings: (
-                        output: Cursor,
-                        space: PlayerSpace,
-                        sensitivity: (
-                            x: 0.5,
-                            y: 0.5,
-                        ),
-                        acceleration: (
-                            factor: 0.02,
-                        ),
-                        smoothing: Some((
-                            min_cutoff: 1.0,
-                            beta: 0.5,
-                        )),
-                        deadzone: (
-                            inner: 0.1,
-                        ),
-                        invert: (
-                            x: false,
-                            y: true,
-                        ),
-                        rotation: (
-                            degrees: 0.0,
-                        ),
-                        activation: (
-                            mode: HoldToEnable,
-                            gaters: [
-                                LT,
-                            ],
-                        ),
-                    ),
-                ),
+                DPad: r#None,
                 LeftBumper: Button(
                     commands: [
                         (
@@ -448,7 +91,7 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(Q),
+                                Key(Backspace),
                             ],
                             settings: (
                                 toggle: false,
@@ -468,7 +111,7 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(E),
+                                Key(Space),
                             ],
                             settings: (
                                 toggle: false,
@@ -481,8 +124,6 @@
                         ),
                     ],
                 ),
-                LeftTriggerFull: r#None,
-                RightTriggerFull: r#None,
                 LeftGrip: Button(
                     commands: [
                         (
@@ -490,13 +131,30 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(LeftShift),
+                                Key(LeftCtrl),
+                                Key(C),
                             ],
                             settings: (
                                 toggle: false,
                                 turbo: None,
                                 haptics: (
                                     on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                        (
+                            activator: Long(
+                                hold_ms: 250,
+                            ),
+                            actions: [
+                                Key(LeftCtrl),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: OnPress,
                                     strength: Medium,
                                 ),
                             ),
@@ -511,12 +169,29 @@
                             ),
                             actions: [
                                 Key(LeftCtrl),
+                                Key(V),
                             ],
                             settings: (
                                 toggle: false,
                                 turbo: None,
                                 haptics: (
                                     on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                        (
+                            activator: Long(
+                                hold_ms: 250,
+                            ),
+                            actions: [
+                                Key(LeftShift),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: OnPress,
                                     strength: Medium,
                                 ),
                             ),
@@ -530,7 +205,7 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(Esc),
+                                Key(LeftAlt),
                             ],
                             settings: (
                                 toggle: false,
@@ -550,7 +225,7 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(Esc),
+                                Key(Tab),
                             ],
                             settings: (
                                 toggle: false,
@@ -583,14 +258,93 @@
                         ),
                     ],
                 ),
-                QuickAccess: Button(
-                    commands: [
+                QuickAccess: r#None,
+                LeftTrigger: Trigger(
+                    settings: (
+                        output: r#None,
+                        soft_pull: (
+                            threshold: 0.3,
+                        ),
+                        curve: Linear,
+                        deadzone: (
+                            inner: 0.0,
+                        ),
+                    ),
+                    soft_pull: [
                         (
                             activator: Regular(
                                 interruptible: true,
                             ),
                             actions: [
-                                HoldLayer("system_keys"),
+                                MouseButton(Right),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Both,
+                                    strength: Low,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                LeftTriggerFull: r#None,
+                RightTrigger: Trigger(
+                    settings: (
+                        output: r#None,
+                        soft_pull: (
+                            threshold: 0.3,
+                        ),
+                        curve: Linear,
+                        deadzone: (
+                            inner: 0.0,
+                        ),
+                    ),
+                    soft_pull: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                MouseButton(Left),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Both,
+                                    strength: Low,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                RightTriggerFull: r#None,
+                LeftStick: DirectionalPad(
+                    settings: (
+                        layout: FourWay,
+                        outer_ring: (
+                            radius: 0.9,
+                        ),
+                        deadzone: (
+                            inner: 0.3,
+                        ),
+                        rotation: (
+                            degrees: 0.0,
+                        ),
+                        activation: (
+                            mode: HoldToDisable,
+                            gaters: [],
+                        ),
+                    ),
+                    up: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                Key(Up),
                             ],
                             settings: (
                                 toggle: false,
@@ -602,6 +356,61 @@
                             ),
                         ),
                     ],
+                    down: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                Key(Down),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                    left: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                Key(Left),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                    right: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                Key(Right),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                    outer_ring: [],
                 ),
                 LeftStickClick: Button(
                     commands: [
@@ -610,7 +419,7 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(Slash),
+                                Key(LeftMeta),
                             ],
                             settings: (
                                 toggle: false,
@@ -623,8 +432,108 @@
                         ),
                     ],
                 ),
+                RightStick: JoystickMouse(
+                    settings: (
+                        output: Cursor,
+                        axis: Both,
+                        sensitivity: (
+                            x: 1.2,
+                            y: 1.2,
+                        ),
+                        curve: Power(3.0),
+                        deadzone: (
+                            inner: 0.05,
+                        ),
+                        invert: (
+                            x: false,
+                            y: false,
+                        ),
+                        rotation: (
+                            degrees: 0.0,
+                        ),
+                        activation: (
+                            mode: HoldToDisable,
+                            gaters: [],
+                        ),
+                    ),
+                ),
                 RightStickClick: r#None,
-                LeftPadClick: r#None,
+                LeftPad: AsMouse(
+                    settings: (
+                        output: SmoothScroll,
+                        axis: Both,
+                        sensitivity: (
+                            x: 1.5,
+                            y: 1.5,
+                        ),
+                        acceleration: (
+                            factor: 0.05,
+                        ),
+                        smoothing: Some((
+                            min_cutoff: 3.0,
+                            beta: 0.5,
+                        )),
+                        invert: (
+                            x: false,
+                            y: false,
+                        ),
+                        rotation: (
+                            degrees: 0.0,
+                        ),
+                        activation: (
+                            mode: HoldToDisable,
+                            gaters: [],
+                        ),
+                    ),
+                ),
+                LeftPadClick: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                MouseButton(Middle),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                RightPad: AsMouse(
+                    settings: (
+                        output: Cursor,
+                        axis: Both,
+                        sensitivity: (
+                            x: 1.5,
+                            y: 1.5,
+                        ),
+                        acceleration: (
+                            factor: 0.06,
+                        ),
+                        smoothing: Some((
+                            min_cutoff: 3.0,
+                            beta: 0.5,
+                        )),
+                        invert: (
+                            x: false,
+                            y: false,
+                        ),
+                        rotation: (
+                            degrees: 0.0,
+                        ),
+                        activation: (
+                            mode: HoldToDisable,
+                            gaters: [],
+                        ),
+                    ),
+                ),
                 RightPadClick: Button(
                     commands: [
                         (
@@ -632,7 +541,7 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                Key(LeftCtrl),
+                                HoldLayer("alt_mouse"),
                             ],
                             settings: (
                                 toggle: false,
@@ -645,8 +554,100 @@
                         ),
                     ],
                 ),
+                Gyro: r#None,
             },
             layers: [
+                (
+                    name: "alt_mouse",
+                    bindings: {
+                        LeftStick: JoystickMouse(
+                            settings: (
+                                output: Cursor,
+                                axis: Both,
+                                sensitivity: (
+                                    x: 1.2,
+                                    y: 1.2,
+                                ),
+                                curve: Power(3.0),
+                                deadzone: (
+                                    inner: 0.05,
+                                ),
+                                invert: (
+                                    x: false,
+                                    y: false,
+                                ),
+                                rotation: (
+                                    degrees: 0.0,
+                                ),
+                                activation: (
+                                    mode: HoldToDisable,
+                                    gaters: [],
+                                ),
+                            ),
+                        ),
+                        LeftPad: AsMouse(
+                            settings: (
+                                output: Scroll,
+                                axis: Both,
+                                sensitivity: (
+                                    x: 1.5,
+                                    y: 1.5,
+                                ),
+                                acceleration: (
+                                    factor: 0.05,
+                                ),
+                                smoothing: Some((
+                                    min_cutoff: 3.0,
+                                    beta: 0.5,
+                                )),
+                                invert: (
+                                    x: false,
+                                    y: false,
+                                ),
+                                rotation: (
+                                    degrees: 0.0,
+                                ),
+                                activation: (
+                                    mode: HoldToDisable,
+                                    gaters: [],
+                                ),
+                            ),
+                        ),
+                        RightPad: r#None,
+                        Gyro: GyroToMouse(
+                            settings: (
+                                output: Cursor,
+                                axis: Both,
+                                space: PlayerSpace,
+                                sensitivity: (
+                                    x: 1.0,
+                                    y: 1.0,
+                                ),
+                                acceleration: (
+                                    factor: 0.02,
+                                ),
+                                smoothing: Some((
+                                    min_cutoff: 5.0,
+                                    beta: 0.5,
+                                )),
+                                deadzone: (
+                                    inner: 0.01,
+                                ),
+                                invert: (
+                                    x: false,
+                                    y: false,
+                                ),
+                                rotation: (
+                                    degrees: 0.0,
+                                ),
+                                activation: (
+                                    mode: HoldToDisable,
+                                    gaters: [],
+                                ),
+                            ),
+                        ),
+                    },
+                ),
                 (
                     name: "system_keys",
                     bindings: {

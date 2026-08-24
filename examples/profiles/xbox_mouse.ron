@@ -1,0 +1,700 @@
+(
+    version: 0,
+    name: "Xbox+Mouse",
+    rumble: (
+        strength: 100,
+        curve: Linear,
+    ),
+    action_sets: [
+        (
+            name: "base",
+            bindings: {
+                FaceButtons: ButtonPad(
+                    up: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(Y),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                    down: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(A),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                    left: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(X),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                    right: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(B),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                DPad: ButtonPad(
+                    up: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(DpadUp),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                    down: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(DpadDown),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                    left: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(DpadLeft),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                    right: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(DpadRight),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                LeftBumper: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(LeftBumper),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                RightBumper: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(RightBumper),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                LeftGrip: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(LeftStick),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                RightGrip: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(RightStick),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                LeftGrip2: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                HoldLayer("system_keys"),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                RightGrip2: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                AddLayer("aim_stick_right"),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                        (
+                            activator: Long(
+                                hold_ms: 300,
+                            ),
+                            actions: [
+                                HoldLayer("aim_stick_right"),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                View: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(Back),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                Menu: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(Start),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                Steam: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                HoldLayer("system_keys"),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                QuickAccess: r#None,
+                LeftTrigger: Trigger(
+                    settings: (
+                        output: Left,
+                        soft_pull: (
+                            threshold: 0.5,
+                        ),
+                        curve: Linear,
+                        deadzone: (
+                            inner: 0.0,
+                        ),
+                    ),
+                    soft_pull: [],
+                ),
+                LeftTriggerFull: r#None,
+                RightTrigger: Trigger(
+                    settings: (
+                        output: Right,
+                        soft_pull: (
+                            threshold: 0.5,
+                        ),
+                        curve: Linear,
+                        deadzone: (
+                            inner: 0.0,
+                        ),
+                    ),
+                    soft_pull: [],
+                ),
+                RightTriggerFull: r#None,
+                LeftStick: Joystick(
+                    settings: (
+                        output: Left,
+                        axis: Both,
+                        outer_ring: (
+                            radius: 0.9,
+                        ),
+                        curve: Linear,
+                        deadzone: (
+                            inner: 0.0,
+                        ),
+                        anti_deadzone: (
+                            amount: 0.0,
+                        ),
+                        invert: (
+                            x: false,
+                            y: false,
+                        ),
+                        rotation: (
+                            degrees: 0.0,
+                        ),
+                        activation: (
+                            mode: HoldToDisable,
+                            gaters: [],
+                        ),
+                    ),
+                    outer_ring: [],
+                ),
+                LeftStickClick: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(LeftStick),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                RightStick: JoystickMouse(
+                    settings: (
+                        output: Cursor,
+                        axis: Both,
+                        sensitivity: (
+                            x: 1.2,
+                            y: 1.2,
+                        ),
+                        curve: Power(3.0),
+                        deadzone: (
+                            inner: 0.05,
+                        ),
+                        invert: (
+                            x: false,
+                            y: false,
+                        ),
+                        rotation: (
+                            degrees: 0.0,
+                        ),
+                        activation: (
+                            mode: HoldToDisable,
+                            gaters: [],
+                        ),
+                    ),
+                ),
+                RightStickClick: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                GamepadButton(RightStick),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                LeftPad: r#None,
+                LeftPadClick: r#None,
+                RightPad: AsMouse(
+                    settings: (
+                        output: Cursor,
+                        axis: Both,
+                        sensitivity: (
+                            x: 1.0,
+                            y: 1.0,
+                        ),
+                        acceleration: (
+                            factor: 0.06,
+                        ),
+                        smoothing: Some((
+                            min_cutoff: 3.0,
+                            beta: 0.5,
+                        )),
+                        invert: (
+                            x: false,
+                            y: false,
+                        ),
+                        rotation: (
+                            degrees: 0.0,
+                        ),
+                        activation: (
+                            mode: HoldToDisable,
+                            gaters: [],
+                        ),
+                    ),
+                ),
+                RightPadClick: Button(
+                    commands: [
+                        (
+                            activator: Regular(
+                                interruptible: true,
+                            ),
+                            actions: [
+                                HoldLayer("aim_stick_left"),
+                            ],
+                            settings: (
+                                toggle: false,
+                                turbo: None,
+                                haptics: (
+                                    on: Off,
+                                    strength: Medium,
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                Gyro: r#None,
+            },
+            layers: [
+                (
+                    name: "aim_stick_left",
+                    bindings: {
+                        LeftStick: Joystick(
+                            settings: (
+                                output: Right,
+                                axis: Both,
+                                outer_ring: (
+                                    radius: 0.9,
+                                ),
+                                curve: Linear,
+                                deadzone: (
+                                    inner: 0.0,
+                                ),
+                                anti_deadzone: (
+                                    amount: 0.0,
+                                ),
+                                invert: (
+                                    x: false,
+                                    y: false,
+                                ),
+                                rotation: (
+                                    degrees: 0.0,
+                                ),
+                                activation: (
+                                    mode: HoldToDisable,
+                                    gaters: [],
+                                ),
+                            ),
+                            outer_ring: [],
+                        ),
+                        RightPad: r#None,
+                    },
+                ),
+                (
+                    name: "aim_stick_right",
+                    bindings: {
+                        RightGrip2: Button(
+                            commands: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        RemoveLayer("aim_stick_right"),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: Off,
+                                            strength: Medium,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                        ),
+                        RightStick: Joystick(
+                            settings: (
+                                output: Right,
+                                axis: Both,
+                                outer_ring: (
+                                    radius: 0.9,
+                                ),
+                                curve: Linear,
+                                deadzone: (
+                                    inner: 0.0,
+                                ),
+                                anti_deadzone: (
+                                    amount: 0.0,
+                                ),
+                                invert: (
+                                    x: false,
+                                    y: false,
+                                ),
+                                rotation: (
+                                    degrees: 0.0,
+                                ),
+                                activation: (
+                                    mode: HoldToDisable,
+                                    gaters: [],
+                                ),
+                            ),
+                            outer_ring: [],
+                        ),
+                    },
+                ),
+                (
+                    name: "system_keys",
+                    bindings: {
+                        DPad: ButtonPad(
+                            up: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        Key(VolumeUp),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: Off,
+                                            strength: Medium,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                            down: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        Key(VolumeDown),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: Off,
+                                            strength: Medium,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                            left: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        Key(PlayPause),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: Off,
+                                            strength: Medium,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                            right: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        Key(NextSong),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: Off,
+                                            strength: Medium,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                        ),
+                    },
+                ),
+            ],
+        ),
+    ],
+)
