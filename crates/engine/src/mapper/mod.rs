@@ -31,7 +31,7 @@ use crate::program::{CompiledBinding, CompiledSet, LayerId, Program, SetId};
 
 use activator::{Activators, BindingKey};
 use gyro::GravityEst;
-use layers::{LayerOps, NodeHeld};
+use layers::{ArmedNodes, LayerOps, NodeHeld};
 use reconcile::{AppliedLevels, DesiredLevels, RelAccum};
 use smooth::OneEuro2;
 
@@ -87,6 +87,11 @@ pub struct Mapper {
     /// while its node stays held, latched to the node (not the binding) so it survives
     /// self-shadowing (PLAN §4).
     held_layers: BTreeMap<LayerId, NodeHeld>,
+    /// Nodes that have already fired their one-shot persistent op (`AddLayer`/`RemoveLayer`/
+    /// `ChangeActionSet`) this engagement — the anti-oscillation dedup latch (PLAN §4). Keyed by the
+    /// physical node so the binding swap the op *itself* causes can't re-fire it; each entry is
+    /// dropped (in [`Self::reconcile_layer_ops`]) the tick its node releases.
+    armed_nodes: ArmedNodes,
     /// Per-source One-Euro filter state for the smoothed relative behaviors (`AsMouse`/
     /// `GyroToMouse`); only populated for sources that carry one.
     smoothers: HashMap<InputSource, OneEuro2>,
@@ -107,6 +112,7 @@ impl Mapper {
             activators: Activators::default(),
             persistent_layers: BTreeSet::new(),
             held_layers: BTreeMap::new(),
+            armed_nodes: ArmedNodes::new(),
             smoothers: HashMap::new(),
             gravity: HashMap::new(),
         }
@@ -123,6 +129,7 @@ impl Mapper {
         self.active_layers.clear();
         self.persistent_layers.clear();
         self.held_layers.clear();
+        self.armed_nodes.clear();
         self.activators = Activators::default();
         // applied / rel / prev / last_tick deliberately retained.
     }
@@ -172,7 +179,7 @@ impl Mapper {
         self.applied.reconcile(&desired, out);
         self.rel.flush(out);
         // Apply this tick's collected layer/set changes for the *next* tick (frozen-state rule).
-        self.reconcile_layers(frame, ops);
+        self.reconcile_layer_ops(frame, ops);
         self.prev = Some(frame.clone());
         self.last_tick = Some(tick);
     }
@@ -189,17 +196,35 @@ impl Mapper {
     /// change is a full swap (layers are per-set) that clears the stack; otherwise adds/removes
     /// update the persistent set and hold-layers persist while their trigger node stays held.
     /// The resulting `active_layers` is sorted by declared-order precedence (`LayerId` index).
-    fn reconcile_layers(&mut self, frame: &LogicalFrame, ops: LayerOps) {
-        if let Some(set) = ops.set_change {
+    ///
+    /// **Persistent mutations dedup per node** (PLAN §4): a `set_change`/`add`/`remove` applies only
+    /// if its trigger node isn't already armed from an earlier tick of the same press, so a
+    /// self-toggling button (base `AddLayer` ↔ layer `RemoveLayer`, or a `ChangeActionSet` cycle)
+    /// fires once per press instead of strobing as the op flips its own winning binding. The armed
+    /// set is `armed_nodes`, rebuilt at the end **exactly like `held_layers`** — keep entries whose
+    /// node is still held, then add this tick's requesting nodes — so a node stays armed for the
+    /// whole press and disarms the tick it releases. `contains_key` is read against the pre-tick set,
+    /// so every mutation from one fire sees the same snapshot and lands together (`Add(X)+Remove(Y)`).
+    fn reconcile_layer_ops(&mut self, frame: &LogicalFrame, ops: LayerOps) {
+        let fires = |armed: &ArmedNodes, node: &NodeHeld| !armed.contains_key(&node.key());
+
+        // set_change wins (a full swap clears the per-set stacks); adds/removes otherwise.
+        let set_change =
+            ops.set_change.as_ref().filter(|(_, n)| fires(&self.armed_nodes, n)).map(|(s, _)| s.clone());
+        if let Some(set) = set_change {
             self.active_set = set;
             self.persistent_layers.clear();
             self.held_layers.clear();
         } else {
-            for l in ops.removes {
-                self.persistent_layers.remove(&l);
+            for (l, node) in &ops.removes {
+                if fires(&self.armed_nodes, node) {
+                    self.persistent_layers.remove(l);
+                }
             }
-            for l in ops.adds {
-                self.persistent_layers.insert(l);
+            for (l, node) in &ops.adds {
+                if fires(&self.armed_nodes, node) {
+                    self.persistent_layers.insert(l.clone());
+                }
             }
             // A hold persists while its trigger node stays held; this tick's holds refresh it.
             let mut next = BTreeMap::new();
@@ -215,6 +240,29 @@ impl Mapper {
             }
             self.held_layers = next;
         }
+
+        // Rebuild `armed_nodes` like `held_layers`: keep entries whose node is still held, then arm
+        // every node that requested a persistent op this tick (applied or deduped away). So a node
+        // stays armed the whole press — its self-caused binding flip can't re-fire the opposing op —
+        // and disarms the tick it releases. Node-keyed, so it survives a `ChangeActionSet`.
+        let mut next_armed = ArmedNodes::new();
+        for (key, node) in std::mem::take(&mut self.armed_nodes) {
+            if node.held(frame) {
+                next_armed.insert(key, node);
+            }
+        }
+        let requesting = ops
+            .set_change
+            .into_iter()
+            .map(|(_, n)| n)
+            .chain(ops.adds.into_iter().map(|(_, n)| n))
+            .chain(ops.removes.into_iter().map(|(_, n)| n));
+        for node in requesting {
+            if node.held(frame) {
+                next_armed.insert(node.key(), node);
+            }
+        }
+        self.armed_nodes = next_armed;
 
         let mut active: Vec<LayerId> = self
             .persistent_layers
@@ -266,7 +314,7 @@ impl Mapper {
     }
 
     /// Test-only: force a layer active as if a persistent `AddLayer` had fired — both frozen for
-    /// the current tick and kept by [`Self::reconcile_layers`] on subsequent ticks.
+    /// the current tick and kept by [`Self::reconcile_layer_ops`] on subsequent ticks.
     #[cfg(test)]
     fn force_layer(&mut self, id: LayerId) {
         self.persistent_layers.insert(id.clone());
@@ -303,6 +351,24 @@ mod tests {
                 actions: vec![action],
                 settings: CommandSettings::default(),
             }],
+        }
+    }
+
+    /// A command firing `action` on a `Long` after `hold_ms`.
+    fn long_cmd(hold_ms: u32, action: CompiledAction) -> CompiledCommand {
+        CompiledCommand {
+            activator: Activator::Long { hold_ms },
+            actions: vec![action],
+            settings: CommandSettings::default(),
+        }
+    }
+
+    /// A command firing `action` on an *interruptible* `Regular`.
+    fn ireg_cmd(action: CompiledAction) -> CompiledCommand {
+        CompiledCommand {
+            activator: Activator::Regular { interruptible: true },
+            actions: vec![action],
+            settings: CommandSettings::default(),
         }
     }
 
@@ -734,5 +800,466 @@ mod tests {
         // L1 → B now (set1), and the old layer0's A is gone.
         let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600);
         assert!(down(&out, Key::B) && !down(&out, Key::A));
+    }
+
+    // --- Persistent-op dedup: one flip per press, no self-toggle strobing (PLAN §4) ------
+
+    #[test]
+    fn same_button_add_remove_layer_toggles_once_per_press_regardless_of_hold_length() {
+        // The cp2077 shape: base L1 → AddLayer(0); layer0 rebinds the very same L1 → RemoveLayer(0)
+        // (self-shadowing toggle), plus R1 → Key(X) as a marker (X fires on an R1 press only while
+        // the layer is active). Pre-fix, a held L1 strobed the layer every tick, so the landing
+        // state depended on how many ticks you held (the "needs 2–5 presses" bug). With the dedup it
+        // must flip exactly once per press, whatever the hold length.
+        let program = program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftBumper,
+                btn(CompiledAction::AddLayer(LayerId::new(0))),
+            )]),
+            vec![layer(
+                "aim",
+                [
+                    (InputSource::LeftBumper, btn(CompiledAction::RemoveLayer(LayerId::new(0)))),
+                    (InputSource::RightBumper, btn(CompiledAction::Key(Key::X))),
+                ],
+            )],
+        )]);
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        let rb = steam_hid::Buttons::RB;
+        let mut t = 0u64;
+
+        // Probe layer state: pulse R1 up→down and report whether X fired (R1 is bound only in the
+        // layer, so X ⇒ layer active). Leaves all inputs released. R1 ≠ L1, so it can't disturb L1's
+        // dedup state, and Key(X) is not a persistent op.
+        macro_rules! layer_active {
+            () => {{
+                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                t += 4;
+                let out = run(&mut m, &program, &frame(rb.clone()), t);
+                t += 4;
+                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                t += 4;
+                down(&out, Key::X)
+            }};
+        }
+        // Hold L1 for `n` ticks, then release.
+        macro_rules! press_l1 {
+            ($n:expr) => {{
+                for _ in 0..$n {
+                    let _ = run(&mut m, &program, &frame(lb.clone()), t);
+                    t += 4;
+                }
+                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                t += 4;
+            }};
+        }
+
+        assert!(!layer_active!(), "starts off");
+        press_l1!(1); // shortest possible press
+        assert!(layer_active!(), "one short press → on");
+        press_l1!(50); // long hold — pre-fix this would strobe
+        assert!(!layer_active!(), "one long press → off (no strobe)");
+        press_l1!(37); // a different odd length — proves it's not hold-length parity
+        assert!(layer_active!(), "another long press → on");
+        let _ = t; // last macro bumps `t` without a further read
+    }
+
+    #[test]
+    fn one_button_cycles_action_sets_once_per_press() {
+        // Three sets, each binding Menu → ChangeActionSet(next) and L1 → a per-set marker key. With a
+        // plain (held) Regular, pre-fix this re-fired every tick and cycled ~250×/s to a random set;
+        // the dedup must advance exactly one set per Menu press, whatever the hold length.
+        let set = |next: usize, mark: Key| {
+            (
+                SourceMap::from_iter([
+                    (InputSource::Menu, btn(CompiledAction::ChangeActionSet(SetId::new(next)))),
+                    (InputSource::LeftBumper, btn(CompiledAction::Key(mark))),
+                ]),
+                vec![],
+            )
+        };
+        let program = program_of(vec![set(1, Key::A), set(2, Key::B), set(0, Key::C)]);
+        let mut m = Mapper::new(&program);
+        let menu = steam_hid::Buttons::MENU;
+        let lb = steam_hid::Buttons::LB;
+        let mut t = 0u64;
+
+        // Probe the active set: pulse L1 and read which marker key fired.
+        macro_rules! active_marker {
+            () => {{
+                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                t += 4;
+                let out = run(&mut m, &program, &frame(lb.clone()), t);
+                t += 4;
+                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                t += 4;
+                out
+            }};
+        }
+        // Hold Menu for `n` ticks, then release.
+        macro_rules! press_menu {
+            ($n:expr) => {{
+                for _ in 0..$n {
+                    let _ = run(&mut m, &program, &frame(menu.clone()), t);
+                    t += 4;
+                }
+                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                t += 4;
+            }};
+        }
+
+        assert!(down(&active_marker!(), Key::A), "starts on set0");
+        press_menu!(30);
+        assert!(down(&active_marker!(), Key::B), "one press → set1");
+        press_menu!(30);
+        assert!(down(&active_marker!(), Key::C), "another press → set2");
+        press_menu!(30);
+        assert!(down(&active_marker!(), Key::A), "wraps back to set0");
+        let _ = t; // last macro bumps `t` without a further read
+    }
+
+    #[test]
+    fn interruptible_regular_and_long_fire_the_right_layer_op_once() {
+        // One button carries BOTH an interruptible `Regular` → AddLayer(0) (the "tap") and a
+        // `Long(300)` → AddLayer(1) (the "hold"). They're mutually exclusive: a short press taps the
+        // Regular (once, on release), a hold past 300 ms fires the Long and interrupts the Regular.
+        // Each persistent op must land exactly once — the Regular's tap holds its output for TAP_MS,
+        // and the Long's stays high every tick it's held; the dedup keeps both to one apply. Probed
+        // via R1, bound to a distinct marker in each layer (only one layer is ever active here).
+        let program = || {
+            program_of(vec![(
+                SourceMap::from_iter([(
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button {
+                        commands: vec![
+                            ireg_cmd(CompiledAction::AddLayer(LayerId::new(0))),
+                            long_cmd(300, CompiledAction::AddLayer(LayerId::new(1))),
+                        ],
+                    },
+                )]),
+                vec![
+                    layer("tap", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::A)))]),
+                    layer("hold", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::B)))]),
+                ],
+            )])
+        };
+        let lb = steam_hid::Buttons::LB;
+        let rb = steam_hid::Buttons::RB;
+
+        // Which marker fires on an R1 pulse → which layer is active. `release_at` < 300 taps, >= 300
+        // holds. Fresh mapper each call. Returns (layer0_A, layer1_B).
+        let outcome = |hold_to: u64, release_at: u64| {
+            let program = program();
+            let mut m = Mapper::new(&program);
+            let mut t = 0;
+            while t <= hold_to {
+                let _ = run(&mut m, &program, &frame(lb.clone()), t);
+                t += 4;
+            }
+            // Release, then a few idle ticks to let a deferred Regular tap resolve + expire.
+            for rt in [release_at, release_at + 4, release_at + 50, release_at + 100] {
+                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), rt);
+            }
+            let out = run(&mut m, &program, &frame(rb.clone()), release_at + 200);
+            (down(&out, Key::A), down(&out, Key::B))
+        };
+
+        // Taps at a couple of pre-threshold release times → layer 0 (Regular), never layer 1.
+        assert_eq!(outcome(48, 52), (true, false), "quick tap → layer 0");
+        assert_eq!(outcome(292, 296), (true, false), "tap just before threshold → layer 0");
+        // Holds past the threshold → layer 1 (Long), Regular interrupted → never layer 0.
+        assert_eq!(outcome(300, 320), (false, true), "hold to threshold → layer 1");
+        assert_eq!(outcome(1000, 1020), (false, true), "long hold → layer 1");
+    }
+
+    #[test]
+    fn one_command_applies_all_its_persistent_ops_atomically() {
+        // A single command can carry several persistent ops; they all fire on the one press (the
+        // dedup snapshots "armed" before applying, so an `Add(X) + Remove(Y)` lands together, not
+        // just the first). Base L1 fires [AddLayer(0), RemoveLayer(1)] in one command; layer 1 is
+        // pre-added (base L4 → AddLayer(1)). Pressing L1 must end with layer 0 in and layer 1 out.
+        let program = program_of(vec![(
+            SourceMap::from_iter([
+                (InputSource::LeftGrip, start_btn(CompiledAction::AddLayer(LayerId::new(1)))),
+                (
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button {
+                        commands: vec![regular(vec![
+                            CompiledAction::AddLayer(LayerId::new(0)),
+                            CompiledAction::RemoveLayer(LayerId::new(1)),
+                        ])],
+                    },
+                ),
+            ]),
+            vec![
+                layer("l0", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::A)))]),
+                layer("l1", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::B)))]),
+            ],
+        )]);
+        let mut m = Mapper::new(&program);
+        // Spacing >TAP_MS between actions so the L4 `Start` tap window can't overlap the L1 press.
+        let empty = steam_hid::Buttons::empty();
+
+        // Pre-add layer 1 (tap L4). Confirm it's active: R4 → B.
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP), 0);
+        let _ = run(&mut m, &program, &frame(empty.clone()), 100);
+        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 200), Key::B));
+        let _ = run(&mut m, &program, &frame(empty.clone()), 300);
+
+        // Press L1 → the one command adds layer 0 AND removes layer 1, both this press.
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 400);
+        let _ = run(&mut m, &program, &frame(empty.clone()), 500);
+        // Layer 0 now active (R1 → A); layer 1 gone (R4 → nothing).
+        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 600), Key::A));
+        assert!(!down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 700), Key::B));
+    }
+
+    #[test]
+    fn one_command_adds_two_distinct_layers_atomically() {
+        // Sibling of the add+remove atomicity test, but two ADDs of *different* layers: proves each
+        // co-fired op actually takes effect (both layers pushed), not merely that some net state
+        // flip occurred. Base L1 fires [AddLayer(0), AddLayer(1)] in one command; markers R1 → A
+        // (layer 0), R4 → B (layer 1). A single press must leave BOTH layers active — if only the
+        // first op applied, layer 1 is never added and the R4 → B assertion fails.
+        let program = program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftBumper,
+                CompiledBinding::Button {
+                    commands: vec![regular(vec![
+                        CompiledAction::AddLayer(LayerId::new(0)),
+                        CompiledAction::AddLayer(LayerId::new(1)),
+                    ])],
+                },
+            )]),
+            vec![
+                layer("l0", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::A)))]),
+                layer("l1", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::B)))]),
+            ],
+        )]);
+        let mut m = Mapper::new(&program);
+        let empty = steam_hid::Buttons::empty();
+
+        // Press L1 once → the single command adds layer 0 AND layer 1 this press.
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let _ = run(&mut m, &program, &frame(empty.clone()), 100);
+        // Both layers now active: R1 → A and R4 → B.
+        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 200), Key::A));
+        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 300), Key::B));
+    }
+
+    #[test]
+    fn persistent_op_dedup_is_per_node_not_global() {
+        // The dedup is keyed per node, so two different buttons each toggle their own layer
+        // independently — arming one must not suppress the other, even held simultaneously. L1
+        // toggles layer 0 (base Add / layer Remove); L4 toggles layer 1 the same way. Markers: R1→A
+        // (layer 0), R4→B (layer 1).
+        let program = program_of(vec![(
+            SourceMap::from_iter([
+                (InputSource::LeftBumper, btn(CompiledAction::AddLayer(LayerId::new(0)))),
+                (InputSource::LeftGrip, btn(CompiledAction::AddLayer(LayerId::new(1)))),
+            ]),
+            vec![
+                layer(
+                    "l0",
+                    [
+                        (InputSource::LeftBumper, btn(CompiledAction::RemoveLayer(LayerId::new(0)))),
+                        (InputSource::RightBumper, btn(CompiledAction::Key(Key::A))),
+                    ],
+                ),
+                layer(
+                    "l1",
+                    [
+                        (InputSource::LeftGrip, btn(CompiledAction::RemoveLayer(LayerId::new(1)))),
+                        (InputSource::RightGrip, btn(CompiledAction::Key(Key::B))),
+                    ],
+                ),
+            ],
+        )]);
+        let mut m = Mapper::new(&program);
+        let both = steam_hid::Buttons::LB | steam_hid::Buttons::LGRIP;
+
+        let l0 = |m: &mut Mapper, t| down(&run(m, &program, &frame(steam_hid::Buttons::RB), t), Key::A);
+        let l1 = |m: &mut Mapper, t| down(&run(m, &program, &frame(steam_hid::Buttons::RGRIP), t), Key::B);
+
+        // Press BOTH together and hold a while → each adds its own layer once (no cross-suppression).
+        for t in (0..40).step_by(4) {
+            let _ = run(&mut m, &program, &frame(both.clone()), t);
+        }
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 40);
+        assert!(l0(&mut m, 44) && l1(&mut m, 48), "both layers on after one shared press");
+
+        // Press both again → each removes its own layer once → both off.
+        for t in (52..92).step_by(4) {
+            let _ = run(&mut m, &program, &frame(both.clone()), t);
+        }
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 92);
+        assert!(!l0(&mut m, 96) && !l1(&mut m, 100), "both layers off after the next shared press");
+    }
+
+    #[test]
+    fn a_node_makes_at_most_one_persistent_change_per_press() {
+        // Deliberate rule (not a bug): a single button changes layer/set state **at most once per
+        // press**. Two independent hold-takers on one node — long(300) → AddLayer(0) and long(500) →
+        // AddLayer(1) — both go high in the same press, but only the first to fire applies; the
+        // second is deduped (the node is already armed). This is what keeps a self-toggle from
+        // strobing; the cost is that stacking two persistent ops on one button is one-per-press.
+        let program = program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftBumper,
+                CompiledBinding::Button {
+                    commands: vec![
+                        long_cmd(300, CompiledAction::AddLayer(LayerId::new(0))),
+                        long_cmd(500, CompiledAction::AddLayer(LayerId::new(1))),
+                    ],
+                },
+            )]),
+            vec![
+                layer("l0", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::A)))]),
+                layer("l1", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::B)))]),
+            ],
+        )]);
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+
+        // Hold well past both thresholds, then release.
+        for t in (0..700).step_by(4) {
+            let _ = run(&mut m, &program, &frame(lb.clone()), t);
+        }
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 700);
+
+        // Layer 0 (first long) applied; layer 1 (second long) suppressed — one change per press.
+        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 704), Key::A));
+        assert!(!down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 708), Key::B));
+    }
+
+    // --- Persistent-op dedup: layer ops mixed with action-set changes -------------------
+
+    #[test]
+    fn tap_adds_a_layer_while_hold_changes_action_set() {
+        // One button mixes a layer op and a set op across activators: interruptible `Regular` →
+        // AddLayer(0) (tap) and `Long(300)` → ChangeActionSet(1) (hold). They're mutually exclusive,
+        // so a tap adds layer 0 in set 0, and a hold switches to set 1 (which also clears layers) —
+        // each fires exactly once. Marker: RB → A in set 0's layer 0, RB → C in set 1's base.
+        let program = program_of(vec![
+            (
+                SourceMap::from_iter([(
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button {
+                        commands: vec![
+                            ireg_cmd(CompiledAction::AddLayer(LayerId::new(0))),
+                            long_cmd(300, CompiledAction::ChangeActionSet(SetId::new(1))),
+                        ],
+                    },
+                )]),
+                vec![layer("l0", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::A)))])],
+            ),
+            (
+                SourceMap::from_iter([(InputSource::RightBumper, btn(CompiledAction::Key(Key::C)))]),
+                vec![],
+            ),
+        ]);
+        let lb = steam_hid::Buttons::LB;
+        let rb = steam_hid::Buttons::RB;
+        let empty = steam_hid::Buttons::empty();
+
+        // Tap: press then release before 300 ms → still set 0, layer 0 added (RB → A), not set 1 (C).
+        let mut m = Mapper::new(&program);
+        let _ = run(&mut m, &program, &frame(lb.clone()), 0);
+        let _ = run(&mut m, &program, &frame(lb.clone()), 100);
+        for t in [150, 200, 250] {
+            let _ = run(&mut m, &program, &frame(empty.clone()), t);
+        }
+        let out = run(&mut m, &program, &frame(rb.clone()), 300);
+        assert!(down(&out, Key::A) && !down(&out, Key::C), "tap → layer 0 in set 0");
+
+        // Hold: press past 300 ms → switched to set 1 (RB → C); layer 0 gone with the swap (no A).
+        let mut m = Mapper::new(&program);
+        let _ = run(&mut m, &program, &frame(lb.clone()), 0);
+        let _ = run(&mut m, &program, &frame(lb.clone()), 300);
+        let _ = run(&mut m, &program, &frame(lb.clone()), 400);
+        let _ = run(&mut m, &program, &frame(empty.clone()), 450);
+        let out = run(&mut m, &program, &frame(rb.clone()), 500);
+        assert!(down(&out, Key::C) && !down(&out, Key::A), "hold → action set 1");
+    }
+
+    #[test]
+    fn set_change_in_a_command_overrides_a_same_command_add_layer() {
+        // A single command carrying both AddLayer(0) and ChangeActionSet(1): the set change wins (a
+        // full swap clears the per-set stacks), so the layer add is dropped. Documents the precedence
+        // when the two collide in one fire. Marker: RB → A in set 0's layer 0, RB → C in set 1.
+        let program = program_of(vec![
+            (
+                SourceMap::from_iter([(
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button {
+                        commands: vec![regular(vec![
+                            CompiledAction::AddLayer(LayerId::new(0)),
+                            CompiledAction::ChangeActionSet(SetId::new(1)),
+                        ])],
+                    },
+                )]),
+                vec![layer("l0", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::A)))])],
+            ),
+            (
+                SourceMap::from_iter([(InputSource::RightBumper, btn(CompiledAction::Key(Key::C)))]),
+                vec![],
+            ),
+        ]);
+        let mut m = Mapper::new(&program);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 4);
+        // In set 1 (RB → C); the layer add was swept by the set change (A absent).
+        let out = run(&mut m, &program, &frame(steam_hid::Buttons::RB), 8);
+        assert!(down(&out, Key::C) && !down(&out, Key::A), "set change wins; layer add dropped");
+    }
+
+    #[test]
+    fn a_node_that_changes_set_does_not_also_fire_the_new_sets_op_until_released() {
+        // The dedup crosses the set boundary: Menu is a ChangeActionSet(1) in set 0 and an
+        // AddLayer(0) in set 1. Holding Menu switches to set 1 once — `armed_nodes` is node-keyed and
+        // survives the set change — and does NOT then add layer 0 while still held (one persistent op
+        // per press). Releasing and pressing again fires the new set's AddLayer(0). Markers: R4 → C
+        // (set 1 base), R1 → A (set 1's layer 0).
+        let program = program_of(vec![
+            (
+                SourceMap::from_iter([(
+                    InputSource::Menu,
+                    btn(CompiledAction::ChangeActionSet(SetId::new(1))),
+                )]),
+                vec![],
+            ),
+            (
+                SourceMap::from_iter([
+                    (InputSource::Menu, btn(CompiledAction::AddLayer(LayerId::new(0)))),
+                    (InputSource::RightGrip, btn(CompiledAction::Key(Key::C))),
+                ]),
+                vec![layer("l0", [(InputSource::RightBumper, btn(CompiledAction::Key(Key::A)))])],
+            ),
+        ]);
+        let mut m = Mapper::new(&program);
+        let menu = steam_hid::Buttons::MENU;
+
+        // Hold Menu across the set change: switches to set 1, but layer 0 is NOT added while held.
+        for t in (0..40).step_by(4) {
+            let _ = run(&mut m, &program, &frame(menu.clone()), t);
+        }
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 40);
+        assert!(
+            down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 44), Key::C),
+            "switched to set 1"
+        );
+        assert!(
+            !down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 48), Key::A),
+            "layer 0 not added while Menu stayed held through the swap"
+        );
+
+        // Release and press Menu again (now in set 1) → AddLayer(0) fires.
+        let _ = run(&mut m, &program, &frame(menu.clone()), 100);
+        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 104);
+        assert!(
+            down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 108), Key::A),
+            "second press adds layer 0 in set 1"
+        );
     }
 }

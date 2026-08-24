@@ -280,8 +280,10 @@ fn tap_on_edge(cs: &mut CmdState, fire: bool, now: &Tick) -> bool {
 }
 
 /// Apply one action of a firing command: output leaves become desired levels; layer/set actions
-/// are queued into `ops` for the next tick (`HoldLayer` carries its trigger node so it can latch
-/// to that node's held-state). `None` does nothing.
+/// are queued into `ops` for the next tick, **each carrying its trigger `node`** — `HoldLayer`
+/// latches to that node's held-state, and the persistent mutations (`ChangeActionSet`/`AddLayer`/
+/// `RemoveLayer`) let `reconcile_layer_ops` dedup them per node so a self-toggling button fires once
+/// per press instead of strobing (PLAN §4). `None` does nothing.
 ///
 /// Scroll pseudo-buttons (`MouseButton::Scroll*`) ride the ordinary button-level path: virt-out
 /// realizes a scroll button's **press** as one wheel tick and no-ops its release, so a plain press
@@ -297,13 +299,9 @@ fn apply_action(
         CompiledAction::Key(k) => desired.press_key(k.clone()),
         CompiledAction::MouseButton(b) => desired.press_mouse(b.clone()),
         CompiledAction::GamepadButton(b) => desired.press_pad(b.clone()),
-        CompiledAction::ChangeActionSet(s) => ops.set_change = Some(s.clone()),
-        CompiledAction::AddLayer(l) => {
-            ops.adds.insert(l.clone());
-        }
-        CompiledAction::RemoveLayer(l) => {
-            ops.removes.insert(l.clone());
-        }
+        CompiledAction::ChangeActionSet(s) => ops.set_change = Some((s.clone(), node.clone())),
+        CompiledAction::AddLayer(l) => ops.adds.push((l.clone(), node.clone())),
+        CompiledAction::RemoveLayer(l) => ops.removes.push((l.clone(), node.clone())),
         CompiledAction::HoldLayer(l) => {
             ops.holds.insert(l.clone(), node.clone());
         }
