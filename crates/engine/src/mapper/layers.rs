@@ -72,6 +72,17 @@ pub(super) type ArmedNodes = HashMap<NodeKey, NodeHeld>;
 /// uniformly: `holds` latch to `node.held` ([`HoldLayer`](crate::program::CompiledAction::HoldLayer)),
 /// and the persistent mutations (`set_change`/`adds`/`removes`) are deduped per node against
 /// [`ArmedNodes`] so a self-toggling button can't strobe. Last `set_change` wins.
+///
+/// The collection per field matches its semantics, not the stage it was written in:
+/// - `set_change` — one active set, so 0-or-1 winner per tick → `Option`.
+/// - `holds` — a **set of held layers** merged into `held_layers`; a layer is held-or-not, so dedup
+///   *by layer* is right and one representative node per layer suffices for the keep-while-held check
+///   → `BTreeMap<LayerId, _>`.
+/// - `adds`/`removes` — **lists of one-shot `(layer, node)` ops**, not a set of layers. Each op is
+///   deduped against its *own* node, and every firing node must be armed — so two different buttons
+///   adding the *same* layer on one tick must stay two entries. A map keyed by `LayerId` would merge
+///   them and drop a node from both the dedup and the arming → `Vec`. (Can't be a `BTreeSet<LayerId>`
+///   like the pre-`armed_nodes` shape either — it now has to carry `NodeHeld`, which holds an `f32`.)
 #[derive(Default)]
 pub(super) struct LayerOps {
     pub(super) set_change: Option<(SetId, NodeHeld)>,
