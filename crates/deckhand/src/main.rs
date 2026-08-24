@@ -112,7 +112,7 @@ pub(crate) fn decode_png_rgba(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         png::ColorType::Rgba => px.to_vec(),
         png::ColorType::Rgb => {
             let mut v = Vec::with_capacity(info.width as usize * info.height as usize * 4);
-            for c in px.chunks_exact(3) {
+            for c in px.as_chunks::<3>().0 {
                 v.extend_from_slice(&[c[0], c[1], c[2], 255]);
             }
             v

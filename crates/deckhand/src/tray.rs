@@ -128,7 +128,7 @@ mod imp {
         let (rgba, w, h) = crate::decode_png_rgba(PNG)?;
         // ksni wants ARGB per pixel (network byte order); our source is straight RGBA.
         let mut data = Vec::with_capacity(rgba.len());
-        for c in rgba.chunks_exact(4) {
+        for c in rgba.as_chunks::<4>().0 {
             data.extend_from_slice(&[c[3], c[0], c[1], c[2]]);
         }
         Some(ksni::Icon { width: w as i32, height: h as i32, data })

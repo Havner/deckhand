@@ -36,6 +36,9 @@ enum SessionEnd {
 /// the same virtual pad. The device stays pinned across the outage, so no binding event fires — the
 /// run-state edges (which cover the client/server-split case where reader and mapper live on
 /// different machines) are the only signal.
+// A thread entry taking the reader's devices, link, and readback handles; grouping them into a
+// struct would only add indirection.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn run_reader(
     mut device: Device,
     pinned_id: DeviceId,
