@@ -149,15 +149,20 @@ pub(super) fn eval_commands(
             }
         };
 
-        // `toggle`/`turbo`/haptics on the resolved level (meaningful on holds; inert on the taps).
+        // `toggle`/`turbo` shape the resolved level; then its edges drive haptics and the once-per-
+        // activation persistent ops (meaningful on holds; inert on the taps).
         let cs = slot.command(i);
         let toggled = apply_toggle(active, cmd.settings.toggle, cs);
         let out = apply_turbo(toggled, cmd.settings.turbo.as_ref(), cs, now);
-        emit_haptic(&cmd.settings.haptics, cs, out, side, sinks.haptics);
+        let rising = out && !cs.prev_out;
+        let falling = !out && cs.prev_out;
+        cs.prev_out = out;
+        emit_haptic(&cmd.settings.haptics, rising, falling, side, sinks.haptics);
         if out {
             // The whole ordered combo fires while the command fires (subcommands = modifiers).
+            // `rising` gates the persistent layer/set ops so they fire once per activation.
             for action in &cmd.actions {
-                apply_action(action, node, sinks.desired, sinks.ops);
+                apply_action(action, rising, node, sinks.desired, sinks.ops);
             }
         }
     }
@@ -213,17 +218,9 @@ fn regular_deferred(
     }
 }
 
-/// Push a command-haptic pulse when the command's output crosses the configured edge, tracking the
-/// previous level in `cs.haptic_prev`. `Off` never fires (but still advances the edge state).
-fn emit_haptic(
-    h: &Haptics,
-    cs: &mut CmdState,
-    out: bool,
-    side: &Side,
-    haptics: &mut Vec<HapticReq>,
-) {
-    let rising = out && !cs.haptic_prev;
-    let falling = !out && cs.haptic_prev;
+/// Push a command-haptic pulse when the command's output crosses the configured edge (`rising` =
+/// press, `falling` = release, both computed by the caller). `Off` never fires.
+fn emit_haptic(h: &Haptics, rising: bool, falling: bool, side: &Side, haptics: &mut Vec<HapticReq>) {
     let fire = match h.on {
         HapticEdge::Off => false,
         HapticEdge::OnPress => rising,
@@ -233,7 +230,6 @@ fn emit_haptic(
     if fire {
         haptics.push(HapticReq { side: side.clone(), strength: h.strength.clone() });
     }
-    cs.haptic_prev = out;
 }
 
 /// `toggle`: flip a latch on each **rising edge** of the raw activation; output the latch.
@@ -279,11 +275,13 @@ fn tap_on_edge(cs: &mut CmdState, fire: bool, now: &Tick) -> bool {
     tap_active(cs, now)
 }
 
-/// Apply one action of a firing command: output leaves become desired levels; layer/set actions
-/// are queued into `ops` for the next tick, **each carrying its trigger `node`** — `HoldLayer`
-/// latches to that node's held-state, and the persistent mutations (`ChangeActionSet`/`AddLayer`/
-/// `RemoveLayer`) let `reconcile_layer_ops` dedup them per node so a self-toggling button fires once
-/// per press instead of strobing (PLAN §4). `None` does nothing.
+/// Apply one action of a firing command. Output leaves drive the desired levels every held tick;
+/// layer/set actions queue into `ops` for the next tick, each carrying its trigger `node`. `HoldLayer`
+/// fires every tick and latches to that node's held-state; the persistent mutations
+/// (`ChangeActionSet`/`AddLayer`/`RemoveLayer`) fire only on the command's rising `edge` — so a held
+/// command (e.g. a `Regular` tap's `TAP_MS` tail) applies its stack change once, not every tick —
+/// and `reconcile_layer_ops` dedups them per node so a self-toggling button can't strobe (PLAN §4).
+/// `None` does nothing.
 ///
 /// Scroll pseudo-buttons (`MouseButton::Scroll*`) ride the ordinary button-level path: virt-out
 /// realizes a scroll button's **press** as one wheel tick and no-ops its release, so a plain press
@@ -291,6 +289,7 @@ fn tap_on_edge(cs: &mut CmdState, fire: bool, now: &Tick) -> bool {
 /// pulse — continuous scroll while held. (No held-state to reconcile; the backend collapses it.)
 fn apply_action(
     action: &CompiledAction,
+    edge: bool,
     node: &NodeHeld,
     desired: &mut DesiredLevels,
     ops: &mut LayerOps,
@@ -299,9 +298,9 @@ fn apply_action(
         CompiledAction::Key(k) => desired.press_key(k.clone()),
         CompiledAction::MouseButton(b) => desired.press_mouse(b.clone()),
         CompiledAction::GamepadButton(b) => desired.press_pad(b.clone()),
-        CompiledAction::ChangeActionSet(s) => ops.set_change = Some((s.clone(), node.clone())),
-        CompiledAction::AddLayer(l) => ops.adds.push((l.clone(), node.clone())),
-        CompiledAction::RemoveLayer(l) => ops.removes.push((l.clone(), node.clone())),
+        CompiledAction::ChangeActionSet(s) => if edge { ops.set_change = Some((s.clone(), node.clone())) },
+        CompiledAction::AddLayer(l) => if edge { ops.adds.push((l.clone(), node.clone())) },
+        CompiledAction::RemoveLayer(l) => if edge { ops.removes.push((l.clone(), node.clone())) },
         CompiledAction::HoldLayer(l) => {
             ops.holds.insert(l.clone(), node.clone());
         }

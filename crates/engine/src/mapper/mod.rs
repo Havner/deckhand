@@ -865,6 +865,186 @@ mod tests {
         let _ = t; // last macro bumps `t` without a further read
     }
 
+    /// The xbox_mouse_profile self-toggle shape, shared by the short-press and long-hold latch
+    /// tests: base L1 = {Regular(interruptible): AddLayer(0), Long(450): HoldLayer(0)}; layer0
+    /// rebinds L1 → RemoveLayer(0) and binds R1 → X as a "layer active" marker.
+    fn xbox_self_toggle_program() -> Program {
+        program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftBumper,
+                CompiledBinding::Button {
+                    commands: vec![
+                        ireg_cmd(CompiledAction::AddLayer(LayerId::new(0))),
+                        long_cmd(450, CompiledAction::HoldLayer(LayerId::new(0))),
+                    ],
+                },
+            )]),
+            vec![layer(
+                "aim",
+                [
+                    (
+                        InputSource::LeftBumper,
+                        CompiledBinding::Button {
+                            commands: vec![ireg_cmd(CompiledAction::RemoveLayer(LayerId::new(0)))],
+                        },
+                    ),
+                    (InputSource::RightBumper, btn(CompiledAction::Key(Key::X))),
+                ],
+            )],
+        )])
+    }
+
+    #[test]
+    fn self_removing_layer_with_interruptible_regular_removes_on_the_second_press() {
+        // Exact xbox_mouse_profile shape (see `xbox_self_toggle_program`). A short press adds the
+        // layer; a *second* short press must remove it. The bug: on the second press the layer's
+        // RemoveLayer fires (arming the node), the winner flips back to base, and base's interruptible-
+        // Regular commits a tap whose AddLayer — when *level*-fired — kept firing through the TAP_MS
+        // tail, after armed_nodes disarmed at release, re-adding the layer. Edge-firing the persistent
+        // ops makes AddLayer fire once, at the tap's commit tick, where the node is still armed →
+        // suppressed → no re-add. Continuous ticking (no time jumps) is required to expose it — the
+        // re-add was on the empty tap-tail ticks.
+        let program = xbox_self_toggle_program();
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        let rb = steam_hid::Buttons::RB;
+        let mut t = 0u64;
+        // Tick `buttons` continuously every 4ms for `ms` (like the real reader loop — no time jumps).
+        macro_rules! hold {
+            ($buttons:expr, $ms:expr) => {{
+                let mut last = Vec::new();
+                let end = t + $ms;
+                while t < end {
+                    last = run(&mut m, &program, &frame($buttons), t);
+                    t += 4;
+                }
+                last
+            }};
+        }
+        macro_rules! layer_active {
+            () => {{
+                let _ = hold!(steam_hid::Buttons::empty(), 20);
+                let out = run(&mut m, &program, &frame(rb.clone()), t); // single rising-edge tick
+                t += 4;
+                let _ = hold!(steam_hid::Buttons::empty(), 80);
+                down(&out, Key::X)
+            }};
+        }
+        macro_rules! short_press {
+            () => {{
+                let _ = hold!(lb.clone(), 80); // ~80ms click, well under Long(450)
+                let _ = hold!(steam_hid::Buttons::empty(), 80);
+            }};
+        }
+        assert!(!layer_active!(), "starts off");
+        short_press!();
+        assert!(layer_active!(), "short press adds the layer");
+        short_press!();
+        assert!(!layer_active!(), "second short press must remove it");
+        let _ = t; // last macro bumps `t` without a further read
+    }
+
+    #[test]
+    fn self_removing_layer_long_hold_activates_only_while_held() {
+        // Same xbox_mouse_profile shape. Held *long* (past the 450 ms Long), L1's base fires
+        // HoldLayer(0): the layer is active only while L1 is held and drops on release (the Long
+        // interrupts the interruptible AddLayer, so there's no persistent add). The layer rebinds
+        // L1 → RemoveLayer and L1 does self-shadow to it, but HoldLayer holds the layer in
+        // `held_layers` while RemoveLayer only touches the persistent set — so the removal is a no-op
+        // and the held layer stays up for the whole hold.
+        let program = xbox_self_toggle_program();
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        let rb = steam_hid::Buttons::RB;
+        let mut t = 0u64;
+        macro_rules! hold {
+            ($buttons:expr, $ms:expr) => {{
+                let end = t + $ms;
+                while t < end {
+                    let _ = run(&mut m, &program, &frame($buttons), t);
+                    t += 4;
+                }
+            }};
+        }
+
+        // Hold L1 well past the 450 ms Long → HoldLayer activates the layer.
+        hold!(lb.clone(), 600);
+        // Still holding L1, tap R1: it resolves to the layer's X ⇒ the layer is active mid-hold, and
+        // the layer's RemoveLayer never self-fired to tear it down.
+        let out = run(&mut m, &program, &frame(lb.clone() | rb.clone()), t);
+        t += 4;
+        assert!(down(&out, Key::X), "layer active while L1 held past the Long");
+        hold!(lb.clone(), 40); // release R1, keep holding L1
+
+        // Release L1 → HoldLayer drops the layer.
+        hold!(steam_hid::Buttons::empty(), 40);
+        // Tap R1 again: no X ⇒ the hold was temporary, not a persistent add.
+        let out = run(&mut m, &program, &frame(rb.clone()), t);
+        assert!(!down(&out, Key::X), "layer dropped after releasing the long hold");
+    }
+
+
+    #[test]
+    fn a_self_added_layer_that_rebinds_the_node_adds_one_layer_per_press() {
+        // base L1 → AddLayer(0); layer 0 rebinds L1 → AddLayer(1). A node makes at most ONE persistent
+        // change per press (armed_nodes): the first press adds layer 0, then the flip to layer 0
+        // re-binds L1 to AddLayer(1) — but that fires on the *next* tick of the *same* press on the
+        // *same* physical node, so it's deduped. A second press adds layer 1. Markers: R1 → A (layer 0
+        // active), R4 → B (layer 1 active).
+        let program = program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftBumper,
+                btn(CompiledAction::AddLayer(LayerId::new(0))),
+            )]),
+            vec![
+                layer(
+                    "l0",
+                    [
+                        (InputSource::LeftBumper, btn(CompiledAction::AddLayer(LayerId::new(1)))),
+                        (InputSource::RightBumper, btn(CompiledAction::Key(Key::A))),
+                    ],
+                ),
+                layer("l1", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::B)))]),
+            ],
+        )]);
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        let mut t = 0u64;
+        // Press L1 ~40 ms then release, ticking continuously.
+        macro_rules! press_l1 {
+            () => {{
+                let end = t + 40;
+                while t < end {
+                    let _ = run(&mut m, &program, &frame(lb.clone()), t);
+                    t += 4;
+                }
+                let end = t + 80;
+                while t < end {
+                    let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                    t += 4;
+                }
+            }};
+        }
+        // Pulse a marker button once and report whether its key fired ⇒ that layer is active.
+        macro_rules! active {
+            ($btn:expr, $key:expr) => {{
+                let out = run(&mut m, &program, &frame($btn), t);
+                t += 4;
+                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                t += 4;
+                down(&out, $key)
+            }};
+        }
+
+        assert!(!active!(steam_hid::Buttons::RB, Key::A), "layer 0 off at start");
+        press_l1!();
+        assert!(active!(steam_hid::Buttons::RB, Key::A), "one press → layer 0");
+        assert!(!active!(steam_hid::Buttons::RGRIP, Key::B), "layer 1 still off — the chained add is deduped");
+        press_l1!();
+        assert!(active!(steam_hid::Buttons::RGRIP, Key::B), "second press → layer 1");
+        let _ = t; // last macro bumps `t` without a further read
+    }
+
     #[test]
     fn one_button_cycles_action_sets_once_per_press() {
         // Three sets, each binding Menu → ChangeActionSet(next) and L1 → a per-set marker key. With a

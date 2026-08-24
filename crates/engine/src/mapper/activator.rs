@@ -101,8 +101,10 @@ pub(super) struct CmdState {
     pub(super) raw_prev: bool,
     /// `turbo`: when the current pulse train started (`None` while inactive).
     pub(super) turbo_start: Option<Tick>,
-    /// The command's previous-tick output level, for firing command-haptic pulses on its edges.
-    pub(super) haptic_prev: bool,
+    /// The command's previous-tick output level — the edge source shared by command-haptic pulses
+    /// and by the persistent layer/set ops (which fire once, on the rising edge, not every held tick
+    /// — so a `Regular` tap's `TAP_MS` tail doesn't re-apply them).
+    pub(super) prev_out: bool,
 }
 
 /// The state of an interruptible `Regular` command that shares its node with an interrupter
