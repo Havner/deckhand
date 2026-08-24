@@ -40,47 +40,34 @@ fn mouse(b: MouseButton) -> Action {
 
 // --- system layer (used by all profiles) ------------------------------------------------
 
-pub fn system_keys_layer(nullify_lpad: bool) -> Layer {
-    let mut bindings = BTreeMap::from([(
-        InputSource::DPad,
-        SourceBinding::ButtonPad {
-            up: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![key(Key::VolumeUp)],
-                settings: Default::default(),
-            }],
-            down: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![key(Key::VolumeDown)],
-                settings: Default::default(),
-            }],
-            left: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![key(Key::PlayPause)],
-                settings: Default::default(),
-            }],
-            right: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![key(Key::NextSong)],
-                settings: Default::default(),
-            }],
-        },
-    )]);
-
-    if nullify_lpad {
-        bindings.insert(
-            InputSource::LeftPad,
-            SourceBinding::None,
-        );
-        bindings.insert(
-            InputSource::LeftPadClick,
-            SourceBinding::None,
-        );
-    };
-
+pub fn system_keys_layer() -> Layer {
     Layer {
         name: "system_keys".into(),
-        bindings
+        bindings: BTreeMap::from([(
+            InputSource::FaceButtons,
+            SourceBinding::ButtonPad {
+                up: vec![Command {
+                    activator: Activator::Regular { interruptible: true },
+                    actions: vec![key(Key::VolumeUp)],
+                    settings: Default::default(),
+                }],
+                down: vec![Command {
+                    activator: Activator::Regular { interruptible: true },
+                    actions: vec![key(Key::VolumeDown)],
+                    settings: Default::default(),
+                }],
+                left: vec![Command {
+                    activator: Activator::Regular { interruptible: true },
+                    actions: vec![key(Key::Rewind)],
+                    settings: Default::default(),
+                }],
+                right: vec![Command {
+                    activator: Activator::Regular { interruptible: true },
+                    actions: vec![key(Key::PlayPause)],
+                    settings: Default::default(),
+                }],
+            },
+        )]),
     }
 }
 
@@ -246,16 +233,10 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Quick access button → system_keys layer.
+    // Quick access button → none (toggle profile).
     base.insert(
         InputSource::QuickAccess,
-        SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
-        },
+        SourceBinding::None,
     );
 
     // ----- TRIGGERS -----
@@ -480,7 +461,7 @@ pub fn desktop_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![gyro, system_keys_layer(true)],
+            layers: vec![system_keys_layer(), gyro],
         }],
     }
 }
@@ -620,7 +601,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             }],
         },
     );
-    // Steam button → system_keys layer
+    // Steam button → system_keys layer.
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
@@ -631,16 +612,10 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             }],
         },
     );
-    // Quick access button → system_keys layer
+    // Quick access button → none (toggle profile).
     base.insert(
         InputSource::QuickAccess,
-        SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
-        },
+        SourceBinding::None,
     );
 
     // ----- TRIGGERS -----
@@ -947,7 +922,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![alt_mouse, system_keys_layer(true)],
+            layers: vec![system_keys_layer(), alt_mouse],
         }],
     }
 }
@@ -1114,16 +1089,10 @@ pub fn xbox_profile() -> ConfigDoc {
             }],
         },
     );
-    // Quick access button → system_keys layer.
+    // Quick access button → none (toggle profile).
     base.insert(
         InputSource::QuickAccess,
-        SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
-        },
+        SourceBinding::None,
     );
 
     // ----- TRIGGERS -----
@@ -1250,7 +1219,7 @@ pub fn xbox_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![system_keys_layer(false)],
+            layers: vec![system_keys_layer()],
         }],
     }
 }
@@ -1272,15 +1241,22 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right grip 2 click holds the mode-shift layer (left stick → right stick).
+    // Right grip 2 click adds the mode-shift layer (left stick → right stick).
     profile.action_sets[0].bindings.insert(
         InputSource::RightGrip2,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("aim_stick".into()))],
-                settings: Default::default(),
-            }],
+            commands: vec![
+                Command {
+                    activator: Activator::Regular { interruptible: true },
+                    actions: vec![Action::AddLayer(LayerRef("aim_stick_right".into()))],
+                    settings: Default::default(),
+                },
+                Command {
+                    activator: Activator::Long { hold_ms: 200 },
+                    actions: vec![Action::HoldLayer(LayerRef("aim_stick_right".into()))],
+                    settings: Default::default(),
+                },
+            ],
         },
     );
 
@@ -1322,7 +1298,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
         SourceBinding::Button {
             commands: vec![Command {
                 activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("aim_stick".into()))],
+                actions: vec![Action::HoldLayer(LayerRef("aim_stick_left".into()))],
                 settings: Default::default(),
             }],
         },
@@ -1333,8 +1309,8 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
     // Mode-shift layer: while the right pad is clicked, the left stick drives the RIGHT stick,
     // and the right pad itself is nullified (so holding it for the mode-shift doesn't jitter the
     // mouse). `None` overrides the base AsMouse binding for the duration of the layer.
-    let aim_stick = Layer {
-        name: "aim_stick".into(),
+    let aim_stick_left = Layer {
+        name: "aim_stick_left".into(),
         bindings: BTreeMap::from([
             (
                 InputSource::LeftStick,
@@ -1352,8 +1328,34 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
             ),
         ]),
     };
+    let aim_stick_right = Layer {
+        name: "aim_stick_right".into(),
+        bindings: BTreeMap::from([
+            (
+                InputSource::RightGrip2,
+                SourceBinding::Button {
+                    commands: vec![Command {
+                        activator: Activator::Regular { interruptible: true },
+                        actions: vec![Action::RemoveLayer(LayerRef("aim_stick_right".into()))],
+                        settings: Default::default(),
+                    }],
+                },
+            ),
+            (
+                InputSource::RightStick,
+                SourceBinding::Joystick {
+                    settings: JoystickSettings {
+                        output: StickOutput::Right,
+                        ..Default::default()
+                    },
+                    outer_ring: vec![],
+                },
+            ),
+        ]),
+    };
 
-    profile.action_sets[0].layers = vec![aim_stick, system_keys_layer(false)];
+    profile.action_sets[0].layers =
+        vec![system_keys_layer(), aim_stick_left, aim_stick_right];
 
     profile
 }
@@ -1422,6 +1424,30 @@ pub fn cp2077_profile() -> ConfigDoc {
             settings.sensitivity.x = 2.0;
             settings.sensitivity.y = 2.0;
         };
+
+    // cp2077 specific: quickhack set 1, reuse system_keys layer
+    profile.action_sets[0].layers[0].bindings.insert(
+        InputSource::LeftBumper,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![key(Key::LeftBrace)],
+                settings: Default::default(),
+            }],
+        },
+    );
+
+    // cp2077 specific: quickhack set 2, reuse system_keys layer
+    profile.action_sets[0].layers[0].bindings.insert(
+        InputSource::RightBumper,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![key(Key::RightBrace)],
+                settings: Default::default(),
+            }],
+        },
+    );
 
     profile
 }
@@ -1611,13 +1637,7 @@ pub fn control_profile() -> ConfigDoc {
     );
     base.insert(
         InputSource::QuickAccess,
-        SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
-        },
+        SourceBinding::None,
     );
 
     // ----- TRIGGERS -----
@@ -1813,7 +1833,7 @@ pub fn control_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![system_keys_layer(false)],
+            layers: vec![system_keys_layer()],
         }],
     }
 }
@@ -1830,21 +1850,15 @@ pub fn chords() -> Chords {
                 },
             },
             Chord {
-                buttons: vec![Button::QuickAccess, Button::RGrip],
-                action: ChordAction::SwitchProfile {
-                    mode: SwitchMode::SetMain,
-                },
-            },
-            Chord {
                 buttons: vec![Button::Steam, Button::LGrip],
                 action: ChordAction::SwitchProfile {
                     mode: SwitchMode::SetFallback,
                 },
             },
             Chord {
-                buttons: vec![Button::QuickAccess, Button::LGrip],
+                buttons: vec![Button::QuickAccess],
                 action: ChordAction::SwitchProfile {
-                    mode: SwitchMode::SetFallback,
+                    mode: SwitchMode::Toggle,
                 },
             },
             // Chord {
