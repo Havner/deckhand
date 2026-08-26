@@ -54,7 +54,15 @@ fn main() -> steam_hid::Result<()> {
     let running = common::install_ctrlc();
     let start = Instant::now();
     let mut last = Instant::now();
+    // Neptune/Triton revert to lizard mode a few seconds after lizard-off (which also stops the IMU
+    // stream), so re-assert periodically. Harmless on Gordon.
+    let mut last_lizard = Instant::now();
     while running.alive() {
+        if last_lizard.elapsed() >= Duration::from_secs(2) {
+            let _ = device.set_lizard_mode(false);
+            let _ = device.set_gyro(true);
+            last_lizard = Instant::now();
+        }
         if let Some(Report::State(s)) = device.poll(Duration::from_millis(200))?
             && last.elapsed() >= Duration::from_millis(200)
         {

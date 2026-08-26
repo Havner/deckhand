@@ -9,7 +9,7 @@
 
 mod common;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use steam_hid::{Manager, Report};
 
@@ -30,7 +30,15 @@ fn main() -> steam_hid::Result<()> {
 
     println!("Reading (Ctrl-C to stop)…");
     let running = common::install_ctrlc();
+    // Neptune/Triton revert to lizard mode a few seconds after lizard-off (Triton ~3 s), so
+    // re-assert periodically or raw input turns back into mouse/keyboard emulation mid-session.
+    // Harmless on Gordon (which holds its config). The real engine does this in its reader loop.
+    let mut last_lizard = Instant::now();
     while running.alive() {
+        if last_lizard.elapsed() >= Duration::from_secs(2) {
+            let _ = device.set_lizard_mode(false);
+            last_lizard = Instant::now();
+        }
         match device.poll(Duration::from_millis(1000))? {
             None => {} // timeout — nothing this interval
             Some(report) => match report {
