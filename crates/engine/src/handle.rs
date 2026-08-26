@@ -6,8 +6,8 @@
 //! release the device + sink while **config is retained** across the pair; `shutdown()` consumes
 //! the handle.
 //!
-//! **Mutability:** `apply`/`set_chords` are live hot-swaps while running (and stage while idle);
-//! `set_device_config` always stages — device settings are applied reader-side at the next start;
+//! **Mutability:** `apply`/`set_chords`/`set_device_config` are live hot-swaps while running (and
+//! stage while idle) — device settings apply reader-side (machine-local, off the network uplink);
 //! `set_input`/`set_output` are **staged-only** — they take effect at the next `start()` and are
 //! fixed within a start/stop pair. The network variants of input/output are stubs for now
 //! (Local-only built; the seam is kept — PLAN §4.1/§6).
@@ -22,7 +22,7 @@ use virt_out::Sink;
 
 use crate::event::{EngineEvent, EventSink, EventStream};
 use crate::program::{Program, Role};
-use crate::runtime::{Control, ReaderCfg, Runtime};
+use crate::runtime::{Control, Runtime};
 use crate::{Error, Result};
 
 /// Where input comes from: a local controller, or a bound network endpoint that receives a remote
@@ -284,12 +284,18 @@ impl Engine {
         self.events.emit(EngineEvent::ProfileSet { role, name });
     }
 
-    /// Set the device config (LED/idle, master rumble, frequency). Retained; applied reader-side at
-    /// the next start/reconnect. Device settings have no live path to the reader, so — unlike
-    /// [`set_chords`](Self::set_chords) — this does not hot-swap a running loop.
+    /// Set the device config (LED/idle, master rumble, frequency). Retained (survives stop/start);
+    /// hot-swapped **live** to the reader if running, like [`set_chords`](Self::set_chords). Device
+    /// settings are machine-local and reader-side, so the push goes on the runtime's own device-config
+    /// channel, never the network uplink — in the server role (no local reader) the live push is a
+    /// no-op and it's simply retained for the next local start.
     pub fn set_device_config(&mut self, device_config: DeviceConfig) {
-        log::info!("set_device_config: master_rumble={}%", device_config.master_rumble);
+        let mode = if self.runtime.is_some() { "live" } else { "staged" };
+        log::info!("set_device_config: master_rumble={}% ({mode})", device_config.master_rumble);
         self.device_config = device_config;
+        if let Some(rt) = &self.runtime {
+            rt.set_device_config(self.device_config.clone());
+        }
         self.events.emit(EngineEvent::DeviceConfigSet(self.device_config.clone()));
     }
 
@@ -329,7 +335,6 @@ impl Engine {
     /// No main is required — the mapper runs the empty placeholder program until one is applied.
     fn start_local(&mut self) -> Result<()> {
         let device = self.open_device()?;
-        let cfg = ReaderCfg::for_device(&device.info().kind, &device.info().transport, &self.device_config);
         let info = device.info();
         let pinned_id = info.id();
         self.bound = Some(pinned_id.clone());
@@ -338,7 +343,7 @@ impl Engine {
         self.runtime = Some(Runtime::start_local(
             device,
             pinned_id.clone(),
-            cfg,
+            self.device_config.clone(),
             sink,
             self.main.clone(),
             self.fallback.clone(),
@@ -355,7 +360,6 @@ impl Engine {
     /// here on connect (config is ordinary `Apply`/`SetChords`, PLAN §6.1).
     fn start_client(&mut self, addr: SocketAddr) -> Result<()> {
         let device = self.open_device()?;
-        let cfg = ReaderCfg::for_device(&device.info().kind, &device.info().transport, &self.device_config);
         let info = device.info();
         let pinned_id = info.id();
         self.bound = Some(pinned_id.clone());
@@ -364,7 +368,7 @@ impl Engine {
             addr,
             device,
             pinned_id.clone(),
-            cfg,
+            self.device_config.clone(),
             self.events.clone()
         )?);
         self.push_staged_config(); // seed the server with our staged programs + device config

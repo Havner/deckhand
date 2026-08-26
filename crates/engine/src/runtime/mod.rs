@@ -1,7 +1,8 @@
 //! The manager shell — the runtime that owns the two device-driving threads and the control channel
 //! (PLAN §4.1, §4.2 S9). Split across three files:
 //! - **this module** — the [`Runtime`] lifecycle (spawn/join the threads) + the inter-thread message
-//!   types ([`Control`], [`RumbleCmd`], [`Click`]) + per-device [`ReaderCfg`];
+//!   types ([`Control`], [`RumbleCmd`], [`Click`]); the reader-side per-device `ReaderCfg` lives in
+//!   [`reader`] (it's rebuilt there from the live [`DeviceConfig`]);
 //! - [`reader`] — the reader thread: a persistent device-session loop that owns the `Device`, is its
 //!   only writer, and reacquires the pinned device across a transport outage (D6);
 //! - [`mapping`] — the central mapping loop: owns the `Sink` + `Mapper`, maps frames to outputs, and
@@ -20,11 +21,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::thread::{self, JoinHandle};
 
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Sender, unbounded};
 use serde::{Deserialize, Serialize};
 
 use config::{Chords, DeviceConfig, HapticStrength, Side};
-use steam_hid::{Device, DeviceId, DeviceKind, Transport};
+use steam_hid::{Device, DeviceId};
 use virt_out::Sink;
 
 use crate::Result;
@@ -35,38 +36,6 @@ use link::{LinkClient, LinkServer, LocalLink};
 use mapping::run_mapper;
 use reader::run_reader;
 
-/// Device-level settings the reader applies on start and on every `Connected` (the controller
-/// resets its config when it re-joins a dongle; PLAN §1.9). Profile-independent.
-pub(crate) struct ReaderCfg {
-    /// LED intensity `0..=100 %`, or leave the device default. `None` where the device has no
-    /// settable LED ([`DeviceKind::has_led_intensity`]).
-    pub led_brightness: Option<u8>,
-    /// Sleep/idle timeout in seconds, or leave the device default. `None` where idle is meaningless
-    /// for the transport ([`Transport::has_idle`]).
-    pub idle_timeout: Option<u16>,
-    /// Master rumble attenuator `0..=100 %`, applied reader-side to every haptic amplitude (the
-    /// mapper sends game+profile-scaled rumble; master scales it here, device-local).
-    pub master_rumble: u8,
-    /// Rumble pulse frequency, Hz — the Gordon pulse-train rate ([`train`]); the Deck ignores it.
-    pub rumble_hz: u16,
-    /// Periodically re-assert lizard-off ([`DeviceKind::needs_keepalive`]).
-    pub keepalive: bool,
-}
-
-impl ReaderCfg {
-    /// The config for a device from the device config, with each device-specific setting dropped to
-    /// `None`/`false` where the hardware can't honor it (so the reader applies it blindly).
-    pub fn for_device(kind: &DeviceKind, transport: &Transport, device_config: &DeviceConfig) -> Self {
-        ReaderCfg {
-            led_brightness: kind.has_led_intensity().then_some(device_config.led_brightness).flatten(),
-            idle_timeout: transport.has_idle().then_some(device_config.idle_timeout).flatten(),
-            master_rumble: device_config.master_rumble,
-            rumble_hz: device_config.rumble_hz,
-            keepalive: kind.needs_keepalive(),
-        }
-    }
-}
-
 /// A control message to the mapping loop, from the `Engine` handle (live hot-swap). Device
 /// reattach after an outage (D6) is **not** here — it goes through the [`link`] seam.
 pub(crate) enum Control {
@@ -74,7 +43,8 @@ pub(crate) enum Control {
     /// mapper if the affected role is the one live.
     Apply { program: Option<Box<Program>>, role: Role },
     /// Replace the chords (`None` clears them). Device settings never reach the mapper — they're
-    /// reader-side — so there is no device-config control message.
+    /// reader-side and machine-local — so they don't ride `Control` (which is the network uplink in
+    /// the client role); they travel on the reader's own [`Runtime::device_config_tx`] channel.
     SetChords(Option<Chords>),
     /// Stop the loop (the running flag also gates it; this just wakes the `select!`).
     Stop,
@@ -127,6 +97,11 @@ pub(crate) struct Runtime {
     /// Read by `status()`; the mapper emits the matching `ActiveRole` event on each change.
     fallback_active: Option<Arc<AtomicBool>>,
     control_tx: Sender<Control>,
+    /// Live device-config channel to the reader (LED/idle, master rumble, frequency). `Some` **iff a
+    /// reader runs** (local + client roles) — `None` in the server role, where device settings are a
+    /// no-op (no local device). Machine-local: it deliberately does **not** ride `control_tx` (the
+    /// network uplink), so device settings never cross the §6 wire.
+    device_config_tx: Option<Sender<DeviceConfig>>,
     reader: Option<JoinHandle<Result<()>>>,
     mapper: Option<JoinHandle<Result<()>>>,
 }
@@ -139,7 +114,7 @@ impl Runtime {
     pub fn start_local(
         device: Device,
         pinned_id: DeviceId,
-        cfg: ReaderCfg,
+        device_config: DeviceConfig,
         sink: Sink,
         main: Option<Program>,
         fallback: Option<Program>,
@@ -150,13 +125,15 @@ impl Runtime {
         // The reader gets the client end, the mapper the server end; the handle keeps `control_tx`,
         // and `detached` is the shared `WaitingForDevice` flag (PLAN §6.1).
         let LocalLink { client, server, control_tx, detached } = link::local_link();
+        // Reader-side live device-config channel (machine-local, off the link).
+        let (device_config_tx, device_config_rx) = unbounded();
         // Both threads run locally → both readback flags are live.
         let connected = Arc::new(AtomicBool::new(false));
         let battery = Arc::new(AtomicU16::new(BATTERY_UNKNOWN));
         let fallback_active = Arc::new(AtomicBool::new(false));
         let reader = spawn_reader(
-            device, pinned_id, cfg, client, running.clone(), connected.clone(), battery.clone(),
-            events.clone(),
+            device, pinned_id, device_config, device_config_rx, client, running.clone(), connected.clone(),
+            battery.clone(), events.clone(),
         );
         let mapper = spawn_mapper(
             sink, main, fallback, chords, server, running.clone(), fallback_active.clone(), events,
@@ -168,6 +145,7 @@ impl Runtime {
             battery: Some(battery),
             fallback_active: Some(fallback_active),
             control_tx,
+            device_config_tx: Some(device_config_tx),
             reader: Some(reader),
             mapper: Some(mapper),
         }
@@ -181,7 +159,7 @@ impl Runtime {
         addr: SocketAddr,
         device: Device,
         pinned_id: DeviceId,
-        cfg: ReaderCfg,
+        device_config: DeviceConfig,
         events: EventSink,
     ) -> Result<Runtime> {
         let running = Arc::new(AtomicBool::new(true));
@@ -190,12 +168,16 @@ impl Runtime {
         // The reader flags this (its shared link flag) on device-loss, so `is_waiting()`/`status()`
         // report `WaitingForDevice` — matching the `State` event the reader emits.
         let detached = link.detached();
+        // Reader-side live device-config channel (machine-local; the client's device settings stay
+        // on this machine, never pushed to the server over the wire).
+        let (device_config_tx, device_config_rx) = unbounded();
         // Client role: a reader (→ `controller_connected`), but no local mapper (the live role is
         // on the remote server, so `fallback_active` is `None`).
         let connected = Arc::new(AtomicBool::new(false));
         let battery = Arc::new(AtomicU16::new(BATTERY_UNKNOWN));
         let reader = spawn_reader(
-            device, pinned_id, cfg, link, running.clone(), connected.clone(), battery.clone(), events,
+            device, pinned_id, device_config, device_config_rx, link, running.clone(), connected.clone(),
+            battery.clone(), events,
         );
         Ok(Runtime {
             running,
@@ -204,6 +186,7 @@ impl Runtime {
             battery: Some(battery),
             fallback_active: None,
             control_tx,
+            device_config_tx: Some(device_config_tx),
             reader: Some(reader),
             mapper: None,
         })
@@ -238,6 +221,9 @@ impl Runtime {
             battery: None,
             fallback_active: Some(fallback_active),
             control_tx,
+            // Server role: no local reader → device settings are a no-op here (staged in the handle,
+            // never applied). The client keeps and applies its own device config on its machine.
+            device_config_tx: None,
             reader: None,
             mapper: Some(mapper),
         })
@@ -279,6 +265,15 @@ impl Runtime {
         &self.control_tx
     }
 
+    /// Push a live device-config update to the reader (LED/idle, master rumble, frequency). A no-op
+    /// in the server role (no local reader) — device settings are machine-local, so a server just
+    /// keeps them staged in the handle. Latest-wins on the reader; never crosses the §6 wire.
+    pub fn set_device_config(&self, device_config: DeviceConfig) {
+        if let Some(tx) = &self.device_config_tx {
+            let _ = tx.send(device_config);
+        }
+    }
+
     /// Halt the loop and join both threads, releasing hardware (device → lizard restored on drop,
     /// virtual pad unplugged). Returns the first thread error, if any.
     pub fn stop(&mut self) -> Result<()> {
@@ -304,7 +299,8 @@ impl Runtime {
 fn spawn_reader(
     device: Device,
     pinned_id: DeviceId,
-    cfg: ReaderCfg,
+    device_config: DeviceConfig,
+    device_config_rx: crossbeam_channel::Receiver<DeviceConfig>,
     link: LinkClient,
     running: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
@@ -314,8 +310,10 @@ fn spawn_reader(
     thread::Builder::new()
         .name("deckhand-reader".into())
         .spawn(move || {
-            let result =
-                run_reader(device, pinned_id, cfg, link, running, connected, battery, events);
+            let result = run_reader(
+                device, pinned_id, device_config, device_config_rx, link, running, connected, battery,
+                events,
+            );
             // A reader error would otherwise be invisible until stop() joins it — log it now.
             if let Err(ref e) = result {
                 log::error!("reader thread exited with error: {e}");

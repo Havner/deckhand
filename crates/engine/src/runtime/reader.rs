@@ -8,18 +8,55 @@ use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use config::{HapticStrength, Side};
-use steam_hid::{Device, DeviceId, DeviceKind, HapticPulse, HapticStyle, Manager, Motor, Report};
+use config::{DeviceConfig, HapticStrength, Side};
+use crossbeam_channel::Receiver;
+use steam_hid::{Device, DeviceId, DeviceKind, HapticPulse, HapticStyle, Manager, Motor, Report, Transport};
 
 use crate::Result;
 use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
 
 use super::link::LinkClient;
-use super::{Click, ReaderCfg, RumbleCmd};
+use super::{Click, RumbleCmd};
 
 /// How often the reader re-enumerates while waiting for the pinned device to return (D6).
 const REACQUIRE_POLL_MS: u64 = 1000;
+
+/// Device-level settings the reader applies on start, on every `Connected` (the controller resets
+/// its config when it re-joins a dongle; PLAN §1.9), and whenever a live [`DeviceConfig`] update
+/// arrives. Derived from the bound device's [`DeviceConfig`] with each device-specific setting
+/// masked to `None`/`false` where the hardware can't honor it — so the apply path is blind.
+/// Reader-internal: it's rebuilt in-place from the device on every change, so it never crosses a
+/// thread boundary or the §6 wire (device settings are machine-local).
+struct ReaderCfg {
+    /// LED intensity `0..=100 %`, or the device default. `None` where there's no settable LED
+    /// ([`DeviceKind::has_led_intensity`]).
+    led_brightness: Option<u8>,
+    /// Sleep/idle timeout in seconds, or the device default. `None` where idle is meaningless for
+    /// the transport ([`Transport::has_idle`]).
+    idle_timeout: Option<u16>,
+    /// Master rumble attenuator `0..=100 %`, applied reader-side to every haptic amplitude at emit
+    /// time (the mapper sends game+profile-scaled rumble; master scales it here, device-local).
+    master_rumble: u8,
+    /// Rumble pulse frequency, Hz — the Gordon pulse-train rate ([`train`]); the Deck ignores it.
+    rumble_hz: u16,
+    /// Periodically re-assert lizard-off ([`DeviceKind::needs_keepalive`]).
+    keepalive: bool,
+}
+
+impl ReaderCfg {
+    /// Resolve the reader config for a device from the (machine-local) [`DeviceConfig`], dropping
+    /// each device-specific setting to `None`/`false` where the hardware can't honor it.
+    fn for_device(kind: &DeviceKind, transport: &Transport, device_config: &DeviceConfig) -> Self {
+        ReaderCfg {
+            led_brightness: kind.has_led_intensity().then_some(device_config.led_brightness).flatten(),
+            idle_timeout: transport.has_idle().then_some(device_config.idle_timeout).flatten(),
+            master_rumble: device_config.master_rumble,
+            rumble_hz: device_config.rumble_hz,
+            keepalive: kind.needs_keepalive(),
+        }
+    }
+}
 
 /// Why a device read-session ended.
 enum SessionEnd {
@@ -42,7 +79,8 @@ enum SessionEnd {
 pub(super) fn run_reader(
     mut device: Device,
     pinned_id: DeviceId,
-    cfg: ReaderCfg,
+    mut device_config: DeviceConfig,
+    device_config_rx: Receiver<DeviceConfig>,
     mut link: LinkClient,
     running: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
@@ -54,7 +92,13 @@ pub(super) fn run_reader(
     let mut manager: Option<Manager> = None;
 
     loop {
-        match read_session(&mut device, &cfg, &link, &running, &connected, &battery, &events)? {
+        // `device_config` is owned here so live updates persist across reacquire; `read_session`
+        // rebuilds its `ReaderCfg` from the device each session (kind/transport are stable across
+        // the outage — the pinned id doesn't change).
+        match read_session(
+            &mut device, &mut device_config, &device_config_rx, &link, &running, &connected, &battery,
+            &events,
+        )? {
             SessionEnd::Stop => return Ok(()),
             SessionEnd::TransportGone => {}
         }
@@ -86,18 +130,26 @@ pub(super) fn run_reader(
     }
 }
 
-/// Read one device session: forward frames, surface connect/disconnect/battery events, keep the
-/// controller alive, and write rumble/click. Returns when the session ends (stop or transport-gone).
+/// Read one device session: forward frames, surface connect/disconnect/battery events, apply live
+/// device-config updates, keep the controller alive, and write rumble/click. Returns when the
+/// session ends (stop or transport-gone).
+#[allow(clippy::too_many_arguments)]
 fn read_session(
     device: &mut Device,
-    cfg: &ReaderCfg,
+    device_config: &mut DeviceConfig,
+    device_config_rx: &Receiver<DeviceConfig>,
     link: &LinkClient,
     running: &AtomicBool,
     connected: &AtomicBool,
     battery: &AtomicU16,
     events: &EventSink,
 ) -> Result<SessionEnd> {
-    apply_device_cfg(device, cfg);
+    // Drain any config that arrived while reacquiring, so this session starts on the latest.
+    while let Ok(c) = device_config_rx.try_recv() {
+        *device_config = c;
+    }
+    let mut cfg = ReaderCfg::for_device(&device.info().kind, &device.info().transport, device_config);
+    apply_device_cfg(device, &cfg);
     // A live session means the controller is present — publish it. This is the ONLY "connected"
     // signal on wired/BT (the controller *is* the transport). It's also needed on the dongle: the
     // receiver sends a `Connected` report on the *first* open but NOT on a re-open of an
@@ -120,7 +172,7 @@ fn read_session(
                 match &report {
                     Report::Connected => {
                         set_connected(connected, events, true);
-                        apply_device_cfg(device, cfg);
+                        apply_device_cfg(device, &cfg);
                     }
                     Report::Disconnected => set_connected(connected, events, false),
                     // Edge-triggered: the 0x04 report streams ~1 Hz, so only surface a change. The
@@ -143,16 +195,30 @@ fn read_session(
             }
         }
 
+        // Live device-config updates (latest wins, machine-local — never via the link/§6 wire).
+        // Rebuild `cfg` and re-apply LED/idle immediately so they don't wait for the next
+        // `Connected`; `master_rumble`/`rumble_hz` are read at emit below, so they pick up too.
+        let mut cfg_changed = false;
+        while let Ok(c) = device_config_rx.try_recv() {
+            *device_config = c;
+            cfg_changed = true;
+        }
+        if cfg_changed {
+            cfg = ReaderCfg::for_device(&device.info().kind, &device.info().transport, device_config);
+            apply_device_cfg(device, &cfg);
+        }
+
         if cfg.keepalive && last_keepalive.elapsed() >= Duration::from_secs(3) {
             let _ = device.set_lizard_mode(false);
             last_keepalive = Instant::now();
         }
 
-        // Latest rumble level wins. Apply the device master attenuator here (device-local): the
-        // mapper sends game+profile-scaled rumble, master scales every amplitude before the hardware.
+        // Latest rumble level wins. Stored **raw** (unscaled): the device master attenuator is
+        // applied at *emit* time below, so a live `master_rumble` change takes effect on the next
+        // re-fire even mid-sustained-rumble (not only when the mapper sends a fresh amplitude).
         let mut changed = false;
         while let Ok(r) = link.rumble_rx().try_recv() {
-            level = scale_master(r, cfg.master_rumble);
+            level = r;
             changed = true;
         }
         // Re-fire cadence is per-device (the Deck's fixed `0xeb` burst vs Gordon's pulse train).
@@ -164,8 +230,12 @@ fn read_session(
             DeviceKind::Neptune => NEPTUNE_REFIRE_MS,
             DeviceKind::Triton => TRITON_REFIRE_MS,
         };
+        // Re-fire is judged on the raw level (master only attenuates amplitude, never gates).
         let refire = (level.strong > 0 || level.weak > 0)
             && last_haptic.elapsed() >= Duration::from_millis(refire_ms);
+        // Apply the device master attenuator now, at emit — so a live `master_rumble` change lands
+        // on the next re-fire even during a held rumble.
+        let out = scale_master(&level, cfg.master_rumble);
 
         // Non-fatal on write error: a transient hiccup must not kill the reader (a real disconnect
         // is caught by the read above → TransportGone). Same for clicks below.
@@ -175,7 +245,7 @@ fn read_session(
                 // contiguous drive (the actuator rings up), not a mid-train restart. Zero level →
                 // nothing (the train plays out and stops).
                 if refire {
-                    if let Err(e) = apply_haptics(device, &level, cfg.rumble_hz) {
+                    if let Err(e) = apply_haptics(device, &out, cfg.rumble_hz) {
                         log::warn!("rumble write failed: {e}");
                     }
                     last_haptic = Instant::now();
@@ -187,7 +257,7 @@ fn read_session(
                 // send on change and on the re-fire tick while non-zero; the change to `(0,0)` stops
                 // it. `strong`→left motor, `weak`→right (kernel FF mapping, PLAN §1.9).
                 if changed || refire {
-                    if let Err(e) = apply_rumble(device, &level) {
+                    if let Err(e) = apply_rumble(device, &out) {
                         log::warn!("rumble write failed: {e}");
                     }
                     last_haptic = Instant::now();
@@ -197,7 +267,7 @@ fn read_session(
             // re-issue on change and on the re-fire tick while non-zero; `(0,0)` stops it.
             DeviceKind::Triton => {
                 if changed || refire {
-                    if let Err(e) = apply_rumble_triton(device, &level) {
+                    if let Err(e) = apply_rumble_triton(device, &out) {
                         log::warn!("rumble write failed: {e}");
                     }
                     last_haptic = Instant::now();
@@ -278,7 +348,7 @@ fn apply_device_cfg(device: &mut Device, cfg: &ReaderCfg) {
 /// Attenuate a rumble command's amplitudes by the device master percentage (`0..=100`). Applied
 /// reader-side so `master_rumble` stays a device-local setting (PLAN §1.9): the mapper already
 /// folded in the game FF and the profile strength/curve.
-fn scale_master(cmd: RumbleCmd, master: u8) -> RumbleCmd {
+fn scale_master(cmd: &RumbleCmd, master: u8) -> RumbleCmd {
     let scale = |v: u16| ((v as u32 * master.min(100) as u32) / 100) as u16;
     RumbleCmd { strong: scale(cmd.strong), weak: scale(cmd.weak) }
 }
@@ -456,12 +526,12 @@ mod tests {
     fn scale_master_attenuates_amplitudes_only() {
         let cmd = RumbleCmd { strong: u16::MAX, weak: 10_000 };
         // 100% is identity.
-        assert_eq!(scale_master(cmd.clone(), 100), cmd);
+        assert_eq!(scale_master(&cmd, 100), cmd);
         // 50% halves both amplitudes.
-        let half = scale_master(cmd.clone(), 50);
+        let half = scale_master(&cmd, 50);
         assert!((half.strong as i32 - (u16::MAX / 2) as i32).abs() <= 1);
         assert_eq!(half.weak, 5_000);
         // 0% silences.
-        assert_eq!(scale_master(cmd, 0), RumbleCmd { strong: 0, weak: 0 });
+        assert_eq!(scale_master(&cmd, 0), RumbleCmd { strong: 0, weak: 0 });
     }
 }

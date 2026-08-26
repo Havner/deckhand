@@ -5,7 +5,7 @@
 use iced::widget::{checkbox, column, pick_list, row, slider, text};
 use iced::{Center, Element};
 
-use super::{section_header, setting_label, small};
+use super::{section_header, setting_label};
 use crate::{App, IDLE_TIMEOUT_MINUTES, Message, style};
 
 /// The device-config page (Category::Device).
@@ -71,9 +71,7 @@ pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
     .spacing(12.0)
     .align_y(Center);
 
-    let note = small("These settings take effect only on engine (re)start.");
-
-    column![section_header("Device config"), note, led, idle, master, frequency]
+    column![section_header("Device config"), led, idle, master, frequency]
         .spacing(16.0)
         .into()
 }
