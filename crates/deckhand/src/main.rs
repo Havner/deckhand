@@ -1048,6 +1048,7 @@ impl App {
             settings::ShowInputs::All => None,
             settings::ShowInputs::Gordon => Some(Shape::Gordon),
             settings::ShowInputs::Neptune => Some(Shape::Neptune),
+            settings::ShowInputs::Triton => Some(Shape::Triton),
             settings::ShowInputs::Auto => {
                 self.status.as_ref().and_then(|s| s.bound.as_ref()).map(|b| b.shape.clone())
             }

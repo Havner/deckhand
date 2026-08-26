@@ -20,12 +20,13 @@ pub(crate) enum ShowInputs {
     All,
     Gordon,
     Neptune,
+    Triton,
 }
 
 impl ShowInputs {
     /// All variants in Settings-screen (pick-list) order.
-    pub(crate) const ALL: [ShowInputs; 4] =
-        [ShowInputs::Auto, ShowInputs::All, ShowInputs::Gordon, ShowInputs::Neptune];
+    pub(crate) const ALL: [ShowInputs; 5] =
+        [ShowInputs::Auto, ShowInputs::All, ShowInputs::Gordon, ShowInputs::Neptune, ShowInputs::Triton];
 
     /// The pick-list label.
     pub(crate) fn label(self) -> &'static str {
@@ -34,6 +35,7 @@ impl ShowInputs {
             ShowInputs::All => "All",
             ShowInputs::Gordon => "Gordon",
             ShowInputs::Neptune => "Neptune",
+            ShowInputs::Triton => "Triton",
         }
     }
 }

@@ -97,10 +97,19 @@ pub(super) fn card() -> Element<'static, Message> {
         .align_y(Center);
 
     // The capacitive touch bits — the odd ones out, kept in their own labelled row at the bottom.
+    // Grip touch (Triton-only) sits with them; like every other tile here it's offered regardless of
+    // shape (the picker builds device-independent gater/chord sets).
     let touch = cluster(
         "Touch",
-        row![btn("L Stick", LStickTouch), btn("L Pad", LPadTouch), btn("R Pad", RPadTouch), btn("R Stick", RStickTouch)]
-            .spacing(6.0),
+        row![
+            btn("L Stick", LStickTouch),
+            btn("L Pad", LPadTouch),
+            btn("L Grip", LGripTouch),
+            btn("R Grip", RGripTouch),
+            btn("R Pad", RPadTouch),
+            btn("R Stick", RStickTouch),
+        ]
+        .spacing(6.0),
     );
 
     let body = column![

@@ -115,7 +115,16 @@ const BUTTONS_GROUPS: &[InputGroup] = &[
     InputGroup { header: "Bumpers", primary: &[I::LeftBumper, I::RightBumper], sub: &[] },
     InputGroup {
         header: "Grips",
-        primary: &[I::LeftGrip, I::RightGrip, I::LeftGrip2, I::RightGrip2],
+        // Grip-touch (capacitive handle sensors) is Triton-only — the shape filter drops it on
+        // Gordon/Neptune, so it appears here only when a Triton is shown.
+        primary: &[
+            I::LeftGrip,
+            I::RightGrip,
+            I::LeftGrip2,
+            I::RightGrip2,
+            I::LeftGripTouch,
+            I::RightGripTouch,
+        ],
         sub: &[],
     },
     InputGroup { header: "Menu Buttons", primary: &[I::View, I::Menu, I::Steam, I::QuickAccess], sub: &[] },
