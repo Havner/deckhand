@@ -679,15 +679,18 @@ impl Device {
     }
 
     /// Fire a Triton **haptic command / click** — output report `0x82` (`HapticCommand`, 4 bytes):
-    /// `[side, style, gain_db]`. The command byte is a [`HapticStyle`] (`0` off / `1` weak /
-    /// `2` strong — HW: `Weak` is a light click, `Strong` a firm one); `gain` (dB) trims it. `Motor`
+    /// `[side, style, amplitude]`. `style` is a [`HapticStyle`] (`0` off / `1` weak / `2` strong —
+    /// HW: `Weak` is a light click, `Strong` a firm one; this is the **main strength lever**).
+    /// `amplitude` is an **unsigned** trim, `0x00` = medium … `0xFF` = strong (sc-controller's
+    /// observed layout — SDL's struct misleadingly types this byte as a signed `gain_db`, but its own
+    /// driver never sends `0x82`; HW confirms the audible effect of this byte is subtle). `Motor`
     /// side 0=left/1=right. **Triton-only.**
-    pub fn haptic_command_triton(&mut self, motor: Motor, style: HapticStyle, gain: i8) -> Result<()> {
+    pub fn haptic_command_triton(&mut self, motor: Motor, style: HapticStyle, amplitude: u8) -> Result<()> {
         let side: u8 = match motor {
             Motor::Left => 0,
             Motor::Right => 1,
         };
-        self.output(&[protocol::triton::haptic::COMMAND, side, style as u8, gain as u8])
+        self.output(&[protocol::triton::haptic::COMMAND, side, style as u8, amplitude])
     }
 
     /// Power the controller off.

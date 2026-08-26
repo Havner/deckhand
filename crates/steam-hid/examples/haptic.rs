@@ -168,16 +168,18 @@ fn run_triton(dev: &mut Device, running: &common::Running) -> steam_hid::Result<
         sleep(pause);
     }
 
-    println!("\n=== TRITON CLICK 0x82 — style × gain, per side ===");
+    // amplitude is UNSIGNED (0x00=medium … 0xff=strong per sc-controller), swept across the full
+    // range so any effect is visible — the earlier signed-dB sweep wrapped -8 → 248 and clustered.
+    println!("\n=== TRITON CLICK 0x82 — style × amplitude (0=medium..255=strong), per side ===");
     for (label, motor) in [("LEFT", Motor::Left), ("RIGHT", Motor::Right)] {
         for style in [HapticStyle::Weak, HapticStyle::Strong] {
-            for g in [-8i8, -4, 0, 4, 8] {
+            for amp in [0u8, 32, 64, 128, 200, 255] {
                 if !running.alive() {
                     return Ok(());
                 }
-                println!("  {label:>5} style={style:?} gain={g:>3} dB");
+                println!("  {label:>5} style={style:?} amp={amp:>3}");
                 keep_lizard_off(dev); // Triton reverts to lizard ~3 s after lizard-off (all transports)
-                dev.haptic_command_triton(motor.clone(), style.clone(), g)?;
+                dev.haptic_command_triton(motor.clone(), style.clone(), amp)?;
                 sleep(Duration::from_millis(450));
             }
         }
