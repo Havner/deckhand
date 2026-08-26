@@ -14,6 +14,9 @@ pub(crate) trait RawHid: Send {
     fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize>;
     /// Send an already-framed feature report (report-ID byte included).
     fn send_feature_report(&self, data: &[u8]) -> Result<()>;
+    /// Send an **output** report (`data[0]` = report id). Triton drives haptics this way (its
+    /// `0x80`–`0x85` output reports) rather than via feature reports.
+    fn send_output_report(&self, data: &[u8]) -> Result<()>;
     /// Get a feature report; `buf[0]` should carry the report id on entry.
     fn get_feature_report(&self, buf: &mut [u8]) -> Result<usize>;
 }
@@ -47,6 +50,11 @@ impl RawHid for HidapiDevice {
 
     fn send_feature_report(&self, data: &[u8]) -> Result<()> {
         self.dev.send_feature_report(data)?;
+        Ok(())
+    }
+
+    fn send_output_report(&self, data: &[u8]) -> Result<()> {
+        self.dev.write(data)?;
         Ok(())
     }
 

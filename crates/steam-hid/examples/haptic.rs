@@ -24,6 +24,10 @@
 //! probes the unused `0xEA` `SET_HAPTIC2` (position/style/intensity, from the C#). `<dur_us>
 //! <interval_us> <count> [pad]` → fire one **custom** pulse (pad 0=R/1=L/2=both, default both).
 //!
+//! **`--triton`** runs the new Steam Controller's own suite — `0x80` dual-motor rumble (per-motor
+//! strength, gain, intensity) then `0x82` clicks (command × gain, per side); it's a self-contained
+//! path (Triton haptics are output reports, unrelated to `0x8F`/`0xEB`/`0xEA`).
+//!
 //! Disables lizard first — and **re-asserts it before every step** (the Deck reverts to lizard
 //! ~10 s after lizard-off, which would fire during a long sweep); Drop restores it.
 //! `--wired`/`--dongle` pick the transport.
@@ -105,6 +109,82 @@ fn rumble_hold(
     dev.rumble_cmd(0, 0, 0, lg, rg) // stop
 }
 
+/// Hold a Triton `0x80` rumble for `ms`, re-firing every ~40 ms (the firmware safety-times out in
+/// ~50 ms — same reason the reader re-fires), then stop with `(0,0)`.
+fn triton_hold(
+    dev: &mut Device,
+    running: &common::Running,
+    intensity: u16,
+    left: u16,
+    left_gain: i8,
+    right: u16,
+    right_gain: i8,
+    ms: u64,
+) -> steam_hid::Result<()> {
+    let end = Instant::now() + Duration::from_millis(ms);
+    while Instant::now() < end && running.alive() {
+        dev.rumble_triton(intensity, left, right, left_gain, right_gain)?;
+        sleep(Duration::from_millis(400));
+    }
+    dev.rumble_triton(0, 0, 0, 0, 0)?; // stop
+    Ok(())
+}
+
+/// Triton haptic exploration: `0x80` rumble (per-motor strength, gain, intensity) then `0x82`
+/// clicks (command × gain, per side). All ranges provisional — this is where to find the real ones.
+fn run_triton(dev: &mut Device, running: &common::Running) -> steam_hid::Result<()> {
+    let hold = 1200u64;
+    let pause = Duration::from_millis(700);
+    println!("\n=== TRITON RUMBLE 0x80 — per-motor STRENGTH sweep (~{hold}ms each) ===");
+    for (label, l, r) in [("LEFT", true, false), ("RIGHT", false, true), ("BOTH", true, true)] {
+        for drive in [4000u16, 8000, 16000, 32000, 48000, 65535] {
+            if !running.alive() {
+                return Ok(());
+            }
+            let (ld, rd) = (if l { drive } else { 0 }, if r { drive } else { 0 });
+            println!("  {label:>5} drive={drive:>5}  (left={ld} right={rd})");
+            triton_hold(dev, running, 0, ld, 0, rd, 0, hold)?;
+            sleep(pause);
+        }
+    }
+
+    println!("\n=== TRITON RUMBLE 0x80 — GAIN sweep (both motors, drive=32000, dB) ===");
+    for g in [-8i8, -4, 0, 4, 8] {
+        if !running.alive() {
+            return Ok(());
+        }
+        println!("  gain={g:>3} dB");
+        triton_hold(dev, running, 0, 32000, g, 32000, g, hold)?;
+        sleep(pause);
+    }
+
+    println!("\n=== TRITON RUMBLE 0x80 — INTENSITY sweep (drive=32000 both, 0=strongest per Deck) ===");
+    for int in [0u16, 1000, 4000, 16000, 32000] {
+        if !running.alive() {
+            return Ok(());
+        }
+        println!("  intensity={int:>5}");
+        triton_hold(dev, running, int, 32000, 0, 32000, 0, hold)?;
+        sleep(pause);
+    }
+
+    println!("\n=== TRITON CLICK 0x82 — style × gain, per side ===");
+    for (label, motor) in [("LEFT", Motor::Left), ("RIGHT", Motor::Right)] {
+        for style in [HapticStyle::Weak, HapticStyle::Strong] {
+            for g in [-8i8, -4, 0, 4, 8] {
+                if !running.alive() {
+                    return Ok(());
+                }
+                println!("  {label:>5} style={style:?} gain={g:>3} dB");
+                dev.haptic_command_triton(motor.clone(), style.clone(), g)?;
+                sleep(Duration::from_millis(450));
+            }
+        }
+    }
+    println!("\nTriton haptic suite done.");
+    Ok(())
+}
+
 fn main() -> steam_hid::Result<()> {
     let positional: Vec<String> =
         std::env::args().skip(1).filter(|a| !a.starts_with("--")).collect();
@@ -122,6 +202,13 @@ fn main() -> steam_hid::Result<()> {
     // Ctrl-C ends the sweep between pulses (and, on Windows, keeps the process alive so
     // Drop restores lizard instead of the console handler aborting it mid-test).
     let running = common::install_ctrlc();
+
+    // Triton (new Steam Controller) uses entirely different output-report haptics (`0x80` rumble /
+    // `0x82` click), so it gets its own self-contained suite. Provisional — this is the tool to tune
+    // the reader's Triton haptic constants.
+    if std::env::args().any(|a| a == "--triton") {
+        return run_triton(&mut device, &running);
+    }
 
     // Custom single-pulse mode: `haptic <dur_us> <interval_us> <count> [pad]`.
     if positional.len() >= 3 {

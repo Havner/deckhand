@@ -640,6 +640,51 @@ impl Device {
         )
     }
 
+    /// Drive Triton's dual-motor **continuous rumble** — output report `0x80` (`HapticRumble`,
+    /// 10 bytes). Unlike the Deck's `0xeb`, this rides an **output** report on the interrupt-OUT
+    /// endpoint. `left`/`right` are the per-motor drive (SDL feeds the 16-bit rumble magnitudes here
+    /// as the field it calls `speed`); `*_gain` are per-motor dB trims; `intensity` is a finer
+    /// amplitude lever (SDL passes 0). The firmware safety-times out in ~50 ms, so a sustained rumble
+    /// must be **re-issued** (the reader does, ~40 ms); `(0, 0)` stops it.
+    ///
+    /// **HW-verified on the puck (PLAN §1.9), same levers as the Deck's `0xeb`:** `left`/`right` are
+    /// the per-motor **rate** (SDL's "speed"; higher = stronger, the coarse amplitude), `*_gain` (dB)
+    /// the real strength trim, and `intensity` a finer **inverted** amplitude lever (`0` = no change,
+    /// larger = weaker). Param order mirrors [`Self::rumble_cmd`]. `Motor` side 0=left/1=right
+    /// (verified). **Triton-only.**
+    pub fn rumble_triton(
+        &mut self,
+        intensity: u16,
+        left: u16,
+        right: u16,
+        left_gain: i8,
+        right_gain: i8,
+    ) -> Result<()> {
+        let [i0, i1] = intensity.to_le_bytes();
+        let [l0, l1] = left.to_le_bytes();
+        let [r0, r1] = right.to_le_bytes();
+        // [id, type=0, intensity(2), left{speed(2), gain}, right{speed(2), gain}] = 10 bytes.
+        self.output(&[
+            protocol::triton::haptic::RUMBLE,
+            0,
+            i0, i1,
+            l0, l1, left_gain as u8,
+            r0, r1, right_gain as u8,
+        ])
+    }
+
+    /// Fire a Triton **haptic command / click** — output report `0x82` (`HapticCommand`, 4 bytes):
+    /// `[side, style, gain_db]`. The command byte is a [`HapticStyle`] (`0` off / `1` weak /
+    /// `2` strong — HW: `Weak` is a light click, `Strong` a firm one); `gain` (dB) trims it. `Motor`
+    /// side 0=left/1=right. **Triton-only.**
+    pub fn haptic_command_triton(&mut self, motor: Motor, style: HapticStyle, gain: i8) -> Result<()> {
+        let side: u8 = match motor {
+            Motor::Left => 0,
+            Motor::Right => 1,
+        };
+        self.output(&[protocol::triton::haptic::COMMAND, side, style as u8, gain as u8])
+    }
+
     /// Power the controller off.
     pub fn power_off(&mut self) -> Result<()> {
         self.feature(cmd::TURN_OFF_CONTROLLER, b"off!")
@@ -695,6 +740,13 @@ impl Device {
             payload.extend_from_slice(&[id, lo, hi]);
         }
         self.feature(cmd::SET_SETTINGS_VALUES, &payload)
+    }
+
+    /// Send a Triton haptic **output** report verbatim (`report[0]` = report id). Output reports
+    /// carry their own fixed lengths and ride the interrupt-OUT endpoint, so no `frame`-style
+    /// padding — the caller passes the exact bytes.
+    fn output(&mut self, report: &[u8]) -> Result<()> {
+        self.backend.send_output_report(report)
     }
 }
 

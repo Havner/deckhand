@@ -162,8 +162,7 @@ fn read_session(
         let refire_ms = match &kind {
             DeviceKind::Neptune => NEPTUNE_REFIRE_MS,
             DeviceKind::Gordon => RUMBLE_REFIRE_MS,
-            // TODO(triton, phase 3): output-report `0x80` continuous rumble (SDL resends ~40 ms).
-            DeviceKind::Triton => NEPTUNE_REFIRE_MS,
+            DeviceKind::Triton => TRITON_REFIRE_MS,
         };
         let refire = (level.strong > 0 || level.weak > 0)
             && last_haptic.elapsed() >= Duration::from_millis(refire_ms);
@@ -194,10 +193,15 @@ fn read_session(
                     last_haptic = Instant::now();
                 }
             }
-            // TODO(triton, phase 3): drive the `0x80` dual-motor rumble output report (real
-            // continuous rumble, resent on the re-fire tick). No-op for now (input-only bring-up).
+            // Triton: `0x80` dual-motor rumble output report. Like the Deck it safety-times out, so
+            // re-issue on change and on the re-fire tick while non-zero; `(0,0)` stops it.
             DeviceKind::Triton => {
-                let _ = (changed, refire);
+                if changed || refire {
+                    if let Err(e) = apply_rumble_triton(device, &level) {
+                        log::warn!("rumble write failed: {e}");
+                    }
+                    last_haptic = Instant::now();
+                }
             }
         }
 
@@ -284,10 +288,20 @@ fn scale_master(cmd: RumbleCmd, master: u8) -> RumbleCmd {
 const NEPTUNE_L_GAIN: i8 = 2;
 const NEPTUNE_R_GAIN: i8 = 2;
 
+/// Triton motor gains (dB) for `rumble_triton` — 0 dB per side for now (drive/`master_rumble` carry
+/// strength; the dB trim is a fine lever). HW-tunable starting point.
+const TRITON_L_GAIN: i8 = 0;
+const TRITON_R_GAIN: i8 = 0;
+
 /// How often the reader re-issues the Deck's `0xeb` rumble while non-zero. Each command is a fixed
 /// short burst (no length field), so this must be **shorter than that burst** to sound continuous.
 /// **Starting point — HW-tune with fftest** (the burst is ~0.3–0.5 s, so 0.5 s may be a hair long).
 const NEPTUNE_REFIRE_MS: u64 = 500;
+
+/// How often the reader re-issues Triton's `0x80` rumble while non-zero. The firmware sustains each
+/// command well past this (HW: no change 40–500 ms; it only starts to gap above ~500 ms), so a
+/// relaxed cadence keeps it continuous with far less bus traffic than the Deck needs.
+const TRITON_REFIRE_MS: u64 = 400;
 
 /// The duty cycle full drive maps to. Gordon's pad actuator saturates above ~25% duty
 /// (HW-tested: the useful strength band is ~1–25%, above that feels identical), so `drive`
@@ -311,6 +325,16 @@ const RUMBLE_REFIRE_MS: u64 = 220;
 fn apply_rumble(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
     // intensity 0 = strongest (finer amplitude lever, unused for now — §1.9).
     device.rumble_cmd(0, cmd.strong, cmd.weak, NEPTUNE_L_GAIN, NEPTUNE_R_GAIN)?;
+    Ok(())
+}
+
+/// Drive Triton's dual motors from a rumble command via the `0x80` output report (`strong`→left,
+/// `weak`→right). Re-issued by the reader while the level stays non-zero (Triton only — see
+/// `read_session`). Gains/intensity left at 0 (SDL's defaults); tune on HW.
+fn apply_rumble_triton(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
+    // (intensity, left, right, left_gain, right_gain) — order mirrors `rumble_cmd`. strong→left,
+    // weak→right; intensity 0 = no attenuation (finer lever, unused for now).
+    device.rumble_triton(0, cmd.strong, cmd.weak, TRITON_L_GAIN, TRITON_R_GAIN)?;
     Ok(())
 }
 
@@ -364,9 +388,9 @@ fn fire_click(device: &mut Device, click: &Click, kind: &DeviceKind) -> Result<(
             let duration = gordon_click_duration(&click.strength);
             device.haptic_pulse(motor, HapticPulse { duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 })?;
         }
-        // TODO(triton, phase 3): command-click via the `0x81` pulse / `0x82` command output report.
         DeviceKind::Triton => {
-            let _ = motor;
+            let (style, gain) = triton_click(&click.strength);
+            device.haptic_command_triton(motor, style, gain)?;
         }
     }
     Ok(())
@@ -392,6 +416,17 @@ fn neptune_click_gain(side: &Side, strength: &HapticStrength) -> i8 {
         (Side::Right, HapticStrength::Low) => -2,
         (Side::Right, HapticStrength::Medium) => 2,
         (Side::Right, HapticStrength::High) => 6,
+    }
+}
+
+/// Triton command-click (output report `0x82`) per strength level: a [`HapticStyle`] effect + a dB
+/// gain trim. HW: `Weak` is a light click, `Strong` a firm one; the gain's audible effect is subtle
+/// (under closer review). **HW-tune with `haptic --triton`.**
+fn triton_click(strength: &HapticStrength) -> (HapticStyle, i8) {
+    match strength {
+        HapticStrength::Low => (HapticStyle::Weak, -8),
+        HapticStrength::Medium => (HapticStyle::Weak, 8),
+        HapticStrength::High => (HapticStyle::Strong, 0),
     }
 }
 
