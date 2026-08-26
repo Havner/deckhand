@@ -202,6 +202,8 @@ pub(in crate::view) fn button_label(b: &vocab_hid::Button) -> &'static str {
         B::RStickPress => "Right Stick Click",
         B::LStickTouch => "Left Stick Touch",
         B::RStickTouch => "Right Stick Touch",
+        B::LGripTouch => "Left Grip Touch",
+        B::RGripTouch => "Right Grip Touch",
     }
 }
 

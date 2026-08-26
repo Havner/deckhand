@@ -25,6 +25,8 @@ pub enum InputSource {
     RightGrip,        // R4
     LeftGrip2,        // L5 (Neptune)
     RightGrip2,       // R5 (Neptune)
+    LeftGripTouch,    // capacitive left handle (Triton)
+    RightGripTouch,   // capacitive right handle (Triton)
     View,             // Back / Deck ⧉ / Gordon '<'
     Menu,             // Start / Deck ☰ / Gordon '>'
     Steam,            // Guide
@@ -91,9 +93,9 @@ impl InputSource {
             Gyro => SourceKind::Gyro,
             // Everything else is a standalone button.
             LeftBumper | RightBumper | LeftTriggerFull | RightTriggerFull | LeftGrip | RightGrip
-            | LeftGrip2 | RightGrip2 | View | Menu | Steam | QuickAccess | LeftStickClick
-            | RightStickClick | LeftStickTouch | RightStickTouch | LeftPadClick | RightPadClick
-            | LeftPadTouch | RightPadTouch => {
+            | LeftGrip2 | RightGrip2 | LeftGripTouch | RightGripTouch | View | Menu | Steam
+            | QuickAccess | LeftStickClick | RightStickClick | LeftStickTouch | RightStickTouch
+            | LeftPadClick | RightPadClick | LeftPadTouch | RightPadTouch => {
                 SourceKind::Button
             }
         }
@@ -106,12 +108,12 @@ impl InputSource {
         use InputSource::*;
         match self {
             FaceButtons | RightPad | RightStick | RightTrigger | RightBumper | RightTriggerFull
-            | RightGrip | RightGrip2 | RightStickClick | RightStickTouch | RightPadClick
-            | RightPadTouch | Menu | QuickAccess => Side::Right,
+            | RightGrip | RightGrip2 | RightGripTouch | RightStickClick | RightStickTouch
+            | RightPadClick | RightPadTouch | Menu | QuickAccess => Side::Right,
             // DPad, all Left*, View, Steam, Gyro → Left.
             DPad | LeftPad | LeftStick | LeftTrigger | Gyro | LeftBumper | LeftTriggerFull
-            | LeftGrip | LeftGrip2 | View | Steam | LeftStickClick | LeftStickTouch
-            | LeftPadClick | LeftPadTouch => {
+            | LeftGrip | LeftGrip2 | LeftGripTouch | View | Steam | LeftStickClick
+            | LeftStickTouch | LeftPadClick | LeftPadTouch => {
                 Side::Left
             }
         }
@@ -127,6 +129,8 @@ impl InputSource {
         InputSource::RightGrip,
         InputSource::LeftGrip2,
         InputSource::RightGrip2,
+        InputSource::LeftGripTouch,
+        InputSource::RightGripTouch,
         InputSource::View,
         InputSource::Menu,
         InputSource::Steam,
@@ -161,14 +165,17 @@ pub enum Shape {
     Gordon,
     /// Steam Deck.
     Neptune,
+    /// New Steam Controller (2026; SDL codename "Triton").
+    Triton,
 }
 
 impl Shape {
-    /// Whether this device provides the given logical input. Everything is on both devices
-    /// except a handful that are Neptune-only.
+    /// Whether this device provides the given logical input. Triton is a **superset of
+    /// Neptune** (all the Deck's inputs) plus the two capacitive grip-touch sensors; Neptune
+    /// adds a handful over Gordon (right stick, stick-touch, grip-2, quick-access).
     pub fn has(&self, input: &InputSource) -> bool {
         use InputSource::*;
-        let neptune_only = matches!(
+        let neptune_up = matches!(
             input,
             RightStick
                 | RightStickClick
@@ -178,15 +185,17 @@ impl Shape {
                 | RightGrip2
                 | QuickAccess
         );
+        let triton_only = matches!(input, LeftGripTouch | RightGripTouch);
         match self {
-            Shape::Gordon => !neptune_only,
-            Shape::Neptune => true,
+            Shape::Gordon => !neptune_up && !triton_only,
+            Shape::Neptune => !triton_only,
+            Shape::Triton => true,
         }
     }
 
-    /// Whether the trackpads report pressure (Neptune only).
+    /// Whether the trackpads report pressure (Neptune and Triton).
     pub fn pad_pressure(&self) -> bool {
-        matches!(self, Shape::Neptune)
+        matches!(self, Shape::Neptune | Shape::Triton)
     }
 
     /// The logical inputs this device provides.
@@ -208,9 +217,14 @@ mod tests {
         assert!(g.has(&InputSource::LeftStick));
         assert!(g.has(&InputSource::DPad));
         assert!(Shape::Neptune.has(&InputSource::RightStick));
-        // Gordon has 7 fewer inputs than the superset (5 above + both stick touches).
-        assert_eq!(g.inputs().count(), InputSource::ALL.len() - 7);
-        assert_eq!(Shape::Neptune.inputs().count(), InputSource::ALL.len());
+        assert!(!g.has(&InputSource::LeftGripTouch));
+        assert!(!Shape::Neptune.has(&InputSource::LeftGripTouch));
+        assert!(Shape::Triton.has(&InputSource::LeftGripTouch));
+        // Gordon lacks the 7 Neptune-ups (5 + both stick touches) and the 2 Triton grip-touches.
+        assert_eq!(g.inputs().count(), InputSource::ALL.len() - 9);
+        // Neptune lacks only the 2 Triton grip-touches; Triton has everything.
+        assert_eq!(Shape::Neptune.inputs().count(), InputSource::ALL.len() - 2);
+        assert_eq!(Shape::Triton.inputs().count(), InputSource::ALL.len());
     }
 
     #[test]

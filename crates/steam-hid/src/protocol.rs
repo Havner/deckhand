@@ -18,10 +18,78 @@ pub(crate) const PID_GORDON_BLE: u16 = 0x1106;
 /// Steam Deck built-in controls (Neptune).
 pub(crate) const PID_NEPTUNE: u16 = 0x1205;
 
+/// New Steam Controller (2026; SDL codename "Triton"), wired over USB-C.
+pub(crate) const PID_TRITON_WIRED: u16 = 0x1302;
+/// New Steam Controller, Bluetooth LE.
+pub(crate) const PID_TRITON_BLE: u16 = 0x1303;
+/// New Steam Controller wireless dongle ("Controller Puck" / SDL "Proteus"). Enumerates a set of
+/// per-slot HID interfaces like the original Gordon dongle — **interfaces 2..=6 on the observed
+/// unit** (SDL documents 2..5; real hardware exposes one more). Unlike the Gordon dongle it reports
+/// a real serial. (SDL also lists a second dongle variant, "Nereid" `0x1305`, which we don't add
+/// until one is seen in the wild.)
+pub(crate) const PID_TRITON_PUCK: u16 = 0x1304;
+
 /// All 64-byte HID reports; feature reports are framed with a report-ID-0 byte.
 pub(crate) const REPORT_LEN: usize = 64;
-/// Report id prepended to feature-report buffers (PLAN §1.4).
+/// Report id prepended to feature-report buffers on Gordon/Neptune (PLAN §1.4).
 pub(crate) const REPORT_ID: u8 = 0x00;
+/// Report id prepended to Triton feature-report buffers. Triton's command channel rides
+/// **feature report `0x01`**, not `0x00` — confirmed in SDL (`DisableSteamTritonLizardMode`
+/// sets `buffer[0]=1`) and sc-controller (`wValue 0x0301`, `0x01`-prefixed payload). The
+/// command *body* (`[cmd_id, len, payload…]`) is otherwise identical to Gordon/Neptune.
+pub(crate) const REPORT_ID_TRITON: u8 = 0x01;
+
+/// Triton (new Steam Controller) wire constants (PLAN §1.4).
+///
+/// Reverse-engineered from SDL `SDL_hidapi_steam_triton.c` + `steam/controller_structs.h`
+/// (Valve's own struct names) and sc-controller `sc2.py` / `docs/steam-controller-v2-protocol.md`.
+/// Triton does **not** use the `0x01`-framed `ValveInReport_t` of Gordon/Neptune: its input and
+/// haptic reports carry the **report id in byte 0** (dispatched in `parse_triton`).
+pub(crate) mod triton {
+    /// Input/status report ids (byte 0 of each read).
+    pub(crate) mod report {
+        /// Main gamepad state (with on-controller quaternion on older firmware). **HW: the real
+        /// puck/dongle (0x1304) streams `0x42` by default** (observed 2026-08-26 on unit
+        /// FXB9…, firmware sends the quaternion body) — parsed as NoQuat regardless.
+        pub(crate) const STATE: u8 = 0x42;
+        /// Battery status.
+        pub(crate) const BATTERY: u8 = 0x43;
+        /// Gamepad state, "NoQuat" body (BLE, and newer firmware over the puck/wire — same
+        /// leading fields as `STATE`, parsed identically; the quaternion is simply absent).
+        pub(crate) const STATE_NOQUAT: u8 = 0x45;
+        /// Wireless connect/disconnect status (dongle), alternate id.
+        pub(crate) const WIRELESS_X: u8 = 0x46;
+        /// Gamepad state with a trackpad timestamp + 16-bit IMU timestamp ("Ibex" packet).
+        /// Not parsed yet — added only if a unit is seen streaming it (PLAN §1.9).
+        pub(crate) const STATE_TIMESTAMP: u8 = 0x47;
+        /// Wireless connect/disconnect status (dongle).
+        pub(crate) const WIRELESS: u8 = 0x79;
+    }
+
+    /// Payload byte of a wireless-status report (`WIRELESS`/`WIRELESS_X`).
+    pub(crate) mod wireless {
+        pub(crate) const DISCONNECT: u8 = 1;
+        pub(crate) const CONNECT: u8 = 2;
+    }
+
+    /// Haptic **output**-report ids (Triton drives haptics via output reports, not feature
+    /// reports). Recorded in full for reference; only a subset is wired up initially.
+    #[allow(dead_code)]
+    pub(crate) mod haptic {
+        /// Dual-motor continuous rumble (`{type, intensity, left{speed,gain}, right{speed,gain}}`).
+        pub(crate) const RUMBLE: u8 = 0x80;
+        /// Trackpad haptic pulse (`{side, on_us, off_us, repeat_count}`).
+        pub(crate) const PULSE: u8 = 0x81;
+        /// Haptic command / click (`{side, command, gain_db}`).
+        pub(crate) const COMMAND: u8 = 0x82;
+        /// LFO tone (`{side, gain_db, frequency, duration_ms, lfo_freq, lfo_depth}`).
+        pub(crate) const LFO_TONE: u8 = 0x83;
+        /// Log-frequency sweep (`{side, gain_db, duration_ms, start_freq, end_freq}`).
+        pub(crate) const LOG_SWEEP: u8 = 0x84;
+        /// Named haptic script (`{side, script_id, gain_db}`).
+        pub(crate) const SCRIPT: u8 = 0x85;
+    }
+}
 
 /// Bluetooth (BLE) transport framing + compact input layout (PLAN §1.4).
 ///

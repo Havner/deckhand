@@ -143,6 +143,8 @@ fn button_flag(source: &InputSource) -> Option<Buttons> {
         I::RightPadClick => Buttons::RPAD_PRESS,
         I::LeftPadTouch => Buttons::LPAD_TOUCH,
         I::RightPadTouch => Buttons::RPAD_TOUCH,
+        I::LeftGripTouch => Buttons::LGRIP_TOUCH,
+        I::RightGripTouch => Buttons::RGRIP_TOUCH,
         _ => return None,
     })
 }

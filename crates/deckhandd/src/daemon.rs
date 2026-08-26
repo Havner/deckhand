@@ -168,11 +168,12 @@ fn bound_device(id: DeviceId) -> BoundDevice {
     BoundDevice { id: id.to_string(), shape }
 }
 
-/// Map a device kind to its input-layout [`Shape`] (Gordon/Neptune are 1:1 for now).
+/// Map a device kind to its input-layout [`Shape`].
 fn shape_of(kind: &DeviceKind) -> Shape {
     match kind {
         DeviceKind::Gordon => Shape::Gordon,
         DeviceKind::Neptune => Shape::Neptune,
+        DeviceKind::Triton => Shape::Triton,
     }
 }
 

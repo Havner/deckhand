@@ -48,11 +48,13 @@ pub enum Button {
     RStickPress,
     LStickTouch,
     RStickTouch,
+    LGripTouch,  // capacitive left handle/grip touch (Triton)
+    RGripTouch,  // capacitive right handle/grip touch (Triton)
 }
 
 impl Button {
     /// Every button, in bit order — for iterating diffs / UI listings.
-    pub const ALL: [Button; 28] = [
+    pub const ALL: [Button; 30] = [
         Button::A,
         Button::B,
         Button::X,
@@ -81,5 +83,7 @@ impl Button {
         Button::RStickPress,
         Button::LStickTouch,
         Button::RStickTouch,
+        Button::LGripTouch,
+        Button::RGripTouch,
     ];
 }

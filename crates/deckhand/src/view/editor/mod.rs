@@ -495,6 +495,8 @@ pub(crate) fn input_label(input: &InputSource) -> &'static str {
         InputSource::RightGrip => "Right Grip",
         InputSource::LeftGrip2 => "Left Grip 2",
         InputSource::RightGrip2 => "Right Grip 2",
+        InputSource::LeftGripTouch => "Left Grip Touch",
+        InputSource::RightGripTouch => "Right Grip Touch",
         InputSource::View => "View",
         InputSource::Menu => "Menu",
         InputSource::Steam => "Steam",

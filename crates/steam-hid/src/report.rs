@@ -4,9 +4,9 @@
 //! a lifecycle frame — so [`RawReport`] carries both. Field offsets follow PLAN
 //! §1.4 and are **unverified on hardware** (PLAN §1.9).
 
-use crate::buttons::{GordonButtons, NeptuneButtons};
+use crate::buttons::{GordonButtons, NeptuneButtons, TritonButtons};
 use crate::error::{Error, Result};
-use crate::protocol::{REPORT_LEN, ble, event_type, wireless};
+use crate::protocol::{REPORT_LEN, ble, event_type, triton, wireless};
 use crate::value::{Quati, Vec2i, Vec3i};
 
 #[cfg(feature = "serde")]
@@ -22,6 +22,8 @@ pub enum RawReport {
     Gordon(GordonReport),
     /// Steam Deck input (`0x09`).
     Neptune(NeptuneReport),
+    /// New Steam Controller (Triton) input — report `0x42`/`0x45`.
+    Triton(TritonReport),
     /// A wireless controller connected (`0x03`, payload `0x02`).
     Connected,
     /// A wireless controller disconnected (`0x03`, payload `0x01`).
@@ -94,6 +96,35 @@ pub struct NeptuneReport {
     pub accel: Vec3i,
     pub gyro: Vec3i,
     pub orientation: Quati,
+}
+
+/// New Steam Controller (Triton) input fields (PLAN §1.4).
+///
+/// Decoded from the report `0x42`/`0x45` "NoQuat" body (`parse_triton`). Same *field set* as
+/// [`NeptuneReport`] — Triton is a Deck-shaped superset — but a **more compact byte layout** and
+/// no left-multiplex (separate stick/pad fields, both always live). The on-controller quaternion
+/// (present in the older `0x42` body) is **not decoded** — it is unused downstream, and the NoQuat
+/// parse works for both bodies (the quaternion is simply trailing bytes we skip). Triggers are the
+/// analog 16-bit values (`0..=32767`); their digital full-pull is a button bit. Battery arrives
+/// out-of-band as [`RawReport::Battery`] (report `0x43`).
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct TritonReport {
+    /// Frame sequence — synthesized from the 1-byte wire `seq_num`.
+    pub seq: u32,
+    pub buttons: TritonButtons,
+    pub left_trigger: i16,
+    pub right_trigger: i16,
+    pub left_stick: Vec2i,
+    pub right_stick: Vec2i,
+    pub left_pad: Vec2i,
+    pub right_pad: Vec2i,
+    pub left_pad_pressure: i16,
+    pub right_pad_pressure: i16,
+    pub accel: Vec3i,
+    /// Raw gyro — already in the unified right-handed frame (HW-verified; passed through in
+    /// [`ControllerState`] with no correction, like Neptune — PLAN §1.9).
+    pub gyro: Vec3i,
 }
 
 // --- little-endian field readers (offsets are absolute into the 64-byte report) ---
@@ -316,6 +347,73 @@ fn parse_neptune(b: &[u8]) -> NeptuneReport {
             w: i16_at(b, 0x2A),
         },
     }
+}
+
+/// Parse one Triton (new Steam Controller) report, dispatching on the **report id in byte 0**
+/// (Triton does not use the `0x01`-framed `ValveInReport_t`). `buf` is the raw read of length `n`.
+///
+/// Returns `None` for a report we don't decode as a frame yet — the timestamped `0x47` "Ibex"
+/// body (added only if a unit streams it, PLAN §1.9) and any unknown id — so the caller keeps
+/// reading rather than surfacing a bogus frame.
+pub(crate) fn parse_triton(buf: &[u8]) -> Option<RawReport> {
+    match *buf.first()? {
+        id @ (triton::report::STATE | triton::report::STATE_NOQUAT) => {
+            // DISPOSABLE probe (remove): report once which state id the unit streams (0x42 = with
+            // on-controller quaternion, 0x45 = NoQuat). Just curiosity — both parse identically.
+            {
+                use std::sync::Once;
+                static ONCE: Once = Once::new();
+                ONCE.call_once(|| eprintln!("[triton probe] first state report id = {id:#04x}"));
+            }
+            parse_triton_state(buf).map(RawReport::Triton)
+        }
+        triton::report::BATTERY => {
+            // TritonBatteryStatus body (report id at 0): ucChargeState@1, ucBatteryLevel@2,
+            // sBatteryVoltage(u16)@3.
+            if buf.len() < 5 {
+                return None;
+            }
+            Some(RawReport::Battery(BatteryRaw {
+                voltage_mv: u16_at(buf, 3),
+                charge_percent: buf[2],
+            }))
+        }
+        triton::report::WIRELESS | triton::report::WIRELESS_X => match buf.get(1).copied()? {
+            triton::wireless::DISCONNECT => Some(RawReport::Disconnected),
+            triton::wireless::CONNECT => Some(RawReport::Connected),
+            _ => None,
+        },
+        // 0x47 (Ibex, timestamped body) and anything else: not decoded — skip.
+        _ => None,
+    }
+}
+
+/// Decode the Triton report `0x42`/`0x45` "NoQuat" body. Offsets are into the raw read (byte 0 =
+/// report id); little-endian throughout. Cross-checked against SDL `TritonMTUNoQuat_t` and
+/// sc-controller's `docs/steam-controller-v2-protocol.md` (they agree). Returns `None` if the
+/// read is too short to contain the IMU block.
+fn parse_triton_state(b: &[u8]) -> Option<TritonReport> {
+    // Through the gyro block (offset 40..46). IMU is 0/constant unless the gyro is enabled, but
+    // the fields are always present in the report.
+    if b.len() < 46 {
+        return None;
+    }
+    let buttons = TritonButtons::from_bits_truncate(u32_at(b, 2));
+    Some(TritonReport {
+        seq: b[1] as u32,
+        buttons,
+        left_trigger: i16_at(b, 6),
+        right_trigger: i16_at(b, 8),
+        left_stick: vec2i_at(b, 10),
+        right_stick: vec2i_at(b, 14),
+        left_pad: vec2i_at(b, 18),
+        left_pad_pressure: i16_at(b, 22),
+        right_pad: vec2i_at(b, 24),
+        right_pad_pressure: i16_at(b, 28),
+        // b[30..34] = IMU timestamp (unused — we synthesize seq from seq_num).
+        accel: vec3i_at(b, 34),
+        gyro: vec3i_at(b, 40),
+    })
 }
 
 #[cfg(test)]

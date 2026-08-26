@@ -79,7 +79,7 @@ pub fn select_device(manager: &mut Manager) -> Result<Option<(String, Device)>> 
         for _ in 0..8 {
             if matches!(
                 device.poll_raw(Duration::from_millis(200))?,
-                Some(RawReport::Gordon(_)) | Some(RawReport::Connected)
+                Some(RawReport::Gordon(_) | RawReport::Neptune(_) | RawReport::Triton(_) | RawReport::Connected)
             ) {
                 return Ok(Some((describe(info), device)));
             }

@@ -46,6 +46,8 @@ bitflags::bitflags! {
         const RSTICK_PRESS = 1 << 25;
         const LSTICK_TOUCH = 1 << 26;
         const RSTICK_TOUCH = 1 << 27;
+        const LGRIP_TOUCH  = 1 << 28; // capacitive left handle/grip touch (Triton)
+        const RGRIP_TOUCH  = 1 << 29; // capacitive right handle/grip touch (Triton)
     }
 }
 
@@ -133,6 +135,58 @@ bitflags::bitflags! {
     }
 }
 
+bitflags::bitflags! {
+    /// Raw Triton (new Steam Controller, 2026) button bits, packed as a `u32` from the
+    /// four button bytes of report `0x42`: `byte2 | byte3<<8 | byte4<<16 | byte5<<24`
+    /// (PLAN §1.4). Bit assignments verified against SDL `SDL_hidapi_steam_triton.c`
+    /// (`TritonButtons`) and sc-controller `sc2.py` (`SC2Button`) — the two agree.
+    ///
+    /// Named with the unified scheme (so the fold in `state.rs` is 1:1): the back
+    /// paddles follow the Deck convention — upper `R4/L4` → `RGRIP/LGRIP`, lower
+    /// `R5/L5` → `RGRIP2/LGRIP2`. `RT/LT` are the trigger digital full-pull bits.
+    /// `L/RGRIP_TOUCH` are the capacitive handle sensors this controller adds over the
+    /// Deck (on whenever the handles are held — including resting on a table). Two
+    /// high bits (`1<<30`, `1<<31`) are unidentified on the test units.
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct TritonButtons: u32 {
+        // byte2
+        const A            = 1 << 0;
+        const B            = 1 << 1;
+        const X            = 1 << 2;
+        const Y            = 1 << 3;
+        const QUICK_ACCESS = 1 << 4;  // the "…" QAM button
+        const RSTICK_PRESS = 1 << 5;  // R3
+        const MENU         = 1 << 6;  // ☰ (right/start)
+        const RGRIP        = 1 << 7;  // R4 (upper right paddle)
+        // byte3
+        const RGRIP2       = 1 << 8;  // R5 (lower right paddle)
+        const RB           = 1 << 9;  // R1 bumper
+        const DPAD_DOWN    = 1 << 10;
+        const DPAD_RIGHT   = 1 << 11;
+        const DPAD_LEFT    = 1 << 12;
+        const DPAD_UP      = 1 << 13;
+        const VIEW         = 1 << 14; // ⧉ (left/select)
+        const LSTICK_PRESS = 1 << 15; // L3
+        // byte4
+        const STEAM        = 1 << 16;
+        const LGRIP        = 1 << 17; // L4 (upper left paddle)
+        const LGRIP2       = 1 << 18; // L5 (lower left paddle)
+        const LB           = 1 << 19; // L1 bumper
+        const RSTICK_TOUCH = 1 << 20;
+        const RPAD_TOUCH   = 1 << 21;
+        const RPAD_PRESS   = 1 << 22;
+        const RT           = 1 << 23; // right trigger full-pull (digital)
+        // byte5
+        const LSTICK_TOUCH = 1 << 24;
+        const LPAD_TOUCH   = 1 << 25;
+        const LPAD_PRESS   = 1 << 26;
+        const LT           = 1 << 27; // left trigger full-pull (digital)
+        const RGRIP_TOUCH  = 1 << 28; // capacitive right handle
+        const LGRIP_TOUCH  = 1 << 29; // capacitive left handle
+    }
+}
+
 // The unified [`Button`] enum lives in `vocab-hid` (the shared input vocabulary) so `config` can
 // name hardware buttons in chords/gaters without depending on `steam-hid`. Re-exported here so this
 // crate's own consumers keep using `steam_hid::Button`. The `Button` ↔ [`Buttons`] mapping stays
@@ -171,6 +225,8 @@ pub fn button_flag(b: &Button) -> Buttons {
         Button::RStickPress => Buttons::RSTICK_PRESS,
         Button::LStickTouch => Buttons::LSTICK_TOUCH,
         Button::RStickTouch => Buttons::RSTICK_TOUCH,
+        Button::LGripTouch => Buttons::LGRIP_TOUCH,
+        Button::RGripTouch => Buttons::RGRIP_TOUCH,
     }
 }
 

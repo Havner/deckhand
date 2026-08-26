@@ -1,7 +1,7 @@
 //! Layer 2: the unified, normalized snapshot (PLAN §1.5).
 
-use crate::buttons::{Axis, Buttons, GordonButtons, NeptuneButtons};
-use crate::report::{BatteryRaw, GordonReport, NeptuneReport, RawReport};
+use crate::buttons::{Axis, Buttons, GordonButtons, NeptuneButtons, TritonButtons};
+use crate::report::{BatteryRaw, GordonReport, NeptuneReport, RawReport, TritonReport};
 use crate::value::{Quati, Timestamp, TrackPad, Vec2, Vec3i};
 
 #[cfg(feature = "serde")]
@@ -27,6 +27,7 @@ impl Report {
         match raw {
             RawReport::Gordon(g) => Report::State(ControllerState::from_gordon(g, timestamp)),
             RawReport::Neptune(n) => Report::State(ControllerState::from_neptune(n, timestamp)),
+            RawReport::Triton(t) => Report::State(ControllerState::from_triton(t, timestamp)),
             RawReport::Connected => Report::Connected,
             RawReport::Disconnected => Report::Disconnected,
             RawReport::Battery(b) => Report::Battery(Battery::from(b)),
@@ -162,6 +163,42 @@ impl ControllerState {
             orientation: n.orientation.clone(),
         }
     }
+
+    /// Convert a Triton (new Steam Controller) wire frame to a unified snapshot.
+    ///
+    /// Like the Deck: separate stick/pad fields (no Gordon multiplex), direct press/touch bits, a
+    /// 1:1 button fold. Triggers are the analog `i16` (`0..=32767`); pad pressure likewise. The two
+    /// capacitive **grip-touch** bits fold into the unified `L/RGRIP_TOUCH`. IMU passes through
+    /// **raw** — HW-verified on a real Triton (PLAN §1.9): accel and gyro already sit in the unified
+    /// right-handed frame (like Neptune, no correction — flat→+Z, right-side→+X, nose-up→+Y accel;
+    /// pitch-up→+X, roll-right→+Y, yaw-left→+Z gyro). Triton's gyro full-scale is 2000 dps
+    /// (res ≈16.384 LSB/dps) vs the canonical `GYRO_RES_PER_DPS = 16` (2048 dps) — a ~2.3 %
+    /// difference **accepted un-rescaled** (below sensitivity granularity). Orientation not decoded.
+    fn from_triton(t: &TritonReport, timestamp: Timestamp) -> Self {
+        let b = &t.buttons;
+        ControllerState {
+            seq: t.seq,
+            timestamp,
+            buttons: map_triton_buttons(b),
+            left_trigger: norm_i16(t.left_trigger),
+            right_trigger: norm_i16(t.right_trigger),
+            left_stick: norm_stick(&t.left_stick),
+            right_stick: norm_stick(&t.right_stick),
+            left_pad: TrackPad {
+                pos: norm_stick(&t.left_pad),
+                pressure: norm_i16(t.left_pad_pressure),
+                touched: b.contains(TritonButtons::LPAD_TOUCH),
+            },
+            right_pad: TrackPad {
+                pos: norm_stick(&t.right_pad),
+                pressure: norm_i16(t.right_pad_pressure),
+                touched: b.contains(TritonButtons::RPAD_TOUCH),
+            },
+            accel: t.accel.clone(),
+            gyro: t.gyro.clone(),
+            orientation: Quati::default(),
+        }
+    }
 }
 
 // --- normalization helpers (divisors provisional, verify on HW — PLAN §1.5/§1.9) ---
@@ -280,6 +317,51 @@ fn map_neptune_buttons(n: &NeptuneButtons) -> Buttons {
     set(n.contains(NeptuneButtons::RSTICK_PRESS), Buttons::RSTICK_PRESS);
     set(n.contains(NeptuneButtons::LSTICK_TOUCH), Buttons::LSTICK_TOUCH);
     set(n.contains(NeptuneButtons::RSTICK_TOUCH), Buttons::RSTICK_TOUCH);
+    out
+}
+
+/// Fold Triton's per-device button bits into the unified [`Buttons`] superset.
+///
+/// 1:1 — [`TritonButtons`] is named with the unified scheme, and Triton has dedicated press/touch
+/// bits (no Gordon multiplex). The two capacitive **grip-touch** sensors fold into the new
+/// `L/RGRIP_TOUCH` bits (a Triton-only input).
+fn map_triton_buttons(t: &TritonButtons) -> Buttons {
+    let mut out = Buttons::empty();
+    let mut set = |cond: bool, flag: Buttons| {
+        if cond {
+            out |= flag;
+        }
+    };
+    set(t.contains(TritonButtons::A), Buttons::A);
+    set(t.contains(TritonButtons::B), Buttons::B);
+    set(t.contains(TritonButtons::X), Buttons::X);
+    set(t.contains(TritonButtons::Y), Buttons::Y);
+    set(t.contains(TritonButtons::DPAD_UP), Buttons::DPAD_UP);
+    set(t.contains(TritonButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
+    set(t.contains(TritonButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
+    set(t.contains(TritonButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
+    set(t.contains(TritonButtons::LB), Buttons::LB);
+    set(t.contains(TritonButtons::RB), Buttons::RB);
+    set(t.contains(TritonButtons::LT), Buttons::LT);
+    set(t.contains(TritonButtons::RT), Buttons::RT);
+    set(t.contains(TritonButtons::LGRIP), Buttons::LGRIP);
+    set(t.contains(TritonButtons::RGRIP), Buttons::RGRIP);
+    set(t.contains(TritonButtons::LGRIP2), Buttons::LGRIP2);
+    set(t.contains(TritonButtons::RGRIP2), Buttons::RGRIP2);
+    set(t.contains(TritonButtons::LGRIP_TOUCH), Buttons::LGRIP_TOUCH);
+    set(t.contains(TritonButtons::RGRIP_TOUCH), Buttons::RGRIP_TOUCH);
+    set(t.contains(TritonButtons::VIEW), Buttons::VIEW);
+    set(t.contains(TritonButtons::MENU), Buttons::MENU);
+    set(t.contains(TritonButtons::STEAM), Buttons::STEAM);
+    set(t.contains(TritonButtons::QUICK_ACCESS), Buttons::QUICK_ACCESS);
+    set(t.contains(TritonButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    set(t.contains(TritonButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
+    set(t.contains(TritonButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
+    set(t.contains(TritonButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
+    set(t.contains(TritonButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
+    set(t.contains(TritonButtons::RSTICK_PRESS), Buttons::RSTICK_PRESS);
+    set(t.contains(TritonButtons::LSTICK_TOUCH), Buttons::LSTICK_TOUCH);
+    set(t.contains(TritonButtons::RSTICK_TOUCH), Buttons::RSTICK_TOUCH);
     out
 }
 

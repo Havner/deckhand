@@ -25,6 +25,8 @@ pub enum DeviceKind {
     Gordon,
     /// Steam Deck built-in controls.
     Neptune,
+    /// New Steam Controller (2026; SDL codename "Triton").
+    Triton,
 }
 
 impl DeviceKind {
@@ -33,6 +35,7 @@ impl DeviceKind {
         match self {
             DeviceKind::Gordon => "gordon",
             DeviceKind::Neptune => "neptune",
+            DeviceKind::Triton => "triton",
         }
     }
 
@@ -41,26 +44,36 @@ impl DeviceKind {
         match s {
             "gordon" => Some(DeviceKind::Gordon),
             "neptune" => Some(DeviceKind::Neptune),
+            "triton" => Some(DeviceKind::Triton),
             _ => None,
         }
     }
 
     /// Whether this device auto-reverts to lizard mode and so needs the reader to periodically
-    /// re-assert lizard-off (the Deck reverts after ~10 s; Gordon holds its config — PLAN §1.9).
+    /// re-assert lizard-off. The Deck reverts after ~10 s and Triton after ~3 s (its firmware
+    /// watchdog); Gordon holds its config and needs none (PLAN §1.9). The reader uses a single
+    /// ~3 s cadence for whichever devices need it.
     pub fn needs_keepalive(&self) -> bool {
         match self {
             DeviceKind::Gordon => false,
-            DeviceKind::Neptune => true,
+            DeviceKind::Neptune | DeviceKind::Triton => true,
         }
     }
 
-    /// Whether this device has a front LED whose intensity is settable. Gordon does; the Deck has
-    /// no front-facing LED (only a power LED we deliberately leave alone).
+    /// Whether this device has a front LED whose intensity is settable. Gordon and Triton do; the
+    /// Deck has no front-facing LED (only a power LED we deliberately leave alone).
     pub fn has_led_intensity(&self) -> bool {
         match self {
-            DeviceKind::Gordon => true,
+            DeviceKind::Gordon | DeviceKind::Triton => true,
             DeviceKind::Neptune => false,
         }
+    }
+
+    /// Whether this device's command/input transport is Triton's (report-id-in-byte-0 input,
+    /// feature report `0x01`, output-report haptics) rather than the `0x01`-framed Gordon/Neptune
+    /// protocol.
+    fn is_triton(&self) -> bool {
+        matches!(self, DeviceKind::Triton)
     }
 }
 
@@ -193,6 +206,9 @@ fn classify(pid: u16) -> Option<(DeviceKind, Transport)> {
         protocol::PID_GORDON_DONGLE => Some((DeviceKind::Gordon, Transport::UsbDongle)),
         protocol::PID_GORDON_BLE => Some((DeviceKind::Gordon, Transport::Bluetooth)),
         protocol::PID_NEPTUNE => Some((DeviceKind::Neptune, Transport::UsbWired)),
+        protocol::PID_TRITON_WIRED => Some((DeviceKind::Triton, Transport::UsbWired)),
+        protocol::PID_TRITON_BLE => Some((DeviceKind::Triton, Transport::Bluetooth)),
+        protocol::PID_TRITON_PUCK => Some((DeviceKind::Triton, Transport::UsbDongle)),
         _ => None,
     }
 }
@@ -312,7 +328,9 @@ impl Device {
         // Wired USB and Bluetooth are point-to-point (connected the moment the
         // endpoint opens); only the dongle multiplexes an absent controller.
         let connected = matches!(info.transport, Transport::UsbWired | Transport::Bluetooth);
-        let ble = info.transport.is_bluetooth().then(BleState::new);
+        // Gordon's BLE segmented-delta reassembly. Triton over BLE is a *different* framing (its own
+        // report ids, no segmentation) handled by the Triton path — so this state is Gordon-only.
+        let ble = (info.transport.is_bluetooth() && !info.kind.is_triton()).then(BleState::new);
         let mut dev = Device {
             backend,
             info,
@@ -324,7 +342,9 @@ impl Device {
         };
         // On a wireless endpoint, prompt the current connection status so an
         // already-connected controller surfaces without waiting (PLAN §1.6).
-        if matches!(dev.info.transport, Transport::UsbDongle) {
+        // Gordon dongle only — this is the original receiver's wireless-state command; the Triton
+        // puck streams state by default when a controller is present, so it needs no prompt.
+        if matches!(dev.info.transport, Transport::UsbDongle) && !dev.info.kind.is_triton() {
             let _ = dev.feature(cmd::DONGLE_GET_WIRELESS_STATE, &[]);
         }
         Ok(dev)
@@ -383,9 +403,14 @@ impl Device {
 
     /// Read one frame, update cached connection/battery state, and decode it.
     fn next_frame(&mut self, timeout_ms: i32) -> Result<Option<RawReport>> {
+        if self.info.kind.is_triton() {
+            return self.next_frame_triton(timeout_ms);
+        }
         if self.ble.is_some() {
             return self.next_frame_ble(timeout_ms);
         }
+        // The default path: **USB Gordon (wired + dongle) and Neptune** — one physical read is one
+        // 64-byte `0x01`-framed report (`[0x01, 0x00, <event>, …]`), decoded by `report::parse`.
         let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;
         if n == 0 {
             return Ok(None);
@@ -398,6 +423,29 @@ impl Device {
             _ => {}
         }
         Ok(Some(raw))
+    }
+
+    /// Triton read path: one physical read == one report, dispatched by the **report id in byte 0**
+    /// (not the `0x01`-framed event byte Gordon/Neptune use — see `report::parse_triton`). Reports
+    /// we don't decode as a frame (the `0x47` timestamped body, unknown ids) are skipped by reading
+    /// again within the timeout budget; a read timeout returns `None`.
+    fn next_frame_triton(&mut self, timeout_ms: i32) -> Result<Option<RawReport>> {
+        loop {
+            let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;
+            if n == 0 {
+                return Ok(None);
+            }
+            let Some(raw) = report::parse_triton(&self.buf[..n]) else {
+                continue; // undecoded report — keep reading
+            };
+            match &raw {
+                RawReport::Connected => self.connected = true,
+                RawReport::Disconnected => self.connected = false,
+                RawReport::Battery(b) => self.battery = Some(Battery::from(b)),
+                _ => {}
+            }
+            return Ok(Some(raw));
+        }
     }
 
     /// BLE read path: reassemble 20-byte segments into a packet, accumulate its
@@ -605,13 +653,21 @@ impl Device {
     /// the command into Report-ID-3 segments (`[0x03][0x80|seg|(0x40 if last)]
     /// [<=18 data]`, zero-padded to 20 — the command bytes are identical to USB).
     pub fn send_feature_report(&mut self, cmd: &[u8]) -> Result<()> {
-        if self.info.transport.is_bluetooth() {
+        if self.info.transport.is_bluetooth() && !self.info.kind.is_triton() {
             for seg in frame_ble(cmd) {
                 self.backend.send_feature_report(&seg)?;
             }
             Ok(())
+        } else if self.info.kind.is_triton() {
+            // Triton's command channel rides feature report **0x01** and the whole HID report is
+            // **exactly 64 bytes** (report-id byte + 63 payload) — the device stalls a SET_REPORT of
+            // any other length (Broken pipe otherwise). Gordon/Neptune use report id 0x00 with 64
+            // *data* bytes (65-byte buffer; report 0 is unnumbered so nothing extra goes on the wire).
+            self.backend
+                .send_feature_report(&frame(cmd, protocol::REPORT_ID_TRITON, protocol::REPORT_LEN))
         } else {
-            self.backend.send_feature_report(&frame(cmd))
+            self.backend
+                .send_feature_report(&frame(cmd, protocol::REPORT_ID, 1 + protocol::REPORT_LEN))
         }
     }
 
@@ -652,12 +708,14 @@ impl Drop for Device {
     }
 }
 
-/// Frame a logical command into a feature-report buffer: report-ID-0 byte, then
-/// the command padded to 64 bytes (PLAN §1.4).
-fn frame(cmd: &[u8]) -> Vec<u8> {
-    let mut buf = vec![0u8; 1 + protocol::REPORT_LEN];
-    buf[0] = protocol::REPORT_ID;
-    let n = cmd.len().min(protocol::REPORT_LEN);
+/// Frame a logical command into a feature-report buffer of `buf_len` bytes: the `report_id` byte,
+/// then the command zero-padded to fill the buffer (PLAN §1.4). Gordon/Neptune use `report_id`
+/// `0x00` and `buf_len = 1 + 64` (64 data bytes); Triton uses `0x01` and `buf_len = 64` (the whole
+/// report is 64 bytes — report id + 63 payload — or the device stalls the transfer).
+fn frame(cmd: &[u8], report_id: u8, buf_len: usize) -> Vec<u8> {
+    let mut buf = vec![0u8; buf_len];
+    buf[0] = report_id;
+    let n = cmd.len().min(buf_len - 1);
     buf[1..1 + n].copy_from_slice(&cmd[..n]);
     buf
 }
@@ -769,7 +827,7 @@ mod tests {
 
     #[test]
     fn frame_prepends_report_id_and_pads_to_64() {
-        let f = frame(&[cmd::SET_SETTINGS_VALUES, 0x02, 0xAA]);
+        let f = frame(&[cmd::SET_SETTINGS_VALUES, 0x02, 0xAA], protocol::REPORT_ID, 1 + protocol::REPORT_LEN);
         assert_eq!(f.len(), 1 + protocol::REPORT_LEN);
         assert_eq!(f[0], protocol::REPORT_ID);
         assert_eq!(&f[1..4], &[cmd::SET_SETTINGS_VALUES, 0x02, 0xAA]);
@@ -778,7 +836,7 @@ mod tests {
 
     #[test]
     fn frame_truncates_overlong_command() {
-        let f = frame(&[0xAB; 100]);
+        let f = frame(&[0xAB; 100], protocol::REPORT_ID, 1 + protocol::REPORT_LEN);
         assert_eq!(f.len(), 1 + protocol::REPORT_LEN);
     }
 }

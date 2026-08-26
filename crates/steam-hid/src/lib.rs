@@ -28,12 +28,12 @@ mod report;
 mod state;
 mod value;
 
-pub use buttons::{Axis, Button, Buttons, GordonButtons, NeptuneButtons, button_flag};
+pub use buttons::{Axis, Button, Buttons, GordonButtons, NeptuneButtons, TritonButtons, button_flag};
 pub use command::{HapticPulse, HapticStyle, ImuMode, Motor};
 pub use protocol::{ACCEL_RES_PER_G, GYRO_RES_PER_DPS};
 pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, Manager, Transport};
 pub use error::{Error, Result};
 pub use event::{Event, Events};
-pub use report::{BatteryRaw, GordonReport, NeptuneReport, RawReport};
+pub use report::{BatteryRaw, GordonReport, NeptuneReport, RawReport, TritonReport};
 pub use state::{Battery, ControllerState, Report};
 pub use value::{Quati, Timestamp, TrackPad, Vec2, Vec2i, Vec3i};

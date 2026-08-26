@@ -537,7 +537,7 @@ impl Engine {
                     }
                     if matches!(
                         device.poll_raw(Duration::from_millis(200))?,
-                        Some(RawReport::Gordon(_) | RawReport::Neptune(_) | RawReport::Connected)
+                        Some(RawReport::Gordon(_) | RawReport::Neptune(_) | RawReport::Triton(_) | RawReport::Connected)
                     ) {
                         return Ok(device);
                     }

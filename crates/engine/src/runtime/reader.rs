@@ -143,7 +143,7 @@ fn read_session(
             }
         }
 
-        if cfg.keepalive && last_keepalive.elapsed() >= Duration::from_secs(2) {
+        if cfg.keepalive && last_keepalive.elapsed() >= Duration::from_secs(3) {
             let _ = device.set_lizard_mode(false);
             last_keepalive = Instant::now();
         }
@@ -162,6 +162,8 @@ fn read_session(
         let refire_ms = match &kind {
             DeviceKind::Neptune => NEPTUNE_REFIRE_MS,
             DeviceKind::Gordon => RUMBLE_REFIRE_MS,
+            // TODO(triton, phase 3): output-report `0x80` continuous rumble (SDL resends ~40 ms).
+            DeviceKind::Triton => NEPTUNE_REFIRE_MS,
         };
         let refire = (level.strong > 0 || level.weak > 0)
             && last_haptic.elapsed() >= Duration::from_millis(refire_ms);
@@ -191,6 +193,11 @@ fn read_session(
                     }
                     last_haptic = Instant::now();
                 }
+            }
+            // TODO(triton, phase 3): drive the `0x80` dual-motor rumble output report (real
+            // continuous rumble, resent on the re-fire tick). No-op for now (input-only bring-up).
+            DeviceKind::Triton => {
+                let _ = (changed, refire);
             }
         }
 
@@ -356,6 +363,10 @@ fn fire_click(device: &mut Device, click: &Click, kind: &DeviceKind) -> Result<(
         DeviceKind::Gordon => {
             let duration = gordon_click_duration(&click.strength);
             device.haptic_pulse(motor, HapticPulse { duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 })?;
+        }
+        // TODO(triton, phase 3): command-click via the `0x81` pulse / `0x82` command output report.
+        DeviceKind::Triton => {
+            let _ = motor;
         }
     }
     Ok(())
