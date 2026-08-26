@@ -357,14 +357,7 @@ fn parse_neptune(b: &[u8]) -> NeptuneReport {
 /// reading rather than surfacing a bogus frame.
 pub(crate) fn parse_triton(buf: &[u8]) -> Option<RawReport> {
     match *buf.first()? {
-        id @ (triton::report::STATE | triton::report::STATE_NOQUAT) => {
-            // DISPOSABLE probe (remove): report once which state id the unit streams (0x42 = with
-            // on-controller quaternion, 0x45 = NoQuat). Just curiosity — both parse identically.
-            {
-                use std::sync::Once;
-                static ONCE: Once = Once::new();
-                ONCE.call_once(|| eprintln!("[triton probe] first state report id = {id:#04x}"));
-            }
+        triton::report::STATE | triton::report::STATE_NOQUAT => {
             parse_triton_state(buf).map(RawReport::Triton)
         }
         triton::report::BATTERY => {

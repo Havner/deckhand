@@ -82,8 +82,10 @@ impl DeviceKind {
 pub enum Transport {
     UsbWired,
     UsbDongle,
-    /// Bluetooth (BLE). Gordon only so far; uses the segmented Report-ID-3 framing
-    /// and the compact input format (PLAN §1.4).
+    /// Bluetooth (BLE). Two very different framings by device: **Gordon** uses the segmented
+    /// Report-ID-3 delta format (`BleState`, PLAN §1.4); **Triton** does NOT segment — the OS
+    /// HID-over-GATT stack reassembles it into plain numbered reports (state id `0x45`), so it rides
+    /// the same `next_frame_triton` path as USB. Which one is chosen by `DeviceKind`, not here.
     Bluetooth,
 }
 
@@ -426,9 +428,12 @@ impl Device {
     }
 
     /// Triton read path: one physical read == one report, dispatched by the **report id in byte 0**
-    /// (not the `0x01`-framed event byte Gordon/Neptune use — see `report::parse_triton`). Reports
-    /// we don't decode as a frame (the `0x47` timestamped body, unknown ids) are skipped by reading
-    /// again within the timeout budget; a read timeout returns `None`.
+    /// (not the `0x01`-framed event byte Gordon/Neptune use — see `report::parse_triton`). Works for
+    /// every Triton transport: the puck and wire stream state as `0x42`, **Bluetooth streams `0x45`**
+    /// (both the same "NoQuat" body). On Linux/Windows the OS HID-over-GATT stack reassembles BLE and
+    /// prepends the report id, so BT reports arrive here exactly like USB (no segmentation, unlike
+    /// Gordon BLE). Reports we don't decode as a frame (the `0x47` timestamped body, unknown ids) are
+    /// skipped by reading again within the timeout budget; a read timeout returns `None`.
     fn next_frame_triton(&mut self, timeout_ms: i32) -> Result<Option<RawReport>> {
         loop {
             let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;

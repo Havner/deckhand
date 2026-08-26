@@ -7,7 +7,8 @@
 #     sudo udevadm control --reload-rules && sudo udevadm trigger
 #
 # Valve VID 0x28de; PIDs: 1102 wired SC, 1142 wireless dongle, 1205 Steam Deck,
-# 1106 Steam Controller over Bluetooth (Gordon BLE).
+# 1106 Steam Controller over Bluetooth (Gordon BLE); 1302 new Steam Controller (Triton) wired,
+# 1303 Triton Bluetooth, 1304 Triton "puck" wireless dongle.
 
 # USB (wired controller + wireless dongle + Deck)
 SUBSYSTEM=="usb", ATTRS{idVendor}=="28de", MODE="0660", TAG+="uaccess"

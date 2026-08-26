@@ -54,8 +54,9 @@ pub(crate) mod triton {
         pub(crate) const STATE: u8 = 0x42;
         /// Battery status.
         pub(crate) const BATTERY: u8 = 0x43;
-        /// Gamepad state, "NoQuat" body (BLE, and newer firmware over the puck/wire — same
-        /// leading fields as `STATE`, parsed identically; the quaternion is simply absent).
+        /// Gamepad state, "NoQuat" body — same leading fields as `STATE`, parsed identically (the
+        /// quaternion is simply absent). **HW: the real controller over Bluetooth (0x1303) streams
+        /// `0x45`** (observed 2026-08-26), whereas the puck/wire stream `0x42`.
         pub(crate) const STATE_NOQUAT: u8 = 0x45;
         /// Wireless connect/disconnect status (dongle), alternate id.
         pub(crate) const WIRELESS_X: u8 = 0x46;

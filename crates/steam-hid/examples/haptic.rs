@@ -109,8 +109,9 @@ fn rumble_hold(
     dev.rumble_cmd(0, 0, 0, lg, rg) // stop
 }
 
-/// Hold a Triton `0x80` rumble for `ms`, re-firing every ~40 ms (the firmware safety-times out in
-/// ~50 ms — same reason the reader re-fires), then stop with `(0,0)`.
+/// Hold a Triton `0x80` rumble for `ms`, re-firing periodically (the firmware sustains each command
+/// well past a few hundred ms), then stop with `(0,0)`. Re-asserts lizard-off first (Triton reverts
+/// ~3 s after lizard-off on ALL transports — not just BT).
 fn triton_hold(
     dev: &mut Device,
     running: &common::Running,
@@ -119,9 +120,9 @@ fn triton_hold(
     left_gain: i8,
     right: u16,
     right_gain: i8,
-    ms: u64,
 ) -> steam_hid::Result<()> {
-    let end = Instant::now() + Duration::from_millis(ms);
+    keep_lizard_off(dev);
+    let end = Instant::now() + Duration::from_millis(HOLD_MS);
     while Instant::now() < end && running.alive() {
         dev.rumble_triton(intensity, left, right, left_gain, right_gain)?;
         sleep(Duration::from_millis(400));
@@ -133,9 +134,8 @@ fn triton_hold(
 /// Triton haptic exploration: `0x80` rumble (per-motor strength, gain, intensity) then `0x82`
 /// clicks (command × gain, per side). All ranges provisional — this is where to find the real ones.
 fn run_triton(dev: &mut Device, running: &common::Running) -> steam_hid::Result<()> {
-    let hold = 1200u64;
     let pause = Duration::from_millis(700);
-    println!("\n=== TRITON RUMBLE 0x80 — per-motor STRENGTH sweep (~{hold}ms each) ===");
+    println!("\n=== TRITON RUMBLE 0x80 — per-motor STRENGTH sweep (~{HOLD_MS}ms each) ===");
     for (label, l, r) in [("LEFT", true, false), ("RIGHT", false, true), ("BOTH", true, true)] {
         for drive in [4000u16, 8000, 16000, 32000, 48000, 65535] {
             if !running.alive() {
@@ -143,7 +143,7 @@ fn run_triton(dev: &mut Device, running: &common::Running) -> steam_hid::Result<
             }
             let (ld, rd) = (if l { drive } else { 0 }, if r { drive } else { 0 });
             println!("  {label:>5} drive={drive:>5}  (left={ld} right={rd})");
-            triton_hold(dev, running, 0, ld, 0, rd, 0, hold)?;
+            triton_hold(dev, running, 0, ld, 0, rd, 0)?;
             sleep(pause);
         }
     }
@@ -154,7 +154,7 @@ fn run_triton(dev: &mut Device, running: &common::Running) -> steam_hid::Result<
             return Ok(());
         }
         println!("  gain={g:>3} dB");
-        triton_hold(dev, running, 0, 32000, g, 32000, g, hold)?;
+        triton_hold(dev, running, 0, 32000, g, 32000, g)?;
         sleep(pause);
     }
 
@@ -164,7 +164,7 @@ fn run_triton(dev: &mut Device, running: &common::Running) -> steam_hid::Result<
             return Ok(());
         }
         println!("  intensity={int:>5}");
-        triton_hold(dev, running, int, 32000, 0, 32000, 0, hold)?;
+        triton_hold(dev, running, int, 32000, 0, 32000, 0)?;
         sleep(pause);
     }
 
@@ -176,6 +176,7 @@ fn run_triton(dev: &mut Device, running: &common::Running) -> steam_hid::Result<
                     return Ok(());
                 }
                 println!("  {label:>5} style={style:?} gain={g:>3} dB");
+                keep_lizard_off(dev); // Triton reverts to lizard ~3 s after lizard-off (all transports)
                 dev.haptic_command_triton(motor.clone(), style.clone(), g)?;
                 sleep(Duration::from_millis(450));
             }
