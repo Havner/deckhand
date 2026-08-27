@@ -23,7 +23,7 @@ mod view;
 
 use std::hash::{Hash, Hasher};
 
-use config::DeviceConfig;
+use config::{DeviceConfig, Lever};
 use daemon::{Client, DaemonUpdate, Handle, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::window;
@@ -42,6 +42,93 @@ pub(crate) const INPUT_PRESETS: &[&str] = &["auto", "dongle", "wired", "bt"];
 /// the *logical* space, so the window opens larger (see `Settings` defaults) and the content pane
 /// scrolls if it doesn't fit.
 pub(crate) const UI_SCALE: f32 = 1.75;
+
+/// Rumble **gain** lever bounds, dB — the slider range and the edit clamp (Neptune/Triton). Mirrors
+/// the main UI's device screen.
+pub(crate) const GAIN_MIN_DB: i8 = -8;
+pub(crate) const GAIN_MAX_DB: i8 = 16;
+
+/// Which per-device rumble lever a device-section edit targets (device × speed/gain). The speed
+/// levers carry `u8` percent, the gain levers `i8` dB — the handler routes each to the right field.
+/// A copy of the main UI's enum (the forwarder is a deliberate duplicate; no shared crate).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RumbleLeverId {
+    NeptuneSpeed,
+    NeptuneGain,
+    TritonSpeed,
+    TritonGain,
+}
+
+/// A single edit to a rumble lever. Values are raw slider units (the handler clamps to the lever's
+/// range and places them into the current `Fixed`/`Scaled` variant); `Scaled(bool)` toggles between
+/// the two variants (seeding the other from the current value).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RumbleLeverEdit {
+    Scaled(bool),
+    Fixed(i16),
+    Min(i16),
+    Max(i16),
+}
+
+/// Apply a [`RumbleLeverEdit`] to a **speed** lever (percent, 0..=100). Enabling scaling from a
+/// fixed value opens the full `0..=v` band; disabling collapses to the band's `max`. `Min`/`Max` stay
+/// ordered (`min <= max`).
+fn edit_speed_lever(lever: &mut Lever<u8>, edit: RumbleLeverEdit) {
+    let clamp = |v: i16| v.clamp(0, 100) as u8;
+    match edit {
+        RumbleLeverEdit::Scaled(true) => {
+            if let Lever::Fixed(v) = *lever {
+                *lever = Lever::Scaled { min: 0, max: v.max(1) };
+            }
+        }
+        RumbleLeverEdit::Scaled(false) => {
+            if let Lever::Scaled { max, .. } = *lever {
+                *lever = Lever::Fixed(max);
+            }
+        }
+        RumbleLeverEdit::Fixed(v) => *lever = Lever::Fixed(clamp(v)),
+        RumbleLeverEdit::Min(v) => {
+            if let Lever::Scaled { max, .. } = *lever {
+                *lever = Lever::Scaled { min: clamp(v).min(max), max };
+            }
+        }
+        RumbleLeverEdit::Max(v) => {
+            if let Lever::Scaled { min, .. } = *lever {
+                *lever = Lever::Scaled { min, max: clamp(v).max(min) };
+            }
+        }
+    }
+}
+
+/// Apply a [`RumbleLeverEdit`] to a **gain** lever (dB, [`GAIN_MIN_DB`]..=[`GAIN_MAX_DB`]). Same
+/// shape as [`edit_speed_lever`]; enabling scaling seeds `min` at the floor and keeps the current
+/// value as `max`.
+fn edit_gain_lever(lever: &mut Lever<i8>, edit: RumbleLeverEdit) {
+    let clamp = |v: i16| v.clamp(GAIN_MIN_DB as i16, GAIN_MAX_DB as i16) as i8;
+    match edit {
+        RumbleLeverEdit::Scaled(true) => {
+            if let Lever::Fixed(v) = *lever {
+                *lever = Lever::Scaled { min: GAIN_MIN_DB, max: v };
+            }
+        }
+        RumbleLeverEdit::Scaled(false) => {
+            if let Lever::Scaled { max, .. } = *lever {
+                *lever = Lever::Fixed(max);
+            }
+        }
+        RumbleLeverEdit::Fixed(v) => *lever = Lever::Fixed(clamp(v)),
+        RumbleLeverEdit::Min(v) => {
+            if let Lever::Scaled { max, .. } = *lever {
+                *lever = Lever::Scaled { min: clamp(v).min(max), max };
+            }
+        }
+        RumbleLeverEdit::Max(v) => {
+            if let Lever::Scaled { min, .. } = *lever {
+                *lever = Lever::Scaled { min, max: clamp(v).max(min) };
+            }
+        }
+    }
+}
 
 fn main() -> iced::Result {
     let daemon = daemon::handle();
@@ -106,6 +193,10 @@ pub(crate) enum Message {
     Backspace,
     /// The master-rumble slider moved.
     RumbleChanged(u8),
+    /// The Gordon rumble-frequency slider moved.
+    RumbleHzChanged(u16),
+    /// A per-device motor-rumble lever edit (Neptune/Triton × speed/gain).
+    RumbleLever(RumbleLeverId, RumbleLeverEdit),
     /// Results of daemon calls run off the render thread (stringified — `io::Error` isn't `Clone`).
     StatusFetched(Result<StatusSnapshot, String>),
     DevicesFetched(Result<Vec<String>, String>),
@@ -235,6 +326,20 @@ impl App {
             }
             Message::RumbleChanged(v) => {
                 self.device_config.master_rumble = v;
+                return self.apply_device_config();
+            }
+            Message::RumbleHzChanged(v) => {
+                self.device_config.rumble_hz = v;
+                return self.apply_device_config();
+            }
+            Message::RumbleLever(id, edit) => {
+                let d = &mut self.device_config;
+                match id {
+                    RumbleLeverId::NeptuneSpeed => edit_speed_lever(&mut d.neptune.speed, edit),
+                    RumbleLeverId::NeptuneGain => edit_gain_lever(&mut d.neptune.gain, edit),
+                    RumbleLeverId::TritonSpeed => edit_speed_lever(&mut d.triton.speed, edit),
+                    RumbleLeverId::TritonGain => edit_gain_lever(&mut d.triton.gain, edit),
+                }
                 return self.apply_device_config();
             }
 

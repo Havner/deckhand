@@ -5,12 +5,17 @@
 //! the main UI's — just daemon status, state, device, and error (no profiles/chords).
 
 use iced::widget::{
-    Space, button, column, container, pick_list, row, scrollable, slider, text, text_input,
+    Space, button, checkbox, column, container, pick_list, row, scrollable, slider, text,
+    text_input,
 };
 use iced::{Center, Element, Fill, Theme};
+
+use config::{Lever, Shape};
 use ipc::RunState;
 
-use crate::{App, INPUT_PRESETS, Message, style};
+use crate::{
+    App, GAIN_MAX_DB, GAIN_MIN_DB, INPUT_PRESETS, Message, RumbleLeverEdit, RumbleLeverId, style,
+};
 
 /// The whole window: content pane on top, status bar at the bottom.
 pub(crate) fn view(app: &App) -> Element<'_, Message> {
@@ -24,9 +29,10 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-/// The content pane: the daemon controls, the keypad + rumble, laid out top-to-bottom.
+/// The content pane: the daemon controls, the keypad, the sleep note, then the rumble settings, laid
+/// out top-to-bottom.
 fn content(app: &App) -> Element<'_, Message> {
-    column![controls(app), keypad(), rumble(app), sleep_note()]
+    column![controls(app), keypad(), sleep_note(), rumble(app)]
         .spacing(16.0)
         .into()
 }
@@ -124,19 +130,168 @@ fn key(c: char) -> Element<'static, Message> {
 
 // --- rumble ---------------------------------------------------------------------------------
 
-/// The master-rumble slider (`0..=100 %`), writing `DeviceConfig.master_rumble`, with the same
-/// "only on (re)start" caveat the main UI's Device page shows above it.
+/// The rumble settings: the master-rumble slider (`0..=100 %`, writing `DeviceConfig.master_rumble`)
+/// plus — **only when a device is bound** — the device-specific rumble group for that device's shape.
+/// This mirrors the main UI's Device page (Gordon = pulse-train frequency; Neptune/Triton = per-motor
+/// speed + gain levers), but shows a single group at a time (the bound device's).
 fn rumble(app: &App) -> Element<'_, Message> {
-    let v = app.device_config.master_rumble;
-    let note = text("This setting takes effect only on engine (re)start.").size(12.0);
-    let control = row![
-        text("Master rumble").size(13.0).width(140.0),
-        slider(0..=100u8, v, Message::RumbleChanged).width(Fill),
-        text(format!("{v}%")).size(13.0).width(48.0),
+    let d = &app.device_config;
+    let master = row![
+        setting_label("Master rumble"),
+        slider(0..=100u8, d.master_rumble, Message::RumbleChanged).width(Fill),
+        pct_text(Some(d.master_rumble)),
     ]
     .spacing(12.0)
     .align_y(Center);
-    column![note, control].spacing(6.0).into()
+
+    let mut col = column![master].spacing(16.0);
+
+    // Show the device-specific group only for the currently bound device (its shape).
+    if let Some(shape) = app.status.as_ref().and_then(|s| s.bound.as_ref()).map(|b| &b.shape) {
+        match shape {
+            Shape::Gordon => {
+                col = col.push(group_header("Gordon")).push(frequency_row(d.rumble_hz));
+            }
+            Shape::Neptune => {
+                col = col
+                    .push(group_header("Neptune"))
+                    .push(speed_lever_row("Speed", &d.neptune.speed, RumbleLeverId::NeptuneSpeed))
+                    .push(gain_lever_row("Gain", &d.neptune.gain, RumbleLeverId::NeptuneGain));
+            }
+            Shape::Triton => {
+                col = col
+                    .push(group_header("Triton"))
+                    .push(speed_lever_row("Speed", &d.triton.speed, RumbleLeverId::TritonSpeed))
+                    .push(gain_lever_row("Gain", &d.triton.gain, RumbleLeverId::TritonGain));
+            }
+        }
+    }
+    col.into()
+}
+
+/// The Gordon rumble-frequency row (30–150 Hz pulse-train rate).
+fn frequency_row(hz: u16) -> Element<'static, Message> {
+    row![
+        setting_label("Frequency"),
+        slider(30..=150u16, hz, Message::RumbleHzChanged).step(1u16),
+        text(format!("{hz} Hz")).size(13.0).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+/// A **speed/rate** lever row (percent). The checkbox toggles fixed↔scaled: fixed shows one slider,
+/// scaled shows a min + max pair. `id` routes every edit to the right lever.
+fn speed_lever_row<'a>(
+    label: &'static str,
+    lever: &Lever<u8>,
+    id: RumbleLeverId,
+) -> Element<'a, Message> {
+    let controls: Element<'a, Message> = match *lever {
+        Lever::Fixed(v) => row![
+            slider(0..=100u8, v, move |x| edit(id, RumbleLeverEdit::Fixed(x as i16))),
+            pct_text(Some(v)),
+        ]
+        .spacing(12.0)
+        .align_y(Center)
+        .into(),
+        Lever::Scaled { min, max } => row![
+            small("min"),
+            slider(0..=100u8, min, move |x| edit(id, RumbleLeverEdit::Min(x as i16))),
+            pct_text(Some(min)),
+            small("max"),
+            slider(0..=100u8, max, move |x| edit(id, RumbleLeverEdit::Max(x as i16))),
+            pct_text(Some(max)),
+        ]
+        .spacing(8.0)
+        .align_y(Center)
+        .into(),
+    };
+    lever_row(label, matches!(lever, Lever::Scaled { .. }), id, controls)
+}
+
+/// A **gain** lever row (dB). Same shape as [`speed_lever_row`] over the dB range.
+fn gain_lever_row<'a>(
+    label: &'static str,
+    lever: &Lever<i8>,
+    id: RumbleLeverId,
+) -> Element<'a, Message> {
+    // `slider`'s wrapper requires `From<u8>`, which `i8` lacks — drive the dB sliders as `i16` (the
+    // message already carries `i16`); the readouts use the underlying `i8`.
+    let range = GAIN_MIN_DB as i16..=GAIN_MAX_DB as i16;
+    let controls: Element<'a, Message> = match *lever {
+        Lever::Fixed(v) => row![
+            slider(range.clone(), v as i16, move |x| edit(id, RumbleLeverEdit::Fixed(x))),
+            db_text(v),
+        ]
+        .spacing(12.0)
+        .align_y(Center)
+        .into(),
+        Lever::Scaled { min, max } => row![
+            small("min"),
+            slider(range.clone(), min as i16, move |x| edit(id, RumbleLeverEdit::Min(x))),
+            db_text(min),
+            small("max"),
+            slider(range, max as i16, move |x| edit(id, RumbleLeverEdit::Max(x))),
+            db_text(max),
+        ]
+        .spacing(8.0)
+        .align_y(Center)
+        .into(),
+    };
+    lever_row(label, matches!(lever, Lever::Scaled { .. }), id, controls)
+}
+
+/// The shared frame for a lever row: label + "scale" checkbox + the variant's sliders.
+fn lever_row<'a>(
+    label: &'static str,
+    scaled: bool,
+    id: RumbleLeverId,
+    controls: Element<'a, Message>,
+) -> Element<'a, Message> {
+    row![
+        setting_label(label),
+        checkbox(scaled).on_toggle(move |b| edit(id, RumbleLeverEdit::Scaled(b))),
+        small("scale"),
+        controls,
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+/// Shorthand for a lever-edit message.
+fn edit(id: RumbleLeverId, e: RumbleLeverEdit) -> Message {
+    Message::RumbleLever(id, e)
+}
+
+/// A device rumble group heading.
+fn group_header(title: &'static str) -> Element<'static, Message> {
+    text(title).size(18.0).into()
+}
+
+/// A fixed-width row label, so the controls line up down the form.
+fn setting_label(s: &'static str) -> Element<'static, Message> {
+    text(s).size(13.0).width(140.0).into()
+}
+
+/// Small/secondary copy (min/max/scale captions).
+fn small(s: &'static str) -> Element<'static, Message> {
+    text(s).size(11.0).into()
+}
+
+/// A fixed-width trailing percentage readout, keeping the sliders aligned.
+fn pct_text(v: Option<u8>) -> Element<'static, Message> {
+    text(v.map(|x| format!("{x}%")).unwrap_or_else(|| "default".into()))
+        .size(13.0)
+        .width(60.0)
+        .into()
+}
+
+/// A fixed-width trailing dB readout (signed), keeping the gain sliders aligned.
+fn db_text(v: i8) -> Element<'static, Message> {
+    text(format!("{v:+} dB")).size(13.0).width(60.0).into()
 }
 
 /// A centered, prominent reminder that the app may hold a sleep inhibitor while running (the managed
