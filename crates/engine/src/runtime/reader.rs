@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use config::{DeviceConfig, HapticStrength, Side};
+use config::{DeviceConfig, HapticStrength, Lever, RumbleTuning, Side};
 use crossbeam_channel::Receiver;
 use steam_hid::{Device, DeviceId, DeviceKind, HapticPulse, HapticStyle, Manager, Motor, Report, Transport};
 
@@ -38,21 +38,31 @@ struct ReaderCfg {
     /// Master rumble attenuator `0..=100 %`, applied reader-side to every haptic amplitude at emit
     /// time (the mapper sends game+profile-scaled rumble; master scales it here, device-local).
     master_rumble: u8,
-    /// Rumble pulse frequency, Hz — the Gordon pulse-train rate ([`train`]); the Deck ignores it.
+    /// Rumble pulse frequency, Hz — the Gordon pulse-train rate ([`train`]); the motor devices ignore it.
     rumble_hz: u16,
+    /// Motor-rumble shaping for the **bound** device kind (Neptune/Triton speed + gain levers).
+    /// Inert on Gordon (which has no motors — it uses the `rumble_hz` pulse-train instead).
+    rumble: RumbleTuning,
     /// Periodically re-assert lizard-off ([`DeviceKind::needs_keepalive`]).
     keepalive: bool,
 }
 
 impl ReaderCfg {
     /// Resolve the reader config for a device from the (machine-local) [`DeviceConfig`], dropping
-    /// each device-specific setting to `None`/`false` where the hardware can't honor it.
+    /// each device-specific setting to `None`/`false` where the hardware can't honor it, and picking
+    /// the bound kind's rumble tuning.
     fn for_device(kind: &DeviceKind, transport: &Transport, device_config: &DeviceConfig) -> Self {
         ReaderCfg {
             led_brightness: kind.has_led_intensity().then_some(device_config.led_brightness).flatten(),
             idle_timeout: transport.has_idle().then_some(device_config.idle_timeout).flatten(),
             master_rumble: device_config.master_rumble,
             rumble_hz: device_config.rumble_hz,
+            rumble: match kind {
+                // Gordon has no motors (uses the `0x8f` pulse-train) — an inert tuning, never read.
+                DeviceKind::Gordon => RumbleTuning { speed: Lever::Fixed(0), gain: Lever::Fixed(0) },
+                DeviceKind::Neptune => device_config.neptune,
+                DeviceKind::Triton => device_config.triton,
+            },
             keepalive: kind.needs_keepalive(),
         }
     }
@@ -257,7 +267,7 @@ fn read_session(
                 // send on change and on the re-fire tick while non-zero; the change to `(0,0)` stops
                 // it. `strong`→left motor, `weak`→right (kernel FF mapping, PLAN §1.9).
                 if changed || refire {
-                    if let Err(e) = apply_rumble(device, &out) {
+                    if let Err(e) = apply_rumble(device, &out, &cfg.rumble) {
                         log::warn!("rumble write failed: {e}");
                     }
                     last_haptic = Instant::now();
@@ -267,7 +277,7 @@ fn read_session(
             // re-issue on change and on the re-fire tick while non-zero; `(0,0)` stops it.
             DeviceKind::Triton => {
                 if changed || refire {
-                    if let Err(e) = apply_rumble_triton(device, &out) {
+                    if let Err(e) = apply_rumble_triton(device, &out, &cfg.rumble) {
                         log::warn!("rumble write failed: {e}");
                     }
                     last_haptic = Instant::now();
@@ -370,20 +380,10 @@ const RUMBLE_TRAIN_MS: u32 = 250;
 /// contiguous (re-fire near the train's end, not mid-play) while never leaving a silent gap.
 const RUMBLE_REFIRE_MS: u64 = 220;
 
-/// Deck motor gains (dB) for `rumble_cmd` — the kernel drives `FF_RUMBLE` with left = +2 dB,
-/// right = 0 dB (the two motors aren't matched; PLAN §1.9). HW-tunable starting point.
-const NEPTUNE_L_GAIN: i8 = 2;
-const NEPTUNE_R_GAIN: i8 = 2;
-
 /// How often the reader re-issues the Deck's `0xeb` rumble while non-zero. Each command is a fixed
 /// short burst (no length field), so this must be **shorter than that burst** to sound continuous.
 /// **Starting point — HW-tune with fftest** (the burst is ~0.3–0.5 s, so 0.5 s may be a hair long).
 const NEPTUNE_REFIRE_MS: u64 = 500;
-
-/// Triton motor gains (dB) for `rumble_triton` — 0 dB per side for now (drive/`master_rumble` carry
-/// strength; the dB trim is a fine lever). HW-tunable starting point.
-const TRITON_L_GAIN: i8 = 0;
-const TRITON_R_GAIN: i8 = 0;
 
 /// How often the reader re-issues Triton's `0x80` rumble while non-zero. The firmware sustains each
 /// command well past this (HW: no change 40–500 ms; it only starts to gap above ~500 ms), so a
@@ -420,21 +420,36 @@ fn train(drive: u16, hz: u16) -> HapticPulse {
 }
 
 /// Drive the Deck's dual motors from a rumble command via `0xeb` (`strong`→left, `weak`→right; PLAN
-/// §1.9). Re-issued by the reader while the level stays non-zero. (Neptune only; Gordon uses
-/// [`apply_haptics`] — see `read_session`.)
-fn apply_rumble(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
-    // intensity 0 = strongest (finer amplitude lever, unused for now — §1.9).
-    device.rumble_cmd(0, cmd.strong, cmd.weak, NEPTUNE_L_GAIN, NEPTUNE_R_GAIN)?;
+/// §1.9). Each motor's per-motor strength drives both the **speed** and **gain** fields through the
+/// [`RumbleTuning`] levers (either constant, or scaled into a band). Re-issued by the reader while
+/// the level stays non-zero. (Neptune only; Gordon uses [`apply_haptics`] — see `read_session`.)
+fn apply_rumble(device: &mut Device, cmd: &RumbleCmd, tuning: &RumbleTuning) -> Result<()> {
+    // intensity 0 = strongest (finer amplitude lever, unused for now — §1.9). A zero-strength motor
+    // resolves to speed 0 (silent) inside the lever, regardless of the tuning.
+    device.rumble_cmd(
+        0,
+        tuning.speed.speed(cmd.strong),
+        tuning.speed.speed(cmd.weak),
+        tuning.gain.gain(cmd.strong),
+        tuning.gain.gain(cmd.weak),
+    )?;
     Ok(())
 }
 
 /// Drive Triton's dual motors from a rumble command via the `0x80` output report (`strong`→left,
-/// `weak`→right). Re-issued by the reader while the level stays non-zero (Triton only — see
-/// `read_session`). Gains/intensity left at 0 (SDL's defaults); tune on HW.
-fn apply_rumble_triton(device: &mut Device, cmd: &RumbleCmd) -> Result<()> {
+/// `weak`→right). Same lever shaping as the Deck ([`apply_rumble`]) but its own [`RumbleTuning`]
+/// (different motors). Re-issued by the reader while the level stays non-zero (Triton only — see
+/// `read_session`).
+fn apply_rumble_triton(device: &mut Device, cmd: &RumbleCmd, tuning: &RumbleTuning) -> Result<()> {
     // (intensity, left, right, left_gain, right_gain) — order mirrors `rumble_cmd`. strong→left,
     // weak→right; intensity 0 = no attenuation (finer lever, unused for now).
-    device.rumble_triton(0, cmd.strong, cmd.weak, TRITON_L_GAIN, TRITON_R_GAIN)?;
+    device.rumble_triton(
+        0,
+        tuning.speed.speed(cmd.strong),
+        tuning.speed.speed(cmd.weak),
+        tuning.gain.gain(cmd.strong),
+        tuning.gain.gain(cmd.weak),
+    )?;
     Ok(())
 }
 

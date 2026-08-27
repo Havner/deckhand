@@ -5,8 +5,13 @@
 use iced::widget::{checkbox, column, pick_list, row, slider, text};
 use iced::{Center, Element};
 
-use super::{section_header, setting_label};
-use crate::{App, IDLE_TIMEOUT_MINUTES, Message, style};
+use config::Lever;
+
+use super::{group_header, section_header, setting_label, small};
+use crate::{
+    App, GAIN_MAX_DB, GAIN_MIN_DB, IDLE_TIMEOUT_MINUTES, Message, RumbleLeverEdit, RumbleLeverId,
+    style,
+};
 
 /// The device-config page (Category::Device).
 pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
@@ -62,7 +67,9 @@ pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
     .spacing(12.0)
     .align_y(Center);
 
-    // Rumble frequency: the Gordon pulse-train rate.
+    // Rumble: three device-specific sections. Gordon has trackpad actuators driven as a pulse-train
+    // (only the frequency is tunable); Neptune and Triton have real motors whose speed + gain each
+    // map from the game's rumble strength via a lever (fixed, or scaled into a band).
     let frequency = row![
         setting_label("Frequency"),
         slider(30..=150u16, d.rumble_hz, Message::DeviceRumbleHz).step(1u16),
@@ -71,12 +78,107 @@ pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
     .spacing(12.0)
     .align_y(Center);
 
-    column![section_header("Device config"), led, idle, master, frequency]
-        .spacing(16.0)
-        .into()
+    column![
+        section_header("Device config"),
+        led,
+        idle,
+        master,
+        group_header("Gordon"),
+        frequency,
+        group_header("Neptune"),
+        speed_lever_row("Speed", &d.neptune.speed, RumbleLeverId::NeptuneSpeed),
+        gain_lever_row("Gain", &d.neptune.gain, RumbleLeverId::NeptuneGain),
+        group_header("Triton"),
+        speed_lever_row("Speed", &d.triton.speed, RumbleLeverId::TritonSpeed),
+        gain_lever_row("Gain", &d.triton.gain, RumbleLeverId::TritonGain),
+    ]
+    .spacing(16.0)
+    .into()
+}
+
+/// A **speed/rate** lever row (percent). The checkbox toggles fixed↔scaled: fixed shows one slider,
+/// scaled shows a min + max pair. `id` routes every edit to the right lever ([`Message::DeviceRumbleLever`]).
+fn speed_lever_row<'a>(label: &'static str, lever: &Lever<u8>, id: RumbleLeverId) -> Element<'a, Message> {
+    let controls: Element<'a, Message> = match *lever {
+        Lever::Fixed(v) => row![
+            slider(0..=100u8, v, move |x| edit(id, RumbleLeverEdit::Fixed(x as i16))),
+            pct_text(Some(v)),
+        ]
+        .spacing(12.0)
+        .align_y(Center)
+        .into(),
+        Lever::Scaled { min, max } => row![
+            small("min"),
+            slider(0..=100u8, min, move |x| edit(id, RumbleLeverEdit::Min(x as i16))),
+            pct_text(Some(min)),
+            small("max"),
+            slider(0..=100u8, max, move |x| edit(id, RumbleLeverEdit::Max(x as i16))),
+            pct_text(Some(max)),
+        ]
+        .spacing(8.0)
+        .align_y(Center)
+        .into(),
+    };
+    lever_row(label, matches!(lever, Lever::Scaled { .. }), id, controls)
+}
+
+/// A **gain** lever row (dB). Same shape as [`speed_lever_row`] over the dB range.
+fn gain_lever_row<'a>(label: &'static str, lever: &Lever<i8>, id: RumbleLeverId) -> Element<'a, Message> {
+    // `slider`'s wrapper requires `From<u8>`, which `i8` lacks — drive the dB sliders as `i16` (the
+    // message already carries `i16`); the readouts use the underlying `i8`.
+    let range = GAIN_MIN_DB as i16..=GAIN_MAX_DB as i16;
+    let controls: Element<'a, Message> = match *lever {
+        Lever::Fixed(v) => row![
+            slider(range.clone(), v as i16, move |x| edit(id, RumbleLeverEdit::Fixed(x))),
+            db_text(v),
+        ]
+        .spacing(12.0)
+        .align_y(Center)
+        .into(),
+        Lever::Scaled { min, max } => row![
+            small("min"),
+            slider(range.clone(), min as i16, move |x| edit(id, RumbleLeverEdit::Min(x))),
+            db_text(min),
+            small("max"),
+            slider(range, max as i16, move |x| edit(id, RumbleLeverEdit::Max(x))),
+            db_text(max),
+        ]
+        .spacing(8.0)
+        .align_y(Center)
+        .into(),
+    };
+    lever_row(label, matches!(lever, Lever::Scaled { .. }), id, controls)
+}
+
+/// The shared frame for a lever row: label + "Scale with strength" checkbox + the variant's sliders.
+fn lever_row<'a>(
+    label: &'static str,
+    scaled: bool,
+    id: RumbleLeverId,
+    controls: Element<'a, Message>,
+) -> Element<'a, Message> {
+    row![
+        setting_label(label),
+        checkbox(scaled).on_toggle(move |b| edit(id, RumbleLeverEdit::Scaled(b))),
+        small("scale"),
+        controls,
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+/// Shorthand for a lever-edit message.
+fn edit(id: RumbleLeverId, e: RumbleLeverEdit) -> Message {
+    Message::DeviceRumbleLever(id, e)
 }
 
 /// A fixed-width trailing percentage readout (`None` → "default"), keeping the sliders aligned.
 fn pct_text(v: Option<u8>) -> Element<'static, Message> {
     text(v.map(|x| format!("{x}%")).unwrap_or_else(|| "default".into())).width(60.0).into()
+}
+
+/// A fixed-width trailing dB readout (signed), keeping the gain sliders aligned.
+fn db_text(v: i8) -> Element<'static, Message> {
+    text(format!("{v:+} dB")).width(60.0).into()
 }

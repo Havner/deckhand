@@ -33,7 +33,7 @@ mod view;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use config::{Chords, ConfigDoc, DeviceConfig, Shape};
+use config::{Chords, ConfigDoc, DeviceConfig, Lever, Shape};
 use daemon::{Client, DaemonUpdate, Handle, run_event_loop};
 use iced::futures::stream::BoxStream;
 use iced::window;
@@ -58,6 +58,70 @@ pub(crate) const DEFAULT_IDLE_TIMEOUT: u16 = 300;
 
 /// The idle-timeout options offered in the Device combobox, in **minutes**.
 pub(crate) const IDLE_TIMEOUT_MINUTES: &[u16] = &[5, 10, 15];
+
+/// Rumble **gain** lever bounds, dB — the slider range and the edit clamp (Neptune/Triton).
+pub(crate) const GAIN_MIN_DB: i8 = -8;
+pub(crate) const GAIN_MAX_DB: i8 = 16;
+
+/// Apply a [`RumbleLeverEdit`] to a **speed** lever (percent, 0..=100). Enabling scaling from a
+/// fixed value opens the full `0..=v` band; disabling collapses to the band's `max` (its strongest
+/// point). `Min`/`Max` stay ordered (`min <= max`).
+fn edit_speed_lever(lever: &mut Lever<u8>, edit: RumbleLeverEdit) {
+    let clamp = |v: i16| v.clamp(0, 100) as u8;
+    match edit {
+        RumbleLeverEdit::Scaled(true) => {
+            if let Lever::Fixed(v) = *lever {
+                *lever = Lever::Scaled { min: 0, max: v.max(1) };
+            }
+        }
+        RumbleLeverEdit::Scaled(false) => {
+            if let Lever::Scaled { max, .. } = *lever {
+                *lever = Lever::Fixed(max);
+            }
+        }
+        RumbleLeverEdit::Fixed(v) => *lever = Lever::Fixed(clamp(v)),
+        RumbleLeverEdit::Min(v) => {
+            if let Lever::Scaled { max, .. } = *lever {
+                *lever = Lever::Scaled { min: clamp(v).min(max), max };
+            }
+        }
+        RumbleLeverEdit::Max(v) => {
+            if let Lever::Scaled { min, .. } = *lever {
+                *lever = Lever::Scaled { min, max: clamp(v).max(min) };
+            }
+        }
+    }
+}
+
+/// Apply a [`RumbleLeverEdit`] to a **gain** lever (dB, [`GAIN_MIN_DB`]..=[`GAIN_MAX_DB`]). Same
+/// shape as [`edit_speed_lever`]; enabling scaling seeds `min` at the floor and keeps the current
+/// value as `max`.
+fn edit_gain_lever(lever: &mut Lever<i8>, edit: RumbleLeverEdit) {
+    let clamp = |v: i16| v.clamp(GAIN_MIN_DB as i16, GAIN_MAX_DB as i16) as i8;
+    match edit {
+        RumbleLeverEdit::Scaled(true) => {
+            if let Lever::Fixed(v) = *lever {
+                *lever = Lever::Scaled { min: GAIN_MIN_DB, max: v };
+            }
+        }
+        RumbleLeverEdit::Scaled(false) => {
+            if let Lever::Scaled { max, .. } = *lever {
+                *lever = Lever::Fixed(max);
+            }
+        }
+        RumbleLeverEdit::Fixed(v) => *lever = Lever::Fixed(clamp(v)),
+        RumbleLeverEdit::Min(v) => {
+            if let Lever::Scaled { max, .. } = *lever {
+                *lever = Lever::Scaled { min: clamp(v).min(max), max };
+            }
+        }
+        RumbleLeverEdit::Max(v) => {
+            if let Lever::Scaled { min, .. } = *lever {
+                *lever = Lever::Scaled { min, max: clamp(v).max(min) };
+            }
+        }
+    }
+}
 
 /// The sentinel pick-list entry that opens the network (`host:port`) popup instead of staging a
 /// value directly.
@@ -236,6 +300,27 @@ pub(crate) struct App {
     dialog_open: bool,
 }
 
+/// Which per-device rumble lever a device-screen edit targets (device × speed/gain). The speed
+/// levers carry `u8` percent, the gain levers `i8` dB — the handler routes each to the right field.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RumbleLeverId {
+    NeptuneSpeed,
+    NeptuneGain,
+    TritonSpeed,
+    TritonGain,
+}
+
+/// A single edit to a rumble lever. Values are raw slider units (the handler clamps to the lever's
+/// range and places them into the current `Fixed`/`Scaled` variant); `Scaled(bool)` toggles between
+/// the two variants (seeding the other from the current value).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RumbleLeverEdit {
+    Scaled(bool),
+    Fixed(i16),
+    Min(i16),
+    Max(i16),
+}
+
 /// Everything the view can emit.
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
@@ -310,6 +395,9 @@ pub(crate) enum Message {
     DeviceIdleTimeout(u16),
     DeviceMasterRumble(u8),
     DeviceRumbleHz(u16),
+    /// Per-device motor-rumble lever edit (Neptune/Triton × speed/gain). See [`RumbleLeverId`]/
+    /// [`RumbleLeverEdit`]; routed to the lever helpers, then persisted + pushed like the others.
+    DeviceRumbleLever(RumbleLeverId, RumbleLeverEdit),
     /// Tray settings.
     ToggleUseTray(bool),
     ToggleCloseToTray(bool),
@@ -634,6 +722,16 @@ impl App {
             }
             Message::DeviceRumbleHz(v) => {
                 self.device_config.rumble_hz = v;
+                return self.apply_device_config();
+            }
+            Message::DeviceRumbleLever(id, edit) => {
+                let d = &mut self.device_config;
+                match id {
+                    RumbleLeverId::NeptuneSpeed => edit_speed_lever(&mut d.neptune.speed, edit),
+                    RumbleLeverId::NeptuneGain => edit_gain_lever(&mut d.neptune.gain, edit),
+                    RumbleLeverId::TritonSpeed => edit_speed_lever(&mut d.triton.speed, edit),
+                    RumbleLeverId::TritonGain => edit_gain_lever(&mut d.triton.gain, edit),
+                }
                 return self.apply_device_config();
             }
 
