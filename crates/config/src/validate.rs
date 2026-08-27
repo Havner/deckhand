@@ -60,11 +60,12 @@ impl ConfigDoc {
 }
 
 impl DeviceConfig {
-    /// Validate the device config: master rumble ≤ 100 (a soft cap — `strength` may boost past it).
+    /// Validate the device config: the Gordon pulse frequency must be in the usable pulse-train band
+    /// (the reader clamps to `16..=1000`; the UI offers a tighter range).
     pub fn validate(&self) -> Vec<Diagnostic> {
         let mut out = Vec::new();
-        if self.master_rumble > 100 {
-            warning(&mut out, format!("master_rumble is {} (> 100%)", self.master_rumble));
+        if !(16..=1000).contains(&self.gordon.hz) {
+            warning(&mut out, format!("gordon.hz is {} (usable 16..=1000)", self.gordon.hz));
         }
         out
     }

@@ -1,9 +1,9 @@
 //! Persistence for the device config, in RON at `$XDG_CONFIG_HOME/deckhand/devcfg.ron`.
 //!
-//! This is the **same file the main `deckhand` UI owns** — intentionally shared. The forwarder only
-//! ever changes `master_rumble` (its one slider), and it does so by loading the whole
-//! [`DeviceConfig`], mutating that field, and saving — so the other fields (LED / idle / rumble Hz)
-//! are preserved untouched. The in-memory copy, this file, and the daemon stay in lock-step (a
+//! This is the **same file the main `deckhand` UI owns** — intentionally shared. The forwarder edits
+//! only the bound device's rumble shaping, and it does so by loading the whole [`DeviceConfig`],
+//! mutating those fields, and saving — so the rest (LED / idle / the other devices' rumble) is
+//! preserved untouched. The in-memory copy, this file, and the daemon stay in lock-step (a
 //! `DeviceConfigSet` event re-lands the value; see `apply_event`).
 
 use std::path::PathBuf;

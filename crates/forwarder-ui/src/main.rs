@@ -53,6 +53,7 @@ pub(crate) const GAIN_MAX_DB: i8 = 16;
 /// A copy of the main UI's enum (the forwarder is a deliberate duplicate; no shared crate).
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RumbleLeverId {
+    GordonDuty,
     NeptuneSpeed,
     NeptuneGain,
     TritonSpeed,
@@ -151,7 +152,7 @@ fn main() -> iced::Result {
 pub(crate) struct App {
     /// The forwarder's own persisted settings (theme / window size / last input+output).
     settings: Settings,
-    /// The device config (shared `devcfg.ron`); only `master_rumble` is edited here.
+    /// The device config (shared `devcfg.ron`); the forwarder edits only the bound device's rumble.
     device_config: DeviceConfig,
     /// The **live** content of the output (`ip:port`) text field. User-owned: seeded from
     /// `settings.last_output`, edited freely (typing or keypad), and **never** overwritten by the
@@ -191,11 +192,9 @@ pub(crate) enum Message {
     Key(char),
     /// The keypad backspace — drops the last char of the output field.
     Backspace,
-    /// The master-rumble slider moved.
-    RumbleChanged(u8),
     /// The Gordon rumble-frequency slider moved.
     RumbleHzChanged(u16),
-    /// A per-device motor-rumble lever edit (Neptune/Triton × speed/gain).
+    /// A per-device rumble lever edit (Gordon duty / Neptune·Triton speed + gain).
     RumbleLever(RumbleLeverId, RumbleLeverEdit),
     /// Results of daemon calls run off the render thread (stringified — `io::Error` isn't `Clone`).
     StatusFetched(Result<StatusSnapshot, String>),
@@ -324,17 +323,14 @@ impl App {
                 self.output_text.pop();
                 self.remember_output();
             }
-            Message::RumbleChanged(v) => {
-                self.device_config.master_rumble = v;
-                return self.apply_device_config();
-            }
             Message::RumbleHzChanged(v) => {
-                self.device_config.rumble_hz = v;
+                self.device_config.gordon.hz = v;
                 return self.apply_device_config();
             }
             Message::RumbleLever(id, edit) => {
                 let d = &mut self.device_config;
                 match id {
+                    RumbleLeverId::GordonDuty => edit_speed_lever(&mut d.gordon.duty, edit),
                     RumbleLeverId::NeptuneSpeed => edit_speed_lever(&mut d.neptune.speed, edit),
                     RumbleLeverId::NeptuneGain => edit_gain_lever(&mut d.neptune.gain, edit),
                     RumbleLeverId::TritonSpeed => edit_speed_lever(&mut d.triton.speed, edit),

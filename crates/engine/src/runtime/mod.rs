@@ -50,9 +50,10 @@ pub(crate) enum Control {
     Stop,
 }
 
-/// The effective rumble to realize on the controller: per-pad drive (already scaled by master ×
-/// profile strength × curve) plus the pulse frequency from the main profile. Produced by the
-/// mapping loop's `rumble_cmd`, realized by the reader's `apply_haptics`.
+/// The effective rumble to realize on the controller: per-pad drive (already scaled by profile
+/// strength × curve). The per-device shaping (levers, pulse frequency) is applied reader-side.
+/// Produced by the mapping loop's `rumble_cmd`, realized by the reader's `apply_gordon` /
+/// `apply_rumble{,_triton}`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub(crate) struct RumbleCmd {
     pub(crate) strong: u16,

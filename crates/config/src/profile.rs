@@ -48,7 +48,7 @@ pub struct Layer {
 }
 
 /// Per-profile rumble feel (the back-channel: game rumble → Gordon trackpad haptics). The
-/// profile tunes the texture; `DeviceConfig::master_rumble` scales it (Round E).
+/// profile tunes the texture; the per-device rumble levers (`DeviceConfig`) shape it (Round E).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RumbleSettings {

@@ -108,7 +108,7 @@ fn keypad() -> Element<'static, Message> {
     }
     // Backspace matches the grid's exact height (4 keys + 3 gaps) so it aligns flush with the bottom
     // row rather than overhanging it.
-    const GRID_H: f32 = 4.0 * 45.0 + 3.0 * 8.0;
+    const GRID_H: f32 = 4.0 * 42.0 + 3.0 * 8.0;
     let back = button(text("⌫").size(22.0).center())
         .on_press(Message::Backspace)
         .width(70.0)
@@ -124,49 +124,37 @@ fn key(c: char) -> Element<'static, Message> {
     button(text(c.to_string()).size(22.0).center())
         .on_press(Message::Key(c))
         .width(70.0)
-        .height(45.0)
+        .height(42.0)
         .into()
 }
 
 // --- rumble ---------------------------------------------------------------------------------
 
-/// The rumble settings: the master-rumble slider (`0..=100 %`, writing `DeviceConfig.master_rumble`)
-/// plus — **only when a device is bound** — the device-specific rumble group for that device's shape.
-/// This mirrors the main UI's Device page (Gordon = pulse-train frequency; Neptune/Triton = per-motor
-/// speed + gain levers), but shows a single group at a time (the bound device's).
+/// The rumble settings for the **bound** device — the same levers the main UI's Device page shows
+/// (Gordon = pulse duty + frequency; Neptune/Triton = per-motor speed + gain), but only for whatever
+/// controller is bound, with no device-name header and **nothing at all before a device is bound**
+/// (there is no global master rumble — each device's levers scale its own strength).
 fn rumble(app: &App) -> Element<'_, Message> {
     let d = &app.device_config;
-    let master = row![
-        setting_label("Master rumble"),
-        slider(0..=100u8, d.master_rumble, Message::RumbleChanged).width(Fill),
-        pct_text(Some(d.master_rumble)),
-    ]
-    .spacing(12.0)
-    .align_y(Center);
-
-    let mut col = column![master].spacing(16.0);
-
-    // Show the device-specific group only for the currently bound device (its shape).
-    if let Some(shape) = app.status.as_ref().and_then(|s| s.bound.as_ref()).map(|b| &b.shape) {
-        match shape {
-            Shape::Gordon => {
-                col = col.push(group_header("Gordon")).push(frequency_row(d.rumble_hz));
-            }
-            Shape::Neptune => {
-                col = col
-                    .push(group_header("Neptune"))
-                    .push(speed_lever_row("Speed", &d.neptune.speed, RumbleLeverId::NeptuneSpeed))
-                    .push(gain_lever_row("Gain", &d.neptune.gain, RumbleLeverId::NeptuneGain));
-            }
-            Shape::Triton => {
-                col = col
-                    .push(group_header("Triton"))
-                    .push(speed_lever_row("Speed", &d.triton.speed, RumbleLeverId::TritonSpeed))
-                    .push(gain_lever_row("Gain", &d.triton.gain, RumbleLeverId::TritonGain));
-            }
-        }
-    }
-    col.into()
+    let Some(shape) = app.status.as_ref().and_then(|s| s.bound.as_ref()).map(|b| &b.shape) else {
+        // Nothing bound → no rumble UI (an empty element).
+        return column![].into();
+    };
+    let rows = match shape {
+        Shape::Gordon => column![
+            speed_lever_row("Duty", &d.gordon.duty, RumbleLeverId::GordonDuty),
+            frequency_row(d.gordon.hz),
+        ],
+        Shape::Neptune => column![
+            speed_lever_row("Speed", &d.neptune.speed, RumbleLeverId::NeptuneSpeed),
+            gain_lever_row("Gain", &d.neptune.gain, RumbleLeverId::NeptuneGain),
+        ],
+        Shape::Triton => column![
+            speed_lever_row("Speed", &d.triton.speed, RumbleLeverId::TritonSpeed),
+            gain_lever_row("Gain", &d.triton.gain, RumbleLeverId::TritonGain),
+        ],
+    };
+    rows.spacing(16.0).into()
 }
 
 /// The Gordon rumble-frequency row (30–150 Hz pulse-train rate).
@@ -264,11 +252,6 @@ fn lever_row<'a>(
 /// Shorthand for a lever-edit message.
 fn edit(id: RumbleLeverId, e: RumbleLeverEdit) -> Message {
     Message::RumbleLever(id, e)
-}
-
-/// A device rumble group heading.
-fn group_header(title: &'static str) -> Element<'static, Message> {
-    text(title).size(18.0).into()
 }
 
 /// A fixed-width row label, so the controls line up down the form.

@@ -10,7 +10,7 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use config::{Chords, ConfigDoc, DeviceConfig};
+use config::{Chord, ChordAction, Chords, ConfigDoc, DeviceConfig, GordonTuning, Lever, RumbleTuning};
 use ipc::{BoundDevice, Client, Event, ProfileRole, Request, Response, StatusSnapshot};
 
 /// The command reference, shown under `--help` (the commands are raw args, so clap can't describe
@@ -244,8 +244,66 @@ fn fmt_event(ev: &Event) -> String {
             format!("profile set: {role:?} = {}", name.as_deref().unwrap_or("(none)"))
         }
         Event::ChordsSet(c) => format!("chords set: {}", chord_summary(c)),
-        Event::DeviceConfigSet(d) => format!("devcfg set: master_rumble={}%", d.master_rumble),
+        Event::DeviceConfigSet(d) => format!("devcfg set: {}", devcfg_lines(d).join(" | ")),
     }
+}
+
+/// A `Lever<u8>` (percent) rendered compactly: `40%` (fixed) or `0-100%` (scaled band).
+fn lever_pct(l: &Lever<u8>) -> String {
+    match l {
+        Lever::Fixed(v) => format!("{v}%"),
+        Lever::Scaled { min, max } => format!("{min}-{max}%"),
+    }
+}
+
+/// A `Lever<i8>` (dB, signed) rendered compactly: `+2dB` (fixed) or `-4..+12dB` (scaled band).
+fn lever_db(l: &Lever<i8>) -> String {
+    match l {
+        Lever::Fixed(v) => format!("{v:+}dB"),
+        Lever::Scaled { min, max } => format!("{min:+}..{max:+}dB"),
+    }
+}
+
+/// Device-config summary as lines (LED/idle, then one line per device's rumble) — the status block
+/// prints them stacked; the event stream joins them onto one line.
+fn devcfg_lines(d: &DeviceConfig) -> Vec<String> {
+    let led = d.led_brightness.map_or_else(|| "default".to_string(), |v| format!("{v}%"));
+    let idle = d.idle_timeout.map_or_else(|| "default".to_string(), |s| format!("{s}s"));
+    let GordonTuning { duty, hz } = &d.gordon;
+    let RumbleTuning { speed: nspeed, gain: ngain } = &d.neptune;
+    let RumbleTuning { speed: tspeed, gain: tgain } = &d.triton;
+    vec![
+        format!("led={led} idle={idle}"),
+        format!("gordon(duty {}, {hz}Hz)", lever_pct(duty)),
+        format!("neptune(speed {}, gain {})", lever_pct(nspeed), lever_db(ngain)),
+        format!("triton(speed {}, gain {})", lever_pct(tspeed), lever_db(tgain)),
+    ]
+}
+
+/// Chords as lines: `(none)`, or the count followed by one `#N buttons → action` line per chord.
+fn chord_lines(chords: &Option<Chords>) -> Vec<String> {
+    let Some(c) = chords else {
+        return vec!["(none)".to_string()];
+    };
+    let mut out = vec![c.chords.len().to_string()];
+    out.extend(
+        c.chords
+            .iter()
+            .enumerate()
+            .map(|(i, ch)| format!("#{} {}", i + 1, chord_desc(ch))),
+    );
+    out
+}
+
+/// A one-line description of a chord: its buttons (AND-combined) -> its action.
+fn chord_desc(ch: &Chord) -> String {
+    let buttons = ch.buttons.iter().map(|b| format!("{b:?}")).collect::<Vec<_>>().join("+");
+    let action = match &ch.action {
+        ChordAction::SwitchProfile { mode } => format!("switch profile ({mode:?})"),
+        ChordAction::CommandExecute { command, args } if args.is_empty() => format!("run `{command}`"),
+        ChordAction::CommandExecute { command, args } => format!("run `{command} {}`", args.join(" ")),
+    };
+    format!("{buttons} -> {action}")
 }
 
 /// `(none)` when no chords are set, else the count — the shared rendering for status + events.
@@ -291,6 +349,19 @@ fn print_response(label: &str, resp: Response) -> ExitCode {
     }
 }
 
+/// The status value column: labels are padded to the width of the longest (`controller:`) so values
+/// line up. Continuation lines of a multi-line field ([`print_field`]) indent to match.
+const STATUS_COL: usize = 12;
+
+/// Print a status field whose value may span multiple lines: the first line carries `label` (padded
+/// to [`STATUS_COL`]), any further lines are blank-padded to align under it.
+fn print_field(label: &str, lines: &[String]) {
+    for (i, line) in lines.iter().enumerate() {
+        let head = if i == 0 { label } else { "" };
+        println!("{head:<STATUS_COL$}{line}");
+    }
+}
+
 fn print_status(s: &StatusSnapshot) {
     // Labels padded to the width of the longest (`controller:`) so values line up in one column.
     let controller = match s.controller {
@@ -309,11 +380,11 @@ fn print_status(s: &StatusSnapshot) {
     println!("bound:      {}", bound_summary(&s.bound));
     println!("controller: {controller}");
     println!("battery:    {}", battery_summary(s.battery));
-    println!("devcfg:     master_rumble={}%", s.device_config.master_rumble);
+    print_field("devcfg:", &devcfg_lines(&s.device_config));
     println!("main:       {}", s.main.as_deref().unwrap_or("(none)"));
     println!("fallback:   {}", s.fallback.as_deref().unwrap_or("(none)"));
     println!("active:     {active}");
-    println!("chords:     {}", chord_summary(&s.chords));
+    print_field("chords:", &chord_lines(&s.chords));
 }
 
 fn print_devices(ids: &[String]) {

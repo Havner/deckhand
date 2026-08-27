@@ -27,7 +27,7 @@ mod validate;
 pub use action::{Action, ActionSetRef, LayerRef};
 pub use binding::SourceBinding;
 pub use chords::{Chord, ChordAction, Chords, SwitchMode};
-pub use device::{DeviceConfig, Lever, RumbleTuning};
+pub use device::{DeviceConfig, GordonTuning, Lever, RumbleTuning};
 pub use profile::{ActionSet, ConfigDoc, Layer, RumbleSettings};
 pub use command::{
     Activator, Command, CommandSettings, HapticEdge, HapticStrength, Haptics, Turbo,

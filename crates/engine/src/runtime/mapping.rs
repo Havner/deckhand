@@ -127,8 +127,8 @@ pub(super) fn run_mapper(
             }
 
             // Rumble back-channel (game → virtual pad → real controller): scale by the *main*
-            // profile's strength/curve, carrying its pulse Hz. The device master % is applied
-            // reader-side (device-local, see `ReaderCfg::master_rumble`). On change.
+            // profile's strength/curve. The per-device rumble shaping (levers, pulse Hz) is applied
+            // reader-side (device-local, see `ReaderCfg::rumble`). On change.
             let prog = program_for(&role, &main, &fallback);
             let cmd = rumble_cmd(sink.poll_rumble()?, &prog.rumble);
             if cmd != last_rumble {
@@ -249,8 +249,8 @@ fn run_waiting(
 }
 
 /// Compute the effective per-pad drive from a raw game rumble and the main profile's rumble settings
-/// (strength % + response curve). The device master % and the pulse frequency are NOT applied here —
-/// the reader does that (device-local; see `ReaderCfg::master_rumble` / `ReaderCfg::rumble_hz`).
+/// (strength % + response curve). The per-device rumble shaping (levers, pulse frequency) is NOT
+/// applied here — the reader does that (device-local; see `ReaderCfg::rumble`).
 fn rumble_cmd(raw: Rumble, s: &RumbleSettings) -> RumbleCmd {
     // Per-profile `strength` MAY exceed 100 to *boost* a game that under-drives its FF — many cap
     // well below full range (observed: 25%), so at `MAX_DUTY` they'd never reach the actuator's
@@ -330,8 +330,8 @@ mod tests {
     fn rumble_cmd_applies_strength() {
         let full = Rumble { strong: u16::MAX, weak: u16::MAX / 2 };
 
-        // strength 100% (default) passes through unchanged. Master and frequency are NOT applied
-        // here — the reader does that (see `reader::scale_master` / `ReaderCfg::rumble_hz`).
+        // strength 100% (default) passes through unchanged. The per-device rumble shaping is NOT
+        // applied here — the reader does that (see `ReaderCfg::rumble`).
         let s = RumbleSettings { strength: 100, curve: Curve::Linear };
         let cmd = rumble_cmd(full.clone(), &s);
         assert_eq!(cmd.strong, u16::MAX);

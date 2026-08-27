@@ -304,6 +304,7 @@ pub(crate) struct App {
 /// levers carry `u8` percent, the gain levers `i8` dB — the handler routes each to the right field.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RumbleLeverId {
+    GordonDuty,
     NeptuneSpeed,
     NeptuneGain,
     TritonSpeed,
@@ -393,9 +394,8 @@ pub(crate) enum Message {
     DeviceLedBrightness(u8),
     DeviceIdleEnabled(bool),
     DeviceIdleTimeout(u16),
-    DeviceMasterRumble(u8),
     DeviceRumbleHz(u16),
-    /// Per-device motor-rumble lever edit (Neptune/Triton × speed/gain). See [`RumbleLeverId`]/
+    /// Per-device rumble lever edit (Gordon duty / Neptune·Triton speed + gain). See [`RumbleLeverId`]/
     /// [`RumbleLeverEdit`]; routed to the lever helpers, then persisted + pushed like the others.
     DeviceRumbleLever(RumbleLeverId, RumbleLeverEdit),
     /// Tray settings.
@@ -716,17 +716,14 @@ impl App {
                 self.device_config.idle_timeout = Some(secs);
                 return self.apply_device_config();
             }
-            Message::DeviceMasterRumble(v) => {
-                self.device_config.master_rumble = v;
-                return self.apply_device_config();
-            }
             Message::DeviceRumbleHz(v) => {
-                self.device_config.rumble_hz = v;
+                self.device_config.gordon.hz = v;
                 return self.apply_device_config();
             }
             Message::DeviceRumbleLever(id, edit) => {
                 let d = &mut self.device_config;
                 match id {
+                    RumbleLeverId::GordonDuty => edit_speed_lever(&mut d.gordon.duty, edit),
                     RumbleLeverId::NeptuneSpeed => edit_speed_lever(&mut d.neptune.speed, edit),
                     RumbleLeverId::NeptuneGain => edit_gain_lever(&mut d.neptune.gain, edit),
                     RumbleLeverId::TritonSpeed => edit_speed_lever(&mut d.triton.speed, edit),

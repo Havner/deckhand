@@ -6,8 +6,8 @@
 //! - `cp2077_profile` mirrors `crates/virt-out/examples/bridge.rs` (Gordon → virtual Xbox pad +
 //!   kbd/mouse + gyro-mouse): a mode-shift **layer** (left stick → right stick while the right
 //!   pad is clicked), gyro gated by the left full-pull (vertical inverted, as in the bridge).
-//! - `device_config` carries the master rumble; `chords` carries the **Steam/QuickAccess + grip**
-//!   profile-switch chords.
+//! - `device_config` carries the per-device rumble shaping; `chords` carries the
+//!   **Steam/QuickAccess + grip** profile-switch chords.
 //!
 //! Run `cargo run -p config --example example_profiles [out_dir]` to write the profiles into
 //! `<out_dir>/profiles/` and `devcfg.ron` into `<out_dir>` — the same layout the UI uses under
@@ -1873,10 +1873,9 @@ pub fn chords() -> Chords {
 }
 
 pub fn device_config() -> DeviceConfig {
-    DeviceConfig {
-        master_rumble: 100,
-        ..Default::default()
-    }
+    // The defaults already reproduce the stock feel; this just illustrates the per-device rumble
+    // shape (Gordon duty + hz, Neptune/Triton speed + gain).
+    DeviceConfig::default()
 }
 
 fn main() -> std::io::Result<()> {

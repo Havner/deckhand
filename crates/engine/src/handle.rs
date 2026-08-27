@@ -291,7 +291,7 @@ impl Engine {
     /// no-op and it's simply retained for the next local start.
     pub fn set_device_config(&mut self, device_config: DeviceConfig) {
         let mode = if self.runtime.is_some() { "live" } else { "staged" };
-        log::info!("set_device_config: master_rumble={}% ({mode})", device_config.master_rumble);
+        log::info!("set_device_config ({mode})");
         self.device_config = device_config;
         if let Some(rt) = &self.runtime {
             rt.set_device_config(self.device_config.clone());

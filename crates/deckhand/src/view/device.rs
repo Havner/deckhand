@@ -17,15 +17,6 @@ use crate::{
 pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
     let d = &app.device_config;
 
-    // Master rumble: a 0–100% slider with a live readout.
-    let master = row![
-        setting_label("Master rumble"),
-        slider(0..=100u8, d.master_rumble, Message::DeviceMasterRumble),
-        pct_text(Some(d.master_rumble)),
-    ]
-    .spacing(12.0)
-    .align_y(Center);
-
     // LED brightness: an `Option` — the checkbox gates a 0–100% slider. When off it's the same
     // slider widget (identical geometry) but styled inert and non-interactive, so `None` reads as
     // "leave default" without the jarring size change a different widget would cause.
@@ -68,12 +59,12 @@ pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
     .align_y(Center);
 
     // Rumble: three device-specific sections. Gordon has trackpad actuators driven as a pulse-train
-    // (only the frequency is tunable); Neptune and Triton have real motors whose speed + gain each
-    // map from the game's rumble strength via a lever (fixed, or scaled into a band).
+    // (a duty lever + a tunable frequency); Neptune and Triton have real motors whose speed + gain
+    // each map from the game's rumble strength via a lever (fixed, or scaled into a band).
     let frequency = row![
         setting_label("Frequency"),
-        slider(30..=150u16, d.rumble_hz, Message::DeviceRumbleHz).step(1u16),
-        text(format!("{} Hz", d.rumble_hz)).width(70.0),
+        slider(30..=150u16, d.gordon.hz, Message::DeviceRumbleHz).step(1u16),
+        text(format!("{} Hz", d.gordon.hz)).width(70.0),
     ]
     .spacing(12.0)
     .align_y(Center);
@@ -82,13 +73,13 @@ pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
         section_header("Device config"),
         led,
         idle,
-        master,
-        group_header("Gordon"),
+        group_header("Gordon rumble"),
+        speed_lever_row("Duty", &d.gordon.duty, RumbleLeverId::GordonDuty),
         frequency,
-        group_header("Neptune"),
+        group_header("Neptune rumble"),
         speed_lever_row("Speed", &d.neptune.speed, RumbleLeverId::NeptuneSpeed),
         gain_lever_row("Gain", &d.neptune.gain, RumbleLeverId::NeptuneGain),
-        group_header("Triton"),
+        group_header("Triton rumble"),
         speed_lever_row("Speed", &d.triton.speed, RumbleLeverId::TritonSpeed),
         gain_lever_row("Gain", &d.triton.gain, RumbleLeverId::TritonGain),
     ]
