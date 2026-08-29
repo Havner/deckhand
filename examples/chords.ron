@@ -3,7 +3,7 @@
         (
             buttons: [
                 Steam,
-                RGrip,
+                LGrip,
             ],
             action: SwitchProfile(
                 mode: SetMain,
@@ -12,7 +12,7 @@
         (
             buttons: [
                 Steam,
-                LGrip,
+                RGrip,
             ],
             action: SwitchProfile(
                 mode: SetFallback,

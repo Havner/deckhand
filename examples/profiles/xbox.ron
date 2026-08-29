@@ -472,7 +472,7 @@
                 (
                     name: "system_keys",
                     bindings: {
-                        DPad: ButtonPad(
+                        FaceButtons: ButtonPad(
                             up: [
                                 (
                                     activator: Regular(
@@ -515,7 +515,7 @@
                                         interruptible: true,
                                     ),
                                     actions: [
-                                        Key(PlayPause),
+                                        Key(Rewind),
                                     ],
                                     settings: (
                                         toggle: false,
@@ -533,7 +533,7 @@
                                         interruptible: true,
                                     ),
                                     actions: [
-                                        Key(NextSong),
+                                        Key(PlayPause),
                                     ],
                                     settings: (
                                         toggle: false,

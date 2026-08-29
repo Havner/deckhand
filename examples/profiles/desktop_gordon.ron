@@ -440,7 +440,7 @@
                             x: 1.2,
                             y: 1.2,
                         ),
-                        curve: Power(3.0),
+                        curve: Power(2.0),
                         deadzone: (
                             inner: 0.05,
                         ),
@@ -558,6 +558,85 @@
             },
             layers: [
                 (
+                    name: "system_keys",
+                    bindings: {
+                        FaceButtons: ButtonPad(
+                            up: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        Key(VolumeUp),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: Off,
+                                            strength: Medium,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                            down: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        Key(VolumeDown),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: Off,
+                                            strength: Medium,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                            left: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        Key(Rewind),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: Off,
+                                            strength: Medium,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                            right: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        Key(PlayPause),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: Off,
+                                            strength: Medium,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                        ),
+                    },
+                ),
+                (
                     name: "alt_mouse",
                     bindings: {
                         LeftStick: JoystickMouse(
@@ -568,7 +647,7 @@
                                     x: 1.2,
                                     y: 1.2,
                                 ),
-                                curve: Power(3.0),
+                                curve: Power(2.0),
                                 deadzone: (
                                     inner: 0.05,
                                 ),
@@ -588,7 +667,7 @@
                         LeftPad: AsMouse(
                             settings: (
                                 output: Scroll,
-                                axis: Both,
+                                axis: Vertical,
                                 sensitivity: (
                                     x: 1.5,
                                     y: 1.5,
@@ -646,87 +725,6 @@
                                 ),
                             ),
                         ),
-                    },
-                ),
-                (
-                    name: "system_keys",
-                    bindings: {
-                        DPad: ButtonPad(
-                            up: [
-                                (
-                                    activator: Regular(
-                                        interruptible: true,
-                                    ),
-                                    actions: [
-                                        Key(VolumeUp),
-                                    ],
-                                    settings: (
-                                        toggle: false,
-                                        turbo: None,
-                                        haptics: (
-                                            on: Off,
-                                            strength: Medium,
-                                        ),
-                                    ),
-                                ),
-                            ],
-                            down: [
-                                (
-                                    activator: Regular(
-                                        interruptible: true,
-                                    ),
-                                    actions: [
-                                        Key(VolumeDown),
-                                    ],
-                                    settings: (
-                                        toggle: false,
-                                        turbo: None,
-                                        haptics: (
-                                            on: Off,
-                                            strength: Medium,
-                                        ),
-                                    ),
-                                ),
-                            ],
-                            left: [
-                                (
-                                    activator: Regular(
-                                        interruptible: true,
-                                    ),
-                                    actions: [
-                                        Key(PlayPause),
-                                    ],
-                                    settings: (
-                                        toggle: false,
-                                        turbo: None,
-                                        haptics: (
-                                            on: Off,
-                                            strength: Medium,
-                                        ),
-                                    ),
-                                ),
-                            ],
-                            right: [
-                                (
-                                    activator: Regular(
-                                        interruptible: true,
-                                    ),
-                                    actions: [
-                                        Key(NextSong),
-                                    ],
-                                    settings: (
-                                        toggle: false,
-                                        turbo: None,
-                                        haptics: (
-                                            on: Off,
-                                            strength: Medium,
-                                        ),
-                                    ),
-                                ),
-                            ],
-                        ),
-                        LeftPad: r#None,
-                        LeftPadClick: r#None,
                     },
                 ),
             ],

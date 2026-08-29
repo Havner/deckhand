@@ -1,6 +1,25 @@
 (
     led_brightness: None,
     idle_timeout: None,
-    master_rumble: 100,
-    rumble_hz: 60,
+    gordon: (
+        duty: Scaled(
+            min: 0,
+            max: 100,
+        ),
+        hz: 60,
+    ),
+    neptune: (
+        speed: Scaled(
+            min: 0,
+            max: 100,
+        ),
+        gain: Fixed(2),
+    ),
+    triton: (
+        speed: Scaled(
+            min: 0,
+            max: 100,
+        ),
+        gain: Fixed(0),
+    ),
 )

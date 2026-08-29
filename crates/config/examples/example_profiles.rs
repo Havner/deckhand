@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 
 use config::{
-    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Axis, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings
 };
 use vocab_hid::Button;
 use vocab_out::{GamepadButton, Key, MouseButton};
@@ -332,7 +332,7 @@ pub fn desktop_profile() -> ConfigDoc {
             settings: JoystickMouseSettings {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
-                curve: Curve::Power(4.0),
+                curve: Curve::Power(2.0),
                 deadzone: Deadzone { inner: 0.05 },
                 ..Default::default()
             },
@@ -730,7 +730,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             settings: JoystickMouseSettings {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
-                curve: Curve::Power(3.0),
+                curve: Curve::Power(2.0),
                 deadzone: Deadzone { inner: 0.05 },
                 ..Default::default()
             },
@@ -865,7 +865,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                     settings: JoystickMouseSettings {
                         output: MouseOutput::Cursor,
                         sensitivity: Sensitivity { x: 1.2, y: 1.2 },
-                        curve: Curve::Power(3.0),
+                        curve: Curve::Power(2.0),
                         deadzone: Deadzone { inner: 0.05 },
                         ..Default::default()
                     },
@@ -876,6 +876,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                 SourceBinding::AsMouse {
                     settings: AsMouseSettings {
                         output: MouseOutput::Scroll,
+                        axis: Axis::Vertical,
                         sensitivity: Sensitivity { x: 1.5, y: 1.5 },
                         acceleration: Acceleration { factor: 0.05 },
                         smoothing: Some(OneEuroFilter {
@@ -1230,17 +1231,6 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
     let mut profile = xbox_profile();
     profile.name = "Xbox+Mouse".into();
 
-    // Left grip 2 → system_keys layer
-    profile.action_sets[0].bindings.insert(
-        InputSource::LeftGrip2,
-        SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
-        },
-    );
     // Right grip 2 click adds the mode-shift layer (left stick → right stick).
     profile.action_sets[0].bindings.insert(
         InputSource::RightGrip2,
@@ -1267,7 +1257,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
             settings: JoystickMouseSettings {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
-                curve: Curve::Power(3.0),
+                curve: Curve::Power(2.0),
                 deadzone: Deadzone { inner: 0.05 },
                 ..Default::default()
             },
@@ -1744,7 +1734,7 @@ pub fn control_profile() -> ConfigDoc {
             settings: JoystickMouseSettings {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
-                curve: Curve::Power(3.0),
+                curve: Curve::Power(2.0),
                 deadzone: Deadzone { inner: 0.05 },
                 ..Default::default()
             },
@@ -1844,13 +1834,13 @@ pub fn chords() -> Chords {
     Chords {
         chords: vec![
             Chord {
-                buttons: vec![Button::Steam, Button::RGrip],
+                buttons: vec![Button::Steam, Button::LGrip],
                 action: ChordAction::SwitchProfile {
                     mode: SwitchMode::SetMain,
                 },
             },
             Chord {
-                buttons: vec![Button::Steam, Button::LGrip],
+                buttons: vec![Button::Steam, Button::RGrip],
                 action: ChordAction::SwitchProfile {
                     mode: SwitchMode::SetFallback,
                 },

@@ -455,7 +455,7 @@
                             x: 1.2,
                             y: 1.2,
                         ),
-                        curve: Power(4.0),
+                        curve: Power(2.0),
                         deadzone: (
                             inner: 0.05,
                         ),
@@ -592,47 +592,9 @@
             },
             layers: [
                 (
-                    name: "gyro",
-                    bindings: {
-                        RightPad: r#None,
-                        Gyro: GyroToMouse(
-                            settings: (
-                                output: Cursor,
-                                axis: Both,
-                                space: PlayerSpace,
-                                sensitivity: (
-                                    x: 1.0,
-                                    y: 1.0,
-                                ),
-                                acceleration: (
-                                    factor: 0.02,
-                                ),
-                                smoothing: Some((
-                                    min_cutoff: 5.0,
-                                    beta: 0.5,
-                                )),
-                                deadzone: (
-                                    inner: 0.01,
-                                ),
-                                invert: (
-                                    x: false,
-                                    y: false,
-                                ),
-                                rotation: (
-                                    degrees: 0.0,
-                                ),
-                                activation: (
-                                    mode: HoldToDisable,
-                                    gaters: [],
-                                ),
-                            ),
-                        ),
-                    },
-                ),
-                (
                     name: "system_keys",
                     bindings: {
-                        DPad: ButtonPad(
+                        FaceButtons: ButtonPad(
                             up: [
                                 (
                                     activator: Regular(
@@ -675,7 +637,7 @@
                                         interruptible: true,
                                     ),
                                     actions: [
-                                        Key(PlayPause),
+                                        Key(Rewind),
                                     ],
                                     settings: (
                                         toggle: false,
@@ -693,7 +655,7 @@
                                         interruptible: true,
                                     ),
                                     actions: [
-                                        Key(NextSong),
+                                        Key(PlayPause),
                                     ],
                                     settings: (
                                         toggle: false,
@@ -706,8 +668,44 @@
                                 ),
                             ],
                         ),
-                        LeftPad: r#None,
-                        LeftPadClick: r#None,
+                    },
+                ),
+                (
+                    name: "gyro",
+                    bindings: {
+                        RightPad: r#None,
+                        Gyro: GyroToMouse(
+                            settings: (
+                                output: Cursor,
+                                axis: Both,
+                                space: PlayerSpace,
+                                sensitivity: (
+                                    x: 1.0,
+                                    y: 1.0,
+                                ),
+                                acceleration: (
+                                    factor: 0.02,
+                                ),
+                                smoothing: Some((
+                                    min_cutoff: 5.0,
+                                    beta: 0.5,
+                                )),
+                                deadzone: (
+                                    inner: 0.01,
+                                ),
+                                invert: (
+                                    x: false,
+                                    y: false,
+                                ),
+                                rotation: (
+                                    degrees: 0.0,
+                                ),
+                                activation: (
+                                    mode: HoldToDisable,
+                                    gaters: [],
+                                ),
+                            ),
+                        ),
                     },
                 ),
             ],

@@ -527,7 +527,7 @@
                             x: 1.2,
                             y: 1.2,
                         ),
-                        curve: Power(3.0),
+                        curve: Power(2.0),
                         deadzone: (
                             inner: 0.05,
                         ),
@@ -653,7 +653,7 @@
                 (
                     name: "system_keys",
                     bindings: {
-                        DPad: ButtonPad(
+                        FaceButtons: ButtonPad(
                             up: [
                                 (
                                     activator: Regular(
@@ -696,7 +696,7 @@
                                         interruptible: true,
                                     ),
                                     actions: [
-                                        Key(PlayPause),
+                                        Key(Rewind),
                                     ],
                                     settings: (
                                         toggle: false,
@@ -714,7 +714,7 @@
                                         interruptible: true,
                                     ),
                                     actions: [
-                                        Key(NextSong),
+                                        Key(PlayPause),
                                     ],
                                     settings: (
                                         toggle: false,
