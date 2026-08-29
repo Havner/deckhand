@@ -39,4 +39,8 @@ pub enum Error {
     /// A device-id string that could not be parsed (see [`DeviceId`](crate::DeviceId)).
     #[error("invalid device id: {0:?}")]
     ParseDeviceId(String),
+
+    /// An operation the target haptic path / device does not support.
+    #[error("unsupported operation: {0}")]
+    Unsupported(&'static str),
 }

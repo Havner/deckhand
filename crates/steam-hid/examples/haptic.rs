@@ -21,7 +21,8 @@
 //! gain** sweep (fixed frequency, amplitude via the Deck-honored `gain` byte). **`--longstop`**
 //! probes how to **stop** a long (no-re-fire) train early (count=1 vs count=0). **`--eint`** sweeps
 //! the `0xEB` `intensity` word (a finer, **inverted** amplitude lever — 0 = strongest). **`--ea`**
-//! probes the unused `0xEA` `SET_HAPTIC2` (position/style/intensity, from the C#). `<dur_us>
+//! exercises the `0xEA` `SET_HAPTIC2` click via `Device::haptic_cmd`, iterating side (left / right /
+//! both) × style (Weak, Strong) × all `HapticIntensity` levels (Default..Insane). `<dur_us>
 //! <interval_us> <count> [pad]` → fire one **custom** pulse (pad 0=R/1=L/2=both, default both).
 //!
 //! **`--triton`** runs the new Steam Controller's own suite — `0x80` dual-motor rumble (per-motor
@@ -38,7 +39,7 @@ mod common;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use steam_hid::{Device, HapticPulse, HapticStyle, Manager, Motor};
+use steam_hid::{Device, HapticIntensity, HapticPulse, HapticStyle, Manager, Motor};
 
 // Mirror the engine's rumble cadence (`crates/engine/src/runtime.rs` RUMBLE_TRAIN_MS /
 // RUMBLE_REFIRE_MS — keep in sync) so what you feel in the sweeps matches the game: a *short*
@@ -436,9 +437,9 @@ fn main() -> steam_hid::Result<()> {
     }
 
     // --- 0xEB INTENSITY sweep (Deck): the `0xeb` `intensity` word — a FINER amplitude lever than
-    // the coarse dB `gain`, but **inverted** (0 = strongest, larger = weaker, ~unfelt near u16::MAX;
-    // usable ~0..16k). Fire a fixed 50% strength + 6dB gain and sweep intensity so you can feel the
-    // amplitude fall off. One burst per value, no stop — the ~0.5s burst self-expires. ---
+    // the coarse dB `gain`, **inverted** (0 = strongest, larger = weaker, ~unfelt near u16::MAX;
+    // usable ~0..16k). A LE u16 (kernel/SDL): the low byte alone is imperceptible (it's the LSB), so
+    // sweep across the whole word. Fixed 50% strength + 6dB gain; one burst per value, self-expires. ---
     if run_eint {
         let strength = u16::MAX / 2; // ~50%
         let gain = 6i8;
@@ -455,35 +456,38 @@ fn main() -> steam_hid::Result<()> {
         let _ = device.rumble_cmd(0, 0, 0, gain, gain); // ensure silence at the end
     }
 
-    // --- 0xEA SET_HAPTIC2 (Deck): the C# app's exclusive Deck haptic — a short, finely-tuned
-    // trackpad "click" (nicer than 0x8f; the strongest beats a full 0x8f click). All three fields
-    // the C# `NCHapticPacket2` exposes — motor (LEFT/RIGHT), style (Disabled/Weak/Strong), gain
-    // (i8 dB, C#: −7..5 ⇒ −2..+10 dB). Uses `Device::haptic_cmd` (which maps the motor + fills the
-    // rest). Per pad: a Disabled "off" check, then Weak and Strong across a gain sweep. ---
+    // --- 0xEA SET_HAPTIC2 (Deck): the finely-tuned trackpad "click" (nicer than 0x8f; the strongest
+    // beats a full 0x8f click). Exercises all of `Device::haptic_cmd`: side (LEFT/RIGHT/BOTH — 0xEA
+    // honors a native BOTH), style (Weak, Strong — Off/Disabled skipped, it's silent), and every
+    // `HapticIntensity` level (Default..Insane; HW: 0..2 identical, 3 stronger, 4 stronger/other).
+    // Gain fixed at 0. ---
     if run_ea {
-        println!("\n=== 0xEA SET_HAPTIC2 (Deck): motor × style × gain ===");
-        for (pad, motor) in [("LEFT ", Motor::Left), ("RIGHT", Motor::Right)] {
+        println!("\n=== 0xEA SET_HAPTIC2 (Deck): side × style × intensity (gain=0) ===");
+        let ints = [
+            ("Default", HapticIntensity::Default),
+            ("Short  ", HapticIntensity::Short),
+            ("Medium ", HapticIntensity::Medium),
+            ("Long   ", HapticIntensity::Long),
+            ("Insane ", HapticIntensity::Insane),
+        ];
+        for (pad, motor) in [("LEFT ", Motor::Left), ("RIGHT", Motor::Right), ("BOTH ", Motor::Both)] {
             if !running.alive() {
                 break;
             }
             println!("  {pad}:");
-            println!("    style=Disabled (expect OFF)");
-            keep_lizard_off(&mut device);
-            device.haptic_cmd(motor.clone(), HapticStyle::Disabled, 0)?;
-            sleep(Duration::from_millis(1000));
             for (sname, style) in [("Weak  ", HapticStyle::Weak), ("Strong", HapticStyle::Strong)] {
                 if !running.alive() {
                     break;
                 }
                 println!("    style={sname}:");
-                for gain in [-7i8, -4, -2, 0, 2, 4, 5] {
+                for (iname, intensity) in &ints {
                     if !running.alive() {
                         break;
                     }
-                    println!("      gain={gain:>3} (~{}dB)", gain as i32 + 5);
+                    println!("      intensity={iname}");
                     keep_lizard_off(&mut device);
-                    device.haptic_cmd(motor.clone(), style.clone(), gain)?;
-                    sleep(Duration::from_millis(1200));
+                    device.haptic_cmd(motor.clone(), style.clone(), intensity.clone(), 0)?;
+                    sleep(Duration::from_millis(900));
                 }
             }
         }
@@ -495,8 +499,8 @@ fn main() -> steam_hid::Result<()> {
          RUMBLE (--rumble) is the Deck 0xEB path (pulsating). PULSE GAIN (--pgain) is 0x8F with \
          amplitude via the Deck-honored gain byte. LONG-TRAIN STOP (--longstop) checks which stop \
          silences a long train. INTENSITY (--eint) is the 0xEB fine amplitude lever (inverted, \
-         0=strongest). SET_HAPTIC2 (--ea) probes the unused 0xEA path (position/style/intensity) — \
-         tell me if/how it differs from 0xEB."
+         0=strongest, u16). SET_HAPTIC2 (--ea) exercises 0xEA (side left/right/both × style \
+         Weak/Strong × all HapticIntensity levels). --triton covers the Triton haptic suite."
     );
     Ok(())
 }

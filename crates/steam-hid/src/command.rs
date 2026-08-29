@@ -29,22 +29,49 @@ impl ImuMode {
 ///
 /// Note the kernel swaps left/right for legacy reasons on the pulse path; this
 /// enum is the *logical* side and the mapping is handled internally (PLAN §1.4).
+///
+/// `Both` drives both actuators. On the paths that carry a native side byte —
+/// the Deck's `0xEA` [`Device::haptic_cmd`](crate::Device::haptic_cmd) and Triton's
+/// `0x82` [`Device::haptic_command_triton`](crate::Device::haptic_command_triton) —
+/// it maps to the firmware's `BOTH` (side = 2), **HW-verified**. The Gordon pulse
+/// path (`0x8F`) does **not** honor `BOTH` (it no-ops on HW), so
+/// [`Device::haptic_pulse`](crate::Device::haptic_pulse) realizes it by firing the
+/// two pads separately.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Motor {
     Left,
     Right,
+    Both,
 }
 
 /// Style for the Deck's `0xEA` `SET_HAPTIC2` haptic
 /// ([`Device::haptic_cmd`](crate::Device::haptic_cmd)) — matches C# `NCHapticStyle`. A short, finely-tuned
 /// trackpad "click"; `Disabled` is off, and `Weak` is weaker than `Strong` at the same `gain`.
+///
+/// InputPlumber calls this same byte `cmd_type` with the names `Off`/`Tick`/`Click`
+/// (0/1/2) — the same field, different labels.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum HapticStyle {
-    Disabled = 0,
-    Weak = 1,
-    Strong = 2,
+    Disabled = 0, // InputPlumber: Off
+    Weak = 1,     // InputPlumber: Tick
+    Strong = 2,   // InputPlumber: Click
+}
+
+/// Intensity for the Deck's `0xEA` `SET_HAPTIC2` haptic — a second lever beside
+/// [`HapticStyle`], only exposed in **InputPlumber's** `PackedHapticReport` (C# hard-codes this byte
+/// to 0). Names are InputPlumber's. **HW-observed on the Deck:** `Default`..`Medium` (0..2) feel
+/// identical, `Long` (3) is noticeably stronger, `Insane` (4) is sometimes stronger / sometimes a
+/// different character; values outside 0..=4 do nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum HapticIntensity {
+    Default = 0,
+    Short = 1,
+    Medium = 2,
+    Long = 3,
+    Insane = 4,
 }
 
 /// Parameters for a `TRIGGER_HAPTIC_PULSE` (`0x8f`) trackpad haptic pulse

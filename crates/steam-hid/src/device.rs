@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use hidapi::HidApi;
 
 use crate::backend::{HidapiDevice, RawHid};
-use crate::command::{HapticPulse, HapticStyle, ImuMode, Motor};
+use crate::command::{HapticIntensity, HapticPulse, HapticStyle, ImuMode, Motor};
 use crate::error::{Error, Result};
 use crate::event::Events;
 use crate::protocol::{self, cmd, setting, trackpad_mode};
@@ -573,6 +573,13 @@ impl Device {
         let position: u8 = match motor {
             Motor::Right => 0,
             Motor::Left => 1,
+            // `0x8F` has no BOTH side — pad=2 no-ops on Gordon (HW-verified). Drive Left/Right
+            // separately (there is a single `HapticPulse`, so the caller loses nothing).
+            Motor::Both => {
+                return Err(Error::Unsupported(
+                    "0x8F haptic pulse has no BOTH side; drive Left and Right separately",
+                ));
+            }
         };
         let [d0, d1] = params.duration.to_le_bytes();
         let [i0, i1] = params.interval.to_le_bytes();
@@ -593,7 +600,15 @@ impl Device {
     /// frequency), while amplitude has two levers — `left_gain`/`right_gain` (dB, coarse) and
     /// **`intensity`** (a finer amplitude control gain lacks, but **inverted**: `0` = strongest,
     /// larger = weaker, ~unfelt near `u16::MAX`; usable ~`0..16k`). We currently pass `intensity = 0`
-    /// (strongest) everywhere — it's plumbed but not yet used as a mapping lever.
+    /// (strongest) everywhere — plumbed but not yet used as a mapping lever.
+    ///
+    /// **`intensity` is a `u16` (LE), kernel- and SDL-confirmed** (`report[3]` = LSB, `report[4]` =
+    /// MSB — kernel `steam_haptic_rumble`; SDL `MsgSimpleRumbleCmd.unIntensity`). A HW sweep of the
+    /// low byte *alone* feels like it does nothing, but that's only because it's the least-significant
+    /// byte (0..255 of a 0..65535 range) — it's fine resolution, not a dead field (the low bytes of
+    /// `left`/`right` behave the same). InputPlumber's "single-byte intensity + event_type" split is
+    /// wrong. The leading `report[2]` (kernel 0 / SDL `unRumbleType`) is a rumble-type selector we
+    /// leave at 0.
     ///
     /// **Deck-only:** Gordon has no motors, so `0xeb` no-ops there — use [`Self::haptic_pulse`] for
     /// Gordon. (`left` = strong/large motor, `right` = weak/small, matching the kernel's
@@ -609,7 +624,8 @@ impl Device {
         let [in0, in1] = intensity.to_le_bytes();
         let [l0, l1] = left.to_le_bytes();
         let [r0, r1] = right.to_le_bytes();
-        // Leading 0 = report[2] (unused/reserved; the kernel leaves it zero).
+        // report[2] = unRumbleType (SDL MsgSimpleRumbleCmd) — HW-confirmed inert (swept 0..255, no
+        // effect); every reference sends 0, so we do too.
         self.feature(
             cmd::TRIGGER_RUMBLE_CMD,
             &[0, in0, in1, l0, l1, r0, r1, left_gain as u8, right_gain as u8],
@@ -618,20 +634,28 @@ impl Device {
 
     /// Fire the Deck's `0xEA` `SET_HAPTIC2` (C# `NCHapticPacket2`) — a short, finely-tuned trackpad
     /// **click** haptic (much better than `0x8f` for command clicks; the strongest setting beats a
-    /// full `0x8f` click). `style` picks off / weak / strong and `gain` (dB, C#'s `−7..=5` ⇒ ~`−2..
-    /// +10` dB — its `NCHapticPacket2.intensity` field, renamed here for consistency with the other
-    /// haptic gains) scales it — together they give a wide range of click strengths.
+    /// full `0x8f` click). `style` picks off / weak / strong, `intensity` is a second HW-confirmed
+    /// lever (see [`HapticIntensity`]; C# hard-coded this byte to 0 = `Default`), and `gain` (dB,
+    /// C#'s `−7..=5` ⇒ ~`−2..+10` dB — its `NCHapticPacket2.intensity` field, renamed here for
+    /// consistency with the other haptic gains) scales it — together a wide range of click strengths.
     ///
-    /// **Deck-only** (no-ops on Gordon). **Provisional (PLAN §1.9):** motor/style/gain are
-    /// HW-confirmed, and the two motors are the **reverse** of the `0x8f` wire pads (found on HW), so
-    /// here `Motor::Left → 0`, `Motor::Right → 1`. The packet's remaining bytes are **unverified** —
-    /// C#'s fixed `unsure2 = 0` / `unsure3 = 4`, and two timestamp words we fill with a current
-    /// millisecond tick (as C# does with `Environment.TickCount`); none are exposed.
-    pub fn haptic_cmd(&mut self, motor: Motor, style: HapticStyle, gain: i8) -> Result<()> {
+    /// **Deck-only** (no-ops on Gordon). Byte layout is C#'s `NCHapticPacket2` with `intensity`
+    /// filled in at the byte InputPlumber exposes (position, style, **intensity**, gain, `0x04`, two
+    /// `Environment.TickCount` words) — `Motor::Left → 0`, `Motor::Right → 1`, `Motor::Both → 2`
+    /// (all HW-verified). The trailing `0x04` and timestamp words stay as C# sends them (a magic-tail
+    /// A/B showed no difference); none are exposed.
+    pub fn haptic_cmd(
+        &mut self,
+        motor: Motor,
+        style: HapticStyle,
+        intensity: HapticIntensity,
+        gain: i8,
+    ) -> Result<()> {
         // 0xEA position is the REVERSE of the 0x8f wire pads (HW-found): Left → 0, Right → 1.
         let position: u8 = match motor {
             Motor::Left => 0,
             Motor::Right => 1,
+            Motor::Both => 2, // HW-verified: 0xEA honors a BOTH side.
         };
         // C# sets both timestamp words to `Environment.TickCount`; purpose unknown, not a lever.
         let ts = std::time::SystemTime::now()
@@ -641,7 +665,7 @@ impl Device {
         let [t0, t1, t2, t3] = ts.to_le_bytes();
         self.feature(
             cmd::TRIGGER_HAPTIC_CMD,
-            &[position, style as u8, 0x00, gain as u8, 0x04, t0, t1, t2, t3, t0, t1, t2, t3],
+            &[position, style as u8, intensity as u8, gain as u8, 0x04, t0, t1, t2, t3, t0, t1, t2, t3],
         )
     }
 
@@ -668,10 +692,12 @@ impl Device {
         let [i0, i1] = intensity.to_le_bytes();
         let [l0, l1] = left.to_le_bytes();
         let [r0, r1] = right.to_le_bytes();
-        // [id, type=0, intensity(2), left{speed(2), gain}, right{speed(2), gain}] = 10 bytes.
+        // [id, unRumbleType, intensity(2), left{speed(2), gain}, right{speed(2), gain}] = 10 bytes.
+        // unRumbleType (SDL MsgHapticRumble.type) is HW-confirmed inert (swept 0..255, no effect);
+        // every reference sends 0, so we do too.
         self.output(&[
             protocol::triton::haptic::RUMBLE,
-            0,
+            0, // unRumbleType
             i0, i1,
             l0, l1, left_gain as u8,
             r0, r1, right_gain as u8,
@@ -689,6 +715,7 @@ impl Device {
         let side: u8 = match motor {
             Motor::Left => 0,
             Motor::Right => 1,
+            Motor::Both => 2, // HW-verified: Triton's 0x82 click honors a BOTH side.
         };
         self.output(&[protocol::triton::haptic::COMMAND, side, style as u8, amplitude])
     }
