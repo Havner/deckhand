@@ -89,6 +89,15 @@ pub struct NeptuneReport {
     pub right_trigger: i16,
     pub left_stick: Vec2i,
     pub right_stick: Vec2i,
+    /// Thumbstick **capacitive force** (bytes 0x3C/0x3E) — a raw capacitive magnitude for the stick
+    /// top, not a clean/normalized force. HW: idles ~`-5..0` and rises to ~`380..450` when pressed,
+    /// per-stick (InputPlumber's `STICK_FORCE_MAX = 112` is wrong); most likely the signal the
+    /// firmware thresholds into the binary stick-**touch** bit. Kept raw for reference and **not
+    /// exposed** as a bindable input. InputPlumber-only: SDL's `SteamDeckStatePacket_t` and the
+    /// kernel stop at pad pressure and never read these. **Neptune (Deck) only** — the Triton body
+    /// has no equivalent field.
+    pub left_stick_force: i16,
+    pub right_stick_force: i16,
     pub left_pad: Vec2i,
     pub right_pad: Vec2i,
     pub left_pad_pressure: i16,
@@ -334,6 +343,8 @@ fn parse_neptune(b: &[u8]) -> NeptuneReport {
         right_trigger: i16_at(b, 0x2E),
         left_stick: vec2i_at(b, 0x30),
         right_stick: vec2i_at(b, 0x34),
+        left_stick_force: i16_at(b, 0x3C),
+        right_stick_force: i16_at(b, 0x3E),
         left_pad: vec2i_at(b, 0x10),
         right_pad: vec2i_at(b, 0x14),
         left_pad_pressure: i16_at(b, 0x38),
