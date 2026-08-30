@@ -48,7 +48,7 @@ use config::{Activator, HapticEdge, Haptics, Side, Turbo};
 
 use super::activator::{CmdState, Deferred, SlotState};
 use super::behavior::Sinks;
-use super::layers::{LayerOps, NodeHeld};
+use super::layers::{HeldLayer, HoldHaptic, LayerOps, NodeHeld};
 use super::reconcile::DesiredLevels;
 use super::{HapticReq, Tick};
 use crate::program::{CompiledAction, CompiledCommand};
@@ -157,12 +157,33 @@ pub(super) fn eval_commands(
         let rising = out && !cs.prev_out;
         let falling = !out && cs.prev_out;
         cs.prev_out = out;
-        emit_haptic(&cmd.settings.haptics, rising, falling, side, sinks.haptics);
+        // A command's click is paired to the *effect that actually lands*, so its route depends on
+        // the effect's shape (see [`Effect`]); all routes carry the same pulse (`haptic_req`).
+        let effect = command_effect(cmd);
+        let hold_haptic = matches!(effect, Effect::Hold)
+            .then(|| HoldHaptic { on: cmd.settings.haptics.on.clone(), req: haptic_req(cmd, side) });
+        match effect {
+            // Deferred to `reconcile_layer_ops`, fired iff the op changes state; a persistent op has
+            // no release, so `falling` is forced off (`OnPress`/`Both` click on landing, else silent).
+            Effect::PersistentOpSet => {
+                if haptic_fires(&cmd.settings.haptics, rising, false) {
+                    sinks.ops.pending_haptics.push((node.clone(), haptic_req(cmd, side)));
+                }
+            }
+            // Deferred onto the held layer (`hold_haptic`), fired on its engage/disengage in reconcile.
+            Effect::Hold => {}
+            // Inline on this command's own output-level edges.
+            Effect::Level => {
+                if haptic_fires(&cmd.settings.haptics, rising, falling) {
+                    sinks.haptics.push(haptic_req(cmd, side));
+                }
+            }
+        }
         if out {
             // The whole ordered combo fires while the command fires (subcommands = modifiers).
             // `rising` gates the persistent layer/set ops so they fire once per activation.
             for action in &cmd.actions {
-                apply_action(action, rising, node, sinks.desired, sinks.ops);
+                apply_action(action, rising, node, hold_haptic.as_ref(), sinks.desired, sinks.ops);
             }
         }
     }
@@ -218,17 +239,52 @@ fn regular_deferred(
     }
 }
 
-/// Push a command-haptic pulse when the command's output crosses the configured edge (`rising` =
-/// press, `falling` = release, both computed by the caller). `Off` never fires.
-fn emit_haptic(h: &Haptics, rising: bool, falling: bool, side: &Side, haptics: &mut Vec<HapticReq>) {
-    let fire = match h.on {
+/// Whether a command's haptic fires this tick, from the output-level edges (`rising` = press,
+/// `falling` = release, both computed by the caller) and its configured edge. `Off` never fires.
+fn haptic_fires(h: &Haptics, rising: bool, falling: bool) -> bool {
+    match h.on {
         HapticEdge::Off => false,
         HapticEdge::OnPress => rising,
         HapticEdge::OnRelease => falling,
         HapticEdge::Both => rising || falling,
-    };
-    if fire {
-        haptics.push(HapticReq { side: side.clone(), strength: h.strength.clone() });
+    }
+}
+
+/// The pulse a command requests: its configured strength on the triggering input's side.
+fn haptic_req(cmd: &CompiledCommand, side: &Side) -> HapticReq {
+    HapticReq { side: side.clone(), strength: cmd.settings.haptics.strength.clone() }
+}
+
+/// The shape of a command's effect, which decides where its haptic click fires. The three are
+/// mutually exclusive and classified in this priority order (`Level` is the catch-all):
+/// - `PersistentOpSet` — the command does *only* `ChangeActionSet`/`AddLayer`/`RemoveLayer`. Its
+///   click is deferred to [`reconcile_layer_ops`](super::Mapper::reconcile_layer_ops) and fired iff
+///   the op actually changes state (past dedup, `set_change`-wins, and no-op applies), because a
+///   dropped op produces no effect and must produce no click. A persistent op has no release edge.
+/// - `Hold` — the command does *only* `HoldLayer`. Its click is deferred onto the held layer and
+///   fired on the layer's real engage/disengage, so the disengage (release) click survives the
+///   self-shadow that hides the command on the release tick.
+/// - `Level` — everything else: any output leaf, a bare `None`, or a mix. A held output level whose
+///   click rides the command's own output edges inline.
+enum Effect {
+    Level,
+    PersistentOpSet,
+    Hold,
+}
+
+fn command_effect(cmd: &CompiledCommand) -> Effect {
+    let all = |pred: fn(&CompiledAction) -> bool| !cmd.actions.is_empty() && cmd.actions.iter().all(pred);
+    if all(|a| {
+        matches!(
+            a,
+            CompiledAction::ChangeActionSet(_) | CompiledAction::AddLayer(_) | CompiledAction::RemoveLayer(_)
+        )
+    }) {
+        Effect::PersistentOpSet
+    } else if all(|a| matches!(a, CompiledAction::HoldLayer(_))) {
+        Effect::Hold
+    } else {
+        Effect::Level
     }
 }
 
@@ -291,6 +347,7 @@ fn apply_action(
     action: &CompiledAction,
     edge: bool,
     node: &NodeHeld,
+    hold_haptic: Option<&HoldHaptic>,
     desired: &mut DesiredLevels,
     ops: &mut LayerOps,
 ) {
@@ -302,7 +359,9 @@ fn apply_action(
         CompiledAction::AddLayer(l) => if edge { ops.adds.push((l.clone(), node.clone())) },
         CompiledAction::RemoveLayer(l) => if edge { ops.removes.push((l.clone(), node.clone())) },
         CompiledAction::HoldLayer(l) => {
-            ops.holds.insert(l.clone(), node.clone());
+            // The hold's engage/disengage click travels with the held layer (`hold_haptic`), fired by
+            // `reconcile_layer_ops` on the layer's lifecycle — not inline off this command's level.
+            ops.holds.insert(l.clone(), HeldLayer { node: node.clone(), haptic: hold_haptic.cloned() });
         }
         CompiledAction::None => {}
     }

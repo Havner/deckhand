@@ -21,9 +21,9 @@ mod layers;
 mod reconcile;
 mod smooth;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use config::{HapticStrength, InputSource, Side};
+use config::{HapticEdge, HapticStrength, InputSource, Side};
 use virt_out::OutputEvent;
 
 use crate::logical::LogicalFrame;
@@ -31,7 +31,7 @@ use crate::program::{CompiledBinding, CompiledSet, LayerId, Program, SetId};
 
 use activator::{Activators, BindingKey};
 use gyro::GravityEst;
-use layers::{ArmedNodes, LayerOps, NodeHeld};
+use layers::{ArmedNodes, HeldLayer, HoldHaptic, LayerOps, NodeKey};
 use reconcile::{AppliedLevels, DesiredLevels, RelAccum};
 use smooth::OneEuro2;
 
@@ -47,14 +47,28 @@ pub struct Tick(pub u64);
 /// A request for one haptic pulse, produced by the mapping pass and drained by the owning
 /// device's reader thread (PLAN §4.1 haptics; the seam kept from the start, decision C).
 ///
-/// Each pulse targets a single actuator — the [`Side`] of the triggering input — at one of
-/// three strengths. Command-activation haptics that would fill this in are **deferred**; S5
-/// never produces one, but the `tick()` signature carries the channel so wiring it later is a
-/// pure addition.
+/// Each pulse targets a single actuator — the [`Side`] of the triggering input — at one of three
+/// strengths. Command haptics fill these in per tick: a level command's inline (`eval_commands`),
+/// an OpSet's deferred and gated on the effect landing (`reconcile_layer_ops`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HapticReq {
     pub side: Side,
     pub strength: HapticStrength,
+}
+
+/// Push a `HoldLayer`'s engage (`engage = true`) or disengage click if its stored haptic opts into
+/// that edge: `OnPress`/`Both` on engage, `OnRelease`/`Both` on disengage, `Off` never.
+fn push_hold_click(haptic: &Option<HoldHaptic>, engage: bool, out: &mut Vec<HapticReq>) {
+    let Some(h) = haptic else { return };
+    let fire = match h.on {
+        HapticEdge::Off => false,
+        HapticEdge::OnPress => engage,
+        HapticEdge::OnRelease => !engage,
+        HapticEdge::Both => true,
+    };
+    if fire {
+        out.push(h.req.clone());
+    }
 }
 
 /// The live mapping state — everything retained across ticks (PLAN §4.1).
@@ -83,10 +97,10 @@ pub struct Mapper {
     activators: Activators,
     /// Persistent layers from `AddLayer`/`RemoveLayer` (stay until removed or a set change).
     persistent_layers: BTreeSet<LayerId>,
-    /// Active `HoldLayer`s and how to re-derive each's trigger-node held-state — a hold persists
-    /// while its node stays held, latched to the node (not the binding) so it survives
-    /// self-shadowing (PLAN §4).
-    held_layers: BTreeMap<LayerId, NodeHeld>,
+    /// Active `HoldLayer`s: how to re-derive each's trigger-node held-state and its deferred
+    /// engage/disengage haptic — a hold persists while its node stays held, latched to the node (not
+    /// the binding) so it survives self-shadowing (PLAN §4).
+    held_layers: BTreeMap<LayerId, HeldLayer>,
     /// Nodes that have already fired their one-shot persistent op (`AddLayer`/`RemoveLayer`/
     /// `ChangeActionSet`) this engagement — the anti-oscillation dedup latch (PLAN §4). Keyed by the
     /// physical node so the binding swap the op *itself* causes can't re-fire it; each entry is
@@ -136,7 +150,7 @@ impl Mapper {
 
     /// Run one mapping pass: resolve the winning binding for every bound input, compute the
     /// desired output levels + relative nudges, and reconcile them into `out` (emitting only
-    /// diffs). `haptics` is the pulse channel (unused in the first cut, decision C).
+    /// diffs). `haptics` collects the command-haptic pulses this pass produced (decision C).
     pub fn tick(
         &mut self,
         frame: &LogicalFrame,
@@ -178,8 +192,9 @@ impl Mapper {
 
         self.applied.reconcile(&desired, out);
         self.rel.flush(out);
-        // Apply this tick's collected layer/set changes for the *next* tick (frozen-state rule).
-        self.reconcile_layer_ops(frame, ops);
+        // Apply this tick's collected layer/set changes for the *next* tick (frozen-state rule),
+        // and emit the deferred persistent-OpSet clicks for the ops that actually landed.
+        self.reconcile_layer_ops(frame, ops, haptics);
         self.prev = Some(frame.clone());
         self.last_tick = Some(tick);
     }
@@ -192,59 +207,62 @@ impl Mapper {
         self.applied.reconcile(&DesiredLevels::default(), out);
     }
 
-    /// Fold a tick's collected [`LayerOps`] into the layer stack for the **next** tick. A set
-    /// change is a full swap (layers are per-set) that clears the stack; otherwise adds/removes
-    /// update the persistent set and hold-layers persist while their trigger node stays held.
-    /// The resulting `active_layers` is sorted by declared-order precedence (`LayerId` index).
+    /// Fold a tick's collected [`LayerOps`] into the layer stack for the **next** tick, and emit the
+    /// deferred layer-effect clicks. A `set_change` is a full swap (layers are per-set) that clears
+    /// the stack; otherwise adds/removes update the persistent set and [`Self::reconcile_held_layers`]
+    /// updates the holds. The resulting `active_layers` is sorted by declared-order precedence.
     ///
-    /// **Persistent mutations dedup per node** (PLAN §4): a `set_change`/`add`/`remove` applies only
-    /// if its trigger node isn't already armed from an earlier tick of the same press, so a
-    /// self-toggling button (base `AddLayer` ↔ layer `RemoveLayer`, or a `ChangeActionSet` cycle)
-    /// fires once per press instead of strobing as the op flips its own winning binding. The armed
-    /// set is `armed_nodes`, rebuilt at the end **exactly like `held_layers`** — keep entries whose
-    /// node is still held, then add this tick's requesting nodes — so a node stays armed for the
-    /// whole press and disarms the tick it releases. `contains_key` is read against the pre-tick set,
-    /// so every mutation from one fire sees the same snapshot and lands together (`Add(X)+Remove(Y)`).
-    fn reconcile_layer_ops(&mut self, frame: &LogicalFrame, ops: LayerOps) {
-        let fires = |armed: &ArmedNodes, node: &NodeHeld| !armed.contains_key(&node.key());
+    /// **Every OpSet deduplicates per node** (PLAN §4): `set_change`/`add`/`remove`/**hold** applies
+    /// only if its trigger node isn't already armed from an earlier tick of the same press (see
+    /// [`NodeHeld::may_fire`]), so a self-toggling button fires once per press instead of strobing as
+    /// the op flips its own winning binding. Firing any OpSet arms the node, so a later OpSet on it is
+    /// suppressed too. The armed set is read against the **pre-tick** snapshot (so every op from one
+    /// fire sees the same state and lands together) and rebuilt at the end — keep entries whose node
+    /// is still held, then arm this tick's requesting nodes.
+    ///
+    /// A command's click is *paired to the effect that lands*: an OpSet's is deferred here so a
+    /// dropped op stays silent — a persistent op fires iff it changed state (`applied`), a hold on its
+    /// engage/disengage. Only a level command clicks inline (in `eval_commands`).
+    fn reconcile_layer_ops(&mut self, frame: &LogicalFrame, ops: LayerOps, haptics: &mut Vec<HapticReq>) {
+        // The nodes whose persistent op actually *changed state* this tick — the verdict the deferred
+        // persistent-OpSet clicks are gated on (a mere dedup pass isn't enough: a no-op stays silent).
+        let mut applied: HashSet<NodeKey> = HashSet::new();
 
-        // set_change wins (a full swap clears the per-set stacks); adds/removes otherwise.
+        // set_change wins (a full swap clears the per-set stacks); adds/removes/holds otherwise.
         let set_change =
-            ops.set_change.as_ref().filter(|(_, n)| fires(&self.armed_nodes, n)).map(|(s, _)| s.clone());
-        if let Some(set) = set_change {
+            ops.set_change.as_ref().filter(|(_, n)| n.may_fire(&self.armed_nodes)).cloned();
+        if let Some((set, node)) = set_change {
             self.active_set = set;
             self.persistent_layers.clear();
             self.held_layers.clear();
+            applied.insert(node.key()); // a set swap always mutates (retargets + clears the stack)
         } else {
+            // A node lands in `applied` only when its op changed the persistent set (the
+            // `remove`/`insert` bool): removing a layer that isn't there (e.g. one held live by a
+            // `HoldLayer`) or adding one already present is a no-op → its click stays silent.
             for (l, node) in &ops.removes {
-                if fires(&self.armed_nodes, node) {
-                    self.persistent_layers.remove(l);
+                if node.may_fire(&self.armed_nodes) && self.persistent_layers.remove(l) {
+                    applied.insert(node.key());
                 }
             }
             for (l, node) in &ops.adds {
-                if fires(&self.armed_nodes, node) {
-                    self.persistent_layers.insert(l.clone());
+                if node.may_fire(&self.armed_nodes) && self.persistent_layers.insert(l.clone()) {
+                    applied.insert(node.key());
                 }
             }
-            // A hold persists while its trigger node stays held; this tick's holds refresh it.
-            let mut next = BTreeMap::new();
-            for (l, node) in std::mem::take(&mut self.held_layers) {
-                if node.held(frame) {
-                    next.insert(l, node);
-                }
-            }
-            for (l, node) in ops.holds {
-                if node.held(frame) {
-                    next.insert(l, node);
-                }
-            }
-            self.held_layers = next;
+            self.reconcile_held_layers(&ops.holds, frame, haptics);
         }
 
-        // Rebuild `armed_nodes` like `held_layers`: keep entries whose node is still held, then arm
-        // every node that requested a persistent op this tick (applied or deduped away). So a node
-        // stays armed the whole press — its self-caused binding flip can't re-fire the opposing op —
-        // and disarms the tick it releases. Node-keyed, so it survives a `ChangeActionSet`.
+        // Deferred persistent-OpSet clicks: fire iff the op landed (its node is in `applied`), so an
+        // op deduped away, superseded by a `set_change`, or a no-op against the stack stays silent.
+        for (node, req) in ops.pending_haptics {
+            if applied.contains(&node.key()) {
+                haptics.push(req);
+            }
+        }
+
+        // Re-arm every node that fired an OpSet this tick — set_change / add / remove / hold, applied
+        // or deduped away — keeping those still held so a node stays armed the whole press.
         let mut next_armed = ArmedNodes::new();
         for (key, node) in std::mem::take(&mut self.armed_nodes) {
             if node.held(frame) {
@@ -256,7 +274,8 @@ impl Mapper {
             .into_iter()
             .map(|(_, n)| n)
             .chain(ops.adds.into_iter().map(|(_, n)| n))
-            .chain(ops.removes.into_iter().map(|(_, n)| n));
+            .chain(ops.removes.into_iter().map(|(_, n)| n))
+            .chain(ops.holds.into_values().map(|h| h.node));
         for node in requesting {
             if node.held(frame) {
                 next_armed.insert(node.key(), node);
@@ -273,6 +292,46 @@ impl Mapper {
         active.sort_unstable();
         active.dedup();
         self.active_layers = active;
+    }
+
+    /// Rebuild `held_layers` for the next tick and emit each hold's lifecycle click. Keeping a prior
+    /// hold while its node stays held is the hold's node-latch — the definition of a hold, and how an
+    /// engaged hold rides out its own self-shadowed no-op `RemoveLayer`. *Engaging* a hold is armed-
+    /// gated like any other OpSet ([`NodeHeld::may_fire`]); firing it arms the node in the caller.
+    ///
+    /// Clicks fire on the layer's real lifecycle (so they survive the self-shadow that hides the hold
+    /// command on the release tick): engage when a layer newly enters `held_layers`
+    /// (`OnPress`/`Both`), disengage when one leaves it — node released — (`OnRelease`/`Both`). The
+    /// disengage reads the *prior* entry's stored haptic, since the releasing tick carries no hold op.
+    fn reconcile_held_layers(
+        &mut self,
+        holds: &BTreeMap<LayerId, HeldLayer>,
+        frame: &LogicalFrame,
+        haptics: &mut Vec<HapticReq>,
+    ) {
+        let prev = std::mem::take(&mut self.held_layers);
+        let mut next: BTreeMap<LayerId, HeldLayer> = BTreeMap::new();
+        for (l, held) in &prev {
+            if held.node.held(frame) {
+                next.insert(l.clone(), held.clone());
+            }
+        }
+        for (l, held) in holds {
+            if held.node.held(frame) && held.node.may_fire(&self.armed_nodes) {
+                next.insert(l.clone(), held.clone());
+            }
+        }
+        for (l, held) in &next {
+            if !prev.contains_key(l) {
+                push_hold_click(&held.haptic, true, haptics);
+            }
+        }
+        for (l, held) in &prev {
+            if !next.contains_key(l) {
+                push_hold_click(&held.haptic, false, haptics);
+            }
+        }
+        self.held_layers = next;
     }
 
     /// Seconds elapsed since the previous tick (`0.0` on the first tick and if the clock did not
@@ -330,7 +389,7 @@ mod tests {
     use crate::program::{
         CompiledAction, CompiledCommand, CompiledLayer, CompiledSet, ProgramMeta, Role, SourceMap,
     };
-    use config::{Activator, CommandSettings};
+    use config::{Activator, CommandSettings, HapticEdge, Haptics};
     use vocab_out::{GamepadButton, Key};
 
     /// A `Regular` command firing the given actions.
@@ -369,6 +428,18 @@ mod tests {
             activator: Activator::Regular { interruptible: true },
             actions: vec![action],
             settings: CommandSettings::default(),
+        }
+    }
+
+    /// A `Regular` command firing `action` with a `High` `OnPress` haptic — for command-click tests.
+    fn regular_click(action: CompiledAction) -> CompiledCommand {
+        CompiledCommand {
+            activator: Activator::Regular { interruptible: false },
+            actions: vec![action],
+            settings: CommandSettings {
+                haptics: Haptics { on: HapticEdge::OnPress, strength: HapticStrength::High },
+                ..Default::default()
+            },
         }
     }
 
@@ -416,8 +487,17 @@ mod tests {
         let mut out = Vec::new();
         let mut haptics = Vec::new();
         mapper.tick(f, Tick(t), program, &mut out, &mut haptics);
-        assert!(haptics.is_empty(), "command haptics are deferred (decision C)");
+        assert!(haptics.is_empty(), "these programs use default (off) haptics");
         out
+    }
+
+    /// Like [`run`] but returns the tick's haptic pulses (for command-click tests) instead of
+    /// asserting there are none.
+    fn run_haptics(mapper: &mut Mapper, program: &Program, f: &LogicalFrame, t: u64) -> Vec<HapticReq> {
+        let mut out = Vec::new();
+        let mut haptics = Vec::new();
+        mapper.tick(f, Tick(t), program, &mut out, &mut haptics);
+        haptics
     }
 
     #[test]
@@ -1542,5 +1622,385 @@ mod tests {
         }
         assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600), Key::C), "in set1");
         assert!(!down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 608), Key::X), "no cross-set layer added");
+    }
+
+    #[test]
+    fn persistent_opset_click_ignores_release_and_fires_once_on_landing() {
+        // A persistent op has no release: `OnRelease` never clicks, `OnPress`/`Both` click once on
+        // the landing (press) edge and never on release. base L1 → AddLayer(0); layer0 only marks
+        // "active" (RGRIP → A) so the add is a real change.
+        for (edge, press_clicks, release_clicks) in
+            [(HapticEdge::OnRelease, 0, 0), (HapticEdge::OnPress, 1, 0), (HapticEdge::Both, 1, 0)]
+        {
+            let add = CompiledCommand {
+                activator: Activator::Regular { interruptible: false },
+                actions: vec![CompiledAction::AddLayer(LayerId::new(0))],
+                settings: CommandSettings {
+                    haptics: Haptics { on: edge.clone(), strength: HapticStrength::Medium },
+                    ..Default::default()
+                },
+            };
+            let program = program_of(vec![(
+                SourceMap::from_iter([(
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button { commands: vec![add] },
+                )]),
+                vec![layer("l0", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::A)))])],
+            )]);
+            let mut m = Mapper::new(&program);
+            let lb = steam_hid::Buttons::LB;
+            let press = run_haptics(&mut m, &program, &frame(lb.clone()), 0).len();
+            let _hold = run_haptics(&mut m, &program, &frame(lb.clone()), 4);
+            let release = run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), 8).len();
+            assert_eq!(press, press_clicks, "{edge:?} press");
+            assert_eq!(release, release_clicks, "{edge:?} release");
+        }
+    }
+
+    #[test]
+    fn self_toggling_layer_clicks_once_per_real_change() {
+        // base L1 → AddLayer(0) (clicks); layer0 rebinds L1 → RemoveLayer(0) (clicks). A short press
+        // adds (real change → one click), the self-shadowed RemoveLayer that same press is deduped
+        // (silent); a second press removes (real change → one click), its self-shadowed AddLayer
+        // deduped. Exactly one click lands per press.
+        let program = program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftBumper,
+                CompiledBinding::Button { commands: vec![regular_click(CompiledAction::AddLayer(LayerId::new(0)))] },
+            )]),
+            vec![layer(
+                "l0",
+                [(
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button { commands: vec![regular_click(CompiledAction::RemoveLayer(LayerId::new(0)))] },
+                )],
+            )],
+        )]);
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        let mut t = 0u64;
+        // A full press+release, ticking continuously (no time jumps) so the self-shadow is exercised.
+        macro_rules! press_release_clicks {
+            () => {{
+                let mut clicks = 0;
+                let end = t + 60;
+                while t < end { clicks += run_haptics(&mut m, &program, &frame(lb.clone()), t).len(); t += 4; }
+                let end = t + 60;
+                while t < end { clicks += run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t).len(); t += 4; }
+                clicks
+            }};
+        }
+        assert_eq!(press_release_clicks!(), 1, "adding the layer clicks once");
+        assert_eq!(press_release_clicks!(), 1, "removing the layer clicks once");
+    }
+
+    #[test]
+    fn long_hold_self_removing_layer_click_stays_silent() {
+        // The reported bug. base L1 = {ireg: AddLayer(0), Long(450): HoldLayer(0)}; layer0 rebinds
+        // L1 → RemoveLayer(0) *with a click*. Held long, the Long holds layer0 in `held_layers`, L1
+        // self-shadows to the layer's RemoveLayer, and that op runs but no-ops against the persistent
+        // set (layer0 is held, not persistent). The op never landed → its click must not fire, even
+        // though the RemoveLayer command's output rises.
+        let program = program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftBumper,
+                CompiledBinding::Button {
+                    commands: vec![
+                        ireg_cmd(CompiledAction::AddLayer(LayerId::new(0))),
+                        long_cmd(450, CompiledAction::HoldLayer(LayerId::new(0))),
+                    ],
+                },
+            )]),
+            vec![layer(
+                "aim",
+                [(
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button { commands: vec![regular_click(CompiledAction::RemoveLayer(LayerId::new(0)))] },
+                )],
+            )],
+        )]);
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        let mut t = 0u64;
+        let mut clicks = 0;
+        while t < 700 {
+            clicks += run_haptics(&mut m, &program, &frame(lb.clone()), t).len();
+            t += 4;
+        }
+        assert_eq!(clicks, 0, "a no-op RemoveLayer against a held layer must not click");
+    }
+
+    /// The cp2077 RightGrip2 shape: base = {ireg: AddLayer(0) off, Long(200): HoldLayer(0) Both};
+    /// layer0 rebinds RG2 → RemoveLayer(0) OnPress. Marker RB → X in layer0.
+    fn cp2077_rgrip2_program() -> Program {
+        let base_add = CompiledCommand {
+            activator: Activator::Regular { interruptible: true },
+            actions: vec![CompiledAction::AddLayer(LayerId::new(0))],
+            settings: CommandSettings::default(),
+        };
+        let base_hold = CompiledCommand {
+            activator: Activator::Long { hold_ms: 200 },
+            actions: vec![CompiledAction::HoldLayer(LayerId::new(0))],
+            settings: CommandSettings {
+                haptics: Haptics { on: HapticEdge::Both, strength: HapticStrength::Medium },
+                ..Default::default()
+            },
+        };
+        let layer_remove = CompiledCommand {
+            activator: Activator::Regular { interruptible: true },
+            actions: vec![CompiledAction::RemoveLayer(LayerId::new(0))],
+            settings: CommandSettings {
+                haptics: Haptics { on: HapticEdge::OnPress, strength: HapticStrength::Medium },
+                ..Default::default()
+            },
+        };
+        program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::RightGrip2,
+                CompiledBinding::Button { commands: vec![base_add, base_hold] },
+            )]),
+            vec![layer(
+                "aim",
+                [
+                    (InputSource::RightGrip2, CompiledBinding::Button { commands: vec![layer_remove] }),
+                    (InputSource::RightBumper, btn(CompiledAction::Key(Key::X))),
+                ],
+            )],
+        )])
+    }
+
+    #[test]
+    fn hold_layer_both_clicks_on_engage_and_on_release_through_self_shadow() {
+        // cp2077 RG2: base Long(200) HoldLayer(0) with `Both`; layer0 rebinds RG2 → RemoveLayer(0). A
+        // long hold engages the layer (one click) and releasing it clicks again — the disengage click
+        // survives the self-shadow that hides the base HoldLayer command on the release tick, because
+        // the click rides the layer's `held_layers` lifecycle, not the command's output level.
+        let program = cp2077_rgrip2_program();
+        let mut m = Mapper::new(&program);
+        let rg = steam_hid::Buttons::RGRIP2;
+        let mut t = 0u64;
+        let mut engage = 0;
+        while t < 360 {
+            engage += run_haptics(&mut m, &program, &frame(rg.clone()), t).len();
+            t += 4;
+        }
+        let mut release = 0;
+        while t < 480 {
+            release += run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t).len();
+            t += 4;
+        }
+        assert_eq!(engage, 1, "one click when the hold engages");
+        assert_eq!(release, 1, "one click when the hold releases (survives self-shadow)");
+    }
+
+    #[test]
+    fn hold_after_a_remove_in_the_same_press_does_not_re_engage() {
+        // cp2077 RG2. A tap adds layer0 (sticky, silent). Then a 0.3s hold: in layer0, RG2 →
+        // RemoveLayer removes it (one click); the same continuous press must NOT re-engage HoldLayer
+        // via the base `Long` — the node is armed from the removal, and a new hold engagement is
+        // armed-gated — so there is no re-add and no second click.
+        let program = cp2077_rgrip2_program();
+        let mut m = Mapper::new(&program);
+        let rg = steam_hid::Buttons::RGRIP2;
+        let rb = steam_hid::Buttons::RB;
+        let mut t = 0u64;
+        let mut clicks = 0;
+        // tap ~40 ms, then release ~40 ms — adds the sticky layer.
+        let end = t + 40;
+        while t < end { clicks += run_haptics(&mut m, &program, &frame(rg.clone()), t).len(); t += 4; }
+        let end = t + 40;
+        while t < end { let _ = run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t); t += 4; }
+        // Hold ~0.3 s (past the 200 ms Long).
+        let end = t + 300;
+        while t < end { clicks += run_haptics(&mut m, &program, &frame(rg.clone()), t).len(); t += 4; }
+        assert_eq!(clicks, 1, "only the removal clicks — no HoldLayer re-engagement in the same press");
+        // The layer stays removed for the rest of the hold: RB (layer0's X marker) does nothing.
+        let out = run(&mut m, &program, &frame(rg.clone() | rb.clone()), t);
+        assert!(!out.contains(&OutputEvent::Key(Key::X, true)), "layer stays removed while still held");
+    }
+
+    #[test]
+    fn set_change_wins_suppresses_a_same_tick_add_click() {
+        // Cross-node set_change-wins parity: L1 → ChangeActionSet(1) (no haptic), R1 → AddLayer(0)
+        // *with a click*, pressed together. The set change supersedes the add → the add never lands →
+        // its deferred click is suppressed too. A control run presses R1 alone to prove the click is
+        // real when the add does land.
+        let program = program_of(vec![
+            (
+                SourceMap::from_iter([
+                    (InputSource::LeftBumper, btn(CompiledAction::ChangeActionSet(SetId::new(1)))),
+                    (
+                        InputSource::RightBumper,
+                        CompiledBinding::Button { commands: vec![regular_click(CompiledAction::AddLayer(LayerId::new(0)))] },
+                    ),
+                ]),
+                vec![layer("l0", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::A)))])],
+            ),
+            (SourceMap::from_iter([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::D)))]), vec![]),
+        ]);
+
+        let mut m = Mapper::new(&program);
+        let both = steam_hid::Buttons::LB | steam_hid::Buttons::RB;
+        assert_eq!(
+            run_haptics(&mut m, &program, &frame(both), 0).len(),
+            0,
+            "set_change supersedes the add → its click is suppressed"
+        );
+
+        let mut control = Mapper::new(&program);
+        assert_eq!(
+            run_haptics(&mut control, &program, &frame(steam_hid::Buttons::RB), 0).len(),
+            1,
+            "the add alone lands → it clicks (proving the suppression above is the set_change)"
+        );
+    }
+
+    #[test]
+    fn engaging_a_hold_arms_the_node_so_a_shadowed_op_is_deduped() {
+        // The uniform-dedup invariant, from the hold side: base LB → HoldLayer(0); layer0 rebinds
+        // LB → AddLayer(1) and marks itself (RB → A); layer1 marks itself (RGRIP → X). Holding LB
+        // engages layer0 and *arms* LB, so the self-shadowed AddLayer(1) is deduped — layer1 never
+        // activates. Guards that a hold arms its node exactly like Add/Remove/ChangeActionSet.
+        let program = program_of(vec![(
+            SourceMap::from_iter([(
+                InputSource::LeftBumper,
+                CompiledBinding::Button { commands: vec![regular(vec![CompiledAction::HoldLayer(LayerId::new(0))])] },
+            )]),
+            vec![
+                layer(
+                    "l0",
+                    [
+                        (InputSource::LeftBumper, btn(CompiledAction::AddLayer(LayerId::new(1)))),
+                        (InputSource::RightBumper, btn(CompiledAction::Key(Key::A))),
+                    ],
+                ),
+                layer("l1", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::X)))]),
+            ],
+        )]);
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        let mut t = 0u64;
+        while t < 40 {
+            let _ = run(&mut m, &program, &frame(lb.clone()), t);
+            t += 4;
+        }
+        // layer0 is live (its RB marker fires) ...
+        let out = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::RB), t);
+        t += 4;
+        assert!(down(&out, Key::A), "layer0 is held while LB is down");
+        // ... but layer1 never activated: LB's self-shadowed AddLayer(1) was deduped by the arm.
+        let out = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::RGRIP), t);
+        assert!(!down(&out, Key::X), "the shadowed AddLayer is deduped — layer1 never activates");
+    }
+
+    #[test]
+    fn a_held_layer_is_not_torn_down_by_another_buttons_op() {
+        // Per-node isolation: base LB → HoldLayer(0); base RB → RemoveLayer(0); layer0 marks itself
+        // (RGRIP → X). While LB holds layer0 (live in `held_layers`, not `persistent_layers`),
+        // pressing RB → RemoveLayer(0) is a no-op — a hold is per-node and can't be removed by another
+        // button. layer0 stays active. Guards that dedup/removal never crosses nodes.
+        let program = program_of(vec![(
+            SourceMap::from_iter([
+                (
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button { commands: vec![regular(vec![CompiledAction::HoldLayer(LayerId::new(0))])] },
+                ),
+                (InputSource::RightBumper, btn(CompiledAction::RemoveLayer(LayerId::new(0)))),
+            ]),
+            vec![layer("l0", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::X)))])],
+        )]);
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        let mut t = 0u64;
+        while t < 40 {
+            let _ = run(&mut m, &program, &frame(lb.clone()), t);
+            t += 4;
+        }
+        // Fire RB's RemoveLayer(0) while still holding LB.
+        let _ = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::RB), t);
+        t += 4;
+        // layer0 is untouched — its marker still fires.
+        let out = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::RGRIP), t);
+        assert!(down(&out, Key::X), "another button's RemoveLayer can't tear down a held layer");
+    }
+
+    #[test]
+    fn hold_layer_lifecycle_click_follows_its_edge_config() {
+        // A plain HoldLayer(0) whose layer does NOT rebind LB (no self-shadow): the click fires on the
+        // layer's engage (press) and disengage (release) per the command's edge. Guards
+        // `push_hold_click` directly, without the self-shadow that the cp2077 test exercises.
+        for (edge, engage_want, release_want) in [
+            (HapticEdge::Off, 0, 0),
+            (HapticEdge::OnPress, 1, 0),
+            (HapticEdge::OnRelease, 0, 1),
+            (HapticEdge::Both, 1, 1),
+        ] {
+            let hold = CompiledCommand {
+                activator: Activator::Regular { interruptible: false },
+                actions: vec![CompiledAction::HoldLayer(LayerId::new(0))],
+                settings: CommandSettings {
+                    haptics: Haptics { on: edge.clone(), strength: HapticStrength::Medium },
+                    ..Default::default()
+                },
+            };
+            let program = program_of(vec![(
+                SourceMap::from_iter([(
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button { commands: vec![hold] },
+                )]),
+                vec![layer("l0", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::X)))])],
+            )]);
+            let mut m = Mapper::new(&program);
+            let lb = steam_hid::Buttons::LB;
+            let mut t = 0u64;
+            let mut engage = 0;
+            while t < 40 {
+                engage += run_haptics(&mut m, &program, &frame(lb.clone()), t).len();
+                t += 4;
+            }
+            let mut release = 0;
+            while t < 80 {
+                release += run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t).len();
+                t += 4;
+            }
+            assert_eq!(engage, engage_want, "{edge:?} engage");
+            assert_eq!(release, release_want, "{edge:?} release");
+        }
+    }
+
+    #[test]
+    fn change_action_set_click_fires_once_on_the_swap() {
+        // set0: LB → ChangeActionSet(1) with `OnPress`; set1: LB → Key(A). Pressing LB swaps to set1
+        // and clicks exactly once — on the tick the swap lands — and never again on the held tail or
+        // release (the node is armed, and set1 rebinds LB to a plain key). Guards the set_change →
+        // `applied` → click path.
+        let swap = CompiledCommand {
+            activator: Activator::Regular { interruptible: false },
+            actions: vec![CompiledAction::ChangeActionSet(SetId::new(1))],
+            settings: CommandSettings {
+                haptics: Haptics { on: HapticEdge::OnPress, strength: HapticStrength::Low },
+                ..Default::default()
+            },
+        };
+        let program = program_of(vec![
+            (
+                SourceMap::from_iter([(InputSource::LeftBumper, CompiledBinding::Button { commands: vec![swap] })]),
+                vec![],
+            ),
+            (SourceMap::from_iter([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::A)))]), vec![]),
+        ]);
+        let mut m = Mapper::new(&program);
+        let lb = steam_hid::Buttons::LB;
+        let mut t = 0u64;
+        let mut clicks = 0;
+        while t < 60 {
+            clicks += run_haptics(&mut m, &program, &frame(lb.clone()), t).len();
+            t += 4;
+        }
+        while t < 100 {
+            clicks += run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t).len();
+            t += 4;
+        }
+        assert_eq!(clicks, 1, "the set swap clicks exactly once");
     }
 }

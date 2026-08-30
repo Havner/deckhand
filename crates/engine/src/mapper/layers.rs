@@ -8,8 +8,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use config::InputSource;
+use config::{HapticEdge, InputSource};
 
+use super::HapticReq;
 use crate::logical::{Dir, LogicalFrame};
 use crate::program::{LayerId, SetId};
 
@@ -47,6 +48,13 @@ impl NodeHeld {
             NodeHeld::Virtual => NodeKey::Virtual,
         }
     }
+
+    /// Whether this node is free to fire a persistent OpSet — i.e. it hasn't already armed one during
+    /// its current engagement. The per-press dedup predicate: an armed node's further OpSets (any
+    /// kind) are suppressed until it releases.
+    pub(super) fn may_fire(&self, armed: &ArmedNodes) -> bool {
+        !armed.contains_key(&self.key())
+    }
 }
 
 /// A node's identity independent of its binding — the key for [`ArmedNodes`].
@@ -67,26 +75,50 @@ pub(super) enum NodeKey {
 /// whether a command re-fired.
 pub(super) type ArmedNodes = HashMap<NodeKey, NodeHeld>;
 
+/// A `HoldLayer` command's deferred haptic — its configured edge + resolved pulse. Stored with the
+/// held layer (not fired from the command's output level) so `reconcile_layer_ops` can click on the
+/// layer's real **engage** (`OnPress`/`Both`) and **disengage** (`OnRelease`/`Both`) — the latter
+/// surviving the self-shadow that hides the base command on the release tick (PLAN §4).
+#[derive(Debug, Clone)]
+pub(super) struct HoldHaptic {
+    pub(super) on: HapticEdge,
+    pub(super) req: HapticReq,
+}
+
+/// A layer held live by a `HoldLayer`, with how to re-derive its trigger-node held-state and its
+/// deferred engage/disengage haptic (if any). Held in `Mapper::held_layers` for the whole hold.
+#[derive(Debug, Clone)]
+pub(super) struct HeldLayer {
+    pub(super) node: NodeHeld,
+    pub(super) haptic: Option<HoldHaptic>,
+}
+
 /// Layer/set changes a tick's firing commands requested, applied to the stack for the next tick.
 /// Every entry carries its **trigger node**, so `reconcile_layer_ops` treats all node-anchored effects
-/// uniformly: `holds` latch to `node.held` ([`HoldLayer`](crate::program::CompiledAction::HoldLayer)),
-/// and the persistent mutations (`set_change`/`adds`/`removes`) are deduped per node against
+/// uniformly: every OpSet (`set_change`/`adds`/`removes` **and** `holds`) is deduped per node against
 /// [`ArmedNodes`] so a self-toggling button can't strobe. Last `set_change` wins.
 ///
 /// The collection per field matches its semantics, not the stage it was written in:
 /// - `set_change` — one active set, so 0-or-1 winner per tick → `Option`.
 /// - `holds` — a **set of held layers** merged into `held_layers`; a layer is held-or-not, so dedup
-///   *by layer* is right and one representative node per layer suffices for the keep-while-held check
-///   → `BTreeMap<LayerId, _>`.
+///   *by layer* is right and one representative [`HeldLayer`] (its trigger node + deferred lifecycle
+///   haptic) per layer suffices for the keep-while-held check → `BTreeMap<LayerId, _>`.
 /// - `adds`/`removes` — **lists of one-shot `(layer, node)` ops**, not a set of layers. Each op is
 ///   deduped against its *own* node, and every firing node must be armed — so two different buttons
 ///   adding the *same* layer on one tick must stay two entries. A map keyed by `LayerId` would merge
 ///   them and drop a node from both the dedup and the arming → `Vec`. (Can't be a `BTreeSet<LayerId>`
 ///   like the pre-`armed_nodes` shape either — it now has to carry `NodeHeld`, which holds an `f32`.)
+/// - `pending_haptics` — the **deferred clicks of persistent-OpSet commands** (`ChangeActionSet`/
+///   `AddLayer`/`RemoveLayer`). A persistent op has no held level and is dedup-gated, so its click
+///   can't ride an output edge like an ordinary command's — it must fire iff the op *actually lands*.
+///   `reconcile_layer_ops` emits each entry whose node changed the persistent state this tick, keyed
+///   by node against the same verdict the ops use, so an op that was deduped, superseded by a
+///   `set_change`, or a no-op against the stack stays silent (PLAN §4).
 #[derive(Default)]
 pub(super) struct LayerOps {
     pub(super) set_change: Option<(SetId, NodeHeld)>,
     pub(super) adds: Vec<(LayerId, NodeHeld)>,
     pub(super) removes: Vec<(LayerId, NodeHeld)>,
-    pub(super) holds: BTreeMap<LayerId, NodeHeld>,
+    pub(super) holds: BTreeMap<LayerId, HeldLayer>,
+    pub(super) pending_haptics: Vec<(NodeHeld, HapticReq)>,
 }
