@@ -63,17 +63,20 @@ pub(crate) const REPORT_ID_TRITON: u8 = 0x01;
 /// Feature-report command IDs (SDL `FeatureReportMessageIDs`), numeric-sorted, full set.
 pub(crate) mod cmd {
     // --- digital button mappings (lizard-mode gamepad emulation) ---
+    // NOTE: SDL's DigitalIO (~75) + AnalogIO (~25) enums are the mapping-target vocabulary for
+    // SET_DIGITAL_MAPPINGS. We bypass on-controller mapping entirely (CLEAR_DIGITAL_MAPPINGS + map in
+    // our engine), so those enums are intentionally NOT mirrored here. See SDL controller_constants.h.
     pub(crate) const SET_DIGITAL_MAPPINGS: u8 = 0x80;
     pub(crate) const CLEAR_DIGITAL_MAPPINGS: u8 = 0x81; // (used) lizard-off
     pub(crate) const GET_DIGITAL_MAPPINGS: u8 = 0x82;
-    pub(crate) const GET_ATTRIBUTES_VALUES: u8 = 0x83;
+    pub(crate) const GET_ATTRIBUTES_VALUES: u8 = 0x83; // (used) read-only attributes
     pub(crate) const GET_ATTRIBUTE_LABEL: u8 = 0x84;
     pub(crate) const SET_DEFAULT_DIGITAL_MAPPINGS: u8 = 0x85; // (used) lizard-on
     pub(crate) const FACTORY_RESET: u8 = 0x86; // ⚠ wipes config
     // --- settings I/O (see the `setting` table + `ControllerSetting`) ---
     pub(crate) const SET_SETTINGS_VALUES: u8 = 0x87; // (used)
     pub(crate) const CLEAR_SETTINGS_VALUES: u8 = 0x88;
-    pub(crate) const GET_SETTINGS_VALUES: u8 = 0x89;
+    pub(crate) const GET_SETTINGS_VALUES: u8 = 0x89; // (used) read setting values
     pub(crate) const GET_SETTING_LABEL: u8 = 0x8A;
     pub(crate) const GET_SETTINGS_MAXS: u8 = 0x8B;
     pub(crate) const GET_SETTINGS_DEFAULTS: u8 = 0x8C;
@@ -178,7 +181,7 @@ pub(crate) mod setting {
     pub(crate) const LED_USER_BRIGHTNESS: u8 = 45; // (used)
     pub(crate) const ENABLE_RAW_JOYSTICK: u8 = 46;
     pub(crate) const ENABLE_FAST_SCAN: u8 = 47;
-    pub(crate) const IMU_MODE: u8 = 48; // (used) gyro/accel mode bits (see command::ImuMode)
+    pub(crate) const IMU_MODE: u8 = 48; // (used) gyro/accel mode bits (see `GyroMode`)
     pub(crate) const WIRELESS_PACKET_VERSION: u8 = 49;
     pub(crate) const SLEEP_INACTIVITY_TIMEOUT: u8 = 50; // (used) idle timeout (s)
     pub(crate) const TRACKPAD_NOISE_THRESHOLD: u8 = 51;
@@ -215,14 +218,136 @@ pub(crate) mod setting {
     // SETTING_COUNT = 82; SETTING_ALL = 0xFF.
 }
 
-/// Trackpad-mode *values* for the `LEFT/RIGHT_TRACKPAD_MODE` settings.
-pub(crate) mod trackpad_mode {
-    /// Disables the pad for the mapper → raw input (lizard-off).
-    pub(crate) const NONE: u8 = 7;
+// --- setting VALUE enums (what gets written into a specific setting) ---
+
+/// Trackpad operating mode — value for `LEFT/RIGHT_TRACKPAD_MODE` (and the `*_SECONDARY_MODE`
+/// settings). SDL `TrackpadDPadMode`. Lizard-off writes **`None`** to hand the mapper raw pad data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TrackpadDPadMode {
+    AbsoluteMouse = 0,
+    RelativeMouse = 1,
+    DpadFourWayDiscrete = 2,
+    DpadFourWayOverlap = 3,
+    DpadEightWay = 4,
+    RadialMode = 5,
+    AbsoluteDpad = 6,
+    None = 7, // (used) lizard-off → raw pad
+    GestureKeyboard = 8,
 }
 
-/// String-attribute id for the unit serial number (used with `GET_STRING_ATTRIBUTE`).
-pub(crate) const ATTRIB_STR_UNIT_SERIAL: u8 = 0x01;
+/// Value for the `LIZARD_MODE` setting (id 9). SDL `LizardModeState_t`. We reach lizard-off via
+/// `CLEAR_DIGITAL_MAPPINGS` + pad `None` instead, so this is unused here — **HW-UNTESTED**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LizardModeState {
+    Off = 0,
+    On = 1,
+}
+
+/// Value for `SET_DONGLE_SETTING` (`0xB1`). SDL `DongleSettings`. **HW-UNTESTED.**
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DongleSetting {
+    MouseKeyboardEnabled = 0,
+}
+
+/// Priority flags for the `0x8f` pulse's `priority` byte (SDL's 10-byte `MsgFireHapticPulse` variant).
+/// We send the kernel 8-byte form with no priority byte, so this is informational. SDL
+/// `SettingHapticPulseFlags`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HapticPulseFlags {
+    Normal = 0,
+    HighPriority = 1,
+    VeryHighPriority = 2,
+    IgnoreUserPrefs = 3,
+}
+
+bitflags::bitflags! {
+    /// IMU mode bits — the value written to the `IMU_MODE` setting (id 48). SDL `SettingGyroMode`
+    /// (a bitmask; we model it as bitflags); matches the C# `GCGyroMode` / kernel gyro-mode bits.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct GyroMode: u16 {
+        const STEERING         = 0x01;
+        const TILT             = 0x02;
+        const SEND_ORIENTATION = 0x04;
+        const SEND_RAW_ACCEL   = 0x08;
+        const SEND_RAW_GYRO    = 0x10;
+    }
+}
+
+impl GyroMode {
+    /// Raw accel + raw gyro — what `set_gyro(true)` enables.
+    pub fn raw_motion() -> Self {
+        Self::SEND_RAW_ACCEL | Self::SEND_RAW_GYRO
+    }
+}
+
+/// Index into a [`SettingValueRange`] triple — SDL `SettingDefaultMinMax`. The reply of
+/// `GET_SETTINGS_DEFAULTS` (`0x8C`) / `GET_SETTINGS_MAXS` (`0x8B`) packs default/min/max in this order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettingDefaultMinMax {
+    Default = 0,
+    Min = 1,
+    Max = 2,
+    Count = 3,
+}
+
+/// Wireless scan intervals (SDL `#define FAST/SLOW_SCAN_INTERVAL`). Dongle/radio scan cadence; exact
+/// use unconfirmed. Trace only.
+pub(crate) const FAST_SCAN_INTERVAL: u8 = 6;
+pub(crate) const SLOW_SCAN_INTERVAL: u8 = 9;
+
+// --- read-only attribute tags (which attribute to query; the response structs live in the INBOUND
+//     section, parsing deferred) ---
+
+/// Numeric read-only attribute tags for `GET_ATTRIBUTES_VALUES` (`0x83`). SDL `ControllerAttributes`
+/// (its struct element is [`ControllerAttribute`]). `Capabilities` aliases the deprecated
+/// `PRODUCT_REVISION` at index 2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControllerAttributes {
+    UniqueId = 0,
+    ProductId = 1,
+    Capabilities = 2, // aka the deprecated PRODUCT_REVISION
+    FirmwareVersion = 3, // deprecated
+    FirmwareBuildTime = 4,
+    RadioFirmwareBuildTime = 5,
+    RadioDeviceId0 = 6,
+    RadioDeviceId1 = 7,
+    DongleFirmwareBuildTime = 8,
+    BoardRevision = 9,
+    BootloaderBuildTime = 10,
+    ConnectionIntervalInUs = 11,
+}
+
+impl ControllerAttributes {
+    /// Name a raw attribute tag byte (as returned by `GET_ATTRIBUTES_VALUES`); `None` for a tag we
+    /// don't have a name for.
+    pub fn from_tag(tag: u8) -> Option<Self> {
+        Some(match tag {
+            0 => Self::UniqueId,
+            1 => Self::ProductId,
+            2 => Self::Capabilities,
+            3 => Self::FirmwareVersion,
+            4 => Self::FirmwareBuildTime,
+            5 => Self::RadioFirmwareBuildTime,
+            6 => Self::RadioDeviceId0,
+            7 => Self::RadioDeviceId1,
+            8 => Self::DongleFirmwareBuildTime,
+            9 => Self::BoardRevision,
+            10 => Self::BootloaderBuildTime,
+            11 => Self::ConnectionIntervalInUs,
+            _ => return None,
+        })
+    }
+}
+
+/// String read-only attribute tags for `GET_STRING_ATTRIBUTE` (`0xAE`). SDL
+/// `ControllerStringAttributes`. `UnitSerial` is the real per-unit serial getter (its response is
+/// [`MsgGetStringAttribute`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControllerStringAttributes {
+    BoardSerial = 0,
+    UnitSerial = 1,
+}
 
 // =====================================================================================
 // 3. Command payload structs (+ the value-enums they use), command-id ascending. Each `to_bytes()`
@@ -606,6 +731,59 @@ pub(crate) mod event_type {
 pub(crate) mod wireless {
     pub(crate) const DISCONNECTED: u8 = 0x01;
     pub(crate) const CONNECTED: u8 = 0x02;
+}
+
+/// `GET_ATTRIBUTES_VALUES` (`0x83`) response element — SDL `ControllerAttribute` (`{ tag, value }`).
+/// **RESPONSE (read-back)**; `tag` is a [`ControllerAttributes`]. We don't query/parse attributes
+/// yet, so this is a layout trace — a `from_bytes` lands in the inbound pass.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ControllerAttribute {
+    pub tag: u8,
+    pub value: u32,
+}
+
+/// `GET_STRING_ATTRIBUTE` (`0xAE`) response — SDL `MsgGetStringAttribute` (`{ tag, value[20] }`).
+/// **RESPONSE (read-back)**; `tag` is a [`ControllerStringAttributes`] (e.g. `UnitSerial`). Layout
+/// trace; parsing deferred to the inbound pass.
+#[derive(Debug, Clone)]
+pub(crate) struct MsgGetStringAttribute {
+    pub tag: u8,
+    pub value: [u8; 20],
+}
+
+/// `GET_SETTINGS_DEFAULTS` (`0x8C`) / `GET_SETTINGS_MAXS` (`0x8B`) reply element — SDL
+/// `SettingValueRange_t` (`short defaultminmax[3]`, indexed by [`SettingDefaultMinMax`]).
+/// **RESPONSE (read-back)**; parsing deferred to the inbound pass. **HW-UNTESTED.**
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SettingValueRange {
+    /// `[default, min, max]` (i16), in `SettingDefaultMinMax` order.
+    pub defaultminmax: [i16; 3],
+}
+
+/// Wireless dongle event type — SDL `EWirelessEventType`. **INBOUND** (dongle status). We currently
+/// decode only connect/disconnect (see the `wireless` module above); the full set incl. `Pair` is a
+/// trace, parsing deferred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WirelessEventType {
+    Disconnect = 1,
+    Connect = 2,
+    Pair = 3,
+}
+
+/// Controller status event code — SDL `ControllerStatusEventCodes`. **INBOUND** (status reports),
+/// parsing deferred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ControllerStatusEventCode {
+    Normal = 0,
+    CriticalBattery = 1,
+    GyroInitError = 2,
+}
+
+/// Controller status state flags — SDL `ControllerStatusStateFlags`. **INBOUND** (status reports),
+/// parsing deferred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ControllerStatusStateFlag {
+    LowBattery = 0,
 }
 
 /// IMU scale constants — HW-verified on Gordon. `ControllerState` carries the raw i16 IMU readings,

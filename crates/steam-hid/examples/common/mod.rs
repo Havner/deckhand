@@ -1,4 +1,8 @@
 //! Shared helpers for the steam-hid examples.
+//!
+//! Each example includes this module and uses a subset of it (e.g. one-shot examples skip the
+//! Ctrl-C helper), so unused-per-example items are expected.
+#![allow(dead_code)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

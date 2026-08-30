@@ -3,28 +3,6 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-bitflags::bitflags! {
-    /// IMU (gyro/accel) mode bits for the `IMU_MODE` setting (PLAN §1.4).
-    ///
-    /// Matches the C# `GCGyroMode` / kernel `GYRO_MODE` bit values exactly.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-    pub struct ImuMode: u16 {
-        const STEERING         = 0x01;
-        const TILT             = 0x02;
-        const SEND_ORIENTATION = 0x04;
-        const SEND_RAW_ACCEL    = 0x08;
-        const SEND_RAW_GYRO     = 0x10;
-    }
-}
-
-impl ImuMode {
-    /// The raw accel + raw gyro combo, i.e. what `set_gyro(true)` enables.
-    pub fn raw_motion() -> Self {
-        Self::SEND_RAW_ACCEL | Self::SEND_RAW_GYRO
-    }
-}
-
 /// Which haptic actuator to drive.
 ///
 /// Note the kernel swaps left/right for legacy reasons on the pulse path; this

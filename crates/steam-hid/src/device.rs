@@ -6,10 +6,13 @@ use std::time::{Duration, Instant};
 use hidapi::HidApi;
 
 use crate::backend::{HidapiDevice, RawHid};
-use crate::command::{HapticPulse, HapticStyle, ImuMode, Motor};
+use crate::command::{HapticPulse, HapticStyle, Motor};
 use crate::error::{Error, Result};
 use crate::event::Events;
-use crate::protocol::{self, HapticIntensity, HapticType, cmd, setting, trackpad_mode};
+use crate::protocol::{
+    self, ControllerStringAttributes, GyroMode, HapticIntensity, HapticType, TrackpadDPadMode, cmd,
+    setting,
+};
 use crate::report::{self, RawReport};
 use crate::state::{Battery, Report};
 use crate::value::Timestamp;
@@ -531,24 +534,24 @@ impl Device {
         } else {
             self.feature(cmd::CLEAR_DIGITAL_MAPPINGS, &[])?;
             self.set_settings(&[
-                (setting::LEFT_TRACKPAD_MODE, trackpad_mode::NONE as u16),
-                (setting::RIGHT_TRACKPAD_MODE, trackpad_mode::NONE as u16),
+                (setting::LEFT_TRACKPAD_MODE, TrackpadDPadMode::None as u16),
+                (setting::RIGHT_TRACKPAD_MODE, TrackpadDPadMode::None as u16),
             ])?;
         }
         Ok(())
     }
 
     /// Set the IMU mode bits (gyro/accel/orientation), PLAN §1.4.
-    pub fn set_imu_mode(&mut self, mode: ImuMode) -> Result<()> {
+    pub fn set_imu_mode(&mut self, mode: GyroMode) -> Result<()> {
         self.set_settings(&[(setting::IMU_MODE, mode.bits())])
     }
 
     /// Convenience: enable raw accel + raw gyro, or turn the IMU off.
     pub fn set_gyro(&mut self, on: bool) -> Result<()> {
         let mode = if on {
-            ImuMode::raw_motion()
+            GyroMode::raw_motion()
         } else {
-            ImuMode::empty()
+            GyroMode::empty()
         };
         self.set_imu_mode(mode)
     }
@@ -721,6 +724,73 @@ impl Device {
         self.feature(cmd::TURN_OFF_CONTROLLER, b"off!")
     }
 
+    // --- reads / queries (GET round-trips; **HW-UNTESTED** — probe with the `getters` example) ---
+
+    /// Read a string attribute (e.g. the unit serial) via `GET_STRING_ATTRIBUTE` (`0xAE`). Request is
+    /// `[0xAE, max_len, tag]` (kernel `steam_get_serial` uses `max_len` = 0x16); the reply is
+    /// `[cmd, str_len, echoed_tag, string…]`. **USB only** (BLE feature-report segmentation not
+    /// handled here). **HW-UNTESTED.**
+    pub fn get_string_attribute(&mut self, tag: ControllerStringAttributes) -> Result<String> {
+        let tag = tag as u8;
+        // Accept only a reply for *this* tag whose string is non-empty (rejects a stale other-tag
+        // reply and the mid-update empty-buffer race).
+        let (buf, base) = self.get_roundtrip(
+            cmd::GET_STRING_ATTRIBUTE,
+            0x16, // requested max response length (kernel `steam_get_serial`)
+            &[tag],
+            |buf, base| buf.get(base + 2) == Some(&tag) && buf.get(base + 3).is_some_and(|&b| b != 0),
+        )?;
+        let len = buf[base + 1] as usize;
+        let start = base + 3; // skip cmd, len, echoed tag
+        let raw = buf.get(start..(start + len).min(buf.len())).unwrap_or(&[]);
+        let raw = &raw[..raw.iter().position(|&b| b == 0).unwrap_or(raw.len())];
+        Ok(String::from_utf8_lossy(raw).into_owned())
+    }
+
+    /// Read the controller's read-only attributes via `GET_ATTRIBUTES_VALUES` (`0x83`) — the **full**
+    /// list of `(tag, value)` (SDL sends a bare `[0x83]`; the firmware returns all — there's no
+    /// per-tag request). `tag` is a [`protocol::ControllerAttributes`] (name it via
+    /// [`protocol::ControllerAttributes::from_tag`]), `value` a `u32`. **USB only.**
+    pub fn get_attributes(&mut self) -> Result<Vec<(u8, u32)>> {
+        let (buf, base) = self.get_roundtrip(
+            cmd::GET_ATTRIBUTES_VALUES,
+            0, // no request payload — returns the full set
+            &[],
+            |buf, base| buf.get(base + 1).is_some_and(|&l| l > 0), // non-empty attribute list
+        )?;
+        let len = buf[base + 1] as usize;
+        let data = buf.get(base + 2..(base + 2 + len).min(buf.len())).unwrap_or(&[]);
+        Ok(data
+            .as_chunks::<5>() // ControllerAttribute = {tag:u8, value:u32}
+            .0
+            .iter()
+            .map(|c| (c[0], u32::from_le_bytes([c[1], c[2], c[3], c[4]])))
+            .collect())
+    }
+
+    /// Read specific settings via `GET_SETTINGS_VALUES` (`0x89`) — returns `(id, value)` pairs. The
+    /// **request uses the same `ControllerSetting[]` shape as `SET_SETTINGS_VALUES`** — one `(id,
+    /// value)` triple per wanted setting (the value is ignored on a read; HW-confirmed on Gordon).
+    /// **USB only.**
+    pub fn get_settings(&mut self, ids: &[u8]) -> Result<Vec<(u8, u16)>> {
+        let mut entries = Vec::with_capacity(ids.len() * 3);
+        for &id in ids {
+            entries.extend_from_slice(
+                &protocol::ControllerSetting { setting_num: id, value: 0 }.to_bytes(),
+            );
+        }
+        let (buf, base) =
+            self.get_roundtrip(cmd::GET_SETTINGS_VALUES, entries.len() as u8, &entries, |_, _| true)?;
+        let len = buf[base + 1] as usize;
+        let data = buf.get(base + 2..(base + 2 + len).min(buf.len())).unwrap_or(&[]);
+        Ok(data
+            .as_chunks::<3>() // ControllerSetting = {id:u8, value:u16}
+            .0
+            .iter()
+            .map(|c| (c[0], u16::from_le_bytes([c[1], c[2]])))
+            .collect())
+    }
+
     // --- escape hatch (PLAN §1.5) ---
 
     /// Send a raw feature report. Takes the **logical** command
@@ -771,6 +841,51 @@ impl Device {
             payload.extend_from_slice(&protocol::ControllerSetting { setting_num, value }.to_bytes());
         }
         self.feature(cmd::SET_SETTINGS_VALUES, &payload)
+    }
+
+    /// Write a GET request (`request[0]` = command id) and read the reply, retrying a few times (the
+    /// device may return other reports first — mirrors SDL's `ReadResponse`). Returns the reply buffer
+    /// and the offset of the echoed command id (`0` or `1`, absorbing hidapi's report-id-byte
+    /// ambiguity for report 0): the reply's length byte is then at `base + 1`, its data at `base + 2`.
+    fn get_roundtrip(
+        &mut self,
+        cmd_id: u8,
+        length: u8,
+        payload: &[u8],
+        valid: impl Fn(&[u8], usize) -> bool,
+    ) -> Result<(Vec<u8>, usize)> {
+        // Build the request through the shared `FeatureReportHeader` (same header as `feature()`) —
+        // GET commands vary the header's `length` field: payload length for SETTINGS, `0` for
+        // ATTRIBUTES, and the requested max response length for the STRING getter, so it's passed in
+        // rather than derived from `payload.len()`.
+        let mut request = protocol::FeatureReportHeader { cmd: cmd_id, length }.to_bytes().to_vec();
+        request.extend_from_slice(payload);
+        // The dongle's feature endpoint is flaky under back-to-back I/O: a `SetFeature` too soon after
+        // a prior `GetFeature` EPIPEs, and a `GetFeature` can race the device mid-updating its reply
+        // buffer (stale/half-written). So re-send the whole exchange each attempt, settling around
+        // both halves, and only accept a reply whose `cmd` echo matches AND passes `valid`.
+        let mut buf = vec![0u8; 1 + protocol::REPORT_LEN];
+        for _ in 0..8 {
+            std::thread::sleep(Duration::from_millis(20));
+            if self.send_feature_report(&request).is_err() {
+                continue; // busy → retry the SetFeature
+            }
+            std::thread::sleep(Duration::from_millis(10)); // let the reply compute
+            buf.iter_mut().for_each(|b| *b = 0);
+            buf[0] = protocol::REPORT_ID;
+            let n = self.get_feature_report(&mut buf)?;
+            let base = if n >= 2 && buf[0] == cmd_id {
+                0
+            } else if n >= 3 && buf[1] == cmd_id {
+                1
+            } else {
+                continue; // stale / wrong echo
+            };
+            if valid(&buf, base) {
+                return Ok((buf, base));
+            }
+        }
+        Err(Error::Unsupported("GET response not received/validated"))
     }
 
     /// Send a Triton haptic **output** report verbatim (`report[0]` = report id). Output reports
