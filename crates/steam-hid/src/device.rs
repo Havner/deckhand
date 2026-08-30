@@ -754,11 +754,11 @@ impl Device {
 
     // --- command helpers ---
 
-    /// Build `[id, len, payload…]` and send it framed.
+    /// Build `[FeatureReportHeader, payload…]` and send it framed.
     fn feature(&mut self, id: u8, payload: &[u8]) -> Result<()> {
+        let header = protocol::FeatureReportHeader { cmd: id, length: payload.len() as u8 };
         let mut cmd = Vec::with_capacity(2 + payload.len());
-        cmd.push(id);
-        cmd.push(payload.len() as u8);
+        cmd.extend_from_slice(&header.to_bytes());
         cmd.extend_from_slice(payload);
         self.send_feature_report(&cmd)
     }

@@ -226,8 +226,23 @@ pub(crate) const ATTRIB_STR_UNIT_SERIAL: u8 = 0x01;
 
 // =====================================================================================
 // 3. Command payload structs (+ the value-enums they use), command-id ascending. Each `to_bytes()`
-//    emits the little-endian wire body (the `[cmd_id, len]` header is added by `device.rs`).
+//    emits the little-endian wire body; `device::feature` prefixes the [`FeatureReportHeader`].
 // =====================================================================================
+
+/// The 2-byte header prefixing every host→controller feature-report command: SDL
+/// `FeatureReportHeader` (`{ type, length }`). `device::feature` writes this ahead of a payload's
+/// `to_bytes()`. (`type` is a Rust keyword, so the command-id field is named `cmd` here.)
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FeatureReportHeader {
+    pub cmd: u8,
+    pub length: u8,
+}
+
+impl FeatureReportHeader {
+    pub(crate) fn to_bytes(self) -> [u8; 2] {
+        [self.cmd, self.length]
+    }
+}
 
 /// One `settingNum: u8, settingValue: u16` pair — the element of `SET_SETTINGS_VALUES` (`0x87`).
 ///
