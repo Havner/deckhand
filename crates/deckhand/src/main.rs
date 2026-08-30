@@ -1280,6 +1280,8 @@ impl App {
             },
             Event::ChordsSet(c) => status.chords = c,
             Event::DeviceConfigSet(d) => status.device_config = d,
+            // The live layer-stack view is not part of `status` (monitor-only debug events).
+            Event::ActiveSet(_) | Event::HeldLayers(_) | Event::PersistentLayers(_) => {}
         }
     }
 

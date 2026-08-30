@@ -4,6 +4,7 @@
 //! outputs, keep the pad plugged, await reattach/stop), swapping the frame/rumble/click channels on
 //! reattach (D6) so the same `Sink` serves across an outage.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -18,7 +19,7 @@ use crate::chords::{ChordStates, ExecReq};
 use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
 use crate::logical::LogicalFrame;
-use crate::program::{Program, Role, empty_program};
+use crate::program::{LayerId, Program, Role, empty_program};
 use crate::{HapticReq, Mapper, Result, Tick};
 
 use super::link::LinkServer;
@@ -49,6 +50,12 @@ pub(super) fn run_mapper(
     let mut out: Vec<OutputEvent> = Vec::new();
     let mut haptics: Vec<HapticReq> = Vec::new();
     let mut last_rumble = RumbleCmd::default();
+    // Live layer-stack view (debug/awareness, monitor-only): the last-emitted snapshot, diffed each
+    // tick. The set is diffed by *name* (so a role/program swap onto the same index still emits); the
+    // layers by id (they clear to empty on any swap, so an id diff self-heals). See `emit_layer_view`.
+    let mut last_set: Option<String> = None;
+    let mut last_held: BTreeSet<LayerId> = BTreeSet::new();
+    let mut last_persistent: BTreeSet<LayerId> = BTreeSet::new();
 
     'session: loop {
         // ---- connected phase ----
@@ -76,13 +83,19 @@ pub(super) fn run_mapper(
                         let now = Tick(start.elapsed().as_millis() as u64);
                         out.clear();
                         haptics.clear();
-                        mapper.tick(&masked, now, program_for(&role, &main, &fallback), &mut out, &mut haptics);
+                        let program = program_for(&role, &main, &fallback);
+                        mapper.tick(&masked, now, program, &mut out, &mut haptics);
                         sink.emit(&out)?;
                         // Command-haptic clicks this tick → the reader, which maps the strength
                         // level to the device (Gordon pulse duration / Deck gain).
                         for h in haptics.drain(..) {
                             let _ = link.click_tx().send(Click { side: h.side, strength: h.strength });
                         }
+                        // Live layer-stack view: emit the full set on any change (debug/awareness).
+                        emit_layer_view(
+                            &mapper, program, &events,
+                            &mut last_set, &mut last_held, &mut last_persistent,
+                        );
                     }
                     // Controller gone but the transport (dongle) is alive → release outputs so
                     // nothing sticks (e.g. a held stick keeping the character running). The reader
@@ -310,6 +323,35 @@ fn set_active(flag: &AtomicBool, events: &EventSink, role: Role) {
     events.emit(EngineEvent::ActiveRole(role));
 }
 
+/// Diff the mapper's live layer stack against the last-emitted snapshot and emit the full new set on
+/// any change — the `ActiveSet`/`HeldLayers`/`PersistentLayers` debug view (absolute-valued, names
+/// resolved against the current `program`). The **set** is diffed by name (a role/program swap onto
+/// the same `SetId` index still emits); the **layers** by id (they clear to empty on any swap, so an
+/// id diff self-heals and re-emits from the new program). Called after every mapped tick.
+fn emit_layer_view(
+    mapper: &Mapper,
+    program: &Program,
+    events: &EventSink,
+    last_set: &mut Option<String>,
+    last_held: &mut BTreeSet<LayerId>,
+    last_persistent: &mut BTreeSet<LayerId>,
+) {
+    let set = program.set(mapper.active_set());
+    if last_set.as_deref() != Some(set.name.as_str()) {
+        events.emit(EngineEvent::ActiveSet(set.name.clone()));
+        *last_set = Some(set.name.clone());
+    }
+    let name_of = |id| set.layer(id).name.clone();
+    if !mapper.held_layer_ids().eq(last_held.iter()) {
+        events.emit(EngineEvent::HeldLayers(mapper.held_layer_ids().map(name_of).collect()));
+        *last_held = mapper.held_layer_ids().cloned().collect();
+    }
+    if mapper.persistent_layer_ids() != last_persistent {
+        events.emit(EngineEvent::PersistentLayers(mapper.persistent_layer_ids().iter().map(name_of).collect()));
+        *last_persistent = mapper.persistent_layer_ids().clone();
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -366,5 +408,60 @@ mod tests {
         // Neither present → the empty placeholder (maps nothing).
         assert_eq!(program_for(&Role::Main, &none, &none).meta.name, "EMPTY_PROFILE");
         assert_eq!(program_for(&Role::Fallback, &none, &none).meta.name, "EMPTY_PROFILE");
+    }
+
+    #[test]
+    fn layer_view_emits_named_events_on_change_only() {
+        use crate::logical::LogicalFrame;
+        use crate::program::{CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, LayerId};
+        use crate::{Mapper, Tick};
+        use config::{Activator, CommandSettings, InputSource};
+
+        // set "game": base LB → AddLayer(0); layer 0 is named "aim".
+        let program = Program {
+            meta: ProgramMeta { name: "p".into(), role: Role::Main },
+            default_set: SetId::new(0),
+            rumble: Default::default(),
+            sets: vec![CompiledSet {
+                name: "game".into(),
+                base: SourceMap::from_iter([(
+                    InputSource::LeftBumper,
+                    CompiledBinding::Button {
+                        commands: vec![CompiledCommand {
+                            activator: Activator::Regular { interruptible: false },
+                            actions: vec![CompiledAction::AddLayer(LayerId::new(0))],
+                            settings: CommandSettings::default(),
+                        }],
+                    },
+                )]),
+                layers: vec![CompiledLayer { name: "aim".into(), bindings: SourceMap::new() }],
+            }],
+        };
+        let mut mapper = Mapper::new(&program);
+        let events = EventSink::default();
+        let stream = events.subscribe();
+        let (mut last_set, mut last_held, mut last_persistent) = (None, BTreeSet::new(), BTreeSet::new());
+
+        let frame = |b| LogicalFrame::new(steam_hid::ControllerState { buttons: b, ..Default::default() });
+        let (mut out, mut hap) = (Vec::new(), Vec::new());
+        let view = |m: &Mapper, ls: &mut _, lh: &mut _, lp: &mut _| {
+            emit_layer_view(m, &program, &events, ls, lh, lp)
+        };
+
+        // Tick 0: press LB → the first tick emits the active set, and AddLayer(0) lands this tick.
+        mapper.tick(&frame(steam_hid::Buttons::LB), Tick(0), &program, &mut out, &mut hap);
+        view(&mapper, &mut last_set, &mut last_held, &mut last_persistent);
+        // Tick 1: still held, nothing changes → no further events.
+        mapper.tick(&frame(steam_hid::Buttons::LB), Tick(4), &program, &mut out, &mut hap);
+        view(&mapper, &mut last_set, &mut last_held, &mut last_persistent);
+
+        drop(events); // close the channel so the drain terminates.
+        let got: Vec<_> = std::iter::from_fn(|| stream.recv()).collect();
+        assert!(
+            matches!(&got[..],
+                [EngineEvent::ActiveSet(s), EngineEvent::PersistentLayers(p)]
+                    if s == "game" && p.as_slice() == ["aim"]),
+            "exactly ActiveSet(game) then PersistentLayers([aim]), and nothing on the unchanged tick; got {got:?}",
+        );
     }
 }

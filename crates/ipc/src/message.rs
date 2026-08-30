@@ -155,4 +155,14 @@ pub enum Event {
     ChordsSet(Option<Chords>),
     /// The device config was set — the whole new config (mirrors [`StatusSnapshot::device_config`]).
     DeviceConfigSet(DeviceConfig),
+
+    // --- Live layer-stack view — the ONLY events NOT mirrored in `StatusSnapshot`. A transient
+    // debug/awareness view of the effective layer stack, read through `monitor`; not seeded on
+    // connect. Absolute-valued (each carries the full new set; the engine emits only on a change). ---
+    /// The active action set changed — its name.
+    ActiveSet(String),
+    /// The held-layer set (`HoldLayer`) changed — the full new set of names (empty = none).
+    HeldLayers(Vec<String>),
+    /// The persistent-layer set (`AddLayer`/`RemoveLayer`) changed — the full new set of names.
+    PersistentLayers(Vec<String>),
 }

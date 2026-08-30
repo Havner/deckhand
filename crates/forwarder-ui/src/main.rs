@@ -496,11 +496,15 @@ impl App {
             Event::BindingAcquired(id) => status.bound = Some(id),
             Event::InputStaged(i) => status.input = i,
             Event::DeviceConfigSet(d) => status.device_config = d,
-            // Not shown by the forwarder — output field is user-owned; no profiles/chords/role.
+            // Not shown by the forwarder — output field is user-owned; no profiles/chords/role; the
+            // live layer-stack view is monitor-only debug.
             Event::OutputStaged(_)
             | Event::ActiveRole(_)
             | Event::ProfileSet { .. }
-            | Event::ChordsSet(_) => {}
+            | Event::ChordsSet(_)
+            | Event::ActiveSet(_)
+            | Event::HeldLayers(_)
+            | Event::PersistentLayers(_) => {}
         }
     }
 

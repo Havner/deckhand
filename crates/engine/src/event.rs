@@ -53,6 +53,20 @@ pub enum EngineEvent {
     /// The device config was set (live if running, else staged). Carries the whole config so a client
     /// can mirror it without a round-trip. Absolute value.
     DeviceConfigSet(DeviceConfig),
+
+    // --- Live layer-stack view (mapper-side) — the ONLY events NOT reflected in `StatusInfo`. ---
+    // Every event above mirrors a `StatusInfo`/`StatusSnapshot` field, so a client can seed on connect
+    // then ride events. These three deliberately do NOT: they are a transient debug/awareness view of
+    // the effective layer stack, surfaced through `monitor` only, not seeded on connect. All three are
+    // absolute-valued — each carries the FULL new set (the runtime diffs and emits only on a change).
+    /// The active **action set** changed — its name.
+    ActiveSet(String),
+    /// The set of **held layers** (from `HoldLayer`) changed — the full new set of names, in
+    /// declared-order (id) order. Empty = no held layers.
+    HeldLayers(Vec<String>),
+    /// The set of **persistent layers** (from `AddLayer`/`RemoveLayer`) changed — the full new set of
+    /// names. Empty = none.
+    PersistentLayers(Vec<String>),
 }
 
 /// Broadcasts [`EngineEvent`]s to any subscribers (D7). Cloned into every thread that produces

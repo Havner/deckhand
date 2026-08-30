@@ -148,6 +148,24 @@ impl Mapper {
         // applied / rel / prev / last_tick deliberately retained.
     }
 
+    /// The action set active this tick — its index (resolve the name via `Program::set`). Read by
+    /// the runtime to emit the live `ActiveSet` layer-view event; not part of the mapping contract.
+    pub fn active_set(&self) -> &SetId {
+        &self.active_set
+    }
+
+    /// The layers currently **held** by a `HoldLayer`, in id (declared-order) order. For the runtime's
+    /// `HeldLayers` layer-view event.
+    pub fn held_layer_ids(&self) -> impl Iterator<Item = &LayerId> {
+        self.held_layers.keys()
+    }
+
+    /// The **persistent** layers (from `AddLayer`/`RemoveLayer`). For the runtime's `PersistentLayers`
+    /// layer-view event.
+    pub fn persistent_layer_ids(&self) -> &BTreeSet<LayerId> {
+        &self.persistent_layers
+    }
+
     /// Run one mapping pass: resolve the winning binding for every bound input, compute the
     /// desired output levels + relative nudges, and reconcile them into `out` (emitting only
     /// diffs). `haptics` collects the command-haptic pulses this pass produced (decision C).

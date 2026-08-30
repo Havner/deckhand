@@ -223,5 +223,8 @@ pub fn to_wire_event(ev: EngineEvent) -> Event {
         EngineEvent::ProfileSet { role, name } => Event::ProfileSet { role: profile_role(role), name },
         EngineEvent::ChordsSet(c) => Event::ChordsSet(c),
         EngineEvent::DeviceConfigSet(d) => Event::DeviceConfigSet(d),
+        EngineEvent::ActiveSet(name) => Event::ActiveSet(name),
+        EngineEvent::HeldLayers(names) => Event::HeldLayers(names),
+        EngineEvent::PersistentLayers(names) => Event::PersistentLayers(names),
     }
 }

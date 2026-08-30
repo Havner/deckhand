@@ -245,7 +245,15 @@ fn fmt_event(ev: &Event) -> String {
         }
         Event::ChordsSet(c) => format!("chords set: {}", chord_summary(c)),
         Event::DeviceConfigSet(d) => format!("devcfg set: {}", devcfg_lines(d).join(" | ")),
+        Event::ActiveSet(name) => format!("action set: {name}"),
+        Event::HeldLayers(names) => format!("held layers: {}", name_list(names)),
+        Event::PersistentLayers(names) => format!("persistent layers: {}", name_list(names)),
     }
+}
+
+/// A comma-joined name list, or `(none)` when empty — for the layer-view events.
+fn name_list(names: &[String]) -> String {
+    if names.is_empty() { "(none)".into() } else { names.join(", ") }
 }
 
 /// A `Lever<u8>` (percent) rendered compactly: `40%` (fixed) or `0-100%` (scaled band).
