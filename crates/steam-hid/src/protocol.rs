@@ -701,24 +701,151 @@ pub(crate) mod triton {
         pub(crate) const CONNECT: u8 = 2;
     }
 
-    /// Haptic **output**-report ids (Triton drives haptics via output reports, not feature reports).
-    /// Recorded in full for reference; only a subset is wired up initially. **Second pass:** promote
-    /// these to full payload structs + enums (SDL `MsgHapticRumble`/`MsgHapticCommand`/`MsgHapticLfoTone`
-    /// /`MsgHapticLogSweep`/`MsgHapticScript`) alongside a Triton haptic-style enum.
-    #[allow(dead_code)]
-    pub(crate) mod haptic {
-        /// Dual-motor continuous rumble (`{type, intensity, left{speed,gain}, right{speed,gain}}`).
-        pub(crate) const RUMBLE: u8 = 0x80;
-        /// Trackpad haptic pulse (`{side, on_us, off_us, repeat_count}`).
-        pub(crate) const PULSE: u8 = 0x81;
-        /// Haptic command / click (`{side, command, gain_db}`).
-        pub(crate) const COMMAND: u8 = 0x82;
-        /// LFO tone (`{side, gain_db, frequency, duration_ms, lfo_freq, lfo_depth}`).
-        pub(crate) const LFO_TONE: u8 = 0x83;
-        /// Log-frequency sweep (`{side, gain_db, duration_ms, start_freq, end_freq}`).
-        pub(crate) const LOG_SWEEP: u8 = 0x84;
-        /// Named haptic script (`{side, script_id, gain_db}`).
-        pub(crate) const SCRIPT: u8 = 0x85;
+    // Haptic OUTPUT reports live below the `triton` module as top-level structs (see
+    // `TritonOutReport` + the `MsgHaptic*` structs), matching the section-3 command-struct style.
+}
+
+/// Triton haptic **output**-report ids — SDL `ValveTritonOutReportMessageIDs`. Triton drives haptics
+/// via **output reports** (interrupt-OUT endpoint, `Device::output`), not feature reports; each id is
+/// the first byte of its report. Payloads are the `MsgHaptic*` structs below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum TritonOutReport {
+    Rumble = 0x80,
+    Pulse = 0x81,
+    Command = 0x82,
+    LfoTone = 0x83,
+    LogSweep = 0x84,
+    Script = 0x85,
+}
+
+/// Triton `0x80` dual-motor **rumble** — SDL `MsgHapticRumble`. `rumble_type` is HW-confirmed inert
+/// (like the Deck's `unRumbleType`) → send 0; `intensity` a finer amplitude lever (SDL sends 0);
+/// per-motor `speed` (drive rate) + `gain` (dB). Same levers as the Deck's `0xeb`. **HW-verified
+/// (puck).** `to_bytes` prepends the report id.
+#[derive(Debug, Clone)]
+pub(crate) struct MsgHapticRumble {
+    pub rumble_type: u8,
+    pub intensity: u16,
+    pub left_speed: u16,
+    pub left_gain: i8,
+    pub right_speed: u16,
+    pub right_gain: i8,
+}
+
+impl MsgHapticRumble {
+    pub(crate) fn to_bytes(&self) -> [u8; 10] {
+        let it = self.intensity.to_le_bytes();
+        let ls = self.left_speed.to_le_bytes();
+        let rs = self.right_speed.to_le_bytes();
+        [
+            TritonOutReport::Rumble as u8,
+            self.rumble_type,
+            it[0], it[1],
+            ls[0], ls[1], self.left_gain as u8,
+            rs[0], rs[1], self.right_gain as u8,
+        ]
+    }
+}
+
+/// Triton `0x81` trackpad **pulse** — SDL `MsgHapticPulse` (Triton's analog of Gordon's `0x8f`).
+/// `on_us`/`off_us` = pulse high/low µs, `repeat_count` = pulses. **Unused / HW-UNTESTED** (kept for
+/// completeness — a Triton beep could ride this, cf. the audio work).
+#[derive(Debug, Clone)]
+pub(crate) struct MsgHapticPulse {
+    pub side: u8,
+    pub on_us: u16,
+    pub off_us: u16,
+    pub repeat_count: u16,
+}
+
+impl MsgHapticPulse {
+    pub(crate) fn to_bytes(&self) -> [u8; 8] {
+        let on = self.on_us.to_le_bytes();
+        let off = self.off_us.to_le_bytes();
+        let rc = self.repeat_count.to_le_bytes();
+        [TritonOutReport::Pulse as u8, self.side, on[0], on[1], off[0], off[1], rc[0], rc[1]]
+    }
+}
+
+/// Triton `0x82` haptic **command / click** — SDL `MsgHapticCommand`. `command` is the haptic type
+/// (SDL types it a bare `u8`; we send off/weak/strong — possibly the shared `haptic_type_t`, only 3
+/// HW-verified). `gain_db` is `i8` in SDL, but HW shows this byte as a subtle **unsigned** amplitude
+/// trim (`0`=medium..`255`=strong, sc-controller); the reader sends it unsigned. **HW-verified
+/// (puck).**
+#[derive(Debug, Clone)]
+pub(crate) struct MsgHapticCommand {
+    pub side: u8,
+    pub command: u8,
+    pub gain_db: i8,
+}
+
+impl MsgHapticCommand {
+    pub(crate) fn to_bytes(&self) -> [u8; 4] {
+        [TritonOutReport::Command as u8, self.side, self.command, self.gain_db as u8]
+    }
+}
+
+/// Triton `0x83` **LFO tone** — SDL `MsgHapticLfoTone`. A firmware-synthesized tone (the promising
+/// Triton *audio* path): `frequency` Hz, `duration_ms`, `lfo_freq`/`lfo_depth` modulation.
+/// **Unused / HW-UNTESTED.**
+#[derive(Debug, Clone)]
+pub(crate) struct MsgHapticLfoTone {
+    pub side: u8,
+    pub gain_db: i8,
+    pub frequency: u16,
+    pub duration_ms: u16,
+    pub lfo_freq: u16,
+    pub lfo_depth: u8,
+}
+
+impl MsgHapticLfoTone {
+    pub(crate) fn to_bytes(&self) -> [u8; 10] {
+        let f = self.frequency.to_le_bytes();
+        let d = self.duration_ms.to_le_bytes();
+        let lf = self.lfo_freq.to_le_bytes();
+        [
+            TritonOutReport::LfoTone as u8,
+            self.side, self.gain_db as u8,
+            f[0], f[1],
+            d[0], d[1],
+            lf[0], lf[1],
+            self.lfo_depth,
+        ]
+    }
+}
+
+/// Triton `0x84` log-frequency **sweep** (chirp) — SDL `MsgHapticLogSweep`. **Unused / HW-UNTESTED.**
+#[derive(Debug, Clone)]
+pub(crate) struct MsgHapticLogSweep {
+    pub side: u8,
+    pub gain_db: i8,
+    pub duration_ms: u16,
+    pub start_freq: u16,
+    pub end_freq: u16,
+}
+
+impl MsgHapticLogSweep {
+    pub(crate) fn to_bytes(&self) -> [u8; 9] {
+        let d = self.duration_ms.to_le_bytes();
+        let s = self.start_freq.to_le_bytes();
+        let e = self.end_freq.to_le_bytes();
+        [TritonOutReport::LogSweep as u8, self.side, self.gain_db as u8, d[0], d[1], s[0], s[1], e[0], e[1]]
+    }
+}
+
+/// Triton `0x85` named haptic **script** — SDL `MsgHapticScript`. `script_id` selects a firmware
+/// effect; `gain_db` scales. **Unused / HW-UNTESTED.**
+#[derive(Debug, Clone)]
+pub(crate) struct MsgHapticScript {
+    pub side: u8,
+    pub script_id: u8,
+    pub gain_db: i8,
+}
+
+impl MsgHapticScript {
+    pub(crate) fn to_bytes(&self) -> [u8; 4] {
+        [TritonOutReport::Script as u8, self.side, self.script_id, self.gain_db as u8]
     }
 }
 

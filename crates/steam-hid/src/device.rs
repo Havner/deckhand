@@ -688,19 +688,17 @@ impl Device {
         left_gain: i8,
         right_gain: i8,
     ) -> Result<()> {
-        let [i0, i1] = intensity.to_le_bytes();
-        let [l0, l1] = left.to_le_bytes();
-        let [r0, r1] = right.to_le_bytes();
-        // [id, unRumbleType, intensity(2), left{speed(2), gain}, right{speed(2), gain}] = 10 bytes.
-        // unRumbleType (SDL MsgHapticRumble.type) is HW-confirmed inert (swept 0..255, no effect);
+        // rumble_type (SDL MsgHapticRumble.type) is HW-confirmed inert (swept 0..255, no effect);
         // every reference sends 0, so we do too.
-        self.output(&[
-            protocol::triton::haptic::RUMBLE,
-            0, // unRumbleType
-            i0, i1,
-            l0, l1, left_gain as u8,
-            r0, r1, right_gain as u8,
-        ])
+        let msg = protocol::MsgHapticRumble {
+            rumble_type: 0,
+            intensity,
+            left_speed: left,
+            left_gain,
+            right_speed: right,
+            right_gain,
+        };
+        self.output(&msg.to_bytes())
     }
 
     /// Fire a Triton **haptic command / click** — output report `0x82` (`HapticCommand`, 4 bytes):
@@ -716,7 +714,10 @@ impl Device {
             Motor::Right => 1,
             Motor::Both => 2, // HW-verified: Triton's 0x82 click honors a BOTH side.
         };
-        self.output(&[protocol::triton::haptic::COMMAND, side, style as u8, amplitude])
+        // `command` = the haptic type (off/weak/strong); `gain_db` carries our unsigned amplitude
+        // trim (SDL types the byte i8, but HW treats it as 0=medium..255=strong — see the struct doc).
+        let msg = protocol::MsgHapticCommand { side, command: style as u8, gain_db: amplitude as i8 };
+        self.output(&msg.to_bytes())
     }
 
     /// Power the controller off.
