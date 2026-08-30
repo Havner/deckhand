@@ -734,19 +734,19 @@ impl Device {
     pub fn get_string_attribute(&mut self, tag: ControllerStringAttributes) -> Result<String> {
         let tag = tag as u8;
         // Accept only a reply for *this* tag whose string is non-empty (rejects a stale other-tag
-        // reply and the mid-update empty-buffer race).
-        let (buf, base) = self.get_roundtrip(
+        // reply and the mid-update empty-buffer race). `body` = `MsgGetStringAttribute { tag,
+        // value[20] }`; `len` = the reply header's body length (tag + value = 21, HW-observed), an
+        // upper bound only — the string itself is NUL-terminated, so we cut `value` at the first NUL.
+        let (body, len) = self.get_roundtrip(
             Cmd::GetStringAttribute,
             0x16, // requested max response length (kernel `steam_get_serial`)
             &[tag],
-            |buf, base| buf.get(base + 2) == Some(&tag) && buf.get(base + 3).is_some_and(|&b| b != 0),
+            |_len, body| body.first() == Some(&tag) && body.get(1).is_some_and(|&b| b != 0),
         )?;
-        // Reply body after the `[cmd, len]` header is `MsgGetStringAttribute { tag, value[20] }`.
-        let msg = protocol::MsgGetStringAttribute::from_bytes(&buf[base + 2..])
-            .ok_or(Error::ShortReport { expected: base + 2 + 21, got: buf.len() })?;
-        let len = (buf[base + 1] as usize).min(msg.value.len());
+        let msg = protocol::MsgGetStringAttribute::from_bytes(&body)
+            .ok_or(Error::ShortReport { expected: 21, got: body.len() })?;
         let value = msg.value; // copy the packed array out by value before slicing
-        let raw = &value[..len];
+        let raw = &value[..len.min(value.len())];
         let raw = &raw[..raw.iter().position(|&b| b == 0).unwrap_or(raw.len())];
         Ok(String::from_utf8_lossy(raw).into_owned())
     }
@@ -756,15 +756,13 @@ impl Device {
     /// per-tag request). `tag` is a [`protocol::ControllerAttributes`] (name it via
     /// [`protocol::ControllerAttributes::from_tag`]), `value` a `u32`. **USB only.**
     pub fn get_attributes(&mut self) -> Result<Vec<(u8, u32)>> {
-        let (buf, base) = self.get_roundtrip(
+        let (data, len) = self.get_roundtrip(
             Cmd::GetAttributesValues,
             0, // no request payload — returns the full set
             &[],
-            |buf, base| buf.get(base + 1).is_some_and(|&l| l > 0), // non-empty attribute list
+            |len, _| len > 0, // non-empty attribute list
         )?;
-        let len = buf[base + 1] as usize;
-        let data = buf.get(base + 2..(base + 2 + len).min(buf.len())).unwrap_or(&[]);
-        Ok(data
+        Ok(data[..len]
             .as_chunks::<5>() // ControllerAttribute = {tag:u8, value:u32}
             .0
             .iter()
@@ -784,11 +782,9 @@ impl Device {
                 protocol::ControllerSetting { setting_num: id, value: 0 }.as_bytes(),
             );
         }
-        let (buf, base) =
+        let (data, len) =
             self.get_roundtrip(Cmd::GetSettingsValues, entries.len() as u8, &entries, |_, _| true)?;
-        let len = buf[base + 1] as usize;
-        let data = buf.get(base + 2..(base + 2 + len).min(buf.len())).unwrap_or(&[]);
-        Ok(data
+        Ok(data[..len]
             .as_chunks::<3>() // ControllerSetting = {id:u8, value:u16}
             .0
             .iter()
@@ -850,15 +846,17 @@ impl Device {
     }
 
     /// Write a GET request (`request[0]` = command id) and read the reply, retrying a few times (the
-    /// device may return other reports first — mirrors SDL's `ReadResponse`). Returns the reply buffer
-    /// and the offset of the echoed command id (`0` or `1`, absorbing hidapi's report-id-byte
-    /// ambiguity for report 0): the reply's length byte is then at `base + 1`, its data at `base + 2`.
+    /// device may return other reports first — mirrors SDL's `ReadResponse`). Locates the echoed
+    /// command id (at offset 0 or 1, absorbing hidapi's report-id-byte ambiguity for report 0),
+    /// strips the `[cmd, len]` header, and returns `(body, len)`: `body` = the reply payload ready to
+    /// cast (the bytes after the header), `len` = the reply's length byte clamped to the bytes
+    /// available. `valid(len, body)` gates acceptance (rejects stale/other-report replies).
     fn get_roundtrip(
         &mut self,
         cmd: Cmd,
         length: u8,
         payload: &[u8],
-        valid: impl Fn(&[u8], usize) -> bool,
+        valid: impl Fn(usize, &[u8]) -> bool,
     ) -> Result<(Vec<u8>, usize)> {
         // Build the request through the shared `FeatureReportHeader` (same header as `feature()`) —
         // GET commands vary the header's `length` field: payload length for SETTINGS, `0` for
@@ -873,23 +871,25 @@ impl Device {
         // both halves, and only accept a reply whose `cmd` echo matches AND passes `valid`.
         let mut buf = vec![0u8; 1 + protocol::REPORT_LEN];
         for _ in 0..8 {
-            std::thread::sleep(Duration::from_millis(20));
+            std::thread::sleep(Duration::from_millis(10));
             if self.send_feature_report(&request).is_err() {
                 continue; // busy → retry the SetFeature
             }
-            std::thread::sleep(Duration::from_millis(10)); // let the reply compute
+            std::thread::sleep(Duration::from_millis(20)); // let the reply compute
             buf.iter_mut().for_each(|b| *b = 0);
             buf[0] = protocol::REPORT_ID;
             let n = self.get_feature_report(&mut buf)?;
-            let base = if n >= 2 && buf[0] == echo {
-                0
-            } else if n >= 3 && buf[1] == echo {
-                1
-            } else {
-                continue; // stale / wrong echo
-            };
-            if valid(&buf, base) {
-                return Ok((buf, base));
+            // The reply is `[report-id(0), cmd, len, body…]` — hidapi keeps the report-id byte at [0]
+            // for report 0 (matches SDL's `ReadResponse`, HW-confirmed on Gordon). Reject a stale /
+            // other-report reply whose echoed cmd at [1] doesn't match (the device replies out of
+            // order under back-to-back GETs).
+            if n < 3 || buf[1] != echo {
+                continue;
+            }
+            let body = buf[3..].to_vec();
+            let len = (buf[2] as usize).min(body.len());
+            if valid(len, &body) {
+                return Ok((body, len));
             }
         }
         Err(Error::Unsupported("GET response not received/validated"))
