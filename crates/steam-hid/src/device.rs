@@ -11,7 +11,7 @@ use crate::error::{Error, Result};
 use crate::event::Events;
 use crate::protocol::{
     self, Cmd, ControllerStringAttributes, GyroMode, HapticIntensity, HapticType, TrackpadDPadMode,
-    setting,
+    Wire, setting,
 };
 use crate::report::{self, RawReport};
 use crate::state::{Battery, Report};
@@ -591,7 +591,7 @@ impl Device {
             count: params.count,
             gain: params.gain,
         };
-        self.feature(Cmd::TriggerHapticPulse, &msg.to_bytes())
+        self.feature(Cmd::TriggerHapticPulse, msg.as_bytes())
     }
 
     /// Drive the Deck's dual haptic motors — **rumble** (`0xeb` `TRIGGER_RUMBLE_CMD`), kernel
@@ -633,7 +633,7 @@ impl Device {
             left_gain,
             right_gain,
         };
-        self.feature(Cmd::TriggerRumbleCmd, &msg.to_bytes())
+        self.feature(Cmd::TriggerRumbleCmd, msg.as_bytes())
     }
 
     /// Fire the Deck's `0xEA` `SET_HAPTIC2` — a short, finely-tuned trackpad **click** haptic (much
@@ -660,12 +660,12 @@ impl Device {
         };
         let msg = protocol::MsgTriggerHaptic {
             side,
-            cmd,
-            ui_intensity: intensity,
+            cmd: cmd as u8,
+            ui_intensity: intensity as u8,
             dbgain: gain,
             ..Default::default()
         };
-        self.feature(Cmd::TriggerHapticCmd, &msg.to_bytes())
+        self.feature(Cmd::TriggerHapticCmd, msg.as_bytes())
     }
 
     /// Drive Triton's dual-motor **continuous rumble** — output report `0x80` (`HapticRumble`,
@@ -741,9 +741,12 @@ impl Device {
             &[tag],
             |buf, base| buf.get(base + 2) == Some(&tag) && buf.get(base + 3).is_some_and(|&b| b != 0),
         )?;
-        let len = buf[base + 1] as usize;
-        let start = base + 3; // skip cmd, len, echoed tag
-        let raw = buf.get(start..(start + len).min(buf.len())).unwrap_or(&[]);
+        // Reply body after the `[cmd, len]` header is `MsgGetStringAttribute { tag, value[20] }`.
+        let msg = protocol::MsgGetStringAttribute::from_bytes(&buf[base + 2..])
+            .ok_or(Error::ShortReport { expected: base + 2 + 21, got: buf.len() })?;
+        let len = (buf[base + 1] as usize).min(msg.value.len());
+        let value = msg.value; // copy the packed array out by value before slicing
+        let raw = &value[..len];
         let raw = &raw[..raw.iter().position(|&b| b == 0).unwrap_or(raw.len())];
         Ok(String::from_utf8_lossy(raw).into_owned())
     }
@@ -765,7 +768,8 @@ impl Device {
             .as_chunks::<5>() // ControllerAttribute = {tag:u8, value:u32}
             .0
             .iter()
-            .map(|c| (c[0], u32::from_le_bytes([c[1], c[2], c[3], c[4]])))
+            .filter_map(|c| protocol::ControllerAttribute::from_bytes(c))
+            .map(|a| (a.tag, a.value))
             .collect())
     }
 
@@ -777,7 +781,7 @@ impl Device {
         let mut entries = Vec::with_capacity(ids.len() * 3);
         for &id in ids {
             entries.extend_from_slice(
-                &protocol::ControllerSetting { setting_num: id, value: 0 }.to_bytes(),
+                protocol::ControllerSetting { setting_num: id, value: 0 }.as_bytes(),
             );
         }
         let (buf, base) =
@@ -788,7 +792,8 @@ impl Device {
             .as_chunks::<3>() // ControllerSetting = {id:u8, value:u16}
             .0
             .iter()
-            .map(|c| (c[0], u16::from_le_bytes([c[1], c[2]])))
+            .filter_map(|c| protocol::ControllerSetting::from_bytes(c))
+            .map(|s| (s.setting_num, s.value))
             .collect())
     }
 
@@ -829,7 +834,7 @@ impl Device {
     fn feature(&mut self, cmd: Cmd, payload: &[u8]) -> Result<()> {
         let header = protocol::FeatureReportHeader { cmd: cmd as u8, length: payload.len() as u8 };
         let mut bytes = Vec::with_capacity(2 + payload.len());
-        bytes.extend_from_slice(&header.to_bytes());
+        bytes.extend_from_slice(header.as_bytes());
         bytes.extend_from_slice(payload);
         self.send_feature_report(&bytes)
     }
@@ -839,7 +844,7 @@ impl Device {
     fn set_settings(&mut self, pairs: &[(u8, u16)]) -> Result<()> {
         let mut payload = Vec::with_capacity(pairs.len() * 3);
         for &(setting_num, value) in pairs {
-            payload.extend_from_slice(&protocol::ControllerSetting { setting_num, value }.to_bytes());
+            payload.extend_from_slice(protocol::ControllerSetting { setting_num, value }.as_bytes());
         }
         self.feature(Cmd::SetSettingsValues, &payload)
     }
@@ -860,7 +865,7 @@ impl Device {
         // ATTRIBUTES, and the requested max response length for the STRING getter, so it's passed in
         // rather than derived from `payload.len()`.
         let echo = cmd as u8;
-        let mut request = protocol::FeatureReportHeader { cmd: echo, length }.to_bytes().to_vec();
+        let mut request = protocol::FeatureReportHeader { cmd: echo, length }.as_bytes().to_vec();
         request.extend_from_slice(payload);
         // The dongle's feature endpoint is flaky under back-to-back I/O: a `SetFeature` too soon after
         // a prior `GetFeature` EPIPEs, and a `GetFeature` can race the device mid-updating its reply

@@ -5,8 +5,9 @@
 //! Naming follows the **kernel `hid-steam`** driver (command/setting IDs) and **SDL**
 //! (`SDL/.../steam/controller_structs.h`, Valve's own struct names) for the payload structs. Each
 //! command struct's doc names the command id it serializes for, the SDL struct it mirrors, and any
-//! divergence. Structs serialize via explicit little-endian `to_bytes()` — no `unsafe`, no
-//! transmute; byte-identical to a packed struct on any host.
+//! divergence. Wire structs are `#[repr(C, packed)]` so their in-memory bytes **are** the wire
+//! layout, cast to/from bytes via the [`Wire`] trait (contained `unsafe`, size-guarded, LE-only —
+//! see its docs). SDL/kernel are C, so the structs literally *are* the hardware.
 //!
 //! **Scope (incremental):** command-authoritative first, fully-authoritative later. The **INBOUND**
 //! (input-report parsing) constants at the bottom, and the transport framing in `device.rs`, are
@@ -16,6 +17,42 @@
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
+// =====================================================================================
+// 0. Wire — the byte-cast serialization primitive shared by every payload/response/report struct
+//    (§3–§6). The `unsafe` lives here, once, guarded by a `size_of` check.
+// =====================================================================================
+
+/// A `#[repr(C, packed)]` struct whose in-memory bytes are **identical to the wire layout**, so it
+/// casts to/from bytes directly (SDL/kernel are C, so the structs *are* the hardware).
+///
+/// **LE hosts only:** the cast interprets multi-byte fields in *native* endianness; the wire is
+/// little-endian, so this is correct only where native == LE (x86, ARM-LE — everything we run). A
+/// big-endian host would byte-swap every `u16`/`i16`. Fields must be **plain integers/arrays** (no
+/// enums/refs — any bit pattern must be valid), and every impl must be `#[repr(C, packed)]` with a
+/// `const _: () = assert!(size_of == wire_len)` guard. Packed structs can only derive `Clone, Copy`
+/// (derived `Debug`/`PartialEq` take references to unaligned fields) and their fields are read **by
+/// value** (never `&field`).
+pub(crate) trait Wire: Copy {
+    /// The struct's bytes — the wire form (borrows `self`).
+    fn as_bytes(&self) -> &[u8] {
+        // SAFETY: `Self` is `#[repr(C, packed)]` (align 1, no padding), so its `size_of` bytes are
+        // exactly the wire layout; the slice borrows `self`.
+        unsafe {
+            core::slice::from_raw_parts((self as *const Self).cast::<u8>(), core::mem::size_of::<Self>())
+        }
+    }
+
+    /// Parse the wire form from a byte slice (`None` if too short; trailing bytes ignored).
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < core::mem::size_of::<Self>() {
+            return None;
+        }
+        // SAFETY: length checked above; `read_unaligned` tolerates the packed (align-1) source; all
+        // fields are plain integers/arrays so every bit pattern is a valid `Self`.
+        Some(unsafe { core::ptr::read_unaligned(bytes.as_ptr().cast::<Self>()) })
+    }
+}
 
 // =====================================================================================
 // 1. General constants — vendor/product ids, report framing.
@@ -358,56 +395,46 @@ pub enum ControllerStringAttributes {
 }
 
 // =====================================================================================
-// 3. Command payload structs (+ the value-enums they use), command-id ascending. Each `to_bytes()`
-//    emits the little-endian wire body; `device::feature` prefixes the [`FeatureReportHeader`].
+// 3. Command payload structs (+ the value-enums they use), command-id ascending. Each is a [`Wire`]
+//    struct (`as_bytes()` = the LE wire body); `device::feature` prefixes the [`FeatureReportHeader`].
 // =====================================================================================
 
 /// The 2-byte header prefixing every host→controller feature-report command: SDL
 /// `FeatureReportHeader` (`{ type, length }`). `device::feature` writes this ahead of a payload's
-/// `to_bytes()`. (`type` is a Rust keyword, so the command-id field is named `cmd` here.)
-#[derive(Debug, Clone, Copy)]
+/// `as_bytes()`. (`type` is a Rust keyword, so the command-id field is named `cmd` here.)
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct FeatureReportHeader {
     pub cmd: u8,
     pub length: u8,
 }
-
-impl FeatureReportHeader {
-    pub(crate) fn to_bytes(self) -> [u8; 2] {
-        [self.cmd, self.length]
-    }
-}
+impl Wire for FeatureReportHeader {}
+const _: () = assert!(core::mem::size_of::<FeatureReportHeader>() == 2);
 
 /// One `settingNum: u8, settingValue: u16` pair — mirrors SDL `ControllerSetting`. An array of these
 /// is the payload for **`SET_SETTINGS_VALUES` (`0x87`)** (what `device.rs` sends), and the same array
 /// shape is the *request* for **`GET_SETTINGS_VALUES` (`0x89`)** / **`GET_SETTINGS_MAXS` (`0x8B`)** /
 /// **`GET_SETTINGS_DEFAULTS` (`0x8C`)** (SDL's `MsgSetSettingsValues`/`MsgGetSettings*` are all this
 /// one array — not distinct types). **HW: SET verified (used).**
-#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct ControllerSetting {
     pub setting_num: u8,
     pub value: u16,
 }
-
-impl ControllerSetting {
-    pub(crate) fn to_bytes(self) -> [u8; 3] {
-        let [lo, hi] = self.value.to_le_bytes();
-        [self.setting_num, lo, hi]
-    }
-}
+impl Wire for ControllerSetting {}
+const _: () = assert!(core::mem::size_of::<ControllerSetting>() == 3);
 
 /// Payload of `SET_CONTROLLER_MODE` (`0x8D`) — SDL `MsgSetControllerMode` (`{ mode }`); selects a
 /// controller operating mode. **The `mode` values are undocumented in our sources and we don't send
 /// this — HW-UNTESTED**, kept as a trace.
-#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgSetControllerMode {
     pub mode: u8,
 }
-
-impl MsgSetControllerMode {
-    pub(crate) fn to_bytes(self) -> [u8; 1] {
-        [self.mode]
-    }
-}
+impl Wire for MsgSetControllerMode {}
+const _: () = assert!(core::mem::size_of::<MsgSetControllerMode>() == 1);
 
 /// Payload of `TRIGGER_HAPTIC_PULSE` (`0x8F`) — a trackpad haptic pulse train (Gordon's only haptic;
 /// works on the Deck too). The actuator plays `count` pulses, each `duration` µs on then `interval`
@@ -419,7 +446,8 @@ impl MsgSetControllerMode {
 /// plus a trailing `priority` byte) that we deliberately do **not** use. `which_pad`: **0 = right,
 /// 1 = left** (the kernel's legacy swap); pad 2 (both) no-ops on HW, so the caller drives the two
 /// pads separately.
-#[derive(Debug, Clone)]
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgFireHapticPulse {
     pub which_pad: u8,
     pub duration: u16,
@@ -427,45 +455,32 @@ pub(crate) struct MsgFireHapticPulse {
     pub count: u16,
     pub gain: i8,
 }
-
-impl MsgFireHapticPulse {
-    pub(crate) fn to_bytes(&self) -> [u8; 8] {
-        let d = self.duration.to_le_bytes();
-        let i = self.interval.to_le_bytes();
-        let c = self.count.to_le_bytes();
-        [self.which_pad, d[0], d[1], i[0], i[1], c[0], c[1], self.gain as u8]
-    }
-}
+impl Wire for MsgFireHapticPulse {}
+const _: () = assert!(core::mem::size_of::<MsgFireHapticPulse>() == 8);
 
 /// SDL `MsgHapticSetMode` (`{ mode }`). Present in SDL's `FeatureReportMsg` union but **no command id
 /// in SDL/kernel references it**, so we can't send it — purpose unclear, **HW-UNTESTED**. Trace only.
-#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgHapticSetMode {
     pub mode: u8,
 }
-
-impl MsgHapticSetMode {
-    pub(crate) fn to_bytes(self) -> [u8; 1] {
-        [self.mode]
-    }
-}
+impl Wire for MsgHapticSetMode {}
+const _: () = assert!(core::mem::size_of::<MsgHapticSetMode>() == 1);
 
 /// Payload of `ENABLE_PAIRING` (`0xAD`) — begin/stop dongle pairing. SDL builds this inline in
 /// `SDL_hidapi_steam.c` (`[0xAD, 2, enable, duration_s]`; **no named struct there**), so this form is
 /// ours. `enable` = 0/1, `duration_s` = the pairing window in seconds. Flow:
 /// `ENABLE_PAIRING(1, secs)` → the controller announces (wireless status) →
 /// `DONGLE_COMMIT_DEVICE` (`0xB3`, no payload) accepts it. **HW-UNTESTED.**
-#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgEnablePairing {
     pub enable: u8,
     pub duration_s: u8,
 }
-
-impl MsgEnablePairing {
-    pub(crate) fn to_bytes(self) -> [u8; 2] {
-        [self.enable, self.duration_s]
-    }
-}
+impl Wire for MsgEnablePairing {}
+const _: () = assert!(core::mem::size_of::<MsgEnablePairing>() == 2);
 
 /// Preset sound slot for `PLAY_AUDIO` (`0xB6`) — SDL `ControllerAudio`. 0..=6 are Valve's named
 /// presets; 7..=14 are undocumented (filler names); `MaxSlot` = 15 (`AUDIO_MAX_SLOT`) bounds the range.
@@ -494,16 +509,16 @@ pub(crate) enum ControllerAudio {
 /// form is ours. **HW-DISPROVEN as a standalone send:** sweeping slots 0..14 on Gordon+Triton was
 /// silent — the presets are empty until Steam uploads audio (`0xB7`–`0xB9`+`0xC1`, an undocumented
 /// blob). Recorded for completeness; the enum is real.
-#[derive(Debug, Clone, Copy)]
+///
+/// `slot` is a raw `u8` (a [`Wire`] field must be a plain integer) holding a [`ControllerAudio`]
+/// discriminant — the caller converts (`slot: ControllerAudio::Identify as u8`).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgPlayAudio {
-    pub slot: ControllerAudio,
+    pub slot: u8, // ControllerAudio
 }
-
-impl MsgPlayAudio {
-    pub(crate) fn to_bytes(self) -> [u8; 1] {
-        [self.slot as u8]
-    }
-}
+impl Wire for MsgPlayAudio {}
+const _: () = assert!(core::mem::size_of::<MsgPlayAudio>() == 1);
 
 /// Haptic-command type — the `cmd` field of [`MsgTriggerHaptic`] (`0x8f` is a separate pulse). SDL
 /// `haptic_type_t`, full set (we currently only send `Tick`/`Click` for the Deck command-click;
@@ -548,11 +563,16 @@ pub enum HapticIntensity {
 /// before this struct was found — those tail bytes land on `freq`/`dur_ms`/`lfo` and are inert for a
 /// click, which is why zeroing them (as here) makes no HW difference. `side`: 0 = left, 1 = right,
 /// 2 = both (all HW-verified; note this is the **reverse** of `0x8f`'s `which_pad`).
-#[derive(Debug, Clone, Default)]
+///
+/// `cmd`/`ui_intensity` are raw `u8` ([`Wire`] fields must be plain integers) holding a
+/// [`HapticType`]/[`HapticIntensity`] discriminant — the caller converts (`cmd: ty as u8`). `0`
+/// for both = `Off`/`System`, so `Default` (all-zero) is a valid inert packet.
+#[repr(C, packed)]
+#[derive(Clone, Copy, Default)]
 pub(crate) struct MsgTriggerHaptic {
     pub side: u8,
-    pub cmd: HapticType,
-    pub ui_intensity: HapticIntensity,
+    pub cmd: u8,          // HapticType
+    pub ui_intensity: u8, // HapticIntensity
     pub dbgain: i8,
     pub freq: u16,
     pub dur_ms: i16,
@@ -564,32 +584,8 @@ pub(crate) struct MsgTriggerHaptic {
     pub lss_start_freq: u16,
     pub lss_end_freq: u16,
 }
-
-impl MsgTriggerHaptic {
-    pub(crate) fn to_bytes(&self) -> [u8; 19] {
-        let freq = self.freq.to_le_bytes();
-        let dur = self.dur_ms.to_le_bytes();
-        let noise = self.noise_intensity.to_le_bytes();
-        let lfo = self.lfo_freq.to_le_bytes();
-        let lss_s = self.lss_start_freq.to_le_bytes();
-        let lss_e = self.lss_end_freq.to_le_bytes();
-        [
-            self.side,
-            self.cmd as u8,
-            self.ui_intensity as u8,
-            self.dbgain as u8,
-            freq[0], freq[1],
-            dur[0], dur[1],
-            noise[0], noise[1],
-            lfo[0], lfo[1],
-            self.lfo_depth,
-            self.rand_tone_gain,
-            self.script_id,
-            lss_s[0], lss_s[1],
-            lss_e[0], lss_e[1],
-        ]
-    }
-}
+impl Wire for MsgTriggerHaptic {}
+const _: () = assert!(core::mem::size_of::<MsgTriggerHaptic>() == 19);
 
 /// Payload of `TRIGGER_RUMBLE_CMD` (`0xEB`) — the Deck's native dual-motor rumble. Mirrors SDL
 /// `MsgSimpleRumbleCmd` exactly. `left_speed`/`right_speed` are the per-motor pulse **rate**;
@@ -597,7 +593,8 @@ impl MsgTriggerHaptic {
 /// lever (`0` = strongest). `rumble_type` (SDL `unRumbleType`) is HW-confirmed inert → always 0.
 /// **Deck-only** (Gordon has no motors). `Motor` mapping is via the caller (left = strong/large
 /// motor, right = weak/small).
-#[derive(Debug, Clone)]
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgSimpleRumbleCmd {
     pub rumble_type: u8,
     pub intensity: u16,
@@ -606,15 +603,8 @@ pub(crate) struct MsgSimpleRumbleCmd {
     pub left_gain: i8,
     pub right_gain: i8,
 }
-
-impl MsgSimpleRumbleCmd {
-    pub(crate) fn to_bytes(&self) -> [u8; 9] {
-        let it = self.intensity.to_le_bytes();
-        let l = self.left_speed.to_le_bytes();
-        let r = self.right_speed.to_le_bytes();
-        [self.rumble_type, it[0], it[1], l[0], l[1], r[0], r[1], self.left_gain as u8, self.right_gain as u8]
-    }
-}
+impl Wire for MsgSimpleRumbleCmd {}
+const _: () = assert!(core::mem::size_of::<MsgSimpleRumbleCmd>() == 9);
 
 // =====================================================================================
 // 4. Command responses (read-back; inbound — replies to a GET, not input reports). Paired with the
@@ -622,31 +612,41 @@ impl MsgSimpleRumbleCmd {
 // =====================================================================================
 
 /// `GET_ATTRIBUTES_VALUES` (`0x83`) response element — SDL `ControllerAttribute` (`{ tag, value }`).
-/// `tag` is a [`ControllerAttributes`]. Layout reference — `Device::get_attributes` parses the reply
-/// ad-hoc (5-byte chunks), not via this struct yet.
-#[derive(Debug, Clone, Copy)]
+/// `tag` is a [`ControllerAttributes`] discriminant; `Device::get_attributes` reads the reply's
+/// 5-byte elements via [`Wire::from_bytes`].
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct ControllerAttribute {
     pub tag: u8,
     pub value: u32,
 }
+impl Wire for ControllerAttribute {}
+const _: () = assert!(core::mem::size_of::<ControllerAttribute>() == 5);
 
-/// `GET_STRING_ATTRIBUTE` (`0xAE`) response — SDL `MsgGetStringAttribute` (`{ tag, value[20] }`).
-/// `tag` is a [`ControllerStringAttributes`]. Layout reference (`Device::get_string_attribute`
-/// parses it ad-hoc).
-#[derive(Debug, Clone)]
+/// `GET_STRING_ATTRIBUTE` (`0xAE`) response body — SDL `MsgGetStringAttribute` (`{ tag, value[20] }`),
+/// the bytes after the reply's `[cmd, len]` header. `tag` is a [`ControllerStringAttributes`]
+/// discriminant; `Device::get_string_attribute` reads it via [`Wire::from_bytes`] and slices `value`
+/// to the header's length.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgGetStringAttribute {
     pub tag: u8,
     pub value: [u8; 20],
 }
+impl Wire for MsgGetStringAttribute {}
+const _: () = assert!(core::mem::size_of::<MsgGetStringAttribute>() == 21);
 
 /// `GET_SETTINGS_DEFAULTS` (`0x8C`) / `GET_SETTINGS_MAXS` (`0x8B`) reply element — SDL
 /// `SettingValueRange_t` (`short defaultminmax[3]`, indexed by [`SettingDefaultMinMax`]). **Unused —
-/// we don't read maxs/defaults yet.**
-#[derive(Debug, Clone, Copy)]
+/// we don't call the maxs/defaults getters yet; ready for [`Wire::from_bytes`] when we do.**
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct SettingValueRange {
     /// `[default, min, max]` (i16), in `SettingDefaultMinMax` order.
     pub defaultminmax: [i16; 3],
 }
+impl Wire for SettingValueRange {}
+const _: () = assert!(core::mem::size_of::<SettingValueRange>() == 6);
 
 // =====================================================================================
 // 5. Triton — haptic OUTPUT reports. Triton drives haptics via **output reports** (report id in
@@ -950,6 +950,87 @@ pub(crate) mod triton {
     pub(crate) mod wireless {
         pub(crate) const DISCONNECT: u8 = 1; // (used)
         pub(crate) const CONNECT: u8 = 2; // (used)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- §3 outbound: `as_bytes()` is byte-exact vs the hand-rolled LE layout it replaced ---
+
+    #[test]
+    fn haptic_pulse_bytes() {
+        let m = MsgFireHapticPulse {
+            which_pad: 1,
+            duration: 0x0102,
+            interval: 0x0304,
+            count: 0x0506,
+            gain: -1,
+        };
+        // which_pad, duration(le), interval(le), count(le), gain.
+        assert_eq!(m.as_bytes(), &[1, 0x02, 0x01, 0x04, 0x03, 0x06, 0x05, 0xFF][..]);
+    }
+
+    #[test]
+    fn trigger_haptic_bytes() {
+        let m = MsgTriggerHaptic {
+            side: 2,
+            cmd: HapticType::Click as u8,     // 2
+            ui_intensity: HapticIntensity::Long as u8, // 3
+            dbgain: -2,
+            freq: 0x1122,
+            dur_ms: 0x3344,
+            ..Default::default()
+        };
+        let b = m.as_bytes();
+        assert_eq!(b.len(), 19);
+        assert_eq!(&b[..4], &[2, 2, 3, 0xFE]); // side, cmd, ui_intensity, dbgain(-2)
+        assert_eq!(&b[4..8], &[0x22, 0x11, 0x44, 0x33]); // freq, dur_ms (LE)
+        assert_eq!(&b[8..], &[0u8; 11]); // noise/lfo/script/sweep all zero
+    }
+
+    #[test]
+    fn simple_rumble_bytes() {
+        let m = MsgSimpleRumbleCmd {
+            rumble_type: 0,
+            intensity: 0x1234,
+            left_speed: 0x5678,
+            right_speed: 0x9ABC,
+            left_gain: -1,
+            right_gain: 2,
+        };
+        assert_eq!(m.as_bytes(), &[0, 0x34, 0x12, 0x78, 0x56, 0xBC, 0x9A, 0xFF, 2][..]);
+    }
+
+    // --- §3/§4: round-trips + short-slice guard ---
+
+    #[test]
+    fn controller_setting_roundtrip() {
+        let s = ControllerSetting { setting_num: 0x2A, value: 0xBEEF };
+        assert_eq!(s.as_bytes(), &[0x2A, 0xEF, 0xBE][..]);
+        let back = ControllerSetting::from_bytes(&[0x2A, 0xEF, 0xBE]).unwrap();
+        assert_eq!((back.setting_num, back.value), (0x2A, 0xBEEF));
+        assert!(ControllerSetting::from_bytes(&[0, 0]).is_none());
+    }
+
+    #[test]
+    fn controller_attribute_from_bytes() {
+        let a = ControllerAttribute::from_bytes(&[0x05, 0xEF, 0xBE, 0xAD, 0xDE]).unwrap();
+        assert_eq!((a.tag, a.value), (0x05, 0xDEAD_BEEF));
+        assert!(ControllerAttribute::from_bytes(&[0; 4]).is_none());
+    }
+
+    #[test]
+    fn string_attribute_from_bytes() {
+        let mut b = [0u8; 21];
+        b[0] = 0x01; // tag
+        b[1..6].copy_from_slice(b"Hello");
+        let m = MsgGetStringAttribute::from_bytes(&b).unwrap();
+        assert_eq!(m.tag, 0x01);
+        let value = m.value; // copy the packed array out before borrowing
+        assert_eq!(&value[..5], b"Hello");
+        assert!(MsgGetStringAttribute::from_bytes(&[0; 20]).is_none());
     }
 }
 
