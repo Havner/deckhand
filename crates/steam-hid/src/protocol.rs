@@ -244,10 +244,11 @@ impl FeatureReportHeader {
     }
 }
 
-/// One `settingNum: u8, settingValue: u16` pair — the element of `SET_SETTINGS_VALUES` (`0x87`).
-///
-/// Mirrors SDL `ControllerSetting`; `MsgSetSettingsValues` is just an array of these. `device.rs`
-/// concatenates one per setting written.
+/// One `settingNum: u8, settingValue: u16` pair — mirrors SDL `ControllerSetting`. An array of these
+/// is the payload for **`SET_SETTINGS_VALUES` (`0x87`)** (what `device.rs` sends), and the same array
+/// shape is the *request* for **`GET_SETTINGS_VALUES` (`0x89`)** / **`GET_SETTINGS_MAXS` (`0x8B`)** /
+/// **`GET_SETTINGS_DEFAULTS` (`0x8C`)** (SDL's `MsgSetSettingsValues`/`MsgGetSettings*` are all this
+/// one array — not distinct types). **HW: SET verified (used).**
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ControllerSetting {
     pub setting_num: u8,
@@ -258,6 +259,20 @@ impl ControllerSetting {
     pub(crate) fn to_bytes(self) -> [u8; 3] {
         let [lo, hi] = self.value.to_le_bytes();
         [self.setting_num, lo, hi]
+    }
+}
+
+/// Payload of `SET_CONTROLLER_MODE` (`0x8D`) — SDL `MsgSetControllerMode` (`{ mode }`); selects a
+/// controller operating mode. **The `mode` values are undocumented in our sources and we don't send
+/// this — HW-UNTESTED**, kept as a trace.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MsgSetControllerMode {
+    pub mode: u8,
+}
+
+impl MsgSetControllerMode {
+    pub(crate) fn to_bytes(self) -> [u8; 1] {
+        [self.mode]
     }
 }
 
@@ -286,6 +301,74 @@ impl MsgFireHapticPulse {
         let i = self.interval.to_le_bytes();
         let c = self.count.to_le_bytes();
         [self.which_pad, d[0], d[1], i[0], i[1], c[0], c[1], self.gain as u8]
+    }
+}
+
+/// SDL `MsgHapticSetMode` (`{ mode }`). Present in SDL's `FeatureReportMsg` union but **no command id
+/// in SDL/kernel references it**, so we can't send it — purpose unclear, **HW-UNTESTED**. Trace only.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MsgHapticSetMode {
+    pub mode: u8,
+}
+
+impl MsgHapticSetMode {
+    pub(crate) fn to_bytes(self) -> [u8; 1] {
+        [self.mode]
+    }
+}
+
+/// Payload of `ENABLE_PAIRING` (`0xAD`) — begin/stop dongle pairing. SDL builds this inline in
+/// `SDL_hidapi_steam.c` (`[0xAD, 2, enable, duration_s]`; **no named struct there**), so this form is
+/// ours. `enable` = 0/1, `duration_s` = the pairing window in seconds. Flow:
+/// `ENABLE_PAIRING(1, secs)` → the controller announces (wireless status) →
+/// `DONGLE_COMMIT_DEVICE` (`0xB3`, no payload) accepts it. **HW-UNTESTED.**
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MsgEnablePairing {
+    pub enable: u8,
+    pub duration_s: u8,
+}
+
+impl MsgEnablePairing {
+    pub(crate) fn to_bytes(self) -> [u8; 2] {
+        [self.enable, self.duration_s]
+    }
+}
+
+/// Preset sound slot for `PLAY_AUDIO` (`0xB6`) — SDL `ControllerAudio`. 0..=6 are Valve's named
+/// presets; 7..=14 are undocumented (filler names); `MaxSlot` = 15 (`AUDIO_MAX_SLOT`) bounds the range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ControllerAudio {
+    Startup = 0,
+    Shutdown = 1,
+    Pair = 2,
+    PairSuccess = 3,
+    Identify = 4, // ≈ the "ding"
+    LizardMode = 5,
+    NormalMode = 6,
+    Reserved7 = 7,
+    Reserved8 = 8,
+    Reserved9 = 9,
+    Reserved10 = 10,
+    Reserved11 = 11,
+    Reserved12 = 12,
+    Reserved13 = 13,
+    Reserved14 = 14,
+    MaxSlot = 15,
+}
+
+/// Payload of `PLAY_AUDIO` (`0xB6`) — play a firmware preset sound. **No SDL struct exists** (SDL/
+/// kernel/C#/sc-controller define the id + `ControllerAudio` enum, but none SEND it); this single-slot
+/// form is ours. **HW-DISPROVEN as a standalone send:** sweeping slots 0..14 on Gordon+Triton was
+/// silent — the presets are empty until Steam uploads audio (`0xB7`–`0xB9`+`0xC1`, an undocumented
+/// blob). Recorded for completeness; the enum is real.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MsgPlayAudio {
+    pub slot: ControllerAudio,
+}
+
+impl MsgPlayAudio {
+    pub(crate) fn to_bytes(self) -> [u8; 1] {
+        [self.slot as u8]
     }
 }
 
