@@ -60,74 +60,82 @@ pub(crate) const REPORT_ID_TRITON: u8 = 0x01;
 //    knowledge trace — most are unused (`#![allow(dead_code)]`). `(used)` marks what we send today.
 // =====================================================================================
 
-/// Feature-report command IDs (SDL `FeatureReportMessageIDs`), numeric-sorted, full set.
-pub(crate) mod cmd {
+/// Feature-report command IDs (SDL `FeatureReportMessageIDs`), numeric-sorted, full set. Markers:
+/// `(used)` = we send it; **`(no-payload)`** = a fire-and-forget command that carries no payload, so
+/// it never needs a payload struct; `(no-payload?)` = the same but unverified; `⚠` = destructive.
+///
+/// NOTE: SDL's `DigitalIO` (~75) + `AnalogIO` (~25) enums are the mapping-target vocabulary for
+/// `SetDigitalMappings`. We bypass on-controller mapping entirely (`ClearDigitalMappings` + map in our
+/// engine), so those enums are intentionally NOT mirrored here. See SDL `controller_constants.h`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+// `TriggerHapticCmd`/`TriggerRumbleCmd` keep SDL's `_CMD` suffix (distinguishes 0xEA from the 0x8F
+// `TriggerHapticPulse`), which trips the "variant ends with enum name" lint.
+#[allow(clippy::enum_variant_names)]
+pub(crate) enum Cmd {
     // --- digital button mappings (lizard-mode gamepad emulation) ---
-    // NOTE: SDL's DigitalIO (~75) + AnalogIO (~25) enums are the mapping-target vocabulary for
-    // SET_DIGITAL_MAPPINGS. We bypass on-controller mapping entirely (CLEAR_DIGITAL_MAPPINGS + map in
-    // our engine), so those enums are intentionally NOT mirrored here. See SDL controller_constants.h.
-    pub(crate) const SET_DIGITAL_MAPPINGS: u8 = 0x80;
-    pub(crate) const CLEAR_DIGITAL_MAPPINGS: u8 = 0x81; // (used) lizard-off
-    pub(crate) const GET_DIGITAL_MAPPINGS: u8 = 0x82;
-    pub(crate) const GET_ATTRIBUTES_VALUES: u8 = 0x83; // (used) read-only attributes
-    pub(crate) const GET_ATTRIBUTE_LABEL: u8 = 0x84;
-    pub(crate) const SET_DEFAULT_DIGITAL_MAPPINGS: u8 = 0x85; // (used) lizard-on
-    pub(crate) const FACTORY_RESET: u8 = 0x86; // ⚠ wipes config
+    SetDigitalMappings = 0x80,
+    ClearDigitalMappings = 0x81, // (used) lizard-off (no-payload)
+    GetDigitalMappings = 0x82,
+    GetAttributesValues = 0x83, // (used) read-only attributes
+    GetAttributeLabel = 0x84,
+    SetDefaultDigitalMappings = 0x85, // (used) lizard-on (no-payload)
+    FactoryReset = 0x86,              // ⚠ wipes config
     // --- settings I/O (see the `setting` table + `ControllerSetting`) ---
-    pub(crate) const SET_SETTINGS_VALUES: u8 = 0x87; // (used)
-    pub(crate) const CLEAR_SETTINGS_VALUES: u8 = 0x88;
-    pub(crate) const GET_SETTINGS_VALUES: u8 = 0x89; // (used) read setting values
-    pub(crate) const GET_SETTING_LABEL: u8 = 0x8A;
-    pub(crate) const GET_SETTINGS_MAXS: u8 = 0x8B;
-    pub(crate) const GET_SETTINGS_DEFAULTS: u8 = 0x8C;
-    pub(crate) const SET_CONTROLLER_MODE: u8 = 0x8D; // SDL/IP only (not in kernel)
-    pub(crate) const LOAD_DEFAULT_SETTINGS: u8 = 0x8E; // (used) lizard-on
+    SetSettingsValues = 0x87, // (used)
+    ClearSettingsValues = 0x88,
+    GetSettingsValues = 0x89, // (used) read setting values
+    GetSettingLabel = 0x8A,
+    GetSettingsMaxs = 0x8B,
+    GetSettingsDefaults = 0x8C,
+    SetControllerMode = 0x8D,  // SDL/IP only (not in kernel)
+    LoadDefaultSettings = 0x8E, // (used) lizard-on (no-payload)
     // --- haptics (pulse; the `0xEA`/`0xEB` command haptics live in section 3 structs) ---
-    pub(crate) const TRIGGER_HAPTIC_PULSE: u8 = 0x8F; // (used) → MsgFireHapticPulse
-    pub(crate) const TURN_OFF_CONTROLLER: u8 = 0x9F; // (used) power off ("off!")
+    TriggerHapticPulse = 0x8F, // (used) → MsgFireHapticPulse
+    TurnOffController = 0x9F,   // (used) power off — takes the "off!" magic (NOT no-payload)
     // --- read-only queries ---
-    pub(crate) const GET_DEVICE_INFO: u8 = 0xA1;
-    // --- calibration ---
-    pub(crate) const CALIBRATE_TRACKPADS: u8 = 0xA7;
-    pub(crate) const RESERVED_0: u8 = 0xA8;
-    pub(crate) const SET_SERIAL_NUMBER: u8 = 0xA9; // ⚠ writes the unit serial
-    pub(crate) const GET_TRACKPAD_CALIBRATION: u8 = 0xAA;
-    pub(crate) const GET_TRACKPAD_FACTORY_CALIBRATION: u8 = 0xAB;
-    pub(crate) const GET_TRACKPAD_RAW_DATA: u8 = 0xAC;
+    GetDeviceInfo = 0xA1,
+    // --- calibration (fire-and-forget triggers; payloads unconfirmed) ---
+    CalibrateTrackpads = 0xA7, // (no-payload?)
+    Reserved0 = 0xA8,
+    SetSerialNumber = 0xA9, // ⚠ writes the unit serial
+    GetTrackpadCalibration = 0xAA,
+    GetTrackpadFactoryCalibration = 0xAB,
+    GetTrackpadRawData = 0xAC,
     // --- dongle / pairing ---
-    pub(crate) const ENABLE_PAIRING: u8 = 0xAD;
-    pub(crate) const GET_STRING_ATTRIBUTE: u8 = 0xAE; // (used) serial getter
-    pub(crate) const RADIO_ERASE_RECORDS: u8 = 0xAF; // ⚠⚠ firmware/radio — DO NOT TOUCH
-    pub(crate) const RADIO_WRITE_RECORD: u8 = 0xB0; // ⚠⚠ firmware/radio — DO NOT TOUCH
-    pub(crate) const SET_DONGLE_SETTING: u8 = 0xB1;
-    pub(crate) const DONGLE_DISCONNECT_DEVICE: u8 = 0xB2;
-    pub(crate) const DONGLE_COMMIT_DEVICE: u8 = 0xB3;
-    pub(crate) const DONGLE_GET_WIRELESS_STATE: u8 = 0xB4; // (used) dongle slot probe
-    pub(crate) const CALIBRATE_GYRO: u8 = 0xB5;
+    EnablePairing = 0xAD,
+    GetStringAttribute = 0xAE, // (used) serial getter
+    RadioEraseRecords = 0xAF,  // ⚠⚠ firmware/radio — DO NOT TOUCH
+    RadioWriteRecord = 0xB0,   // ⚠⚠ firmware/radio — DO NOT TOUCH
+    SetDongleSetting = 0xB1,
+    DongleDisconnectDevice = 0xB2,
+    DongleCommitDevice = 0xB3,     // (no-payload) — the empty struct we dropped
+    DongleGetWirelessState = 0xB4, // (used) dongle prompt (no-payload)
+    CalibrateGyro = 0xB5,          // (no-payload?)
     // --- audio (preset play + custom-audio upload; the whole path is unimplemented, no payload ref) ---
-    pub(crate) const PLAY_AUDIO: u8 = 0xB6;
-    pub(crate) const AUDIO_UPDATE_START: u8 = 0xB7;
-    pub(crate) const AUDIO_UPDATE_DATA: u8 = 0xB8;
-    pub(crate) const AUDIO_UPDATE_COMPLETE: u8 = 0xB9;
-    pub(crate) const GET_CHIPID: u8 = 0xBA;
-    pub(crate) const CALIBRATE_JOYSTICK: u8 = 0xBF;
-    pub(crate) const CALIBRATE_ANALOG_TRIGGERS: u8 = 0xC0;
-    pub(crate) const SET_AUDIO_MAPPING: u8 = 0xC1;
-    pub(crate) const CHECK_GYRO_FW_LOAD: u8 = 0xC2;
-    pub(crate) const CALIBRATE_ANALOG: u8 = 0xC3;
-    pub(crate) const DONGLE_GET_CONNECTED_SLOTS: u8 = 0xC4;
-    pub(crate) const RESET_IMU: u8 = 0xCE;
+    PlayAudio = 0xB6,
+    AudioUpdateStart = 0xB7,
+    AudioUpdateData = 0xB8,
+    AudioUpdateComplete = 0xB9,
+    GetChipId = 0xBA,
+    CalibrateJoystick = 0xBF,       // (no-payload?)
+    CalibrateAnalogTriggers = 0xC0, // (no-payload?)
+    SetAudioMapping = 0xC1,
+    CheckGyroFwLoad = 0xC2,
+    CalibrateAnalog = 0xC3, // (no-payload?)
+    DongleGetConnectedSlots = 0xC4,
+    ResetImu = 0xCE, // (no-payload?)
     // --- command haptics (Deck; section-3 structs) ---
-    pub(crate) const TRIGGER_HAPTIC_CMD: u8 = 0xEA; // (used) → MsgTriggerHaptic
-    pub(crate) const TRIGGER_RUMBLE_CMD: u8 = 0xEB; // (used) → MsgSimpleRumbleCmd
+    TriggerHapticCmd = 0xEA, // (used) → MsgTriggerHaptic
+    TriggerRumbleCmd = 0xEB, // (used) → MsgSimpleRumbleCmd
     // --- unknown opcodes (no reference documents these — purpose TBD) ---
     /// InputPlumber `UnknownDc` — seen in its command enum, purpose unknown. sc-controller lists
     /// `DC` among the Triton v2 pairing opcodes (`ED`/`AD`/`DC`/`E2`) it captured but never decoded.
-    pub(crate) const UNKNOWN_DC: u8 = 0xDC;
+    UnknownDc = 0xDC,
     /// InputPlumber `UnknownE2` — as above; also in sc-controller's Triton pairing opcode set.
-    pub(crate) const UNKNOWN_E2: u8 = 0xE2;
+    UnknownE2 = 0xE2,
     /// sc-controller Triton v2 pairing opcode `ED` (captured, undecoded). Not in SDL/kernel/IP.
-    pub(crate) const UNKNOWN_ED: u8 = 0xED;
+    UnknownEd = 0xED,
 }
 
 /// Setting ids (SDL `ControllerSettings`; **index == id**, order frozen — "only add, never reorder").
