@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
 use hidapi::HidApi;
 
 use crate::backend::{HidapiDevice, RawHid};
-use crate::command::{HapticIntensity, HapticPulse, HapticStyle, ImuMode, Motor};
+use crate::command::{HapticPulse, HapticStyle, ImuMode, Motor};
 use crate::error::{Error, Result};
 use crate::event::Events;
-use crate::protocol::{self, cmd, setting, trackpad_mode};
+use crate::protocol::{self, HapticIntensity, HapticType, cmd, setting, trackpad_mode};
 use crate::report::{self, RawReport};
 use crate::state::{Battery, Report};
 use crate::value::Timestamp;
@@ -581,13 +581,14 @@ impl Device {
                 ));
             }
         };
-        let [d0, d1] = params.duration.to_le_bytes();
-        let [i0, i1] = params.interval.to_le_bytes();
-        let [c0, c1] = params.count.to_le_bytes();
-        self.feature(
-            cmd::TRIGGER_HAPTIC_PULSE,
-            &[position, d0, d1, i0, i1, c0, c1, params.gain as u8],
-        )
+        let msg = protocol::MsgFireHapticPulse {
+            which_pad: position,
+            duration: params.duration,
+            interval: params.interval,
+            count: params.count,
+            gain: params.gain,
+        };
+        self.feature(cmd::TRIGGER_HAPTIC_PULSE, &msg.to_bytes())
     }
 
     /// Drive the Deck's dual haptic motors — **rumble** (`0xeb` `TRIGGER_RUMBLE_CMD`), kernel
@@ -621,52 +622,47 @@ impl Device {
         left_gain: i8,
         right_gain: i8,
     ) -> Result<()> {
-        let [in0, in1] = intensity.to_le_bytes();
-        let [l0, l1] = left.to_le_bytes();
-        let [r0, r1] = right.to_le_bytes();
-        // report[2] = unRumbleType (SDL MsgSimpleRumbleCmd) — HW-confirmed inert (swept 0..255, no
-        // effect); every reference sends 0, so we do too.
-        self.feature(
-            cmd::TRIGGER_RUMBLE_CMD,
-            &[0, in0, in1, l0, l1, r0, r1, left_gain as u8, right_gain as u8],
-        )
+        let msg = protocol::MsgSimpleRumbleCmd {
+            rumble_type: 0,
+            intensity,
+            left_speed: left,
+            right_speed: right,
+            left_gain,
+            right_gain,
+        };
+        self.feature(cmd::TRIGGER_RUMBLE_CMD, &msg.to_bytes())
     }
 
-    /// Fire the Deck's `0xEA` `SET_HAPTIC2` (C# `NCHapticPacket2`) — a short, finely-tuned trackpad
-    /// **click** haptic (much better than `0x8f` for command clicks; the strongest setting beats a
-    /// full `0x8f` click). `style` picks off / weak / strong, `intensity` is a second HW-confirmed
-    /// lever (see [`HapticIntensity`]; C# hard-coded this byte to 0 = `Default`), and `gain` (dB,
-    /// C#'s `−7..=5` ⇒ ~`−2..+10` dB — its `NCHapticPacket2.intensity` field, renamed here for
-    /// consistency with the other haptic gains) scales it — together a wide range of click strengths.
+    /// Fire the Deck's `0xEA` `SET_HAPTIC2` — a short, finely-tuned trackpad **click** haptic (much
+    /// better than `0x8f` for command clicks; the strongest setting beats a full `0x8f` click). `cmd`
+    /// picks the haptic type (we use [`HapticType::Tick`]/[`HapticType::Click`]), `ui_intensity` is a
+    /// second HW-confirmed lever (see [`HapticIntensity`]), and `gain` (dB) scales it — together a
+    /// wide range of click strengths.
     ///
-    /// **Deck-only** (no-ops on Gordon). Byte layout is C#'s `NCHapticPacket2` with `intensity`
-    /// filled in at the byte InputPlumber exposes (position, style, **intensity**, gain, `0x04`, two
-    /// `Environment.TickCount` words) — `Motor::Left → 0`, `Motor::Right → 1`, `Motor::Both → 2`
-    /// (all HW-verified). The trailing `0x04` and timestamp words stay as C# sends them (a magic-tail
-    /// A/B showed no difference); none are exposed.
+    /// **Deck-only** (no-ops on Gordon). Payload is the full [`protocol::MsgTriggerHaptic`] (SDL);
+    /// only `side`/`cmd`/`ui_intensity`/`dbgain` are set, the tone/lfo/sweep fields stay zero.
+    /// `Motor::Left → 0`, `Motor::Right → 1`, `Motor::Both → 2` (all HW-verified; the **reverse** of
+    /// `0x8f`'s pads).
     pub fn haptic_cmd(
         &mut self,
         motor: Motor,
-        style: HapticStyle,
+        cmd: HapticType,
         intensity: HapticIntensity,
         gain: i8,
     ) -> Result<()> {
-        // 0xEA position is the REVERSE of the 0x8f wire pads (HW-found): Left → 0, Right → 1.
-        let position: u8 = match motor {
+        let side: u8 = match motor {
             Motor::Left => 0,
             Motor::Right => 1,
             Motor::Both => 2, // HW-verified: 0xEA honors a BOTH side.
         };
-        // C# sets both timestamp words to `Environment.TickCount`; purpose unknown, not a lever.
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i32)
-            .unwrap_or(0);
-        let [t0, t1, t2, t3] = ts.to_le_bytes();
-        self.feature(
-            cmd::TRIGGER_HAPTIC_CMD,
-            &[position, style as u8, intensity as u8, gain as u8, 0x04, t0, t1, t2, t3, t0, t1, t2, t3],
-        )
+        let msg = protocol::MsgTriggerHaptic {
+            side,
+            cmd,
+            ui_intensity: intensity,
+            dbgain: gain,
+            ..Default::default()
+        };
+        self.feature(protocol::cmd::TRIGGER_HAPTIC_CMD, &msg.to_bytes())
     }
 
     /// Drive Triton's dual-motor **continuous rumble** — output report `0x80` (`HapticRumble`,
@@ -767,12 +763,12 @@ impl Device {
         self.send_feature_report(&cmd)
     }
 
-    /// Write settings via `SET_SETTINGS_VALUES`: `(id, lo, hi)…` little-endian.
+    /// Write settings via `SET_SETTINGS_VALUES` — a concatenation of [`protocol::ControllerSetting`]
+    /// `(id, value-le)` triples. Takes `(id, value)` pairs for call-site ergonomics.
     fn set_settings(&mut self, pairs: &[(u8, u16)]) -> Result<()> {
         let mut payload = Vec::with_capacity(pairs.len() * 3);
-        for &(id, val) in pairs {
-            let [lo, hi] = val.to_le_bytes();
-            payload.extend_from_slice(&[id, lo, hi]);
+        for &(setting_num, value) in pairs {
+            payload.extend_from_slice(&protocol::ControllerSetting { setting_num, value }.to_bytes());
         }
         self.feature(cmd::SET_SETTINGS_VALUES, &payload)
     }

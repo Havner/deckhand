@@ -29,8 +29,8 @@ mod state;
 mod value;
 
 pub use buttons::{Axis, Button, Buttons, GordonButtons, NeptuneButtons, TritonButtons, button_flag};
-pub use command::{HapticIntensity, HapticPulse, HapticStyle, ImuMode, Motor};
-pub use protocol::{ACCEL_RES_PER_G, GYRO_RES_PER_DPS};
+pub use command::{HapticPulse, HapticStyle, ImuMode, Motor};
+pub use protocol::{ACCEL_RES_PER_G, GYRO_RES_PER_DPS, HapticIntensity, HapticType};
 pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, Manager, Transport};
 pub use error::{Error, Result};
 pub use event::{Event, Events};

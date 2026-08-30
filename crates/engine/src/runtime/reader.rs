@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 use config::{DeviceConfig, GordonTuning, HapticStrength, RumbleTuning, Side};
 use crossbeam_channel::Receiver;
 use steam_hid::{
-    Device, DeviceId, DeviceKind, HapticIntensity, HapticPulse, HapticStyle, Manager, Motor, Report,
-    Transport,
+    Device, DeviceId, DeviceKind, HapticIntensity, HapticPulse, HapticStyle, HapticType, Manager,
+    Motor, Report, Transport,
 };
 
 use crate::Result;
@@ -460,8 +460,8 @@ fn fire_click(device: &mut Device, click: &Click, kind: &DeviceKind) -> Result<(
         }
         DeviceKind::Neptune => {
             let gain = neptune_click_gain(&click.side, &click.strength);
-            // Intensity stays Default: 0..2 are identical on HW, and gain is the strength lever here.
-            device.haptic_cmd(motor, HapticStyle::Strong, HapticIntensity::Default, gain)?;
+            // Intensity stays System (0): 0..2 are identical on HW, and gain is the strength lever here.
+            device.haptic_cmd(motor, HapticType::Click, HapticIntensity::System, gain)?;
         }
         DeviceKind::Triton => {
             let (style, amp) = triton_click(&click.strength);

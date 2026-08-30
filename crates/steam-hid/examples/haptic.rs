@@ -39,7 +39,7 @@ mod common;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use steam_hid::{Device, HapticIntensity, HapticPulse, HapticStyle, Manager, Motor};
+use steam_hid::{Device, HapticIntensity, HapticPulse, HapticStyle, HapticType, Manager, Motor};
 
 // Mirror the engine's rumble cadence (`crates/engine/src/runtime.rs` RUMBLE_TRAIN_MS /
 // RUMBLE_REFIRE_MS — keep in sync) so what you feel in the sweeps matches the game: a *short*
@@ -458,35 +458,35 @@ fn main() -> steam_hid::Result<()> {
 
     // --- 0xEA SET_HAPTIC2 (Deck): the finely-tuned trackpad "click" (nicer than 0x8f; the strongest
     // beats a full 0x8f click). Exercises all of `Device::haptic_cmd`: side (LEFT/RIGHT/BOTH — 0xEA
-    // honors a native BOTH), style (Weak, Strong — Off/Disabled skipped, it's silent), and every
-    // `HapticIntensity` level (Default..Insane; HW: 0..2 identical, 3 stronger, 4 stronger/other).
+    // honors a native BOTH), haptic type (Tick, Click — Off skipped, it's silent), and every
+    // `HapticIntensity` level (System..Insane; HW: 0..2 identical, 3 stronger, 4 stronger/other).
     // Gain fixed at 0. ---
     if run_ea {
-        println!("\n=== 0xEA SET_HAPTIC2 (Deck): side × style × intensity (gain=0) ===");
+        println!("\n=== 0xEA SET_HAPTIC2 (Deck): side × type × intensity (gain=0) ===");
         let ints = [
-            ("Default", HapticIntensity::Default),
-            ("Short  ", HapticIntensity::Short),
-            ("Medium ", HapticIntensity::Medium),
-            ("Long   ", HapticIntensity::Long),
-            ("Insane ", HapticIntensity::Insane),
+            ("System", HapticIntensity::System),
+            ("Short ", HapticIntensity::Short),
+            ("Medium", HapticIntensity::Medium),
+            ("Long  ", HapticIntensity::Long),
+            ("Insane", HapticIntensity::Insane),
         ];
         for (pad, motor) in [("LEFT ", Motor::Left), ("RIGHT", Motor::Right), ("BOTH ", Motor::Both)] {
             if !running.alive() {
                 break;
             }
             println!("  {pad}:");
-            for (sname, style) in [("Weak  ", HapticStyle::Weak), ("Strong", HapticStyle::Strong)] {
+            for (tname, htype) in [("Tick ", HapticType::Tick), ("Click", HapticType::Click)] {
                 if !running.alive() {
                     break;
                 }
-                println!("    style={sname}:");
+                println!("    type={tname}:");
                 for (iname, intensity) in &ints {
                     if !running.alive() {
                         break;
                     }
                     println!("      intensity={iname}");
                     keep_lizard_off(&mut device);
-                    device.haptic_cmd(motor.clone(), style.clone(), intensity.clone(), 0)?;
+                    device.haptic_cmd(motor.clone(), htype, *intensity, 0)?;
                     sleep(Duration::from_millis(900));
                 }
             }
@@ -500,7 +500,7 @@ fn main() -> steam_hid::Result<()> {
          amplitude via the Deck-honored gain byte. LONG-TRAIN STOP (--longstop) checks which stop \
          silences a long train. INTENSITY (--eint) is the 0xEB fine amplitude lever (inverted, \
          0=strongest, u16). SET_HAPTIC2 (--ea) exercises 0xEA (side left/right/both × style \
-         Weak/Strong × all HapticIntensity levels). --triton covers the Triton haptic suite."
+         type Tick/Click × all HapticIntensity levels). --triton covers the Triton haptic suite."
     );
     Ok(())
 }
