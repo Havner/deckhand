@@ -665,45 +665,9 @@ pub(crate) mod ble {
 }
 
 // =====================================================================================
-// 5. Triton (new Steam Controller) — its haptics ride OUTPUT reports, not feature reports. Full
-//    struct/enum modelling of these is a SECOND PASS; for now, the report/output ids only.
+// 5. Triton — haptic OUTPUT reports. Triton drives haptics via **output reports** (report id in
+//    byte 0, interrupt-OUT endpoint), not feature reports. Its INPUT reports are in INBOUND below.
 // =====================================================================================
-
-/// Reverse-engineered from SDL `SDL_hidapi_steam_triton.c` + `steam/controller_structs.h` (Valve's
-/// own struct names) and sc-controller `sc2.py` / `docs/steam-controller-v2-protocol.md`. Triton
-/// does **not** use the `0x01`-framed report of Gordon/Neptune: its input and haptic reports carry
-/// the **report id in byte 0** (dispatched in `parse_triton`).
-pub(crate) mod triton {
-    /// Input/status report ids (byte 0 of each read).
-    pub(crate) mod report {
-        /// Main gamepad state (with on-controller quaternion on older firmware). **HW: the real
-        /// puck/dongle (0x1304) streams `0x42` by default** (firmware sends the quaternion body) —
-        /// parsed as NoQuat regardless.
-        pub(crate) const STATE: u8 = 0x42;
-        /// Battery status.
-        pub(crate) const BATTERY: u8 = 0x43;
-        /// Gamepad state, "NoQuat" body — same leading fields as `STATE`, parsed identically. **HW:
-        /// the real controller over Bluetooth (0x1303) streams `0x45`**, whereas puck/wire stream
-        /// `0x42`.
-        pub(crate) const STATE_NOQUAT: u8 = 0x45;
-        /// Wireless connect/disconnect status (dongle), alternate id.
-        pub(crate) const WIRELESS_X: u8 = 0x46;
-        /// Gamepad state with a trackpad timestamp + 16-bit IMU timestamp ("Ibex" packet).
-        /// Not parsed yet — added only if a unit is seen streaming it.
-        pub(crate) const STATE_TIMESTAMP: u8 = 0x47;
-        /// Wireless connect/disconnect status (dongle).
-        pub(crate) const WIRELESS: u8 = 0x79;
-    }
-
-    /// Payload byte of a wireless-status report (`WIRELESS`/`WIRELESS_X`).
-    pub(crate) mod wireless {
-        pub(crate) const DISCONNECT: u8 = 1;
-        pub(crate) const CONNECT: u8 = 2;
-    }
-
-    // Haptic OUTPUT reports live below the `triton` module as top-level structs (see
-    // `TritonOutReport` + the `MsgHaptic*` structs), matching the section-3 command-struct style.
-}
 
 /// Triton haptic **output**-report ids — SDL `ValveTritonOutReportMessageIDs`. Triton drives haptics
 /// via **output reports** (interrupt-OUT endpoint, `Device::output`), not feature reports; each id is
@@ -850,63 +814,47 @@ impl MsgHapticScript {
 }
 
 // =====================================================================================
-// INBOUND — input-report parsing constants. NOT part of the command protocol; these (and the input
-// report structs, currently in `report.rs`) migrate into this file in a LATER dedicated pass.
+// INBOUND — input-report parsing. The device SENDS these; report **bodies** are decoded in
+// `report.rs` (→ `GordonReport`/`NeptuneReport`/`TritonReport`) and the button bits live in
+// `buttons.rs`. Here are the report **identifiers** (kept as matchable consts — they're dispatched
+// against a received byte, so an enum would force `TryFrom`/guards), the frame header, the small
+// value-enums, and the GET-response structs. Sorted Generic → Gordon → Neptune → Triton.
 // =====================================================================================
 
-/// Input-frame event type, at byte offset 2 of every Gordon/Neptune report.
+// --- Generic (Gordon & Neptune share the `0x01`-framed report) -------------------------
+
+/// The 4-byte input-report header — SDL `ValveInReportHeader_t`. `report_version` is `0x0001`;
+/// `msg_type` (offset 2) is one of [`event_type`]; `length` (offset 3) is the body length.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InReportHeader {
+    pub report_version: u16,
+    pub msg_type: u8,
+    pub length: u8,
+}
+
+/// Input-report message type at **offset 2** — SDL `ValveInReportMessageIDs`. Kept as matchable
+/// consts (dispatched against `buf[2]` in `report.rs`). Full SDL set; `(used)` = we dispatch it. Our
+/// content-based names differ from SDL's category names (noted).
 pub(crate) mod event_type {
-    pub(crate) const INPUT_DATA: u8 = 0x01;
-    pub(crate) const CONNECT: u8 = 0x03;
-    pub(crate) const BATTERY: u8 = 0x04;
-    pub(crate) const DECK_INPUT_DATA: u8 = 0x09;
+    pub(crate) const INPUT_DATA: u8 = 0x01; // (used) SDL STATE — Gordon USB state
+    pub(crate) const DEBUG: u8 = 0x02; // SDL DEBUG
+    pub(crate) const CONNECT: u8 = 0x03; // (used) SDL WIRELESS — carries connect/disconnect
+    pub(crate) const BATTERY: u8 = 0x04; // (used) SDL STATUS — carries battery + status
+    pub(crate) const DEBUG2: u8 = 0x05; // SDL DEBUG2
+    pub(crate) const SECONDARY_STATE: u8 = 0x06; // SDL SECONDARY_STATE
+    pub(crate) const BLE_STATE: u8 = 0x07; // SDL BLE_STATE
+    pub(crate) const DECK_INPUT_DATA: u8 = 0x09; // (used) SDL DECK_STATE — Deck state
 }
 
-/// Payload byte (offset 4) of a `CONNECT` (0x03) frame.
+/// Event byte of a `CONNECT`/`WIRELESS` (0x03) frame (offset 4) — SDL `EWirelessEventType`.
 pub(crate) mod wireless {
-    pub(crate) const DISCONNECTED: u8 = 0x01;
-    pub(crate) const CONNECTED: u8 = 0x02;
+    pub(crate) const DISCONNECTED: u8 = 0x01; // (used)
+    pub(crate) const CONNECTED: u8 = 0x02; // (used)
+    pub(crate) const PAIR: u8 = 0x03;
 }
 
-/// `GET_ATTRIBUTES_VALUES` (`0x83`) response element — SDL `ControllerAttribute` (`{ tag, value }`).
-/// **RESPONSE (read-back)**; `tag` is a [`ControllerAttributes`]. We don't query/parse attributes
-/// yet, so this is a layout trace — a `from_bytes` lands in the inbound pass.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ControllerAttribute {
-    pub tag: u8,
-    pub value: u32,
-}
-
-/// `GET_STRING_ATTRIBUTE` (`0xAE`) response — SDL `MsgGetStringAttribute` (`{ tag, value[20] }`).
-/// **RESPONSE (read-back)**; `tag` is a [`ControllerStringAttributes`] (e.g. `UnitSerial`). Layout
-/// trace; parsing deferred to the inbound pass.
-#[derive(Debug, Clone)]
-pub(crate) struct MsgGetStringAttribute {
-    pub tag: u8,
-    pub value: [u8; 20],
-}
-
-/// `GET_SETTINGS_DEFAULTS` (`0x8C`) / `GET_SETTINGS_MAXS` (`0x8B`) reply element — SDL
-/// `SettingValueRange_t` (`short defaultminmax[3]`, indexed by [`SettingDefaultMinMax`]).
-/// **RESPONSE (read-back)**; parsing deferred to the inbound pass. **HW-UNTESTED.**
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SettingValueRange {
-    /// `[default, min, max]` (i16), in `SettingDefaultMinMax` order.
-    pub defaultminmax: [i16; 3],
-}
-
-/// Wireless dongle event type — SDL `EWirelessEventType`. **INBOUND** (dongle status). We currently
-/// decode only connect/disconnect (see the `wireless` module above); the full set incl. `Pair` is a
-/// trace, parsing deferred.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WirelessEventType {
-    Disconnect = 1,
-    Connect = 2,
-    Pair = 3,
-}
-
-/// Controller status event code — SDL `ControllerStatusEventCodes`. **INBOUND** (status reports),
-/// parsing deferred.
+/// Status-report (`BATTERY`/`0x04`) event codes — SDL `ControllerStatusEventCodes`. We parse only the
+/// battery voltage/charge of that report, not these codes — trace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControllerStatusEventCode {
     Normal = 0,
@@ -914,16 +862,92 @@ pub(crate) enum ControllerStatusEventCode {
     GyroInitError = 2,
 }
 
-/// Controller status state flags — SDL `ControllerStatusStateFlags`. **INBOUND** (status reports),
-/// parsing deferred.
+/// Status-report state flags — SDL `ControllerStatusStateFlags` — trace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControllerStatusStateFlag {
     LowBattery = 0,
 }
 
 /// IMU scale constants — HW-verified on Gordon. `ControllerState` carries the raw i16 IMU readings,
-/// so consumers (the engine's gyro-to-mouse) need these to convert to physical units:
-/// `raw / GYRO_RES_PER_DPS` = degrees/second, `raw / ACCEL_RES_PER_G` = g. Re-exported at the crate
-/// root so there's a single source of truth for the scale.
+/// so consumers (the engine's gyro-to-mouse) convert: `raw / GYRO_RES_PER_DPS` = deg/s,
+/// `raw / ACCEL_RES_PER_G` = g. Re-exported at the crate root as the single source of truth.
 pub const ACCEL_RES_PER_G: f32 = 16384.0;
 pub const GYRO_RES_PER_DPS: f32 = 16.0;
+
+// --- Gordon (USB `0x01` frame + BLE delta stream) --------------------------------------
+//
+// USB: `event_type::INPUT_DATA` (state). Body offsets (decoded in `parse_gordon` → `GordonReport`):
+// buttons @0x08 (`GordonButtons`, buttons.rs), triggers @0x0B/0x0C, left pad/stick @0x10 (time-
+// multiplexed — de-muxed on `LPAD_TOUCH`), right pad @0x14, accel @0x1C, gyro @0x22, quat @0x28.
+// BLE: a segmented Report-ID-3 delta stream (transport framing = the `ble` module, §4); its input
+// layout — report type + present-chunk mask — is `ble::report_type` / `ble::chunk` (§4), accumulated
+// into the same `GordonReport` by `apply_gordon_ble`.
+
+// --- Neptune / Steam Deck --------------------------------------------------------------
+//
+// `event_type::DECK_INPUT_DATA` (0x09) state. Decoded in `parse_neptune` → `NeptuneReport`:
+// `NeptuneButtons` (buttons.rs), 16-bit triggers, dual sticks + pads with pressure, IMU, and the raw
+// stick capacitive-force bytes @0x3C/0x3E (kept raw, not exposed — `NeptuneReport::left_stick_force`).
+
+// --- Triton (new Steam Controller) -----------------------------------------------------
+//
+// Triton does NOT use the `0x01` frame: its input reports carry the **report id in byte 0**
+// (dispatched in `parse_triton`). The State/NoQuat bodies decode → `TritonReport`.
+
+/// Triton input/status report ids (byte 0 of each read). SDL `SDL_hidapi_steam_triton.c` +
+/// sc-controller `sc2.py`. `(used)` = we handle it.
+pub(crate) mod triton {
+    /// Input/status report ids.
+    pub(crate) mod report {
+        /// Main gamepad state (older firmware appends an on-controller quaternion). **HW: the puck/
+        /// dongle (0x1304) + wired (0x1302) stream `0x42` by default**; parsed as NoQuat regardless.
+        pub(crate) const STATE: u8 = 0x42; // (used)
+        /// Battery status.
+        pub(crate) const BATTERY: u8 = 0x43; // (used)
+        /// Gamepad state, "NoQuat" body — same leading fields as `STATE`. **HW: over Bluetooth
+        /// (0x1303) the controller streams `0x45`.**
+        pub(crate) const STATE_NOQUAT: u8 = 0x45; // (used)
+        /// Wireless connect/disconnect status (dongle), alternate id.
+        pub(crate) const WIRELESS_X: u8 = 0x46; // (used)
+        /// Gamepad state with a trackpad + 16-bit IMU timestamp ("Ibex" packet). **NOT parsed** —
+        /// added only if a unit is seen streaming it.
+        pub(crate) const STATE_TIMESTAMP: u8 = 0x47;
+        /// Wireless connect/disconnect status (dongle).
+        pub(crate) const WIRELESS: u8 = 0x79; // (used)
+    }
+
+    /// Event byte of a wireless-status report (`WIRELESS`/`WIRELESS_X`).
+    pub(crate) mod wireless {
+        pub(crate) const DISCONNECT: u8 = 1; // (used)
+        pub(crate) const CONNECT: u8 = 2; // (used)
+    }
+}
+
+// --- Command responses (read-back; inbound, but replies to a GET, not input reports) ---
+
+/// `GET_ATTRIBUTES_VALUES` (`0x83`) response element — SDL `ControllerAttribute` (`{ tag, value }`).
+/// `tag` is a [`ControllerAttributes`]. Layout reference — `Device::get_attributes` parses the reply
+/// ad-hoc (5-byte chunks), not via this struct yet.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ControllerAttribute {
+    pub tag: u8,
+    pub value: u32,
+}
+
+/// `GET_STRING_ATTRIBUTE` (`0xAE`) response — SDL `MsgGetStringAttribute` (`{ tag, value[20] }`).
+/// `tag` is a [`ControllerStringAttributes`]. Layout reference (`Device::get_string_attribute`
+/// parses it ad-hoc).
+#[derive(Debug, Clone)]
+pub(crate) struct MsgGetStringAttribute {
+    pub tag: u8,
+    pub value: [u8; 20],
+}
+
+/// `GET_SETTINGS_DEFAULTS` (`0x8C`) / `GET_SETTINGS_MAXS` (`0x8B`) reply element — SDL
+/// `SettingValueRange_t` (`short defaultminmax[3]`, indexed by [`SettingDefaultMinMax`]). **Unused —
+/// we don't read maxs/defaults yet.**
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SettingValueRange {
+    /// `[default, min, max]` (i16), in `SettingDefaultMinMax` order.
+    pub defaultminmax: [i16; 3],
+}
