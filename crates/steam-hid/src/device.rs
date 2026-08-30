@@ -11,7 +11,7 @@ use crate::error::{Error, Result};
 use crate::event::Events;
 use crate::protocol::{
     self, Cmd, ControllerStringAttributes, GyroMode, HapticIntensity, HapticType, TrackpadDPadMode,
-    Wire, setting,
+    TritonOutReport, Wire, setting,
 };
 use crate::report::{self, RawReport};
 use crate::state::{Battery, Report};
@@ -698,7 +698,7 @@ impl Device {
             right_speed: right,
             right_gain,
         };
-        self.output(&msg.to_bytes())
+        self.output(TritonOutReport::Rumble, msg.as_bytes())
     }
 
     /// Fire a Triton **haptic command / click** — output report `0x82` (`HapticCommand`, 4 bytes):
@@ -717,7 +717,7 @@ impl Device {
         // `command` = the haptic type (off/weak/strong); `gain_db` carries our unsigned amplitude
         // trim (SDL types the byte i8, but HW treats it as 0=medium..255=strong — see the struct doc).
         let msg = protocol::MsgHapticCommand { side, command: style as u8, gain_db: amplitude as i8 };
-        self.output(&msg.to_bytes())
+        self.output(TritonOutReport::Command, msg.as_bytes())
     }
 
     /// Power the controller off.
@@ -895,11 +895,15 @@ impl Device {
         Err(Error::Unsupported("GET response not received/validated"))
     }
 
-    /// Send a Triton haptic **output** report verbatim (`report[0]` = report id). Output reports
-    /// carry their own fixed lengths and ride the interrupt-OUT endpoint, so no `frame`-style
-    /// padding — the caller passes the exact bytes.
-    fn output(&mut self, report: &[u8]) -> Result<()> {
-        self.backend.send_output_report(report)
+    /// Build `[report_id, payload…]` and send it as a Triton haptic **output** report. The output-
+    /// report analog of [`Self::feature`], but the framing is a single report-id byte (no length
+    /// field) and it rides the interrupt-OUT endpoint. Output reports carry their own fixed lengths,
+    /// so no `frame`-style padding.
+    fn output(&mut self, cmd: TritonOutReport, payload: &[u8]) -> Result<()> {
+        let mut report = Vec::with_capacity(1 + payload.len());
+        report.push(cmd as u8);
+        report.extend_from_slice(payload);
+        self.backend.send_output_report(&report)
     }
 }
 

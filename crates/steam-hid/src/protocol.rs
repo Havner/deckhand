@@ -667,11 +667,12 @@ pub(crate) enum TritonOutReport {
     Script = 0x85,
 }
 
-/// Triton `0x80` dual-motor **rumble** — SDL `MsgHapticRumble`. `rumble_type` is HW-confirmed inert
-/// (like the Deck's `unRumbleType`) → send 0; `intensity` a finer amplitude lever (SDL sends 0);
+/// Triton `0x80` dual-motor **rumble** body — SDL `MsgHapticRumble`. `rumble_type` is HW-confirmed
+/// inert (like the Deck's `unRumbleType`) → send 0; `intensity` a finer amplitude lever (SDL sends 0);
 /// per-motor `speed` (drive rate) + `gain` (dB). Same levers as the Deck's `0xeb`. **HW-verified
-/// (puck).** `to_bytes` prepends the report id.
-#[derive(Debug, Clone)]
+/// (puck).** Sent as [`TritonOutReport::Rumble`] (`device::output` prepends the report-id byte).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgHapticRumble {
     pub rumble_type: u8,
     pub intensity: u16,
@@ -680,64 +681,43 @@ pub(crate) struct MsgHapticRumble {
     pub right_speed: u16,
     pub right_gain: i8,
 }
+impl Wire for MsgHapticRumble {}
+const _: () = assert!(core::mem::size_of::<MsgHapticRumble>() == 9);
 
-impl MsgHapticRumble {
-    pub(crate) fn to_bytes(&self) -> [u8; 10] {
-        let it = self.intensity.to_le_bytes();
-        let ls = self.left_speed.to_le_bytes();
-        let rs = self.right_speed.to_le_bytes();
-        [
-            TritonOutReport::Rumble as u8,
-            self.rumble_type,
-            it[0], it[1],
-            ls[0], ls[1], self.left_gain as u8,
-            rs[0], rs[1], self.right_gain as u8,
-        ]
-    }
-}
-
-/// Triton `0x81` trackpad **pulse** — SDL `MsgHapticPulse` (Triton's analog of Gordon's `0x8f`).
-/// `on_us`/`off_us` = pulse high/low µs, `repeat_count` = pulses. **Unused / HW-UNTESTED** (kept for
-/// completeness — a Triton beep could ride this, cf. the audio work).
-#[derive(Debug, Clone)]
+/// Triton `0x81` trackpad **pulse** body — SDL `MsgHapticPulse` (Triton's analog of Gordon's `0x8f`).
+/// `on_us`/`off_us` = pulse high/low µs, `repeat_count` = pulses. Sent as [`TritonOutReport::Pulse`].
+/// **Unused / HW-UNTESTED** (kept for completeness — a Triton beep could ride this, cf. the audio work).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgHapticPulse {
     pub side: u8,
     pub on_us: u16,
     pub off_us: u16,
     pub repeat_count: u16,
 }
-
-impl MsgHapticPulse {
-    pub(crate) fn to_bytes(&self) -> [u8; 8] {
-        let on = self.on_us.to_le_bytes();
-        let off = self.off_us.to_le_bytes();
-        let rc = self.repeat_count.to_le_bytes();
-        [TritonOutReport::Pulse as u8, self.side, on[0], on[1], off[0], off[1], rc[0], rc[1]]
-    }
-}
+impl Wire for MsgHapticPulse {}
+const _: () = assert!(core::mem::size_of::<MsgHapticPulse>() == 7);
 
 /// Triton `0x82` haptic **command / click** — SDL `MsgHapticCommand`. `command` is the haptic type
 /// (SDL types it a bare `u8`; we send off/weak/strong — possibly the shared `haptic_type_t`, only 3
 /// HW-verified). `gain_db` is `i8` in SDL, but HW shows this byte as a subtle **unsigned** amplitude
-/// trim (`0`=medium..`255`=strong, sc-controller); the reader sends it unsigned. **HW-verified
-/// (puck).**
-#[derive(Debug, Clone)]
+/// trim (`0`=medium..`255`=strong, sc-controller); the reader sends it unsigned. Sent as
+/// [`TritonOutReport::Command`]. **HW-verified (puck).**
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgHapticCommand {
     pub side: u8,
     pub command: u8,
     pub gain_db: i8,
 }
+impl Wire for MsgHapticCommand {}
+const _: () = assert!(core::mem::size_of::<MsgHapticCommand>() == 3);
 
-impl MsgHapticCommand {
-    pub(crate) fn to_bytes(&self) -> [u8; 4] {
-        [TritonOutReport::Command as u8, self.side, self.command, self.gain_db as u8]
-    }
-}
-
-/// Triton `0x83` **LFO tone** — SDL `MsgHapticLfoTone`. A firmware-synthesized tone (the promising
-/// Triton *audio* path): `frequency` Hz, `duration_ms`, `lfo_freq`/`lfo_depth` modulation.
-/// **Unused / HW-UNTESTED.**
-#[derive(Debug, Clone)]
+/// Triton `0x83` **LFO tone** body — SDL `MsgHapticLfoTone`. A firmware-synthesized tone (the
+/// promising Triton *audio* path): `frequency` Hz, `duration_ms`, `lfo_freq`/`lfo_depth` modulation.
+/// Sent as [`TritonOutReport::LfoTone`]. **Unused / HW-UNTESTED.**
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgHapticLfoTone {
     pub side: u8,
     pub gain_db: i8,
@@ -746,25 +726,13 @@ pub(crate) struct MsgHapticLfoTone {
     pub lfo_freq: u16,
     pub lfo_depth: u8,
 }
+impl Wire for MsgHapticLfoTone {}
+const _: () = assert!(core::mem::size_of::<MsgHapticLfoTone>() == 9);
 
-impl MsgHapticLfoTone {
-    pub(crate) fn to_bytes(&self) -> [u8; 10] {
-        let f = self.frequency.to_le_bytes();
-        let d = self.duration_ms.to_le_bytes();
-        let lf = self.lfo_freq.to_le_bytes();
-        [
-            TritonOutReport::LfoTone as u8,
-            self.side, self.gain_db as u8,
-            f[0], f[1],
-            d[0], d[1],
-            lf[0], lf[1],
-            self.lfo_depth,
-        ]
-    }
-}
-
-/// Triton `0x84` log-frequency **sweep** (chirp) — SDL `MsgHapticLogSweep`. **Unused / HW-UNTESTED.**
-#[derive(Debug, Clone)]
+/// Triton `0x84` log-frequency **sweep** (chirp) body — SDL `MsgHapticLogSweep`. Sent as
+/// [`TritonOutReport::LogSweep`]. **Unused / HW-UNTESTED.**
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgHapticLogSweep {
     pub side: u8,
     pub gain_db: i8,
@@ -772,30 +740,20 @@ pub(crate) struct MsgHapticLogSweep {
     pub start_freq: u16,
     pub end_freq: u16,
 }
+impl Wire for MsgHapticLogSweep {}
+const _: () = assert!(core::mem::size_of::<MsgHapticLogSweep>() == 8);
 
-impl MsgHapticLogSweep {
-    pub(crate) fn to_bytes(&self) -> [u8; 9] {
-        let d = self.duration_ms.to_le_bytes();
-        let s = self.start_freq.to_le_bytes();
-        let e = self.end_freq.to_le_bytes();
-        [TritonOutReport::LogSweep as u8, self.side, self.gain_db as u8, d[0], d[1], s[0], s[1], e[0], e[1]]
-    }
-}
-
-/// Triton `0x85` named haptic **script** — SDL `MsgHapticScript`. `script_id` selects a firmware
-/// effect; `gain_db` scales. **Unused / HW-UNTESTED.**
-#[derive(Debug, Clone)]
+/// Triton `0x85` named haptic **script** body — SDL `MsgHapticScript`. `script_id` selects a firmware
+/// effect; `gain_db` scales. Sent as [`TritonOutReport::Script`]. **Unused / HW-UNTESTED.**
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct MsgHapticScript {
     pub side: u8,
     pub script_id: u8,
     pub gain_db: i8,
 }
-
-impl MsgHapticScript {
-    pub(crate) fn to_bytes(&self) -> [u8; 4] {
-        [TritonOutReport::Script as u8, self.side, self.script_id, self.gain_db as u8]
-    }
-}
+impl Wire for MsgHapticScript {}
+const _: () = assert!(core::mem::size_of::<MsgHapticScript>() == 3);
 
 // =====================================================================================
 // 6. Report-related inbound — input-report parsing. The device SENDS these; report **bodies** are
@@ -1001,6 +959,28 @@ mod tests {
             right_gain: 2,
         };
         assert_eq!(m.as_bytes(), &[0, 0x34, 0x12, 0x78, 0x56, 0xBC, 0x9A, 0xFF, 2][..]);
+    }
+
+    // --- §5 Triton output bodies: `as_bytes()` = the wire body (report id prepended by output) ---
+
+    #[test]
+    fn triton_rumble_body_bytes() {
+        let m = MsgHapticRumble {
+            rumble_type: 0,
+            intensity: 0x1234,
+            left_speed: 0x5678,
+            left_gain: -1,
+            right_speed: 0x9ABC,
+            right_gain: 2,
+        };
+        // rumble_type, intensity(le), left_speed(le), left_gain, right_speed(le), right_gain.
+        assert_eq!(m.as_bytes(), &[0, 0x34, 0x12, 0x78, 0x56, 0xFF, 0xBC, 0x9A, 2][..]);
+    }
+
+    #[test]
+    fn triton_command_body_bytes() {
+        let m = MsgHapticCommand { side: 2, command: 1, gain_db: -1 };
+        assert_eq!(m.as_bytes(), &[2, 1, 0xFF][..]);
     }
 
     // --- §3/§4: round-trips + short-slice guard ---
