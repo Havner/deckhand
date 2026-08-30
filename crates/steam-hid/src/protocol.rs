@@ -55,33 +55,164 @@ pub(crate) const REPORT_ID: u8 = 0x00;
 pub(crate) const REPORT_ID_TRITON: u8 = 0x01;
 
 // =====================================================================================
-// 2. Command & setting IDs (kernel `hid-steam` naming; numeric-sorted). Only the subset we use.
+// 2. Command & setting IDs. Kernel `hid-steam` naming (adopted); the full set is Valve's, from SDL
+//    `controller_constants.h` (matches the kernel where both define an id). Recorded in full as a
+//    knowledge trace — most are unused (`#![allow(dead_code)]`). `(used)` marks what we send today.
 // =====================================================================================
 
-/// Feature-report command IDs.
+/// Feature-report command IDs (SDL `FeatureReportMessageIDs`), numeric-sorted, full set.
 pub(crate) mod cmd {
-    pub(crate) const CLEAR_DIGITAL_MAPPINGS: u8 = 0x81;
-    pub(crate) const SET_DEFAULT_DIGITAL_MAPPINGS: u8 = 0x85;
-    pub(crate) const SET_SETTINGS_VALUES: u8 = 0x87;
-    pub(crate) const LOAD_DEFAULT_SETTINGS: u8 = 0x8E;
-    pub(crate) const TRIGGER_HAPTIC_PULSE: u8 = 0x8F;
-    pub(crate) const TURN_OFF_CONTROLLER: u8 = 0x9F;
-    pub(crate) const GET_STRING_ATTRIBUTE: u8 = 0xAE;
-    pub(crate) const DONGLE_GET_WIRELESS_STATE: u8 = 0xB4;
-    pub(crate) const TRIGGER_HAPTIC_CMD: u8 = 0xEA;
-    pub(crate) const TRIGGER_RUMBLE_CMD: u8 = 0xEB;
+    // --- digital button mappings (lizard-mode gamepad emulation) ---
+    pub(crate) const SET_DIGITAL_MAPPINGS: u8 = 0x80;
+    pub(crate) const CLEAR_DIGITAL_MAPPINGS: u8 = 0x81; // (used) lizard-off
+    pub(crate) const GET_DIGITAL_MAPPINGS: u8 = 0x82;
+    pub(crate) const GET_ATTRIBUTES_VALUES: u8 = 0x83;
+    pub(crate) const GET_ATTRIBUTE_LABEL: u8 = 0x84;
+    pub(crate) const SET_DEFAULT_DIGITAL_MAPPINGS: u8 = 0x85; // (used) lizard-on
+    pub(crate) const FACTORY_RESET: u8 = 0x86; // ⚠ wipes config
+    // --- settings I/O (see the `setting` table + `ControllerSetting`) ---
+    pub(crate) const SET_SETTINGS_VALUES: u8 = 0x87; // (used)
+    pub(crate) const CLEAR_SETTINGS_VALUES: u8 = 0x88;
+    pub(crate) const GET_SETTINGS_VALUES: u8 = 0x89;
+    pub(crate) const GET_SETTING_LABEL: u8 = 0x8A;
+    pub(crate) const GET_SETTINGS_MAXS: u8 = 0x8B;
+    pub(crate) const GET_SETTINGS_DEFAULTS: u8 = 0x8C;
+    pub(crate) const SET_CONTROLLER_MODE: u8 = 0x8D; // SDL/IP only (not in kernel)
+    pub(crate) const LOAD_DEFAULT_SETTINGS: u8 = 0x8E; // (used) lizard-on
+    // --- haptics (pulse; the `0xEA`/`0xEB` command haptics live in section 3 structs) ---
+    pub(crate) const TRIGGER_HAPTIC_PULSE: u8 = 0x8F; // (used) → MsgFireHapticPulse
+    pub(crate) const TURN_OFF_CONTROLLER: u8 = 0x9F; // (used) power off ("off!")
+    // --- read-only queries ---
+    pub(crate) const GET_DEVICE_INFO: u8 = 0xA1;
+    // --- calibration ---
+    pub(crate) const CALIBRATE_TRACKPADS: u8 = 0xA7;
+    pub(crate) const RESERVED_0: u8 = 0xA8;
+    pub(crate) const SET_SERIAL_NUMBER: u8 = 0xA9; // ⚠ writes the unit serial
+    pub(crate) const GET_TRACKPAD_CALIBRATION: u8 = 0xAA;
+    pub(crate) const GET_TRACKPAD_FACTORY_CALIBRATION: u8 = 0xAB;
+    pub(crate) const GET_TRACKPAD_RAW_DATA: u8 = 0xAC;
+    // --- dongle / pairing ---
+    pub(crate) const ENABLE_PAIRING: u8 = 0xAD;
+    pub(crate) const GET_STRING_ATTRIBUTE: u8 = 0xAE; // (used) serial getter
+    pub(crate) const RADIO_ERASE_RECORDS: u8 = 0xAF; // ⚠⚠ firmware/radio — DO NOT TOUCH
+    pub(crate) const RADIO_WRITE_RECORD: u8 = 0xB0; // ⚠⚠ firmware/radio — DO NOT TOUCH
+    pub(crate) const SET_DONGLE_SETTING: u8 = 0xB1;
+    pub(crate) const DONGLE_DISCONNECT_DEVICE: u8 = 0xB2;
+    pub(crate) const DONGLE_COMMIT_DEVICE: u8 = 0xB3;
+    pub(crate) const DONGLE_GET_WIRELESS_STATE: u8 = 0xB4; // (used) dongle slot probe
+    pub(crate) const CALIBRATE_GYRO: u8 = 0xB5;
+    // --- audio (preset play + custom-audio upload; the whole path is unimplemented, no payload ref) ---
+    pub(crate) const PLAY_AUDIO: u8 = 0xB6;
+    pub(crate) const AUDIO_UPDATE_START: u8 = 0xB7;
+    pub(crate) const AUDIO_UPDATE_DATA: u8 = 0xB8;
+    pub(crate) const AUDIO_UPDATE_COMPLETE: u8 = 0xB9;
+    pub(crate) const GET_CHIPID: u8 = 0xBA;
+    pub(crate) const CALIBRATE_JOYSTICK: u8 = 0xBF;
+    pub(crate) const CALIBRATE_ANALOG_TRIGGERS: u8 = 0xC0;
+    pub(crate) const SET_AUDIO_MAPPING: u8 = 0xC1;
+    pub(crate) const CHECK_GYRO_FW_LOAD: u8 = 0xC2;
+    pub(crate) const CALIBRATE_ANALOG: u8 = 0xC3;
+    pub(crate) const DONGLE_GET_CONNECTED_SLOTS: u8 = 0xC4;
+    pub(crate) const RESET_IMU: u8 = 0xCE;
+    // --- command haptics (Deck; section-3 structs) ---
+    pub(crate) const TRIGGER_HAPTIC_CMD: u8 = 0xEA; // (used) → MsgTriggerHaptic
+    pub(crate) const TRIGGER_RUMBLE_CMD: u8 = 0xEB; // (used) → MsgSimpleRumbleCmd
+    // --- unknown opcodes (no reference documents these — purpose TBD) ---
+    /// InputPlumber `UnknownDc` — seen in its command enum, purpose unknown. sc-controller lists
+    /// `DC` among the Triton v2 pairing opcodes (`ED`/`AD`/`DC`/`E2`) it captured but never decoded.
+    pub(crate) const UNKNOWN_DC: u8 = 0xDC;
+    /// InputPlumber `UnknownE2` — as above; also in sc-controller's Triton pairing opcode set.
+    pub(crate) const UNKNOWN_E2: u8 = 0xE2;
+    /// sc-controller Triton v2 pairing opcode `ED` (captured, undecoded). Not in SDL/kernel/IP.
+    pub(crate) const UNKNOWN_ED: u8 = 0xED;
 }
 
-/// Setting ids (index == id) written via `SET_SETTINGS_VALUES` (see [`ControllerSetting`]).
+/// Setting ids (SDL `ControllerSettings`; **index == id**, order frozen — "only add, never reorder").
+/// Written via `SET_SETTINGS_VALUES` as [`ControllerSetting`] pairs. Full set as a trace; most unused.
 pub(crate) mod setting {
-    pub(crate) const LEFT_TRACKPAD_MODE: u8 = 7;
-    pub(crate) const RIGHT_TRACKPAD_MODE: u8 = 8;
-    pub(crate) const LED_USER_BRIGHTNESS: u8 = 45;
-    pub(crate) const IMU_MODE: u8 = 48;
-    pub(crate) const SLEEP_INACTIVITY_TIMEOUT: u8 = 50;
+    pub(crate) const MOUSE_SENSITIVITY: u8 = 0;
+    pub(crate) const MOUSE_ACCELERATION: u8 = 1;
+    pub(crate) const TRACKBALL_ROTATION_ANGLE: u8 = 2;
+    pub(crate) const HAPTIC_INTENSITY_UNUSED: u8 = 3;
+    pub(crate) const LEFT_GAMEPAD_STICK_ENABLED: u8 = 4;
+    pub(crate) const RIGHT_GAMEPAD_STICK_ENABLED: u8 = 5;
+    pub(crate) const USB_DEBUG_MODE: u8 = 6;
+    pub(crate) const LEFT_TRACKPAD_MODE: u8 = 7; // (used) lizard-off → NONE
+    pub(crate) const RIGHT_TRACKPAD_MODE: u8 = 8; // (used) lizard-off → NONE
+    pub(crate) const LIZARD_MODE: u8 = 9; // InputPlumber mislabels this index as "MousePointerEnabled"
+    pub(crate) const DPAD_DEADZONE: u8 = 10;
+    pub(crate) const MINIMUM_MOMENTUM_VEL: u8 = 11;
+    pub(crate) const MOMENTUM_DECAY_AMOUNT: u8 = 12;
+    pub(crate) const TRACKPAD_RELATIVE_MODE_TICKS_PER_PIXEL: u8 = 13;
+    pub(crate) const HAPTIC_INCREMENT: u8 = 14;
+    pub(crate) const DPAD_ANGLE_SIN: u8 = 15;
+    pub(crate) const DPAD_ANGLE_COS: u8 = 16;
+    pub(crate) const MOMENTUM_VERTICAL_DIVISOR: u8 = 17;
+    pub(crate) const MOMENTUM_MAXIMUM_VELOCITY: u8 = 18;
+    pub(crate) const TRACKPAD_Z_ON: u8 = 19;
+    pub(crate) const TRACKPAD_Z_OFF: u8 = 20;
+    pub(crate) const SENSITIVITY_SCALE_AMOUNT: u8 = 21;
+    pub(crate) const LEFT_TRACKPAD_SECONDARY_MODE: u8 = 22;
+    pub(crate) const RIGHT_TRACKPAD_SECONDARY_MODE: u8 = 23;
+    pub(crate) const SMOOTH_ABSOLUTE_MOUSE: u8 = 24;
+    pub(crate) const STEAMBUTTON_POWEROFF_TIME: u8 = 25;
+    pub(crate) const UNUSED_1: u8 = 26;
+    pub(crate) const TRACKPAD_OUTER_RADIUS: u8 = 27;
+    pub(crate) const TRACKPAD_Z_ON_LEFT: u8 = 28;
+    pub(crate) const TRACKPAD_Z_OFF_LEFT: u8 = 29;
+    pub(crate) const TRACKPAD_OUTER_SPIN_VEL: u8 = 30;
+    pub(crate) const TRACKPAD_OUTER_SPIN_RADIUS: u8 = 31;
+    pub(crate) const TRACKPAD_OUTER_SPIN_HORIZONTAL_ONLY: u8 = 32;
+    pub(crate) const TRACKPAD_RELATIVE_MODE_DEADZONE: u8 = 33;
+    pub(crate) const TRACKPAD_RELATIVE_MODE_MAX_VEL: u8 = 34;
+    pub(crate) const TRACKPAD_RELATIVE_MODE_INVERT_Y: u8 = 35;
+    pub(crate) const TRACKPAD_DOUBLE_TAP_BEEP_ENABLED: u8 = 36;
+    pub(crate) const TRACKPAD_DOUBLE_TAP_BEEP_PERIOD: u8 = 37;
+    pub(crate) const TRACKPAD_DOUBLE_TAP_BEEP_COUNT: u8 = 38;
+    pub(crate) const TRACKPAD_OUTER_RADIUS_RELEASE_ON_TRANSITION: u8 = 39;
+    pub(crate) const RADIAL_MODE_ANGLE: u8 = 40;
+    pub(crate) const HAPTIC_INTENSITY_MOUSE_MODE: u8 = 41;
+    pub(crate) const LEFT_DPAD_REQUIRES_CLICK: u8 = 42;
+    pub(crate) const RIGHT_DPAD_REQUIRES_CLICK: u8 = 43;
+    pub(crate) const LED_BASELINE_BRIGHTNESS: u8 = 44;
+    pub(crate) const LED_USER_BRIGHTNESS: u8 = 45; // (used)
+    pub(crate) const ENABLE_RAW_JOYSTICK: u8 = 46;
+    pub(crate) const ENABLE_FAST_SCAN: u8 = 47;
+    pub(crate) const IMU_MODE: u8 = 48; // (used) gyro/accel mode bits (see command::ImuMode)
+    pub(crate) const WIRELESS_PACKET_VERSION: u8 = 49;
+    pub(crate) const SLEEP_INACTIVITY_TIMEOUT: u8 = 50; // (used) idle timeout (s)
+    pub(crate) const TRACKPAD_NOISE_THRESHOLD: u8 = 51;
     pub(crate) const LEFT_TRACKPAD_CLICK_PRESSURE: u8 = 52;
     pub(crate) const RIGHT_TRACKPAD_CLICK_PRESSURE: u8 = 53;
+    pub(crate) const LEFT_BUMPER_CLICK_PRESSURE: u8 = 54;
+    pub(crate) const RIGHT_BUMPER_CLICK_PRESSURE: u8 = 55;
+    pub(crate) const LEFT_GRIP_CLICK_PRESSURE: u8 = 56;
+    pub(crate) const RIGHT_GRIP_CLICK_PRESSURE: u8 = 57;
+    pub(crate) const LEFT_GRIP2_CLICK_PRESSURE: u8 = 58; // Deck (4 back buttons)
+    pub(crate) const RIGHT_GRIP2_CLICK_PRESSURE: u8 = 59; // Deck
+    pub(crate) const PRESSURE_MODE: u8 = 60;
+    pub(crate) const CONTROLLER_TEST_MODE: u8 = 61;
+    pub(crate) const TRIGGER_MODE: u8 = 62;
+    pub(crate) const TRACKPAD_Z_THRESHOLD: u8 = 63;
+    pub(crate) const FRAME_RATE: u8 = 64;
+    pub(crate) const TRACKPAD_FILT_CTRL: u8 = 65;
+    pub(crate) const TRACKPAD_CLIP: u8 = 66;
+    pub(crate) const DEBUG_OUTPUT_SELECT: u8 = 67;
+    pub(crate) const TRIGGER_THRESHOLD_PERCENT: u8 = 68;
+    pub(crate) const TRACKPAD_FREQUENCY_HOPPING: u8 = 69;
+    pub(crate) const HAPTICS_ENABLED: u8 = 70;
     pub(crate) const STEAM_WATCHDOG_ENABLE: u8 = 71;
+    pub(crate) const TIMP_TOUCH_THRESHOLD_ON: u8 = 72;
+    pub(crate) const TIMP_TOUCH_THRESHOLD_OFF: u8 = 73;
+    pub(crate) const FREQ_HOPPING: u8 = 74;
+    pub(crate) const TEST_CONTROL: u8 = 75;
+    pub(crate) const HAPTIC_MASTER_GAIN_DB: u8 = 76;
+    pub(crate) const THUMB_TOUCH_THRESH: u8 = 77;
+    pub(crate) const DEVICE_POWER_STATUS: u8 = 78;
+    pub(crate) const HAPTIC_INTENSITY: u8 = 79;
+    pub(crate) const STABILIZER_ENABLED: u8 = 80;
+    pub(crate) const TIMP_MODE_MTE: u8 = 81;
+    // SETTING_COUNT = 82; SETTING_ALL = 0xFF.
 }
 
 /// Trackpad-mode *values* for the `LEFT/RIGHT_TRACKPAD_MODE` settings.
