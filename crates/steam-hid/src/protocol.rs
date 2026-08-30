@@ -304,8 +304,8 @@ pub(crate) enum SettingDefaultMinMax {
 pub(crate) const FAST_SCAN_INTERVAL: u8 = 6;
 pub(crate) const SLOW_SCAN_INTERVAL: u8 = 9;
 
-// --- read-only attribute tags (which attribute to query; the response structs live in the INBOUND
-//     section, parsing deferred) ---
+// --- read-only attribute tags (which attribute to query; the response structs live in §4,
+//     parsing deferred) ---
 
 /// Numeric read-only attribute tags for `GET_ATTRIBUTES_VALUES` (`0x83`). SDL `ControllerAttributes`
 /// (its struct element is [`ControllerAttribute`]). `Capabilities` aliases the deprecated
@@ -617,56 +617,40 @@ impl MsgSimpleRumbleCmd {
 }
 
 // =====================================================================================
-// 4. Gordon Bluetooth (BLE) transport framing + compact input layout.
+// 4. Command responses (read-back; inbound — replies to a GET, not input reports). Paired with the
+//    outbound commands in §3; the attribute-tag enums they key on live in §2.
 // =====================================================================================
 
-/// The kernel `hid-steam` driver is USB-only, so BLE is reverse-engineered from SDL
-/// (`SDL_hidapi_steam.c`) and sc-controller (`sc_by_bt`). Everything rides **Report ID 3** on a
-/// 20-byte HID report (report id + 1 header byte + 18 payload). Feature *and* input reports longer
-/// than 18 bytes are split into segments; the command bytes themselves are identical to USB.
-pub(crate) mod ble {
-    /// Report id prefixing every BLE feature/input report.
-    pub(crate) const REPORT_ID: u8 = 0x03;
-    /// Total segment size on the wire: report id + header + 18 payload.
-    pub(crate) const SEGMENT_SIZE: usize = 20;
-    /// Data bytes carried per segment.
-    pub(crate) const SEGMENT_PAYLOAD: usize = 18;
-    /// Max segments per packet (segment number is 3 bits).
-    pub(crate) const MAX_SEGMENTS: usize = 8;
-    /// Segment-header bit: this segment carries data.
-    pub(crate) const SEG_DATA_FLAG: u8 = 0x80;
-    /// Segment-header bit: last segment of the packet.
-    pub(crate) const SEG_LAST_FLAG: u8 = 0x40;
-    /// Segment-header mask: segment number (low 3 bits).
-    pub(crate) const SEG_NUM_MASK: u8 = 0x07;
+/// `GET_ATTRIBUTES_VALUES` (`0x83`) response element — SDL `ControllerAttribute` (`{ tag, value }`).
+/// `tag` is a [`ControllerAttributes`]. Layout reference — `Device::get_attributes` parses the reply
+/// ad-hoc (5-byte chunks), not via this struct yet.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ControllerAttribute {
+    pub tag: u8,
+    pub value: u32,
+}
 
-    /// Reassembled input payload: `byte0` low nibble = report type, high nibble +
-    /// `byte1` = the chunk mask; chunk data follows from `byte2`.
-    pub(crate) mod report_type {
-        /// An input state report (chunks present per the mask).
-        pub(crate) const STATE: u8 = 4;
-        /// A status report (battery/idle) — not decoded as input yet.
-        pub(crate) const STATUS: u8 = 5;
-    }
+/// `GET_STRING_ATTRIBUTE` (`0xAE`) response — SDL `MsgGetStringAttribute` (`{ tag, value[20] }`).
+/// `tag` is a [`ControllerStringAttributes`]. Layout reference (`Device::get_string_attribute`
+/// parses it ad-hoc).
+#[derive(Debug, Clone)]
+pub(crate) struct MsgGetStringAttribute {
+    pub tag: u8,
+    pub value: [u8; 20],
+}
 
-    /// Chunk-present bits (SDL `k_EBLE*Chunk`), in ascending order = wire order.
-    /// Each present chunk contributes a fixed number of payload bytes.
-    pub(crate) mod chunk {
-        pub(crate) const BUTTON1: u16 = 0x0010; // 3B buttons (low)
-        pub(crate) const TRIGGERS: u16 = 0x0020; // 2B L/R triggers
-        pub(crate) const BUTTON3: u16 = 0x0040; // 3B buttons (high; unused on SC)
-        pub(crate) const LSTICK: u16 = 0x0080; // 4B stick x,y
-        pub(crate) const LPAD: u16 = 0x0100; // 4B lpad x,y
-        pub(crate) const RPAD: u16 = 0x0200; // 4B rpad x,y
-        pub(crate) const ACCEL: u16 = 0x0400; // 6B accel x,y,z
-        pub(crate) const GYRO: u16 = 0x0800; // 6B gyro x,y,z
-        pub(crate) const QUAT: u16 = 0x1000; // 8B quat w,x,y,z (only if SEND_ORIENTATION)
-    }
+/// `GET_SETTINGS_DEFAULTS` (`0x8C`) / `GET_SETTINGS_MAXS` (`0x8B`) reply element — SDL
+/// `SettingValueRange_t` (`short defaultminmax[3]`, indexed by [`SettingDefaultMinMax`]). **Unused —
+/// we don't read maxs/defaults yet.**
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SettingValueRange {
+    /// `[default, min, max]` (i16), in `SettingDefaultMinMax` order.
+    pub defaultminmax: [i16; 3],
 }
 
 // =====================================================================================
 // 5. Triton — haptic OUTPUT reports. Triton drives haptics via **output reports** (report id in
-//    byte 0, interrupt-OUT endpoint), not feature reports. Its INPUT reports are in INBOUND below.
+//    byte 0, interrupt-OUT endpoint), not feature reports. Its INPUT reports are in §6 below.
 // =====================================================================================
 
 /// Triton haptic **output**-report ids — SDL `ValveTritonOutReportMessageIDs`. Triton drives haptics
@@ -814,11 +798,12 @@ impl MsgHapticScript {
 }
 
 // =====================================================================================
-// INBOUND — input-report parsing. The device SENDS these; report **bodies** are decoded in
-// `report.rs` (→ `GordonReport`/`NeptuneReport`/`TritonReport`) and the button bits live in
-// `buttons.rs`. Here are the report **identifiers** (kept as matchable consts — they're dispatched
-// against a received byte, so an enum would force `TryFrom`/guards), the frame header, the small
-// value-enums, and the GET-response structs. Sorted Generic → Gordon → Neptune → Triton.
+// 6. Report-related inbound — input-report parsing. The device SENDS these; report **bodies** are
+//    decoded in `report.rs` (→ `GordonReport`/`NeptuneReport`/`TritonReport`) and the button bits
+//    live in `buttons.rs`. Here are the report **identifiers** (kept as matchable consts — they're
+//    dispatched against a received byte, so an enum would force `TryFrom`/guards), the frame header,
+//    the small value-enums, and the Gordon BLE framing. Sorted Generic → Gordon (incl. BLE) →
+//    Neptune → Triton. (GET-response structs are not here — they're command replies, see §4.)
 // =====================================================================================
 
 // --- Generic (Gordon & Neptune share the `0x01`-framed report) -------------------------
@@ -879,9 +864,54 @@ pub const GYRO_RES_PER_DPS: f32 = 16.0;
 // USB: `event_type::INPUT_DATA` (state). Body offsets (decoded in `parse_gordon` → `GordonReport`):
 // buttons @0x08 (`GordonButtons`, buttons.rs), triggers @0x0B/0x0C, left pad/stick @0x10 (time-
 // multiplexed — de-muxed on `LPAD_TOUCH`), right pad @0x14, accel @0x1C, gyro @0x22, quat @0x28.
-// BLE: a segmented Report-ID-3 delta stream (transport framing = the `ble` module, §4); its input
-// layout — report type + present-chunk mask — is `ble::report_type` / `ble::chunk` (§4), accumulated
-// into the same `GordonReport` by `apply_gordon_ble`.
+// BLE: a segmented Report-ID-3 delta stream (transport framing = the `ble` module below); its input
+// layout — report type + present-chunk mask — is `ble::report_type` / `ble::chunk`, accumulated into
+// the same `GordonReport` by `apply_gordon_ble`.
+
+/// Gordon **Bluetooth (BLE)** transport framing + compact input layout. The kernel `hid-steam`
+/// driver is USB-only, so BLE is reverse-engineered from SDL (`SDL_hidapi_steam.c`) and sc-controller
+/// (`sc_by_bt`). Everything rides **Report ID 3** on a 20-byte HID report (report id + 1 header byte +
+/// 18 payload). Feature *and* input reports longer than 18 bytes are split into segments; the command
+/// bytes themselves are identical to USB (§3), so only this framing + the input layout are BLE-only.
+pub(crate) mod ble {
+    /// Report id prefixing every BLE feature/input report.
+    pub(crate) const REPORT_ID: u8 = 0x03;
+    /// Total segment size on the wire: report id + header + 18 payload.
+    pub(crate) const SEGMENT_SIZE: usize = 20;
+    /// Data bytes carried per segment.
+    pub(crate) const SEGMENT_PAYLOAD: usize = 18;
+    /// Max segments per packet (segment number is 3 bits).
+    pub(crate) const MAX_SEGMENTS: usize = 8;
+    /// Segment-header bit: this segment carries data.
+    pub(crate) const SEG_DATA_FLAG: u8 = 0x80;
+    /// Segment-header bit: last segment of the packet.
+    pub(crate) const SEG_LAST_FLAG: u8 = 0x40;
+    /// Segment-header mask: segment number (low 3 bits).
+    pub(crate) const SEG_NUM_MASK: u8 = 0x07;
+
+    /// Reassembled input payload: `byte0` low nibble = report type, high nibble +
+    /// `byte1` = the chunk mask; chunk data follows from `byte2`.
+    pub(crate) mod report_type {
+        /// An input state report (chunks present per the mask).
+        pub(crate) const STATE: u8 = 4;
+        /// A status report (battery/idle) — not decoded as input yet.
+        pub(crate) const STATUS: u8 = 5;
+    }
+
+    /// Chunk-present bits (SDL `k_EBLE*Chunk`), in ascending order = wire order.
+    /// Each present chunk contributes a fixed number of payload bytes.
+    pub(crate) mod chunk {
+        pub(crate) const BUTTON1: u16 = 0x0010; // 3B buttons (low)
+        pub(crate) const TRIGGERS: u16 = 0x0020; // 2B L/R triggers
+        pub(crate) const BUTTON3: u16 = 0x0040; // 3B buttons (high; unused on SC)
+        pub(crate) const LSTICK: u16 = 0x0080; // 4B stick x,y
+        pub(crate) const LPAD: u16 = 0x0100; // 4B lpad x,y
+        pub(crate) const RPAD: u16 = 0x0200; // 4B rpad x,y
+        pub(crate) const ACCEL: u16 = 0x0400; // 6B accel x,y,z
+        pub(crate) const GYRO: u16 = 0x0800; // 6B gyro x,y,z
+        pub(crate) const QUAT: u16 = 0x1000; // 8B quat w,x,y,z (only if SEND_ORIENTATION)
+    }
+}
 
 // --- Neptune / Steam Deck --------------------------------------------------------------
 //
@@ -923,31 +953,3 @@ pub(crate) mod triton {
     }
 }
 
-// --- Command responses (read-back; inbound, but replies to a GET, not input reports) ---
-
-/// `GET_ATTRIBUTES_VALUES` (`0x83`) response element — SDL `ControllerAttribute` (`{ tag, value }`).
-/// `tag` is a [`ControllerAttributes`]. Layout reference — `Device::get_attributes` parses the reply
-/// ad-hoc (5-byte chunks), not via this struct yet.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ControllerAttribute {
-    pub tag: u8,
-    pub value: u32,
-}
-
-/// `GET_STRING_ATTRIBUTE` (`0xAE`) response — SDL `MsgGetStringAttribute` (`{ tag, value[20] }`).
-/// `tag` is a [`ControllerStringAttributes`]. Layout reference (`Device::get_string_attribute`
-/// parses it ad-hoc).
-#[derive(Debug, Clone)]
-pub(crate) struct MsgGetStringAttribute {
-    pub tag: u8,
-    pub value: [u8; 20],
-}
-
-/// `GET_SETTINGS_DEFAULTS` (`0x8C`) / `GET_SETTINGS_MAXS` (`0x8B`) reply element — SDL
-/// `SettingValueRange_t` (`short defaultminmax[3]`, indexed by [`SettingDefaultMinMax`]). **Unused —
-/// we don't read maxs/defaults yet.**
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SettingValueRange {
-    /// `[default, min, max]` (i16), in `SettingDefaultMinMax` order.
-    pub defaultminmax: [i16; 3],
-}
