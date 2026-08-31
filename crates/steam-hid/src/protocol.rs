@@ -81,16 +81,6 @@ pub(crate) const PID_TRITON_BLE: u16 = 0x1303;
 /// until one is seen in the wild.)
 pub(crate) const PID_TRITON_PUCK: u16 = 0x1304;
 
-/// All 64-byte HID reports; feature reports are framed with a report-ID-0 byte.
-pub(crate) const REPORT_LEN: usize = 64;
-/// Report id prepended to feature-report buffers on Gordon/Neptune.
-pub(crate) const REPORT_ID: u8 = 0x00;
-/// Report id prepended to Triton feature-report buffers. Triton's command channel rides
-/// **feature report `0x01`**, not `0x00` — confirmed in SDL (`DisableSteamTritonLizardMode`
-/// sets `buffer[0]=1`) and sc-controller (`wValue 0x0301`, `0x01`-prefixed payload). The
-/// command *body* (`[cmd_id, len, payload…]`) is otherwise identical to Gordon/Neptune.
-pub(crate) const REPORT_ID_TRITON: u8 = 0x01;
-
 // =====================================================================================
 // 2. Command & setting IDs. Kernel `hid-steam` naming (adopted); the full set is Valve's, from SDL
 //    `controller_constants.h` (matches the kernel where both define an id). Recorded in full as a
@@ -766,14 +756,65 @@ const _: () = assert!(core::mem::size_of::<MsgHapticScript>() == 3);
 
 // --- Generic (Gordon & Neptune share the `0x01`-framed report) -------------------------
 
+/// All 64-byte HID reports; feature reports are framed with a report-ID-0 byte.
+pub(crate) const REPORT_LEN: usize = 64;
+/// Report id prepended to feature-report buffers on Gordon/Neptune (outbound command framing).
+pub(crate) const REPORT_ID: u8 = 0x00;
+/// Report id prepended to Triton feature-report buffers. Triton's command channel rides
+/// **feature report `0x01`**, not `0x00` — confirmed in SDL (`DisableSteamTritonLizardMode`
+/// sets `buffer[0]=1`) and sc-controller (`wValue 0x0301`, `0x01`-prefixed payload). The
+/// command *body* (`[cmd_id, len, payload…]`) is otherwise identical to Gordon/Neptune.
+pub(crate) const REPORT_ID_TRITON: u8 = 0x01;
+
+/// A raw wire 2D vector (two little-endian `i16`) — sticks/pads, shared by the fixed packets below
+/// and the Gordon BLE chunk stream. Decodes into a [`crate::value::Vec2i`] in `report.rs`.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct WireVec2 {
+    pub x: i16,
+    pub y: i16,
+}
+impl Wire for WireVec2 {}
+const _: () = assert!(core::mem::size_of::<WireVec2>() == 4);
+
+/// A raw wire 3D vector (three little-endian `i16`) — accel / gyro. → [`crate::value::Vec3i`].
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct WireVec3 {
+    pub x: i16,
+    pub y: i16,
+    pub z: i16,
+}
+impl Wire for WireVec3 {}
+const _: () = assert!(core::mem::size_of::<WireVec3>() == 6);
+
+/// A raw wire quaternion (four little-endian `i16`), wire order **`w,x,y,z`** — the same across
+/// Gordon USB, Neptune, and the Gordon BLE `QUAT` chunk (SDL `sGyroQuat{W,X,Y,Z}`; kernel `hid-steam`
+/// table agrees: W first, at quat offset `0x28` Gordon / `0x24` Neptune). → [`crate::value::Quati`]
+/// (orientation is carried but unused downstream).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct WireQuat {
+    pub w: i16,
+    pub x: i16,
+    pub y: i16,
+    pub z: i16,
+}
+impl Wire for WireQuat {}
+const _: () = assert!(core::mem::size_of::<WireQuat>() == 8);
+
 /// The 4-byte input-report header — SDL `ValveInReportHeader_t`. `report_version` is `0x0001`;
-/// `msg_type` (offset 2) is one of [`event_type`]; `length` (offset 3) is the body length.
-#[derive(Debug, Clone, Copy)]
+/// `msg_type` (offset 2) is one of [`event_type`]; `length` (offset 3) is the body length. First
+/// field of every `0x01`-framed packet ([`GordonPacket`]/[`NeptunePacket`]/[`BatteryPacket`]).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub(crate) struct InReportHeader {
     pub report_version: u16,
     pub msg_type: u8,
     pub length: u8,
 }
+impl Wire for InReportHeader {}
+const _: () = assert!(core::mem::size_of::<InReportHeader>() == 4);
 
 /// Input-report message type at **offset 2** — SDL `ValveInReportMessageIDs`. Kept as matchable
 /// consts (dispatched against `buf[2]` in `report.rs`). Full SDL set; `(used)` = we dispatch it. Our
@@ -796,19 +837,19 @@ pub(crate) mod wireless {
     pub(crate) const PAIR: u8 = 0x03;
 }
 
-/// Status-report (`BATTERY`/`0x04`) event codes — SDL `ControllerStatusEventCodes`. We parse only the
-/// battery voltage/charge of that report, not these codes — trace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ControllerStatusEventCode {
-    Normal = 0,
-    CriticalBattery = 1,
-    GyroInitError = 2,
+/// Values of [`BatteryPacket::event_code`] — the `sEventCode` of the Gordon/Neptune `0x04`
+/// status frame (SDL `ControllerStatusEventCodes`). Inbound (received), so `const`s, not an enum. We
+/// parse only the battery voltage/charge of that report, not these codes — trace.
+pub(crate) mod status_event {
+    pub(crate) const NORMAL: u8 = 0;
+    pub(crate) const CRITICAL_BATTERY: u8 = 1;
+    pub(crate) const GYRO_INIT_ERROR: u8 = 2;
 }
 
-/// Status-report state flags — SDL `ControllerStatusStateFlags` — trace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ControllerStatusStateFlag {
-    LowBattery = 0,
+/// Bits of [`BatteryPacket::state_flags`] — the `unStateFlags` of the `0x04` status frame (SDL
+/// `ControllerStatusStateFlags`). Inbound → `const`s — trace.
+pub(crate) mod status_flag {
+    pub(crate) const LOW_BATTERY: u8 = 0;
 }
 
 /// IMU scale constants — HW-verified on Gordon. `ControllerState` carries the raw i16 IMU readings,
@@ -816,6 +857,23 @@ pub(crate) enum ControllerStatusStateFlag {
 /// `raw / ACCEL_RES_PER_G` = g. Re-exported at the crate root as the single source of truth.
 pub const ACCEL_RES_PER_G: f32 = 16384.0;
 pub const GYRO_RES_PER_DPS: f32 = 16.0;
+
+/// The `0x04` battery/status frame (Gordon & Neptune) — SDL `SteamControllerStatusEvent_t`. Cast from
+/// the start of the 64-byte report. Only voltage + charge are used; `event_code`/`state_flags` are
+/// trace. Decodes into `report::BatteryRaw`. Wired Gordon still emits this (charge pinned 100%); the
+/// dongle reports real charge (battery is by transport, not wireless-only).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct BatteryPacket {
+    pub header: InReportHeader, // 0x00
+    pub packet_num: u32,        // 0x04
+    pub event_code: u16,        // 0x08 — a [`status_event`] code
+    pub state_flags: u16,       // 0x0A — [`status_flag`] bits
+    pub voltage_mv: u16,        // 0x0C (mV)
+    pub charge_percent: u8,     // 0x0E (0..=100)
+}
+impl Wire for BatteryPacket {}
+const _: () = assert!(core::mem::size_of::<BatteryPacket>() == 15);
 
 // --- Gordon (USB `0x01` frame + BLE delta stream) --------------------------------------
 //
@@ -825,6 +883,35 @@ pub const GYRO_RES_PER_DPS: f32 = 16.0;
 // BLE: a segmented Report-ID-3 delta stream (transport framing = the `ble` module below); its input
 // layout — report type + present-chunk mask — is `ble::report_type` / `ble::chunk`, accumulated into
 // the same `GordonReport` by `apply_gordon_ble`.
+
+/// Gordon **USB** input frame (`event_type::INPUT_DATA`) — SDL `ValveControllerStatePacket_t` (kernel
+/// `hid-steam` table agrees), the fixed 64-byte multiplexed layout (offsets in comments). The left pad
+/// and analog stick share `left` (`0x10`), de-muxed on `LPAD_TOUCH` in `report.rs`. `buttons` is the
+/// low 3 bytes of SDL's 8-byte button/trigger union (`_pad0` = the 24 button bits); the `u8`
+/// `left/right_trigger` (`nLeft`/`nRight`) live inside that union, then `_pad1`. `trigger_l/r_16`
+/// (`0x18`) are SDL's redundant *wired* 16-bit triggers — unused (we use the `u8` forms). We map
+/// through the last used field (quat @ `0x30`); the frame continues with uncalibrated joystick /
+/// left-pad (kernel offsets `50..61`) that are unreliable on Gordon (HW: 0 on wireless), so skipped.
+/// Decodes into `report::GordonReport`.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct GordonPacket {
+    pub header: InReportHeader, // 0x00
+    pub seq: u32,               // 0x04
+    pub buttons: [u8; 3],       // 0x08 (SDL button-union _pad0 = low 24 button bits)
+    pub left_trigger: u8,       // 0x0B (SDL nLeft)
+    pub right_trigger: u8,      // 0x0C (SDL nRight)
+    _pad1: [u8; 3],             // 0x0D (SDL button-union _pad1)
+    pub left: WireVec2,         // 0x10 (pad/stick multiplexed)
+    pub right_pad: WireVec2,    // 0x14
+    pub trigger_l_16: u16,      // 0x18 (SDL sTriggerL — redundant, unused)
+    pub trigger_r_16: u16,      // 0x1A (SDL sTriggerR — redundant, unused)
+    pub accel: WireVec3,        // 0x1C
+    pub gyro: WireVec3,         // 0x22
+    pub orientation: WireQuat,  // 0x28 (w,x,y,z)
+}
+impl Wire for GordonPacket {}
+const _: () = assert!(core::mem::size_of::<GordonPacket>() == 0x30);
 
 /// Gordon **Bluetooth (BLE)** transport framing + compact input layout. The kernel `hid-steam`
 /// driver is USB-only, so BLE is reverse-engineered from SDL (`SDL_hidapi_steam.c`) and sc-controller
@@ -877,6 +964,36 @@ pub(crate) mod ble {
 // `NeptuneButtons` (buttons.rs), 16-bit triggers, dual sticks + pads with pressure, IMU, and the raw
 // stick capacitive-force bytes @0x3C/0x3E (kept raw, not exposed — `NeptuneReport::left_stick_force`).
 
+/// Neptune (Steam Deck) input frame (`event_type::DECK_INPUT_DATA`, `0x09`) — SDL
+/// `SteamDeckStatePacket_t` (kernel `hid-steam` table agrees), the fixed 64-byte layout (offsets in
+/// comments; no multiplex, unlike Gordon). `buttons` = the 8-byte button union →
+/// [`crate::NeptuneButtons`] (u64); triggers are 16-bit (SDL `sTriggerRawL/R`, uncalibrated);
+/// `orientation` wire order `w,x,y,z`. SDL's struct **ends at the pad pressures** (`0x3C`); the
+/// `*_stick_force` capacitive bytes at `0x3C`/`0x3E` are beyond SDL (InputPlumber-only), kept raw and
+/// not exposed. Decodes into `report::NeptuneReport`.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct NeptunePacket {
+    pub header: InReportHeader,  // 0x00
+    pub seq: u32,                // 0x04
+    pub buttons: [u8; 8],        // 0x08 (SDL button union → NeptuneButtons u64)
+    pub left_pad: WireVec2,      // 0x10
+    pub right_pad: WireVec2,     // 0x14
+    pub accel: WireVec3,         // 0x18
+    pub gyro: WireVec3,          // 0x1E
+    pub orientation: WireQuat,   // 0x24 (w,x,y,z)
+    pub left_trigger: i16,       // 0x2C (SDL sTriggerRawL)
+    pub right_trigger: i16,      // 0x2E (SDL sTriggerRawR)
+    pub left_stick: WireVec2,    // 0x30
+    pub right_stick: WireVec2,   // 0x34
+    pub left_pad_pressure: i16,  // 0x38
+    pub right_pad_pressure: i16, // 0x3A
+    pub left_stick_force: i16,   // 0x3C (InputPlumber-only, beyond SDL)
+    pub right_stick_force: i16,  // 0x3E (InputPlumber-only, beyond SDL)
+}
+impl Wire for NeptunePacket {}
+const _: () = assert!(core::mem::size_of::<NeptunePacket>() == 0x40);
+
 // --- Triton (new Steam Controller) -----------------------------------------------------
 //
 // Triton does NOT use the `0x01` frame: its input reports carry the **report id in byte 0**
@@ -904,12 +1021,130 @@ pub(crate) mod triton {
         pub(crate) const WIRELESS: u8 = 0x79; // (used)
     }
 
-    /// Event byte of a wireless-status report (`WIRELESS`/`WIRELESS_X`).
+    /// Values of [`super::TritonBatteryPacket::charge_state`] — SDL `EChargeState`. Trace.
+    pub(crate) mod charge_state {
+        pub(crate) const RESET: u8 = 0;
+        pub(crate) const DISCHARGING: u8 = 1;
+        pub(crate) const CHARGING: u8 = 2;
+        pub(crate) const SRC_VALIDATE: u8 = 3;
+        pub(crate) const CHARGING_DONE: u8 = 4;
+    }
+
+    /// Event byte of a wireless-status report (`WIRELESS`/`WIRELESS_X`) — SDL `ETritonWirelessState`.
     pub(crate) mod wireless {
         pub(crate) const DISCONNECT: u8 = 1; // (used)
         pub(crate) const CONNECT: u8 = 2; // (used)
     }
 }
+
+// Triton state has three body variants (SDL `TritonMTU*_t`) that share the same leading fields;
+// **only `TritonStateNoQuat` is used for `from_bytes` decoding** (`report.rs`). `buttons` = raw
+// [`crate::TritonButtons`] (u32); `imu_timestamp` unused (we synth `seq` from `seq_num`). No
+// left-multiplex — separate stick/pad, both live. All decode into `report::TritonReport`.
+
+/// `0x42` `ID_TRITON_CONTROLLER_STATE` — SDL `TritonMTUFull_t`: the NoQuat body plus a trailing
+/// orientation quaternion (`w,x,y,z`). HW streams `0x42` on the puck/dongle + wired; we parse it as
+/// [`TritonStateNoQuat`] (the quat is ignored as trailing bytes). Reference layout.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct TritonStateFull {
+    pub report_id: u8,           // 0
+    pub seq_num: u8,             // 1
+    pub buttons: u32,            // 2
+    pub left_trigger: i16,       // 6
+    pub right_trigger: i16,      // 8
+    pub left_stick: WireVec2,    // 10
+    pub right_stick: WireVec2,   // 14
+    pub left_pad: WireVec2,      // 18
+    pub left_pad_pressure: i16,  // 22
+    pub right_pad: WireVec2,     // 24
+    pub right_pad_pressure: i16, // 28
+    pub imu_timestamp: u32,      // 30
+    pub accel: WireVec3,         // 34
+    pub gyro: WireVec3,          // 40
+    pub orientation: WireQuat,   // 46 (w,x,y,z)
+}
+impl Wire for TritonStateFull {}
+const _: () = assert!(core::mem::size_of::<TritonStateFull>() == 54);
+
+/// `0x45` `ID_TRITON_CONTROLLER_STATE_BLE` — SDL `TritonMTUNoQuat_t`. **The decoded form**, used for
+/// both `0x42` and `0x45` (it is `0x42`'s common 46-byte prefix). HW streams `0x45` over Bluetooth.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct TritonStateNoQuat {
+    pub report_id: u8,           // 0
+    pub seq_num: u8,             // 1
+    pub buttons: u32,            // 2
+    pub left_trigger: i16,       // 6
+    pub right_trigger: i16,      // 8
+    pub left_stick: WireVec2,    // 10
+    pub right_stick: WireVec2,   // 14
+    pub left_pad: WireVec2,      // 18
+    pub left_pad_pressure: i16,  // 22
+    pub right_pad: WireVec2,     // 24
+    pub right_pad_pressure: i16, // 28
+    pub imu_timestamp: u32,      // 30
+    pub accel: WireVec3,         // 34
+    pub gyro: WireVec3,          // 40
+}
+impl Wire for TritonStateNoQuat {}
+const _: () = assert!(core::mem::size_of::<TritonStateNoQuat>() == 46);
+
+/// `0x47` `ID_TRITON_CONTROLLER_STATE_TIMESTAMP` ("Ibex") — SDL `TritonMTUNoQuat32TS_t`. Adds a
+/// `trackpad_timestamp` before the pads (shifting them) and shrinks the IMU timestamp to `u16`, so the
+/// pad/IMU offsets differ from [`TritonStateNoQuat`]. **Not parsed yet** (reference layout only) — a
+/// unit seen streaming `0x47` would wire this into `report.rs`.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct TritonStateTimestamp {
+    pub report_id: u8,           // 0
+    pub seq_num: u8,             // 1
+    pub buttons: u32,            // 2
+    pub left_trigger: i16,       // 6
+    pub right_trigger: i16,      // 8
+    pub left_stick: WireVec2,    // 10
+    pub right_stick: WireVec2,   // 14
+    pub trackpad_timestamp: u16, // 18
+    pub left_pad: WireVec2,      // 20
+    pub left_pad_pressure: i16,  // 24
+    pub right_pad: WireVec2,     // 26
+    pub right_pad_pressure: i16, // 30
+    pub imu_timestamp: u16,      // 32
+    pub accel: WireVec3,         // 34
+    pub gyro: WireVec3,          // 40
+}
+impl Wire for TritonStateTimestamp {}
+const _: () = assert!(core::mem::size_of::<TritonStateTimestamp>() == 46);
+
+/// Triton battery status report (`0x43`) — SDL `TritonBatteryStatus_t`, full layout. `battery_level`
+/// is the charge percent (used); everything else is trace. Decodes into `report::BatteryRaw`.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct TritonBatteryPacket {
+    pub report_id: u8,        // 0
+    pub charge_state: u8,     // 1 — a [`triton::charge_state`] value
+    pub battery_level: u8,    // 2 (0..=100)
+    pub voltage_mv: u16,      // 3 (battery, mV)
+    pub system_voltage: u16,  // 5 (mV)
+    pub input_voltage: u16,   // 7 (mV)
+    pub current: u16,         // 9
+    pub input_current: u16,   // 11
+    pub temperature: u16,     // 13
+}
+impl Wire for TritonBatteryPacket {}
+const _: () = assert!(core::mem::size_of::<TritonBatteryPacket>() == 15);
+
+/// Triton wireless connect/disconnect status (`0x46`/`0x79`) — SDL `TritonWirelessStatus_t` (whose
+/// body is just `state`; we prepend `report_id` to match the raw read, like the other Triton packets).
+/// `state` is a [`triton::wireless`] value.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct TritonWirelessStatus {
+    pub report_id: u8, // 0
+    pub state: u8,     // 1 — a [`triton::wireless`] value
+}
+impl Wire for TritonWirelessStatus {}
+const _: () = assert!(core::mem::size_of::<TritonWirelessStatus>() == 2);
 
 #[cfg(test)]
 mod tests {
@@ -1012,5 +1247,68 @@ mod tests {
         assert_eq!(&value[..5], b"Hello");
         assert!(MsgGetStringAttribute::from_bytes(&[0; 20]).is_none());
     }
-}
 
+    // --- §6 inbound packets: `from_bytes` lands fields at the right absolute offsets ---
+
+    #[test]
+    fn gordon_packet_offsets() {
+        let mut b = [0u8; REPORT_LEN];
+        b[0x04..0x08].copy_from_slice(&0x1234_5678u32.to_le_bytes()); // seq
+        b[0x08..0x0B].copy_from_slice(&[0xAA, 0xBB, 0xCC]); // buttons (3 wire bytes)
+        b[0x0B] = 0x11; // left_trigger
+        b[0x0C] = 0x22; // right_trigger
+        b[0x10..0x14].copy_from_slice(&[0x02, 0x01, 0x04, 0x03]); // left = {x:0x0102, y:0x0304}
+        let p = GordonPacket::from_bytes(&b).unwrap();
+        let (seq, btn, lt, rt, left) = (p.seq, p.buttons, p.left_trigger, p.right_trigger, p.left);
+        assert_eq!(seq, 0x1234_5678);
+        assert_eq!(btn, [0xAA, 0xBB, 0xCC]);
+        assert_eq!((lt, rt), (0x11, 0x22));
+        assert_eq!((left.x, left.y), (0x0102, 0x0304));
+    }
+
+    #[test]
+    fn neptune_packet_offsets() {
+        let mut b = [0u8; REPORT_LEN];
+        b[0x08] = 0x01; // buttons byte 0
+        b[0x2C..0x2E].copy_from_slice(&1234i16.to_le_bytes()); // left_trigger (after the 0x0F gap)
+        b[0x30..0x34].copy_from_slice(&[0x02, 0x01, 0x04, 0x03]); // left_stick
+        b[0x3C..0x3E].copy_from_slice(&(-99i16).to_le_bytes()); // left_stick_force
+        let p = NeptunePacket::from_bytes(&b).unwrap();
+        let (btn, lt, ls, lsf) = (p.buttons, p.left_trigger, p.left_stick, p.left_stick_force);
+        assert_eq!(btn[0], 0x01);
+        assert_eq!(lt, 1234);
+        assert_eq!((ls.x, ls.y), (0x0102, 0x0304));
+        assert_eq!(lsf, -99);
+    }
+
+    #[test]
+    fn triton_packet_offsets() {
+        let mut b = [0u8; 46];
+        b[0] = 0x42; // report_id
+        b[1] = 7; // seq_num
+        b[2..6].copy_from_slice(&0xDEAD_BEEFu32.to_le_bytes()); // buttons
+        b[40..42].copy_from_slice(&(-5000i16).to_le_bytes()); // gyro.x
+        let p = TritonStateNoQuat::from_bytes(&b).unwrap();
+        let (id, seq, btn, gyro) = (p.report_id, p.seq_num, p.buttons, p.gyro);
+        assert_eq!((id, seq), (0x42, 7));
+        assert_eq!(btn, 0xDEAD_BEEF);
+        assert_eq!((gyro.x, gyro.y, gyro.z), (-5000, 0, 0));
+        assert!(TritonStateNoQuat::from_bytes(&b[..45]).is_none());
+    }
+
+    #[test]
+    fn battery_packets_offsets() {
+        let mut b = [0u8; REPORT_LEN];
+        b[0x0C..0x0E].copy_from_slice(&3700u16.to_le_bytes()); // voltage
+        b[0x0E] = 88; // charge
+        let g = BatteryPacket::from_bytes(&b).unwrap();
+        assert_eq!((g.voltage_mv, g.charge_percent), (3700, 88));
+
+        let mut tb = [0u8; 15];
+        tb[0] = 0x43; // report_id
+        tb[2] = 77; // battery_level
+        tb[3..5].copy_from_slice(&0x0E8Au16.to_le_bytes()); // voltage
+        let t = TritonBatteryPacket::from_bytes(&tb).unwrap();
+        assert_eq!((t.battery_level, t.voltage_mv), (77, 0x0E8A));
+    }
+}

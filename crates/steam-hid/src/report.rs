@@ -6,7 +6,10 @@
 
 use crate::buttons::{GordonButtons, NeptuneButtons, TritonButtons};
 use crate::error::{Error, Result};
-use crate::protocol::{REPORT_LEN, ble, event_type, triton, wireless};
+use crate::protocol::{
+    BatteryPacket, GordonPacket, NeptunePacket, REPORT_LEN, TritonBatteryPacket, TritonStateNoQuat,
+    TritonWirelessStatus, Wire, WireQuat, WireVec2, WireVec3, ble, event_type, triton, wireless,
+};
 use crate::value::{Quati, Vec2i, Vec3i};
 
 #[cfg(feature = "serde")]
@@ -136,28 +139,21 @@ pub struct TritonReport {
     pub gyro: Vec3i,
 }
 
-// --- little-endian field readers (offsets are absolute into the 64-byte report) ---
+// --- raw wire chunk → decoded value conversions (the wire structs live in `protocol`) ---
 
-fn u32_at(b: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]])
-}
-fn i16_at(b: &[u8], off: usize) -> i16 {
-    i16::from_le_bytes([b[off], b[off + 1]])
-}
-fn u16_at(b: &[u8], off: usize) -> u16 {
-    u16::from_le_bytes([b[off], b[off + 1]])
-}
-fn vec2i_at(b: &[u8], off: usize) -> Vec2i {
-    Vec2i {
-        x: i16_at(b, off),
-        y: i16_at(b, off + 2),
+impl From<WireVec2> for Vec2i {
+    fn from(v: WireVec2) -> Self {
+        Vec2i { x: v.x, y: v.y }
     }
 }
-fn vec3i_at(b: &[u8], off: usize) -> Vec3i {
-    Vec3i {
-        x: i16_at(b, off),
-        y: i16_at(b, off + 2),
-        z: i16_at(b, off + 4),
+impl From<WireVec3> for Vec3i {
+    fn from(v: WireVec3) -> Self {
+        Vec3i { x: v.x, y: v.y, z: v.z }
+    }
+}
+impl From<WireQuat> for Quati {
+    fn from(q: WireQuat) -> Self {
+        Quati { x: q.x, y: q.y, z: q.z, w: q.w }
     }
 }
 
@@ -171,18 +167,25 @@ pub(crate) fn parse(buf: &[u8]) -> Result<RawReport> {
             got: buf.len(),
         });
     }
-    // buf[0..2] == 0x01, 0x00; buf[2] == event type.
+    // buf[0..2] == 0x01, 0x00; buf[2] == event type. `buf` is >= REPORT_LEN, so every cast fits.
     match buf[2] {
-        event_type::INPUT_DATA => Ok(RawReport::Gordon(parse_gordon(buf))),
-        event_type::DECK_INPUT_DATA => Ok(RawReport::Neptune(parse_neptune(buf))),
+        event_type::INPUT_DATA => {
+            Ok(RawReport::Gordon(parse_gordon(GordonPacket::from_bytes(buf).unwrap())))
+        }
+        event_type::DECK_INPUT_DATA => {
+            Ok(RawReport::Neptune(parse_neptune(NeptunePacket::from_bytes(buf).unwrap())))
+        }
         event_type::CONNECT => Ok(match buf[4] {
             wireless::DISCONNECTED => RawReport::Disconnected,
             _ => RawReport::Connected, // CONNECTED (0x02) and any other → treat as connect
         }),
-        event_type::BATTERY => Ok(RawReport::Battery(BatteryRaw {
-            voltage_mv: u16_at(buf, 0x0C),
-            charge_percent: buf[0x0E],
-        })),
+        event_type::BATTERY => {
+            let p = BatteryPacket::from_bytes(buf).unwrap();
+            Ok(RawReport::Battery(BatteryRaw {
+                voltage_mv: p.voltage_mv,
+                charge_percent: p.charge_percent,
+            }))
+        }
         // Unknown event byte: model as a benign connect ping for now (PLAN §1.4/§1.9).
         _ => Ok(RawReport::Connected),
     }
@@ -209,16 +212,20 @@ pub(crate) fn parse(buf: &[u8]) -> Result<RawReport> {
 ///   *button* stays steady through the axis-tag flicker during simultaneous use. (The
 ///   pad *position* still can't be sampled every frame — that's a single-field wire
 ///   limit, PLAN §1.9 — but the buttons are clean.)
-fn parse_gordon(b: &[u8]) -> GordonReport {
+fn parse_gordon(p: GordonPacket) -> GordonReport {
+    // Copy packed fields into aligned locals before use (can't reference a packed field).
+    let (seq, btn, left_trigger, right_trigger) = (p.seq, p.buttons, p.left_trigger, p.right_trigger);
+    let (left, right_pad, accel, gyro, orientation) =
+        (p.left, p.right_pad, p.accel, p.gyro, p.orientation);
     let mut buttons = GordonButtons::from_bits_truncate(
-        b[0x08] as u32 | (b[0x09] as u32) << 8 | (b[0x0A] as u32) << 16,
+        btn[0] as u32 | (btn[1] as u32) << 8 | (btn[2] as u32) << 16,
     );
     let left_touched = buttons.contains(GordonButtons::LPAD_TOUCH);
     let left_engaged = left_touched || buttons.contains(GordonButtons::LPAD_AND_JOY);
     if buttons.contains(GordonButtons::LPAD_PRESS) && !left_engaged {
         buttons.remove(GordonButtons::LPAD_PRESS); // was a stick click, not a pad click
     }
-    let left_raw = vec2i_at(b, 0x10);
+    let left_raw: Vec2i = left.into();
     let (left_pad, left_stick) = if left_touched {
         (left_raw, Vec2i::default())
     } else {
@@ -231,21 +238,16 @@ fn parse_gordon(b: &[u8]) -> GordonReport {
     // button is normalized. Matches kernel `BTN_THUMB = lpad_touched || lpad_and_joy`.
     buttons.set(GordonButtons::LPAD_TOUCH, left_engaged);
     GordonReport {
-        seq: u32_at(b, 0x04),
+        seq,
         buttons,
-        left_trigger: b[0x0B],
-        right_trigger: b[0x0C],
+        left_trigger,
+        right_trigger,
         left_stick,
         left_pad,
-        right_pad: vec2i_at(b, 0x14),
-        accel: vec3i_at(b, 0x1C),
-        gyro: vec3i_at(b, 0x22),
-        orientation: Quati {
-            x: i16_at(b, 0x28),
-            y: i16_at(b, 0x2A),
-            z: i16_at(b, 0x2C),
-            w: i16_at(b, 0x2E),
-        },
+        right_pad: right_pad.into(),
+        accel: accel.into(),
+        gyro: gyro.into(),
+        orientation: orientation.into(),
     }
 }
 
@@ -287,29 +289,24 @@ pub(crate) fn apply_gordon_ble(acc: &mut GordonReport, payload: &[u8]) -> bool {
     if mask & chunk::BUTTON3 != 0 {
         take(3); // high button bytes — unused on the original SC
     }
+    // `take(n)` guarantees `payload[o..]` has >= n bytes, so each chunk cast below is infallible.
     if mask & chunk::LSTICK != 0 && let Some(o) = take(4) {
-        acc.left_stick = vec2i_at(payload, o);
+        acc.left_stick = WireVec2::from_bytes(&payload[o..]).unwrap().into();
     }
     if mask & chunk::LPAD != 0 && let Some(o) = take(4) {
-        acc.left_pad = vec2i_at(payload, o);
+        acc.left_pad = WireVec2::from_bytes(&payload[o..]).unwrap().into();
     }
     if mask & chunk::RPAD != 0 && let Some(o) = take(4) {
-        acc.right_pad = vec2i_at(payload, o);
+        acc.right_pad = WireVec2::from_bytes(&payload[o..]).unwrap().into();
     }
     if mask & chunk::ACCEL != 0 && let Some(o) = take(6) {
-        acc.accel = vec3i_at(payload, o);
+        acc.accel = WireVec3::from_bytes(&payload[o..]).unwrap().into();
     }
     if mask & chunk::GYRO != 0 && let Some(o) = take(6) {
-        acc.gyro = vec3i_at(payload, o);
+        acc.gyro = WireVec3::from_bytes(&payload[o..]).unwrap().into();
     }
     if mask & chunk::QUAT != 0 && let Some(o) = take(8) {
-        // quat wire order is w,x,y,z (SDL); Quati stores x,y,z,w.
-        acc.orientation = Quati {
-            w: i16_at(payload, o),
-            x: i16_at(payload, o + 2),
-            y: i16_at(payload, o + 4),
-            z: i16_at(payload, o + 6),
-        };
+        acc.orientation = WireQuat::from_bytes(&payload[o..]).unwrap().into();
     }
     true
 }
@@ -325,38 +322,32 @@ pub(crate) fn apply_gordon_ble(acc: &mut GordonReport, payload: &[u8]) -> bool {
 /// no microswitch. IMU (accel/gyro/orientation) passes through **raw in device
 /// order** — Neptune axis/sign are **unverified** (different sensor; corrected later
 /// in `ControllerState`, PLAN §1.9).
-fn parse_neptune(b: &[u8]) -> NeptuneReport {
-    // buttons0..6 = bytes 0x08..0x0E; byte N at bits 8*N (byte 0x0C is unused).
-    let buttons = NeptuneButtons::from_bits_truncate(
-        b[0x08] as u64
-            | (b[0x09] as u64) << 8
-            | (b[0x0A] as u64) << 16
-            | (b[0x0B] as u64) << 24
-            | (b[0x0C] as u64) << 32
-            | (b[0x0D] as u64) << 40
-            | (b[0x0E] as u64) << 48,
-    );
+fn parse_neptune(p: NeptunePacket) -> NeptuneReport {
+    // Copy packed fields into aligned locals before use.
+    let btn = p.buttons; // [u8; 8] (SDL 8-byte button union)
+    let (seq, left_trigger, right_trigger) = (p.seq, p.left_trigger, p.right_trigger);
+    let (left_stick, right_stick, left_pad, right_pad, accel, gyro, orientation) =
+        (p.left_stick, p.right_stick, p.left_pad, p.right_pad, p.accel, p.gyro, p.orientation);
+    let (left_pad_pressure, right_pad_pressure, left_stick_force, right_stick_force) =
+        (p.left_pad_pressure, p.right_pad_pressure, p.left_stick_force, p.right_stick_force);
+    // 8-byte button union → u64, byte N at bits 8*N (undefined bits are truncated).
+    let buttons = NeptuneButtons::from_bits_truncate(u64::from_le_bytes(btn));
     NeptuneReport {
-        seq: u32_at(b, 0x04),
+        seq,
         buttons,
-        left_trigger: i16_at(b, 0x2C),
-        right_trigger: i16_at(b, 0x2E),
-        left_stick: vec2i_at(b, 0x30),
-        right_stick: vec2i_at(b, 0x34),
-        left_stick_force: i16_at(b, 0x3C),
-        right_stick_force: i16_at(b, 0x3E),
-        left_pad: vec2i_at(b, 0x10),
-        right_pad: vec2i_at(b, 0x14),
-        left_pad_pressure: i16_at(b, 0x38),
-        right_pad_pressure: i16_at(b, 0x3A),
-        accel: vec3i_at(b, 0x18),
-        gyro: vec3i_at(b, 0x1E),
-        orientation: Quati {
-            x: i16_at(b, 0x24),
-            y: i16_at(b, 0x26),
-            z: i16_at(b, 0x28),
-            w: i16_at(b, 0x2A),
-        },
+        left_trigger,
+        right_trigger,
+        left_stick: left_stick.into(),
+        right_stick: right_stick.into(),
+        left_stick_force,
+        right_stick_force,
+        left_pad: left_pad.into(),
+        right_pad: right_pad.into(),
+        left_pad_pressure,
+        right_pad_pressure,
+        accel: accel.into(),
+        gyro: gyro.into(),
+        orientation: orientation.into(),
     }
 }
 
@@ -372,21 +363,17 @@ pub(crate) fn parse_triton(buf: &[u8]) -> Option<RawReport> {
             parse_triton_state(buf).map(RawReport::Triton)
         }
         triton::report::BATTERY => {
-            // TritonBatteryStatus body (report id at 0): ucChargeState@1, ucBatteryLevel@2,
-            // sBatteryVoltage(u16)@3.
-            if buf.len() < 5 {
-                return None;
-            }
-            Some(RawReport::Battery(BatteryRaw {
-                voltage_mv: u16_at(buf, 3),
-                charge_percent: buf[2],
-            }))
+            let p = TritonBatteryPacket::from_bytes(buf)?; // None if the read is too short
+            let (level, voltage) = (p.battery_level, p.voltage_mv);
+            Some(RawReport::Battery(BatteryRaw { voltage_mv: voltage, charge_percent: level }))
         }
-        triton::report::WIRELESS | triton::report::WIRELESS_X => match buf.get(1).copied()? {
-            triton::wireless::DISCONNECT => Some(RawReport::Disconnected),
-            triton::wireless::CONNECT => Some(RawReport::Connected),
-            _ => None,
-        },
+        triton::report::WIRELESS | triton::report::WIRELESS_X => {
+            match TritonWirelessStatus::from_bytes(buf)?.state {
+                triton::wireless::DISCONNECT => Some(RawReport::Disconnected),
+                triton::wireless::CONNECT => Some(RawReport::Connected),
+                _ => None,
+            }
+        }
         // 0x47 (Ibex, timestamped body) and anything else: not decoded — skip.
         _ => None,
     }
@@ -397,26 +384,30 @@ pub(crate) fn parse_triton(buf: &[u8]) -> Option<RawReport> {
 /// sc-controller's `docs/steam-controller-v2-protocol.md` (they agree). Returns `None` if the
 /// read is too short to contain the IMU block.
 fn parse_triton_state(b: &[u8]) -> Option<TritonReport> {
-    // Through the gyro block (offset 40..46). IMU is 0/constant unless the gyro is enabled, but
-    // the fields are always present in the report.
-    if b.len() < 46 {
-        return None;
-    }
-    let buttons = TritonButtons::from_bits_truncate(u32_at(b, 2));
+    // `from_bytes` returns None if the read is shorter than the 46-byte NoQuat body (through the gyro
+    // block). IMU is 0/constant unless the gyro is enabled, but the fields are always present. The
+    // `0x42` (Full) body is parsed here too — NoQuat is its 46-byte prefix; the quat is trailing.
+    let p = TritonStateNoQuat::from_bytes(b)?;
+    // Copy packed fields into aligned locals before use.
+    let (seq_num, buttons_raw, left_trigger, right_trigger) =
+        (p.seq_num, p.buttons, p.left_trigger, p.right_trigger);
+    let (left_stick, right_stick, left_pad, right_pad, accel, gyro) =
+        (p.left_stick, p.right_stick, p.left_pad, p.right_pad, p.accel, p.gyro);
+    let (left_pad_pressure, right_pad_pressure) = (p.left_pad_pressure, p.right_pad_pressure);
     Some(TritonReport {
-        seq: b[1] as u32,
-        buttons,
-        left_trigger: i16_at(b, 6),
-        right_trigger: i16_at(b, 8),
-        left_stick: vec2i_at(b, 10),
-        right_stick: vec2i_at(b, 14),
-        left_pad: vec2i_at(b, 18),
-        left_pad_pressure: i16_at(b, 22),
-        right_pad: vec2i_at(b, 24),
-        right_pad_pressure: i16_at(b, 28),
-        // b[30..34] = IMU timestamp (unused — we synthesize seq from seq_num).
-        accel: vec3i_at(b, 34),
-        gyro: vec3i_at(b, 40),
+        seq: seq_num as u32,
+        buttons: TritonButtons::from_bits_truncate(buttons_raw),
+        left_trigger,
+        right_trigger,
+        left_stick: left_stick.into(),
+        right_stick: right_stick.into(),
+        left_pad: left_pad.into(),
+        left_pad_pressure,
+        right_pad: right_pad.into(),
+        right_pad_pressure,
+        // imu_timestamp (offset 30) unused — we synthesize seq from seq_num.
+        accel: accel.into(),
+        gyro: gyro.into(),
     })
 }
 
