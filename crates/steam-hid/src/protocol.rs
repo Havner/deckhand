@@ -133,9 +133,10 @@ pub(crate) const PID_TRITON_PUCK: u16 = 0x1304;
 /// `(used)` = we send it; **`(no-payload)`** = a fire-and-forget command that carries no payload, so
 /// it never needs a payload struct; `(no-payload?)` = the same but unverified; `(!)` = destructive.
 ///
-/// NOTE: SDL's `DigitalIO` (~75) + `AnalogIO` (~25) enums are the mapping-target vocabulary for
-/// `SetDigitalMappings`. We bypass on-controller mapping entirely (`ClearDigitalMappings` + map in our
-/// engine), so those enums are intentionally NOT mirrored here. See SDL `controller_constants.h`.
+/// NOTE: the `SetDigitalMappings` (`0x80`) mapping vocabulary (SDL's `DigitalIO`/`DeviceTypes`/
+/// `HIDKeyboardKeys`/`MouseButtons`/`GamepadButtons`/`ModeAdjustModes`, + `AnalogIO`) is mirrored at
+/// the **end of section 3** as a reference - we bypass on-controller mapping (`ClearDigitalMappings`
+/// + map in our own engine), so it's unused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum MsgId {
@@ -407,6 +408,8 @@ pub enum ControllerStringAttributes {
 // =====================================================================================
 // 3. Command payload structs (+ the value-enums they use), command-id ascending. Each is a [`Wire`]
 //    struct (`as_bytes()` = the LE wire body); `device::feature` prefixes the [`FeatureReportHeader`].
+//    The tail of the section (after the divider) is the `SET_DIGITAL_MAPPINGS` vocabulary - grouped
+//    there rather than in command-id order, and unused (we map in our own engine).
 // =====================================================================================
 
 /// The 2-byte header prefixing every host->controller feature-report command: SDL
@@ -615,6 +618,364 @@ pub(crate) struct MsgSimpleRumbleCmd {
 }
 impl Wire for MsgSimpleRumbleCmd {}
 const _: () = assert!(core::mem::size_of::<MsgSimpleRumbleCmd>() == 9);
+
+// --- SET_DIGITAL_MAPPINGS (0x80): the on-controller input->output mapping vocabulary. ----------
+//
+// From here to the end of section 3 is the mapping command. **We bypass on-controller mapping
+// entirely** (CLEAR_DIGITAL_MAPPINGS + map in our own engine), so all of this is a REFERENCE and
+// is UNUSED. A mapping is an array of `DigitalMapping`: each entry binds a `DigitalIo` source to a
+// (`DeviceType`, target) output, where the target is a `HidKey` (+ optional `Modifier` mask),
+// `MouseButton`, `GamepadButton`, or `ModeAdjust`. SDL builds it inline for its mouse-mode fallback
+// (`SDL_hidapi_steam.c`); Valve's enums say "only add, never reorder". These id spaces are
+// outbound-only (we send a mapping, never dispatch on one) -> enums (`as u8` at the wire), plus the
+// combinable `Modifier` bitmask.
+
+/// `DigitalIO` - generic digital inputs (mapping *source*); SDL `IO_DIGITAL_` prefix dropped. "Only
+/// add, never reorder." SDL's `BUTTON_Y == BUTTON_1` etc. aliases are noted as comments (a Rust enum
+/// can't repeat a discriminant); `None` is SDL's `-1` sentinel, which lands as the byte `0xFF`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum DigitalIo {
+    ButtonRightTrigger = 0,
+    ButtonLeftTrigger,
+    Button1, // = Y
+    Button2, // = B
+    Button3, // = X
+    Button4, // = A
+    ButtonRightBumper,
+    ButtonLeftBumper,
+    ButtonLeftJoystickClick,
+    ButtonEscape,
+    ButtonSteam,
+    ButtonMenu,
+    StickUp,
+    StickDown,
+    StickLeft,
+    StickRight,
+    Touch1, // = dpad Up
+    Touch2, // = dpad Right
+    Touch3, // = dpad Left
+    Touch4, // = dpad Down
+    ButtonBackLeft,
+    ButtonBackRight,
+    LeftTrackpadN,
+    LeftTrackpadNe,
+    LeftTrackpadE,
+    LeftTrackpadSe,
+    LeftTrackpadS,
+    LeftTrackpadSw,
+    LeftTrackpadW,
+    LeftTrackpadNw,
+    RightTrackpadN,
+    RightTrackpadNe,
+    RightTrackpadE,
+    RightTrackpadSe,
+    RightTrackpadS,
+    RightTrackpadSw,
+    RightTrackpadW,
+    RightTrackpadNw,
+    LeftTrackpadDoubleTap,
+    RightTrackpadDoubleTap,
+    LeftTrackpadOuterRadius,
+    RightTrackpadOuterRadius,
+    LeftTrackpadClick,
+    RightTrackpadClick,
+    BatteryLow,
+    LeftTriggerThreshold,
+    RightTriggerThreshold,
+    ButtonBackLeft2,
+    ButtonBackRight2,
+    ButtonAlwaysOn,
+    ButtonAncillary1,
+    ButtonMacro0,
+    ButtonMacro1,
+    ButtonMacro2,
+    ButtonMacro3,
+    ButtonMacro4,
+    ButtonMacro5,
+    ButtonMacro6,
+    ButtonMacro7,
+    ButtonMacro1Finger,
+    ButtonMacro2Finger,
+    None = 0xFF, // SDL IO_DIGITAL_BUTTON_NONE (-1): 'no input' sentinel
+}
+
+/// `AnalogIO` - generic analog inputs; SDL `IO_` prefix dropped. There is **no SET_ANALOG_MAPPINGS**
+/// command (mapping is digital-only), so this is the analog-input vocabulary for reference only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum AnalogIo {
+    LeftStickX = 0,
+    LeftStickY,
+    RightStickX,
+    RightStickY,
+    LeftTrigger,
+    RightTrigger,
+    Mouse1X,
+    Mouse1Y,
+    Mouse1Z,
+    AccelX,
+    AccelY,
+    AccelZ,
+    GyroX,
+    GyroY,
+    GyroZ,
+    GyroQuatW,
+    GyroQuatX,
+    GyroQuatY,
+    GyroQuatZ,
+    GyroSteeringVec,
+    RawTriggerLeft,
+    RawTriggerRight,
+    RawJoystickX,
+    RawJoystickY,
+    GyroTiltVec,
+    PressureLeftPad,
+    PressureRightPad,
+    PressureLeftBumper,
+    PressureRightBumper,
+    PressureLeftGrip,
+    PressureRightGrip,
+    LeftTriggerThreshold,
+    RightTriggerThreshold,
+    PressureRightPadThreshold,
+    PressureLeftPadThreshold,
+    PressureRightBumperThreshold,
+    PressureLeftBumperThreshold,
+    PressureRightGripThreshold,
+    PressureLeftGripThreshold,
+    PressureRightPadRaw,
+    PressureLeftPadRaw,
+    PressureRightBumperRaw,
+    PressureLeftBumperRaw,
+    PressureRightGripRaw,
+    PressureLeftGripRaw,
+    PressureRightGrip2Threshold,
+    PressureLeftGrip2Threshold,
+    PressureLeftGrip2,
+    PressureRightGrip2,
+    PressureRightGrip2Raw,
+    PressureLeftGrip2Raw,
+}
+
+/// `DeviceTypes` - which emulated device a mapping targets (the `device` byte of a [`DigitalMapping`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum DeviceType {
+    Keyboard = 0,
+    Mouse,
+    Gamepad,
+    ModeAdjust, // virtual: sensitivity / pad secondary mode while held
+}
+
+/// `HIDKeyboardKeys` - HID keyboard scancodes (mapping *target* when `device == DeviceType::Keyboard`);
+/// SDL `KEY_` prefix dropped. `A`..`KeypadPeriod` are standard HID usages `0x04..0x63`; Valve then
+/// appends its own modifiers/media past `0x63`. Top-row digits are `Num1`..`Num0`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum HidKey {
+    Invalid = 0,
+    A = 0x04, // HID usage 0x04; auto-increments to 0x63
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Num1, // top-row digit '1'
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
+    Num0, // top-row digit '0'
+    Return,
+    Escape,
+    Backspace,
+    Tab,
+    Space,
+    Dash,
+    Equals,
+    LeftBracket,
+    RightBracket,
+    Backslash,
+    Unused1,
+    Semicolon,
+    SingleQuote,
+    BackTick,
+    Comma,
+    Period,
+    ForwardSlash,
+    Capslock,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    PrintScreen,
+    ScrollLock,
+    Break,
+    Insert,
+    Home,
+    PageUp,
+    Delete,
+    End,
+    PageDown,
+    RightArrow,
+    LeftArrow,
+    DownArrow,
+    UpArrow,
+    NumLock,
+    KeypadForwardSlash,
+    KeypadAsterisk,
+    KeypadDash,
+    KeypadPlus,
+    KeypadEnter,
+    Keypad1,
+    Keypad2,
+    Keypad3,
+    Keypad4,
+    Keypad5,
+    Keypad6,
+    Keypad7,
+    Keypad8,
+    Keypad9,
+    Keypad0,
+    KeypadPeriod,
+    LAlt, // Valve appends modifiers/media past HID 0x63
+    LShift,
+    LWin,
+    LControl,
+    RAlt,
+    RShift,
+    RWin,
+    RControl,
+    VolUp,
+    VolDown,
+    Mute,
+    Play,
+    Stop,
+    Next,
+    Prev,
+}
+
+bitflags::bitflags! {
+    /// `ModifierMasks` - keyboard modifier **bitmask** OR'd alongside a [`HidKey`] (`device ==
+    /// DeviceType::Keyboard`); SDL `KEY_`/`_MASK` dropped. A combinable mask that's held as a value,
+    /// so `bitflags!` (like the button sets) rather than a `const` bit list.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub(crate) struct Modifier: u8 {
+        const LCONTROL = 1 << 0;
+        const LSHIFT   = 1 << 1;
+        const LALT     = 1 << 2;
+        const LWIN     = 1 << 3;
+        const RCONTROL = 1 << 4;
+        const RSHIFT   = 1 << 5;
+        const RALT     = 1 << 6;
+        const RWIN     = 1 << 7;
+    }
+}
+
+/// `MouseButtons` - mapping *target* when `device == DeviceType::Mouse`; SDL `MOUSE_` prefix dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum MouseButton {
+    Left = 0,
+    Right,
+    Middle,
+    Back,
+    Forward,
+    ScrollUp,
+    ScrollDown,
+}
+
+/// `GamepadButtons` - mapping *target* when `device == DeviceType::Gamepad`; SDL `GAMEPAD_BTN_` prefix
+/// dropped. Numbered from 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum GamepadButton {
+    TriggerLeft = 1,
+    TriggerRight,
+    A,
+    B,
+    Y,
+    X,
+    ShoulderLeft,
+    ShoulderRight,
+    LeftJoystick,
+    RightJoystick,
+    Start,
+    Select,
+    Steam,
+    DpadUp,
+    DpadDown,
+    DpadLeft,
+    DpadRight,
+    LStickUp,
+    LStickDown,
+    LStickLeft,
+    LStickRight,
+    RStickUp,
+    RStickDown,
+    RStickLeft,
+    RStickRight,
+}
+
+/// `ModeAdjustModes` - mapping *target* when `device == DeviceType::ModeAdjust`; SDL `MODE_ADJUST_`
+/// dropped. A held source adjusts sensitivity or switches a trackpad's secondary mode (an on-controller
+/// momentary mode-shift). Numbered from 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum ModeAdjust {
+    Sensitivity = 1,
+    LeftPadSecondaryMode,
+    RightPadSecondaryMode,
+}
+
+/// One `SET_DIGITAL_MAPPINGS` (`0x80`) entry: bind a [`DigitalIo`] source to an output. The command
+/// payload is an **array** of these (SDL sets the `[cmd, len]` header's length to `count * 3`, which
+/// [`FeatureReportHeader`] gets via `payload.len()` in `device::feature`); SDL builds it inline (no
+/// named struct there). `target` is a [`HidKey`] / [`MouseButton`] / [`GamepadButton`] / [`ModeAdjust`]
+/// discriminant per `device` (`as u8`; for a keyboard target a [`Modifier`] mask may be OR'd in).
+/// **UNUSED** - we clear the on-controller map and do output ourselves.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct DigitalMapping {
+    pub source: u8, // a [`DigitalIo`] value
+    pub device: u8, // a [`DeviceType`] value
+    pub target: u8, // key / mouse-button / gamepad-button / mode, per `device`
+}
+impl Wire for DigitalMapping {}
+const _: () = assert!(core::mem::size_of::<DigitalMapping>() == 3);
 
 // =====================================================================================
 // 4. Command responses (read-back; inbound - replies to a GET, not input reports). Paired with the
@@ -894,9 +1255,9 @@ bitflags::bitflags! {
         const DPAD_RIGHT   = 1 << 9;
         const DPAD_LEFT    = 1 << 10;
         const DPAD_DOWN    = 1 << 11;
-        const VIEW         = 1 << 12; // BTN_SELECT — Valve "View" (kernel "menu left")
+        const VIEW         = 1 << 12; // BTN_SELECT - Valve "View" (kernel "menu left")
         const STEAM        = 1 << 13;
-        const MENU         = 1 << 14; // BTN_START — Valve "Menu" (kernel "menu right")
+        const MENU         = 1 << 14; // BTN_START - Valve "Menu" (kernel "menu right")
         const LGRIP        = 1 << 15;
         // buttons2
         const RGRIP        = 1 << 16;
@@ -1076,12 +1437,12 @@ bitflags::bitflags! {
         const LSTICK_PRESS = 1 << 22;
         // buttons3
         const RSTICK_PRESS = 1 << 26; // bit 2 of byte 3
-        // buttons5 (byte 0x0D → bits 40..)
+        // buttons5 (byte 0x0D -> bits 40..)
         const LGRIP        = 1 << 41;
         const RGRIP        = 1 << 42;
         const LSTICK_TOUCH = 1 << 46;
         const RSTICK_TOUCH = 1 << 47;
-        // buttons6 (byte 0x0E → bits 48..)
+        // buttons6 (byte 0x0E -> bits 48..)
         const QUICK_ACCESS = 1 << 50;
     }
 }
@@ -1221,7 +1582,7 @@ bitflags::bitflags! {
     /// (`SC2Button`) - the two agree. Folded into the unified [`crate::Buttons`] in `state.rs`.
     ///
     /// Named with the unified scheme (so the fold is 1:1): the back paddles follow the Deck
-    /// convention - upper `R4/L4` → `RGRIP/LGRIP`, lower `R5/L5` → `RGRIP2/LGRIP2`. `RT/LT` are the
+    /// convention - upper `R4/L4` -> `RGRIP/LGRIP`, lower `R5/L5` -> `RGRIP2/LGRIP2`. `RT/LT` are the
     /// trigger digital full-pull bits. `L/RGRIP_TOUCH` are the capacitive handle sensors this
     /// controller adds over the Deck (on whenever the handles are held - including resting on a
     /// table). Two high bits (`1<<30`, `1<<31`) are unidentified on the test units.
@@ -1233,9 +1594,9 @@ bitflags::bitflags! {
         const B            = 1 << 1;
         const X            = 1 << 2;
         const Y            = 1 << 3;
-        const QUICK_ACCESS = 1 << 4;  // the "…" QAM button
+        const QUICK_ACCESS = 1 << 4;  // the "..." QAM button
         const RSTICK_PRESS = 1 << 5;  // R3
-        const MENU         = 1 << 6;  // ☰ (right/start)
+        const MENU         = 1 << 6;  // (right/start)
         const RGRIP        = 1 << 7;  // R4 (upper right paddle)
         // byte3
         const RGRIP2       = 1 << 8;  // R5 (lower right paddle)
@@ -1244,7 +1605,7 @@ bitflags::bitflags! {
         const DPAD_RIGHT   = 1 << 11;
         const DPAD_LEFT    = 1 << 12;
         const DPAD_UP      = 1 << 13;
-        const VIEW         = 1 << 14; // ⧉ (left/select)
+        const VIEW         = 1 << 14; // (left/select)
         const LSTICK_PRESS = 1 << 15; // L3
         // byte4
         const STEAM        = 1 << 16;
