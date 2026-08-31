@@ -36,11 +36,11 @@ mod common;
 use std::thread::sleep;
 use std::time::Duration;
 
-use steam_hid::{Device, HapticPulse, Motor, Result};
+use steam_hid::{Device, HapticPosition, HapticPulse, Result};
 
 /// Play a square-wave tone of `freq_hz` for `ms` on one actuator (`duration == interval` = 50 % duty;
 /// `count` = number of cycles ≈ `freq·ms/1000`). Gordon ignores gain, so it stays 0.
-fn tone(dev: &mut Device, motor: Motor, freq_hz: u32, ms: u32) -> Result<()> {
+fn tone(dev: &mut Device, motor: HapticPosition, freq_hz: u32, ms: u32) -> Result<()> {
     if freq_hz == 0 {
         return Ok(());
     }
@@ -52,8 +52,8 @@ fn tone(dev: &mut Device, motor: Motor, freq_hz: u32, ms: u32) -> Result<()> {
 /// Same tone on both actuators (Gordon no-ops `pad=2`, so fire left and right separately — they
 /// run concurrently and it's simply louder).
 fn tone_both(dev: &mut Device, freq_hz: u32, ms: u32) -> Result<()> {
-    tone(dev, Motor::Left, freq_hz, ms)?;
-    tone(dev, Motor::Right, freq_hz, ms)
+    tone(dev, HapticPosition::Left, freq_hz, ms)?;
+    tone(dev, HapticPosition::Right, freq_hz, ms)
 }
 
 /// Re-assert lizard-off before firing (best-effort; harmless on Gordon, needed if a unit ever
@@ -73,8 +73,8 @@ fn pulse_both(dev: &mut Device, freq_hz: u32, ms: u32, duty_pct: u32, gain: i8) 
     let interval = period as u16 - duration;
     let count = ((freq_hz * ms) / 1000).clamp(1, u16::MAX as u32) as u16;
     let pulse = HapticPulse { duration, interval, count, gain };
-    dev.haptic_pulse(Motor::Left, pulse.clone())?;
-    dev.haptic_pulse(Motor::Right, pulse)
+    dev.haptic_pulse(HapticPosition::Left, pulse.clone())?;
+    dev.haptic_pulse(HapticPosition::Right, pulse)
 }
 
 /// Play a sequence of `(freq_hz, ms)` notes on both actuators, separated by `gap_ms` of silence.

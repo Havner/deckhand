@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 use config::{DeviceConfig, GordonTuning, HapticStrength, RumbleTuning, Side};
 use crossbeam_channel::Receiver;
 use steam_hid::{
-    Device, DeviceId, DeviceKind, HapticIntensity, HapticPulse, HapticStyle, HapticType, Manager,
-    Motor, Report, Transport,
+    Device, DeviceId, DeviceKind, HapticIntensity, HapticPosition, HapticPulse, HapticSide,
+    HapticStyle, HapticType, Manager, Report, Transport,
 };
 
 use crate::Result;
@@ -383,10 +383,10 @@ const TRITON_REFIRE_MS: u64 = 400;
 /// level stays non-zero. (Gordon only; the motor devices use [`apply_rumble`] — see `read_session`.)
 fn apply_gordon(device: &mut Device, cmd: &RumbleCmd, tuning: &GordonTuning) -> Result<()> {
     if cmd.strong > 0 {
-        device.haptic_pulse(Motor::Left, train(tuning.duty.drive(cmd.strong), tuning.hz))?;
+        device.haptic_pulse(HapticPosition::Left, train(tuning.duty.drive(cmd.strong), tuning.hz))?;
     }
     if cmd.weak > 0 {
-        device.haptic_pulse(Motor::Right, train(tuning.duty.drive(cmd.weak), tuning.hz))?;
+        device.haptic_pulse(HapticPosition::Right, train(tuning.duty.drive(cmd.weak), tuning.hz))?;
     }
     Ok(())
 }
@@ -449,26 +449,36 @@ const CLICK_INTERVAL_US: u16 = 1000;
 /// `haptic_cmd` (`Strong` style) whose **gain** encodes strength, **per side** (the two motors
 /// differ). `Side::Left`→left actuator, `Side::Right`→right.
 fn fire_click(device: &mut Device, click: &Click, kind: &DeviceKind) -> Result<()> {
-    let motor = match click.side {
-        Side::Left => Motor::Left,
-        Side::Right => Motor::Right,
-    };
     match kind {
         DeviceKind::Gordon => {
+            // Gordon's `0x8f` uses the swapped `HapticPosition` (Right=0/Left=1), no "both".
+            let position = match click.side {
+                Side::Left => HapticPosition::Left,
+                Side::Right => HapticPosition::Right,
+            };
             let duration = gordon_click_duration(&click.strength);
-            device.haptic_pulse(motor, HapticPulse { duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 })?;
+            device.haptic_pulse(position, HapticPulse { duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 })?;
         }
         DeviceKind::Neptune => {
             let gain = neptune_click_gain(&click.side, &click.strength);
             // Intensity stays System (0): 0..2 are identical on HW, and gain is the strength lever here.
-            device.haptic_cmd(motor, HapticType::Click, HapticIntensity::System, gain)?;
+            device.haptic_cmd(haptic_side(&click.side), HapticType::Click, HapticIntensity::System, gain)?;
         }
         DeviceKind::Triton => {
             let (style, amp) = triton_click(&click.strength);
-            device.haptic_command_triton(motor, style, amp)?;
+            device.haptic_command_triton(haptic_side(&click.side), style, amp)?;
         }
     }
     Ok(())
+}
+
+/// The `0/1/2` [`HapticSide`] for a mapper [`Side`] (the Deck's `0xEA` / Triton's `0x82` convention;
+/// a click is always one-sided, so `Both` never arises here).
+fn haptic_side(side: &Side) -> HapticSide {
+    match side {
+        Side::Left => HapticSide::Left,
+        Side::Right => HapticSide::Right,
+    }
 }
 
 /// Gordon `0x8f` click pulse duration (µs) for a strength level — the duration is the strength lever

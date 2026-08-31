@@ -39,7 +39,10 @@ mod common;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use steam_hid::{Device, HapticIntensity, HapticPulse, HapticStyle, HapticType, Manager, Motor};
+use steam_hid::{
+    Device, HapticIntensity, HapticPosition, HapticPulse, HapticSide, HapticStyle, HapticType,
+    Manager,
+};
 
 // Mirror the engine's rumble cadence (`crates/engine/src/runtime.rs` RUMBLE_TRAIN_MS /
 // RUMBLE_REFIRE_MS — keep in sync) so what you feel in the sweeps matches the game: a *short*
@@ -59,11 +62,11 @@ fn keep_lizard_off(dev: &mut Device) {
 
 /// Fire one `0x8F` pulse at gain 0 (Gordon's model — amplitude is the duty cycle). `wire_pad`:
 /// 0=RIGHT, 1=LEFT (Gordon no-ops any other value, so do NOT pass 2 here — use `both`). Maps the
-/// wire pad to a `Motor` and delegates to `Device::haptic_pulse` (which applies the same L/R swap),
-/// so the bytes are identical to the raw form.
+/// wire pad to a [`HapticPosition`] and delegates to `Device::haptic_pulse` (which uses the same
+/// swapped values), so the bytes are identical to the raw form.
 fn pulse(dev: &mut Device, wire_pad: u8, dur: u16, interval: u16, count: u16) -> steam_hid::Result<()> {
-    let motor = if wire_pad == 1 { Motor::Left } else { Motor::Right };
-    dev.haptic_pulse(motor, HapticPulse { duration: dur, interval, count, gain: 0 })
+    let position = if wire_pad == 1 { HapticPosition::Left } else { HapticPosition::Right };
+    dev.haptic_pulse( position, HapticPulse { duration: dur, interval, count, gain: 0 } )
 }
 
 /// Drive both actuators — Gordon ignores `pad=2`, so fire wire 0 and wire 1 separately
@@ -172,7 +175,7 @@ fn run_triton(dev: &mut Device, running: &common::Running) -> steam_hid::Result<
     // amplitude is UNSIGNED (0x00=medium … 0xff=strong per sc-controller), swept across the full
     // range so any effect is visible — the earlier signed-dB sweep wrapped -8 → 248 and clustered.
     println!("\n=== TRITON CLICK 0x82 — style × amplitude (0=medium..255=strong), per side ===");
-    for (label, motor) in [("LEFT", Motor::Left), ("RIGHT", Motor::Right)] {
+    for (label, side) in [("LEFT", HapticSide::Left), ("RIGHT", HapticSide::Right)] {
         for style in [HapticStyle::Weak, HapticStyle::Strong] {
             for amp in [0u8, 32, 64, 128, 200, 255] {
                 if !running.alive() {
@@ -180,7 +183,7 @@ fn run_triton(dev: &mut Device, running: &common::Running) -> steam_hid::Result<
                 }
                 println!("  {label:>5} style={style:?} amp={amp:>3}");
                 keep_lizard_off(dev); // Triton reverts to lizard ~3 s after lizard-off (all transports)
-                dev.haptic_command_triton(motor.clone(), style.clone(), amp)?;
+                dev.haptic_command_triton(side, style, amp)?;
                 sleep(Duration::from_millis(450));
             }
         }
@@ -372,7 +375,7 @@ fn main() -> steam_hid::Result<()> {
     // saturates/inverts) this holds a fixed smooth frequency + 50% duty and varies GAIN as the
     // amplitude lever. ONE long train (no re-fire) so the actuator rings up and plays continuously
     // — testing whether Deck rumble can be *constant* (like 0x8F) yet *monotonic in strength*
-    // (like gain). Uses `Device::haptic_pulse` (Motor::Left = wire 1, Motor::Right = wire 0). ---
+    // (like gain). Uses `Device::haptic_pulse` (HapticPosition::Left = wire 1, HapticPosition::Right = wire 0). ---
     if run_pgain {
         let hz = 150u32; // smooth mid rumble
         let period = (1_000_000 / hz) as u16;
@@ -386,8 +389,8 @@ fn main() -> steam_hid::Result<()> {
             println!("  gain={gain:>3} dB  (dur={half}µs interval={half}µs count={count})");
             keep_lizard_off(&mut device);
             let p = HapticPulse { duration: half, interval: half, count, gain };
-            device.haptic_pulse(Motor::Left, p.clone())?;
-            device.haptic_pulse(Motor::Right, p)?;
+            device.haptic_pulse(HapticPosition::Left, p.clone())?;
+            device.haptic_pulse(HapticPosition::Right, p)?;
             sleep(Duration::from_millis(HOLD_MS)); // let the single train play out
             sleep(pause);
         }
@@ -408,14 +411,14 @@ fn main() -> steam_hid::Result<()> {
         let long = ((hz * 8_000) / 1000) as u16; // ~8s train — far longer than the observe window
         let fire_long = |dev: &mut Device| -> steam_hid::Result<()> {
             let p = HapticPulse { duration: half, interval: half, count: long, gain: 0 };
-            dev.haptic_pulse(Motor::Left, p.clone())?;
-            dev.haptic_pulse(Motor::Right, p)
+            dev.haptic_pulse(HapticPosition::Left, p.clone())?;
+            dev.haptic_pulse(HapticPosition::Right, p)
         };
         let stop_with = |dev: &mut Device, count: u16| -> steam_hid::Result<()> {
             // dur/interval=1 so if `count`>0 the replacing pulse is a single ~imperceptible tick.
             let p = HapticPulse { duration: 1, interval: 1, count, gain: 0 };
-            dev.haptic_pulse(Motor::Left, p.clone())?;
-            dev.haptic_pulse(Motor::Right, p)
+            dev.haptic_pulse(HapticPosition::Left, p.clone())?;
+            dev.haptic_pulse(HapticPosition::Right, p)
         };
 
         println!("\n=== LONG-TRAIN STOP probe (both pads, ~8s train, stop after ~2s) ===");
@@ -470,7 +473,11 @@ fn main() -> steam_hid::Result<()> {
             ("Long  ", HapticIntensity::Long),
             ("Insane", HapticIntensity::Insane),
         ];
-        for (pad, motor) in [("LEFT ", Motor::Left), ("RIGHT", Motor::Right), ("BOTH ", Motor::Both)] {
+        for (pad, side) in [
+            ("LEFT ", HapticSide::Left),
+            ("RIGHT", HapticSide::Right),
+            ("BOTH ", HapticSide::Both),
+        ] {
             if !running.alive() {
                 break;
             }
@@ -486,7 +493,7 @@ fn main() -> steam_hid::Result<()> {
                     }
                     println!("      intensity={iname}");
                     keep_lizard_off(&mut device);
-                    device.haptic_cmd(motor.clone(), htype, *intensity, 0)?;
+                    device.haptic_cmd(side, htype, *intensity, 0)?;
                     sleep(Duration::from_millis(900));
                 }
             }

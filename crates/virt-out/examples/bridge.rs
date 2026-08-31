@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use steam_hid::{
-    Buttons, ControllerState, Device, HapticPulse as HidRumble, Manager, Motor, Report,
+    Buttons, ControllerState, Device, HapticPulse as HidRumble, Manager, HapticPosition, Report,
 };
 use virt_out::{GamepadAxis, GamepadButton, Key, OutputEvent, Rumble, Sink};
 
@@ -222,10 +222,10 @@ fn apply_haptics(
     }
     *last = Instant::now();
     if rumble.strong > 0 {
-        device.haptic_pulse(Motor::Left, train(rumble.strong))?;
+        device.haptic_pulse(HapticPosition::Left, train(rumble.strong))?;
     }
     if rumble.weak > 0 {
-        device.haptic_pulse(Motor::Right, train(rumble.weak))?;
+        device.haptic_pulse(HapticPosition::Right, train(rumble.weak))?;
     }
     Ok(())
 }

@@ -6,12 +6,11 @@ use std::time::{Duration, Instant};
 use hidapi::HidApi;
 
 use crate::backend::{HidapiDevice, RawHid};
-use crate::command::{HapticPulse, HapticStyle, Motor};
 use crate::error::{Error, Result};
 use crate::event::Events;
 use crate::protocol::{
-    self, ControllerStringAttributes, GyroMode, HapticIntensity, HapticType, MsgId, TrackpadDPadMode,
-    TritonOutReport, Wire, setting,
+    self, ControllerStringAttributes, GyroMode, HapticIntensity, HapticPosition, HapticSide,
+    HapticStyle, HapticType, MsgId, TrackpadDPadMode, TritonOutReport, Wire, setting,
 };
 use crate::report::{self, RawReport};
 use crate::state::{Battery, Report};
@@ -20,6 +19,20 @@ use crate::value::Timestamp;
 /// Internal read timeout for the "blocking" `read_*`; looped so it can later be
 /// made cancellable for cooperative shutdown (PLAN §1.6).
 const READ_TIMEOUT_MS: i32 = 1000;
+
+/// Parameters for a `TRIGGER_HAPTIC_PULSE` (`0x8f`) trackpad haptic pulse ([`Device::haptic_pulse`]):
+/// the actuator plays `count` pulses, each `duration` us on then `interval` us off, so
+/// `duration`/`interval` set the tone and `count` the length. `gain` (dB) is honored on the Deck but
+/// **ignored on Gordon** (amplitude there = duty cycle). This is a *pulse* on the trackpad actuator -
+/// Gordon's only haptic, usable on the Deck too; the Deck's native dual-motor rumble is a different
+/// command ([`Device::rumble_cmd`], `0xeb`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HapticPulse {
+    pub duration: u16,
+    pub interval: u16,
+    pub count: u16,
+    pub gain: i8,
+}
 
 /// Which Steam device this is (Valve codenames; unified with [`RawReport`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -568,24 +581,14 @@ impl Device {
 
     /// Trigger a trackpad haptic **pulse** (`0x8f`), kernel 8-byte form.
     ///
-    /// **Verified on Gordon** (PLAN §1.9): `Motor::Right`→wire pad 0, `Motor::Left`→wire
-    /// pad 1 (the kernel's legacy left/right swap). `params.gain` is honored on the Deck
-    /// but ignored on Gordon. This drives the *trackpad* actuator (Gordon's only haptic;
-    /// works on the Deck too). For the Deck's native continuous rumble use [`Self::rumble_cmd`].
-    pub fn haptic_pulse(&mut self, motor: Motor, params: HapticPulse) -> Result<()> {
-        let position: u8 = match motor {
-            Motor::Right => 0,
-            Motor::Left => 1,
-            // `0x8F` has no BOTH side — pad=2 no-ops on Gordon (HW-verified). Drive Left/Right
-            // separately (there is a single `HapticPulse`, so the caller loses nothing).
-            Motor::Both => {
-                return Err(Error::Unsupported(
-                    "0x8F haptic pulse has no BOTH side; drive Left and Right separately",
-                ));
-            }
-        };
+    /// **Verified on Gordon** (PLAN §1.9): [`HapticPosition`] is the trackpad actuator (Gordon's wire
+    /// values are swapped: `Right = 0`, `Left = 1`). There is no "both" (pad 2 no-ops on Gordon), so
+    /// the caller fires the two pads separately. `params.gain` is honored on the Deck but ignored on
+    /// Gordon. This drives the *trackpad* actuator (Gordon's only haptic; works on the Deck too). For
+    /// the Deck's native continuous rumble use [`Self::rumble_cmd`].
+    pub fn haptic_pulse(&mut self, position: HapticPosition, params: HapticPulse) -> Result<()> {
         let msg = protocol::MsgFireHapticPulse {
-            which_pad: position,
+            which_pad: position as u8,
             duration: params.duration,
             interval: params.interval,
             count: params.count,
@@ -644,22 +647,16 @@ impl Device {
     ///
     /// **Deck-only** (no-ops on Gordon). Payload is the full [`protocol::MsgTriggerHaptic`] (SDL);
     /// only `side`/`cmd`/`ui_intensity`/`dbgain` are set, the tone/lfo/sweep fields stay zero.
-    /// `Motor::Left → 0`, `Motor::Right → 1`, `Motor::Both → 2` (all HW-verified; the **reverse** of
-    /// `0x8f`'s pads).
+    /// [`HapticSide`] is the `0/1/2` Left/Right/Both convention (the **reverse** of `0x8f`'s pads).
     pub fn haptic_cmd(
         &mut self,
-        motor: Motor,
+        side: HapticSide,
         cmd: HapticType,
         intensity: HapticIntensity,
         gain: i8,
     ) -> Result<()> {
-        let side: u8 = match motor {
-            Motor::Left => 0,
-            Motor::Right => 1,
-            Motor::Both => 2, // HW-verified: 0xEA honors a BOTH side.
-        };
         let msg = protocol::MsgTriggerHaptic {
-            side,
+            side: side as u8,
             cmd: cmd as u8,
             ui_intensity: intensity as u8,
             dbgain: gain,
@@ -678,8 +675,8 @@ impl Device {
     /// **HW-verified on the puck (PLAN §1.9), same levers as the Deck's `0xeb`:** `left`/`right` are
     /// the per-motor **rate** (SDL's "speed"; higher = stronger, the coarse amplitude), `*_gain` (dB)
     /// the real strength trim, and `intensity` a finer **inverted** amplitude lever (`0` = no change,
-    /// larger = weaker). Param order mirrors [`Self::rumble_cmd`]. `Motor` side 0=left/1=right
-    /// (verified). **Triton-only.**
+    /// larger = weaker). Param order mirrors [`Self::rumble_cmd`] (per-motor `left`/`right`, no side
+    /// byte). **Triton-only.**
     pub fn rumble_triton(
         &mut self,
         intensity: u16,
@@ -706,17 +703,21 @@ impl Device {
     /// HW: `Weak` is a light click, `Strong` a firm one; this is the **main strength lever**).
     /// `amplitude` is an **unsigned** trim, `0x00` = medium … `0xFF` = strong (sc-controller's
     /// observed layout — SDL's struct misleadingly types this byte as a signed `gain_db`, but its own
-    /// driver never sends `0x82`; HW confirms the audible effect of this byte is subtle). `Motor`
-    /// side 0=left/1=right. **Triton-only.**
-    pub fn haptic_command_triton(&mut self, motor: Motor, style: HapticStyle, amplitude: u8) -> Result<()> {
-        let side: u8 = match motor {
-            Motor::Left => 0,
-            Motor::Right => 1,
-            Motor::Both => 2, // HW-verified: Triton's 0x82 click honors a BOTH side.
-        };
-        // `command` = the haptic type (off/weak/strong); `gain_db` carries our unsigned amplitude
+    /// driver never sends `0x82`; HW confirms the audible effect of this byte is subtle).
+    /// [`HapticSide`] is the `0/1/2` Left/Right/Both convention. **Triton-only.**
+    pub fn haptic_command_triton(
+        &mut self,
+        side: HapticSide,
+        style: HapticStyle,
+        amplitude: u8,
+    ) -> Result<()> {
+        // `command` = the haptic style (off/weak/strong); `gain_db` carries our unsigned amplitude
         // trim (SDL types the byte i8, but HW treats it as 0=medium..255=strong — see the struct doc).
-        let msg = protocol::MsgHapticCommand { side, command: style as u8, gain_db: amplitude as i8 };
+        let msg = protocol::MsgHapticCommand {
+            side: side as u8,
+            command: style as u8,
+            gain_db: amplitude as i8,
+        };
         self.output(TritonOutReport::Command, msg.as_bytes())
     }
 

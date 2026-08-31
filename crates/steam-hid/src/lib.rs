@@ -19,7 +19,6 @@
 
 mod backend;
 mod buttons;
-mod command;
 mod device;
 mod error;
 mod event;
@@ -29,12 +28,12 @@ mod state;
 mod value;
 
 pub use buttons::{Axis, Button, Buttons, button_flag};
-pub use command::{HapticPulse, HapticStyle, Motor};
 pub use protocol::{
     ACCEL_RES_PER_G, ControllerStringAttributes, GYRO_RES_PER_DPS, GordonButtons, GyroMode,
-    HapticIntensity, HapticType, NeptuneButtons, TritonButtons,
+    HapticIntensity, HapticPosition, HapticSide, HapticStyle, HapticType, NeptuneButtons,
+    TritonButtons,
 };
-pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, Manager, Transport};
+pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, HapticPulse, Manager, Transport};
 pub use error::{Error, Result};
 pub use event::{Event, Events};
 pub use report::{BatteryRaw, GordonReport, NeptuneReport, RawReport, TritonReport};

@@ -324,17 +324,6 @@ pub(crate) enum DongleSetting {
     MouseKeyboardEnabled = 0,
 }
 
-/// Priority flags for the `0x8f` pulse's `priority` byte (SDL's 10-byte `MsgFireHapticPulse` variant).
-/// We send the kernel 8-byte form with no priority byte, so this is informational. SDL
-/// `SettingHapticPulseFlags`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HapticPulseFlags {
-    Normal = 0,
-    HighPriority = 1,
-    VeryHighPriority = 2,
-    IgnoreUserPrefs = 3,
-}
-
 bitflags::bitflags! {
     /// IMU mode bits - the value written to the `IMU_MODE` setting (id 48). SDL `SettingGyroMode`
     /// (a bitmask; we model it as bitflags); matches the C# `GCGyroMode` / kernel gyro-mode bits.
@@ -449,6 +438,30 @@ pub(crate) struct MsgSetControllerMode {
 impl Wire for MsgSetControllerMode {}
 const _: () = assert!(core::mem::size_of::<MsgSetControllerMode>() == 1);
 
+/// Which trackpad actuator a Gordon `0x8f` pulse drives - the `which_pad` byte of
+/// [`MsgFireHapticPulse`]. **Gordon's wire values are swapped** (the kernel's legacy convention):
+/// `Right = 0`, `Left = 1`, and there is no "both" (pad 2 no-ops on Gordon HW - the caller fires the
+/// two pads separately). Distinct from [`HapticSide`], the `0/1/2` Left/Right/Both convention the
+/// Deck's `0xEA` and the Triton output reports use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[repr(u8)]
+pub enum HapticPosition {
+    Right = 0,
+    Left = 1,
+}
+
+/// Priority flags for the `0x8f` pulse's `priority` byte (SDL's 10-byte `MsgFireHapticPulse` variant).
+/// We send the kernel 8-byte form with no priority byte, so this is informational. SDL
+/// `SettingHapticPulseFlags`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HapticPulseFlags {
+    Normal = 0,
+    HighPriority = 1,
+    VeryHighPriority = 2,
+    IgnoreUserPrefs = 3,
+}
+
 /// Payload of `TRIGGER_HAPTIC_PULSE` (`0x8F`) - a trackpad haptic pulse train (Gordon's only haptic;
 /// works on the Deck too). The actuator plays `count` pulses, each `duration` us on then `interval`
 /// us off, so `duration`/`interval` set the tone and `count` its length. `gain` (dB) is honored on
@@ -462,7 +475,7 @@ const _: () = assert!(core::mem::size_of::<MsgSetControllerMode>() == 1);
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct MsgFireHapticPulse {
-    pub which_pad: u8,
+    pub which_pad: u8, // a [`HapticPosition`] value (Gordon's swapped Right=0/Left=1)
     pub duration: u16,
     pub interval: u16,
     pub count: u16,
@@ -566,6 +579,23 @@ pub enum HapticIntensity {
     Insane = 4,
 }
 
+/// Which actuator(s) a haptic drives on the paths that carry a native side byte: the Deck's `0xEA`
+/// [`MsgTriggerHaptic`] and every Triton output report (`0x81`-`0x85`). `Left = 0`, `Right = 1`,
+/// `Both = 2` (all HW-verified). Distinct from Gordon's [`HapticPosition`], whose `0x8f` wire values
+/// are swapped and carry no "both".
+///
+/// **Divergence:** SDL's `controller_structs.h` comments the `0xEA` side as `1=L/2=R/3=Both`, but our
+/// HW verification found `0/1/2` (what we send). The Triton side structs carry no value comment in
+/// SDL, so only the `0xEA` value is contested; kept at `0/1/2` to match the shipped, verified path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[repr(u8)]
+pub enum HapticSide {
+    Left = 0,
+    Right = 1,
+    Both = 2,
+}
+
 /// Payload of `TRIGGER_HAPTIC_CMD` (`0xEA`) - the Deck's `SET_HAPTIC2`. The full Valve struct,
 /// `MsgTriggerHaptic` (SDL `controller_structs.h`, present since 2023-12-19). We send it for
 /// the Deck's short trackpad **click** (`cmd = Tick|Click`, `ui_intensity`, `dbgain`); the remaining
@@ -583,8 +613,8 @@ pub enum HapticIntensity {
 #[repr(C, packed)]
 #[derive(Clone, Copy, Default)]
 pub(crate) struct MsgTriggerHaptic {
-    pub side: u8,
-    pub cmd: u8,          // HapticType
+    pub side: u8,         // a [`HapticSide`] value
+    pub cmd: u8,          // a [`HapticType`] value
     pub ui_intensity: u8, // HapticIntensity
     pub dbgain: i8,
     pub freq: u16,
@@ -604,8 +634,8 @@ const _: () = assert!(core::mem::size_of::<MsgTriggerHaptic>() == 19);
 /// `MsgSimpleRumbleCmd` exactly. `left_speed`/`right_speed` are the per-motor pulse **rate**;
 /// `left_gain`/`right_gain` (dB) the amplitude trim; `intensity` a finer, **inverted** amplitude
 /// lever (`0` = strongest). `rumble_type` (SDL `unRumbleType`) is HW-confirmed inert -> always 0.
-/// **Deck-only** (Gordon has no motors). `Motor` mapping is via the caller (left = strong/large
-/// motor, right = weak/small).
+/// **Deck-only** (Gordon has no motors). The caller drives `left`/`right` directly (left =
+/// strong/large motor, right = weak/small).
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct MsgSimpleRumbleCmd {
@@ -1091,7 +1121,7 @@ const _: () = assert!(core::mem::size_of::<MsgHapticRumble>() == 9);
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct MsgHapticPulse {
-    pub side: u8,
+    pub side: u8, // a [`HapticSide`] value
     pub on_us: u16,
     pub off_us: u16,
     pub repeat_count: u16,
@@ -1099,16 +1129,28 @@ pub(crate) struct MsgHapticPulse {
 impl Wire for MsgHapticPulse {}
 const _: () = assert!(core::mem::size_of::<MsgHapticPulse>() == 7);
 
-/// Triton `0x82` haptic **command / click** - SDL `MsgHapticCommand`. `command` is the haptic type
-/// (SDL types it a bare `u8`; we send off/weak/strong - possibly the shared `haptic_type_t`, only 3
-/// HW-verified). `gain_db` is `i8` in SDL, but HW shows this byte as a subtle **unsigned** amplitude
-/// trim (`0`=medium..`255`=strong, sc-controller); the reader sends it unsigned. Sent as
-/// [`TritonOutReport::Command`]. **HW-verified (puck).**
+/// Style for Triton's `0x82` [`MsgHapticCommand`] click - the `command` byte. **Triton-only**, and
+/// **not** the Deck's [`HapticType`]: HW shows only `0` off / `1` weak / `2` strong do anything, and
+/// `3`+ have no effect (so it is *not* the 8-value `haptic_type_t` we once guessed). `Weak` is a
+/// light click, `Strong` a firm one - the main strength lever.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[repr(u8)]
+pub enum HapticStyle {
+    Off = 0,
+    Weak = 1,
+    Strong = 2,
+}
+
+/// Triton `0x82` haptic **command / click** - SDL `MsgHapticCommand`. `command` is a [`HapticStyle`]
+/// (SDL types it a bare `u8`; only off/weak/strong are HW-verified). `gain_db` is `i8` in SDL, but HW
+/// shows this byte as a subtle **unsigned** amplitude trim (`0`=medium..`255`=strong, sc-controller);
+/// the reader sends it unsigned. Sent as [`TritonOutReport::Command`]. **HW-verified (puck).**
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct MsgHapticCommand {
-    pub side: u8,
-    pub command: u8,
+    pub side: u8,    // a [`HapticSide`] value
+    pub command: u8, // a [`HapticStyle`] value
     pub gain_db: i8,
 }
 impl Wire for MsgHapticCommand {}
@@ -1120,7 +1162,7 @@ const _: () = assert!(core::mem::size_of::<MsgHapticCommand>() == 3);
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct MsgHapticLfoTone {
-    pub side: u8,
+    pub side: u8, // a [`HapticSide`] value
     pub gain_db: i8,
     pub frequency: u16,
     pub duration_ms: u16,
@@ -1135,7 +1177,7 @@ const _: () = assert!(core::mem::size_of::<MsgHapticLfoTone>() == 9);
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct MsgHapticLogSweep {
-    pub side: u8,
+    pub side: u8, // a [`HapticSide`] value
     pub gain_db: i8,
     pub duration_ms: u16,
     pub start_freq: u16,
@@ -1149,7 +1191,7 @@ const _: () = assert!(core::mem::size_of::<MsgHapticLogSweep>() == 8);
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct MsgHapticScript {
-    pub side: u8,
+    pub side: u8, // a [`HapticSide`] value
     pub script_id: u8,
     pub gain_db: i8,
 }
