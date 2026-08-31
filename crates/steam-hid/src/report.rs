@@ -7,8 +7,9 @@
 use crate::buttons::{GordonButtons, NeptuneButtons, TritonButtons};
 use crate::error::{Error, Result};
 use crate::protocol::{
-    ControllerStatus, GordonState, NeptuneState, REPORT_LEN, TritonBatteryStatus, TritonStateNoQuat,
-    TritonWirelessStatus, Wire, WireQuat, WireVec2, WireVec3, ble, event_type, triton, wireless,
+    ControllerStatus, GordonState, NeptuneState, REPORT_LEN, TritonBatteryStatus,
+    TritonStateNoQuat, TritonWirelessStatus, Wire, WireQuat, WireVec2, WireVec3, WirelessEvent,
+    ble, event_type, triton, wireless,
 };
 use crate::value::{Quati, Vec2i, Vec3i};
 
@@ -175,10 +176,13 @@ pub(crate) fn parse(buf: &[u8]) -> Result<RawReport> {
         event_type::DECK_STATE => {
             Ok(RawReport::Neptune(parse_neptune(NeptuneState::from_bytes(buf).unwrap())))
         }
-        event_type::WIRELESS => Ok(match buf[4] {
-            wireless::DISCONNECTED => RawReport::Disconnected,
-            _ => RawReport::Connected, // CONNECTED (0x02) and any other → treat as connect
-        }),
+        event_type::WIRELESS => {
+            let event = WirelessEvent::from_bytes(buf).unwrap().event;
+            Ok(match event {
+                wireless::DISCONNECTED => RawReport::Disconnected,
+                _ => RawReport::Connected, // CONNECTED (0x02) and any other → treat as connect
+            })
+        }
         event_type::STATUS => {
             let p = ControllerStatus::from_bytes(buf).unwrap();
             Ok(RawReport::Battery(BatteryRaw {

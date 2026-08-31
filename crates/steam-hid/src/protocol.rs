@@ -357,12 +357,13 @@ impl GyroMode {
 
 /// Index into a [`SettingValueRange`] triple - SDL `SettingDefaultMinMax`. The reply of
 /// `GET_SETTINGS_DEFAULTS` (`0x8C`) / `GET_SETTINGS_MAXS` (`0x8B`) packs default/min/max in this order.
+/// (SDL's trailing `SETTING_DEFAULTMINMAXCOUNT` is only the C array-length sentinel - the length lives
+/// in [`SettingValueRange`]'s `[i16; 3]`, so it's dropped here.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingDefaultMinMax {
     Default = 0,
     Min = 1,
     Max = 2,
-    Count = 3,
 }
 
 /// Wireless scan intervals (SDL `#define FAST/SLOW_SCAN_INTERVAL`). Dongle/radio scan cadence; exact
@@ -657,6 +658,36 @@ pub(crate) struct SettingValueRange {
 impl Wire for SettingValueRange {}
 const _: () = assert!(core::mem::size_of::<SettingValueRange>() == 6);
 
+/// `GET_TRACKPAD_CALIBRATION`/`_FACTORY` (`0xAA`/`0xAB`) reply body - SDL `ValveControllerTrackpadImage_t`.
+/// A 20-cell capacitance image for pad `pad_num`, plus the `noise` floor. Unlike the input reports in
+/// section 6, this has **no [`InReportHeader`]** - it's the payload of a GET reply. **Unused,
+/// HW-UNTESTED** (we never request trackpad images; the exact framing needs a USB dump - see the
+/// advanced-features note). Reference layout.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct TrackpadImage {
+    pub pad_num: u8,     // 0
+    _pad: [u8; 3],       // 1 (word-align `data`)
+    pub data: [i16; 20], // 4
+    pub noise: u16,      // 44
+}
+impl Wire for TrackpadImage {}
+const _: () = assert!(core::mem::size_of::<TrackpadImage>() == 46);
+
+/// `GET_TRACKPAD_RAW` (`0xAC`) reply body - SDL `ValveControllerRawTrackpadImage_t`. As
+/// [`TrackpadImage`] but a larger raw 28-cell block delivered in `offset`-indexed pieces (no header).
+/// **Unused, HW-UNTESTED.** Reference layout.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct RawTrackpadImage {
+    pub pad_num: u8,     // 0
+    pub offset: u8,      // 1
+    _pad: [u8; 2],       // 2 (word-align `data`)
+    pub data: [i16; 28], // 4
+}
+impl Wire for RawTrackpadImage {}
+const _: () = assert!(core::mem::size_of::<RawTrackpadImage>() == 60);
+
 // =====================================================================================
 // 5. Triton - haptic OUTPUT reports. Triton drives haptics via **output reports** (report id in
 //    byte 0, interrupt-OUT endpoint), not feature reports. Its INPUT reports are in 6 below.
@@ -870,6 +901,47 @@ pub(crate) struct GordonState {
 impl Wire for GordonState {}
 const _: () = assert!(core::mem::size_of::<GordonState>() == 0x30);
 
+/// The `0x02` debug frame - SDL `ValveControllerDebugPacket_t`. Pad coordinates, raw + filtered mouse
+/// deltas, per-pad Z/pressure, finger-present, timestamps, tap state, and the two digital-IO state
+/// words. Only Steam's own tooling requests this; **we never enable debug reporting, so this is a
+/// reference layout** (`from_bytes` ready if we ever do). Order-of-fields matches SDL exactly.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct DebugPacket {
+    pub header: InReportHeader,             // 0x00
+    pub left_pad: WireVec2,                 // 0x04
+    pub right_pad: WireVec2,                // 0x08
+    pub left_pad_mouse: WireVec2,           // 0x0C (raw mouse delta)
+    pub right_pad_mouse: WireVec2,          // 0x10
+    pub left_pad_mouse_filtered: WireVec2,  // 0x14
+    pub right_pad_mouse_filtered: WireVec2, // 0x18
+    pub left_z: u8,                         // 0x1C (pad pressure)
+    pub right_z: u8,                        // 0x1D
+    pub left_finger_present: u8,            // 0x1E
+    pub right_finger_present: u8,           // 0x1F
+    pub left_timestamp: u8,                 // 0x20
+    pub right_timestamp: u8,                // 0x21
+    pub left_tap_state: u8,                 // 0x22
+    pub right_tap_state: u8,                // 0x23
+    pub digital_io_states0: u32,            // 0x24
+    pub digital_io_states1: u32,            // 0x28
+}
+impl Wire for DebugPacket {}
+const _: () = assert!(core::mem::size_of::<DebugPacket>() == 0x2C);
+
+/// The `0x03` wireless-metadata frame - SDL `SteamControllerWirelessEvent_t` (`{ ucEventType }`).
+/// `event` is a [`wireless`] value (connect/disconnect/pair). `report.rs` dispatches this on the
+/// dongle to surface connect/disconnect; it reads `event` **via this struct** rather than a bare
+/// `buf[4]`, so the offset is named in one place.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct WirelessEvent {
+    pub header: InReportHeader, // 0x00
+    pub event: u8,              // 0x04 - a [`wireless`] value (SDL ucEventType)
+}
+impl Wire for WirelessEvent {}
+const _: () = assert!(core::mem::size_of::<WirelessEvent>() == 5);
+
 /// The `0x04` battery/status frame (Gordon & Neptune) - SDL `SteamControllerStatusEvent_t`. Cast from
 /// the start of the 64-byte report. Only voltage + charge are used; `event_code`/`state_flags` are
 /// trace. Decodes into `report::BatteryRaw`. Wired Gordon still emits this (charge pinned 100%); the
@@ -886,6 +958,42 @@ pub(crate) struct ControllerStatus {
 }
 impl Wire for ControllerStatus {}
 const _: () = assert!(core::mem::size_of::<ControllerStatus>() == 15);
+
+/// The `0x07` `BLE_STATE` frame - SDL `ValveControllerBLEStatePacket_t`. **A DIFFERENT BLE path from
+/// the one we use** - and we do NOT handle it.
+///
+/// SDL has two BLE routes, chosen by the report *version* word (`buf[0..2]`):
+/// - **Segmented delta stream** (what OUR Gordon BLE does): when the version word is *not* the
+///   `ValveInReport_t` magic and `buf[0] & 0x0F == 4` (`ble::report_type::STATE`), SDL's
+///   `UpdateBLESteamControllerState` walks the [`ble::chunk`] present-mask and copies whatever chunks
+///   are present (buttons/triggers/sticks/pads/accel/gyro/quat - many per packet). This is our
+///   `apply_gordon_ble`, and our unit (`0x1106`) streams exactly this.
+/// - **This `0x07` report** (what we DON'T see): a full `ValveInReport_t` (real header, `ucType == 7`)
+///   carrying buttons/pads/triggers **plus a single IMU group per packet** - `gyro_data_type` selects
+///   what `gyro[4]` holds (1 = quat, 2 = accel, 3 = gyro). So its "accumulation" is just that each
+///   packet refreshes buttons/pads/triggers but fills only one IMU group, the others persisting from
+///   prior packets. It is a *distinct* representation, not our chunk stream.
+///
+/// **Verdict: not worth pursuing.** Our segmented path is HW-verified and richer (a packet can carry
+/// accel+gyro+quat at once via the chunk mask, vs one IMU group here); this `0x07` form is a
+/// lower-bandwidth alternative for a firmware/stack that emits `ValveInReport_t`-framed BLE state,
+/// which ours does not. Kept as a reference layout only.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct BleStatePacket {
+    pub header: InReportHeader, // 0x00
+    pub packet_num: u32,        // 0x04
+    pub buttons: [u8; 3],       // 0x08 (SDL button-union _pad0)
+    pub left_trigger: u8,       // 0x0B (SDL nLeft)
+    pub right_trigger: u8,      // 0x0C (SDL nRight)
+    _pad1: [u8; 3],             // 0x0D (SDL button-union _pad1)
+    pub left_pad: WireVec2,     // 0x10
+    pub right_pad: WireVec2,    // 0x14
+    pub gyro_data_type: u8,     // 0x18 (selects `gyro`: 1 = quat, 2 = accel, 3 = gyro)
+    pub gyro: [i16; 4],         // 0x19 (one IMU group per packet, per `gyro_data_type`)
+}
+impl Wire for BleStatePacket {}
+const _: () = assert!(core::mem::size_of::<BleStatePacket>() == 33);
 
 // --- Neptune / Steam Deck (Deck-specific `0x09` frame; shares everything above) --------
 //
@@ -1310,5 +1418,37 @@ mod tests {
         tb[3..5].copy_from_slice(&0x0E8Au16.to_le_bytes()); // voltage
         let t = TritonBatteryStatus::from_bytes(&tb).unwrap();
         assert_eq!((t.battery_level, t.voltage_mv), (77, 0x0E8A));
+    }
+
+    #[test]
+    fn wireless_event_offset() {
+        let mut b = [0u8; REPORT_LEN];
+        b[0x04] = wireless::CONNECTED; // event byte at the payload start
+        assert_eq!(
+            WirelessEvent::from_bytes(&b).unwrap().event,
+            wireless::CONNECTED
+        );
+        assert!(WirelessEvent::from_bytes(&[0u8; 4]).is_none()); // too short
+    }
+
+    #[test]
+    fn gordon_reference_packet_offsets() {
+        // DebugPacket: right_pad_mouse_filtered @0x18, digital_io_states1 @0x28.
+        let mut b = [0u8; REPORT_LEN];
+        b[0x18..0x1C].copy_from_slice(&[0x02, 0x01, 0x04, 0x03]);
+        b[0x28..0x2C].copy_from_slice(&0xCAFE_F00Du32.to_le_bytes());
+        let d = DebugPacket::from_bytes(&b).unwrap();
+        let (rmf, io1) = (d.right_pad_mouse_filtered, d.digital_io_states1);
+        assert_eq!((rmf.x, rmf.y), (0x0102, 0x0304));
+        assert_eq!(io1, 0xCAFE_F00D);
+
+        // BleStatePacket: gyro_data_type @0x18, gyro[4] @0x19.
+        let mut b = [0u8; REPORT_LEN];
+        b[0x18] = 2; // accel group
+        b[0x19..0x1B].copy_from_slice(&(-1234i16).to_le_bytes());
+        let s = BleStatePacket::from_bytes(&b).unwrap();
+        let (gdt, gyro) = (s.gyro_data_type, s.gyro);
+        assert_eq!(gdt, 2);
+        assert_eq!(gyro[0], -1234);
     }
 }
