@@ -1,6 +1,7 @@
 //! Layer 2: the unified, normalized snapshot (PLAN §1.5).
 
-use crate::buttons::{Axis, Buttons, GordonButtons, NeptuneButtons, TritonButtons};
+use crate::buttons::{Axis, Buttons};
+use crate::protocol::{GordonButtons, NeptuneButtons, TritonButtons};
 use crate::report::{BatteryRaw, GordonReport, NeptuneReport, RawReport, TritonReport};
 use crate::value::{Quati, Timestamp, TrackPad, Vec2, Vec3i};
 

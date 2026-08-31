@@ -4,12 +4,11 @@
 //! a lifecycle frame — so [`RawReport`] carries both. Field offsets follow PLAN
 //! §1.4 and are **unverified on hardware** (PLAN §1.9).
 
-use crate::buttons::{GordonButtons, NeptuneButtons, TritonButtons};
 use crate::error::{Error, Result};
 use crate::protocol::{
-    ControllerStatus, GordonState, NeptuneState, REPORT_LEN, TritonBatteryStatus,
-    TritonStateNoQuat, TritonWirelessStatus, Wire, WireQuat, WireVec2, WireVec3, WirelessEvent,
-    ble, event_type, triton, wireless,
+    ControllerStatus, GordonButtons, GordonState, NeptuneButtons, NeptuneState, REPORT_LEN,
+    TritonBatteryStatus, TritonButtons, TritonStateNoQuat, TritonWirelessStatus, Wire, WireQuat,
+    WireVec2, WireVec3, WirelessEvent, ble, event_type, triton, wireless,
 };
 use crate::value::{Quati, Vec2i, Vec3i};
 
@@ -418,7 +417,6 @@ fn parse_triton_state(b: &[u8]) -> Option<TritonReport> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::buttons::GordonButtons;
     use crate::protocol::{event_type, wireless};
 
     fn frame_buf(event: u8) -> [u8; REPORT_LEN] {

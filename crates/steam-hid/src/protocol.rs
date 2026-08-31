@@ -797,11 +797,12 @@ const _: () = assert!(core::mem::size_of::<MsgHapticScript>() == 3);
 
 // =====================================================================================
 // 6. Report-related inbound - input-report parsing. The device SENDS these; report **bodies** are
-//    decoded in `report.rs` (-> `GordonReport`/`NeptuneReport`/`TritonReport`) and the button bits
-//    live in `buttons.rs`. Here are the report **identifiers** (kept as matchable consts - they're
-//    dispatched against a received byte, so an enum would force `TryFrom`/guards), the frame header,
-//    the small value-enums, and the Gordon BLE framing. Sorted Gordon (with the report bits Neptune
-//    shares: wire types, header, event consts, IMU scales) -> Neptune -> Gordon BLE -> Triton.
+//    decoded in `report.rs` (-> `GordonReport`/`NeptuneReport`/`TritonReport`). Here are the report
+//    **identifiers** (kept as matchable consts - they're dispatched against a received byte, so an
+//    enum would force `TryFrom`/guards), the frame header, the raw per-device button bitfields
+//    (`GordonButtons`/`NeptuneButtons`/`TritonButtons`, each before the report it decodes), the small
+//    value-enums, and the Gordon BLE framing. Sorted Gordon (with the report bits Neptune shares:
+//    wire types, header, event consts, IMU scales) -> Neptune -> Gordon BLE -> Triton.
 //    (GET-response structs are not here - they're command replies, see 4.)
 // =====================================================================================
 
@@ -867,8 +868,49 @@ pub(crate) struct InReportHeader {
 impl Wire for InReportHeader {}
 const _: () = assert!(core::mem::size_of::<InReportHeader>() == 4);
 
+bitflags::bitflags! {
+    /// Raw Gordon (original Steam Controller) button bits, packed as
+    /// `buttons0 | buttons1 << 8 | buttons2 << 16` (the low 3 bytes of the `0x01` frame's button
+    /// union). Folded into the unified [`crate::Buttons`] in `state.rs`.
+    ///
+    /// Shared by **USB and Bluetooth** Gordon - identical bit layout; over BLE the same bits arrive
+    /// in the compact input's button chunk. `dpad` (bits 8..11) is firmware-synthesized from left-pad
+    /// directional clicks on both transports. `LPAD_AND_JOY` and the shared left-click bit are USB-wire
+    /// multiplex artifacts resolved in `parse_gordon` (never set over BLE).
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct GordonButtons: u32 {
+        // buttons0
+        const RT           = 1 << 0; // right trigger full-pull
+        const LT           = 1 << 1; // left trigger full-pull
+        const RB           = 1 << 2;
+        const LB           = 1 << 3;
+        const Y            = 1 << 4;
+        const B            = 1 << 5;
+        const X            = 1 << 6;
+        const A            = 1 << 7;
+        // buttons1
+        const DPAD_UP      = 1 << 8;
+        const DPAD_RIGHT   = 1 << 9;
+        const DPAD_LEFT    = 1 << 10;
+        const DPAD_DOWN    = 1 << 11;
+        const VIEW         = 1 << 12; // BTN_SELECT — Valve "View" (kernel "menu left")
+        const STEAM        = 1 << 13;
+        const MENU         = 1 << 14; // BTN_START — Valve "Menu" (kernel "menu right")
+        const LGRIP        = 1 << 15;
+        // buttons2
+        const RGRIP        = 1 << 16;
+        const LPAD_PRESS   = 1 << 17;
+        const RPAD_PRESS   = 1 << 18;
+        const LPAD_TOUCH   = 1 << 19;
+        const RPAD_TOUCH   = 1 << 20;
+        const LSTICK_PRESS = 1 << 22;
+        const LPAD_AND_JOY = 1 << 23;
+    }
+}
+
 // Gordon USB body offsets (decoded in `parse_gordon` -> `GordonReport`): buttons @0x08
-// (`GordonButtons`, buttons.rs), triggers @0x0B/0x0C, left pad/stick @0x10 (time-multiplexed - de-muxed
+// (`GordonButtons` above), triggers @0x0B/0x0C, left pad/stick @0x10 (time-multiplexed - de-muxed
 // on `LPAD_TOUCH`), right pad @0x14, accel @0x1C, gyro @0x22, quat @0x28. The BLE delta stream is a
 // separate transport (see the Gordon BLE group below), accumulating into the same `GordonReport`.
 
@@ -998,8 +1040,51 @@ const _: () = assert!(core::mem::size_of::<BleStatePacket>() == 33);
 // --- Neptune / Steam Deck (Deck-specific `0x09` frame; shares everything above) --------
 //
 // `event_type::DECK_STATE` (0x09) state. Decoded in `parse_neptune` -> `NeptuneReport`:
-// `NeptuneButtons` (buttons.rs), 16-bit triggers, dual sticks + pads with pressure, IMU, and the raw
-// stick capacitive-force bytes @0x3C/0x3E (kept raw, not exposed - `NeptuneReport::left_stick_force`).
+// `NeptuneButtons`, 16-bit triggers, dual sticks + pads with pressure, IMU, and the raw stick
+// capacitive-force bytes @0x3C/0x3E (kept raw, not exposed - `NeptuneReport::left_stick_force`).
+
+bitflags::bitflags! {
+    /// Raw Neptune (Steam Deck) button bits, packed from `buttons0..6` (bytes 0x08..0x0E). Byte N
+    /// occupies bits `8*N..`. Folded into the unified [`crate::Buttons`] in `state.rs`.
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct NeptuneButtons: u64 {
+        // buttons0
+        const RT           = 1 << 0; // right trigger full-pull
+        const LT           = 1 << 1; // left trigger full-pull
+        const RB           = 1 << 2;
+        const LB           = 1 << 3;
+        const Y            = 1 << 4;
+        const B            = 1 << 5;
+        const X            = 1 << 6;
+        const A            = 1 << 7;
+        // buttons1
+        const DPAD_UP      = 1 << 8;
+        const DPAD_RIGHT   = 1 << 9;
+        const DPAD_LEFT    = 1 << 10;
+        const DPAD_DOWN    = 1 << 11;
+        const VIEW         = 1 << 12;
+        const STEAM        = 1 << 13;
+        const MENU         = 1 << 14;
+        const LGRIP2       = 1 << 15;
+        // buttons2
+        const RGRIP2       = 1 << 16;
+        const LPAD_PRESS   = 1 << 17;
+        const RPAD_PRESS   = 1 << 18;
+        const LPAD_TOUCH   = 1 << 19;
+        const RPAD_TOUCH   = 1 << 20;
+        const LSTICK_PRESS = 1 << 22;
+        // buttons3
+        const RSTICK_PRESS = 1 << 26; // bit 2 of byte 3
+        // buttons5 (byte 0x0D → bits 40..)
+        const LGRIP        = 1 << 41;
+        const RGRIP        = 1 << 42;
+        const LSTICK_TOUCH = 1 << 46;
+        const RSTICK_TOUCH = 1 << 47;
+        // buttons6 (byte 0x0E → bits 48..)
+        const QUICK_ACCESS = 1 << 50;
+    }
+}
 
 /// Neptune (Steam Deck) input frame (`event_type::DECK_STATE`, `0x09`) - SDL
 /// `SteamDeckStatePacket_t` (kernel `hid-steam` table agrees), the fixed 64-byte layout (offsets in
@@ -1126,6 +1211,57 @@ pub(crate) mod triton {
     pub(crate) mod wireless {
         pub(crate) const DISCONNECT: u8 = 1; // (used)
         pub(crate) const CONNECT: u8 = 2; // (used)
+    }
+}
+
+bitflags::bitflags! {
+    /// Raw Triton (new Steam Controller, 2026) button bits, packed as a `u32` from the four button
+    /// bytes of report `0x42`: `byte2 | byte3<<8 | byte4<<16 | byte5<<24`. Bit assignments verified
+    /// against SDL `SDL_hidapi_steam_triton.c` (`TritonButtons`) and sc-controller `sc2.py`
+    /// (`SC2Button`) - the two agree. Folded into the unified [`crate::Buttons`] in `state.rs`.
+    ///
+    /// Named with the unified scheme (so the fold is 1:1): the back paddles follow the Deck
+    /// convention - upper `R4/L4` → `RGRIP/LGRIP`, lower `R5/L5` → `RGRIP2/LGRIP2`. `RT/LT` are the
+    /// trigger digital full-pull bits. `L/RGRIP_TOUCH` are the capacitive handle sensors this
+    /// controller adds over the Deck (on whenever the handles are held - including resting on a
+    /// table). Two high bits (`1<<30`, `1<<31`) are unidentified on the test units.
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct TritonButtons: u32 {
+        // byte2
+        const A            = 1 << 0;
+        const B            = 1 << 1;
+        const X            = 1 << 2;
+        const Y            = 1 << 3;
+        const QUICK_ACCESS = 1 << 4;  // the "…" QAM button
+        const RSTICK_PRESS = 1 << 5;  // R3
+        const MENU         = 1 << 6;  // ☰ (right/start)
+        const RGRIP        = 1 << 7;  // R4 (upper right paddle)
+        // byte3
+        const RGRIP2       = 1 << 8;  // R5 (lower right paddle)
+        const RB           = 1 << 9;  // R1 bumper
+        const DPAD_DOWN    = 1 << 10;
+        const DPAD_RIGHT   = 1 << 11;
+        const DPAD_LEFT    = 1 << 12;
+        const DPAD_UP      = 1 << 13;
+        const VIEW         = 1 << 14; // ⧉ (left/select)
+        const LSTICK_PRESS = 1 << 15; // L3
+        // byte4
+        const STEAM        = 1 << 16;
+        const LGRIP        = 1 << 17; // L4 (upper left paddle)
+        const LGRIP2       = 1 << 18; // L5 (lower left paddle)
+        const LB           = 1 << 19; // L1 bumper
+        const RSTICK_TOUCH = 1 << 20;
+        const RPAD_TOUCH   = 1 << 21;
+        const RPAD_PRESS   = 1 << 22;
+        const RT           = 1 << 23; // right trigger full-pull (digital)
+        // byte5
+        const LSTICK_TOUCH = 1 << 24;
+        const LPAD_TOUCH   = 1 << 25;
+        const LPAD_PRESS   = 1 << 26;
+        const LT           = 1 << 27; // left trigger full-pull (digital)
+        const RGRIP_TOUCH  = 1 << 28; // capacitive right handle
+        const LGRIP_TOUCH  = 1 << 29; // capacitive left handle
     }
 }
 

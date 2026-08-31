@@ -28,11 +28,11 @@ mod report;
 mod state;
 mod value;
 
-pub use buttons::{Axis, Button, Buttons, GordonButtons, NeptuneButtons, TritonButtons, button_flag};
+pub use buttons::{Axis, Button, Buttons, button_flag};
 pub use command::{HapticPulse, HapticStyle, Motor};
 pub use protocol::{
-    ACCEL_RES_PER_G, ControllerStringAttributes, GYRO_RES_PER_DPS, GyroMode, HapticIntensity,
-    HapticType,
+    ACCEL_RES_PER_G, ControllerStringAttributes, GYRO_RES_PER_DPS, GordonButtons, GyroMode,
+    HapticIntensity, HapticType, NeptuneButtons, TritonButtons,
 };
 pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, Manager, Transport};
 pub use error::{Error, Result};
