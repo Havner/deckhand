@@ -7,7 +7,7 @@
 use crate::buttons::{GordonButtons, NeptuneButtons, TritonButtons};
 use crate::error::{Error, Result};
 use crate::protocol::{
-    BatteryPacket, GordonPacket, NeptunePacket, REPORT_LEN, TritonBatteryPacket, TritonStateNoQuat,
+    ControllerStatus, GordonState, NeptuneState, REPORT_LEN, TritonBatteryStatus, TritonStateNoQuat,
     TritonWirelessStatus, Wire, WireQuat, WireVec2, WireVec3, ble, event_type, triton, wireless,
 };
 use crate::value::{Quati, Vec2i, Vec3i};
@@ -169,18 +169,18 @@ pub(crate) fn parse(buf: &[u8]) -> Result<RawReport> {
     }
     // buf[0..2] == 0x01, 0x00; buf[2] == event type. `buf` is >= REPORT_LEN, so every cast fits.
     match buf[2] {
-        event_type::INPUT_DATA => {
-            Ok(RawReport::Gordon(parse_gordon(GordonPacket::from_bytes(buf).unwrap())))
+        event_type::STATE => {
+            Ok(RawReport::Gordon(parse_gordon(GordonState::from_bytes(buf).unwrap())))
         }
-        event_type::DECK_INPUT_DATA => {
-            Ok(RawReport::Neptune(parse_neptune(NeptunePacket::from_bytes(buf).unwrap())))
+        event_type::DECK_STATE => {
+            Ok(RawReport::Neptune(parse_neptune(NeptuneState::from_bytes(buf).unwrap())))
         }
-        event_type::CONNECT => Ok(match buf[4] {
+        event_type::WIRELESS => Ok(match buf[4] {
             wireless::DISCONNECTED => RawReport::Disconnected,
             _ => RawReport::Connected, // CONNECTED (0x02) and any other → treat as connect
         }),
-        event_type::BATTERY => {
-            let p = BatteryPacket::from_bytes(buf).unwrap();
+        event_type::STATUS => {
+            let p = ControllerStatus::from_bytes(buf).unwrap();
             Ok(RawReport::Battery(BatteryRaw {
                 voltage_mv: p.voltage_mv,
                 charge_percent: p.charge_percent,
@@ -212,7 +212,7 @@ pub(crate) fn parse(buf: &[u8]) -> Result<RawReport> {
 ///   *button* stays steady through the axis-tag flicker during simultaneous use. (The
 ///   pad *position* still can't be sampled every frame — that's a single-field wire
 ///   limit, PLAN §1.9 — but the buttons are clean.)
-fn parse_gordon(p: GordonPacket) -> GordonReport {
+fn parse_gordon(p: GordonState) -> GordonReport {
     // Copy packed fields into aligned locals before use (can't reference a packed field).
     let (seq, btn, left_trigger, right_trigger) = (p.seq, p.buttons, p.left_trigger, p.right_trigger);
     let (left, right_pad, accel, gyro, orientation) =
@@ -322,7 +322,7 @@ pub(crate) fn apply_gordon_ble(acc: &mut GordonReport, payload: &[u8]) -> bool {
 /// no microswitch. IMU (accel/gyro/orientation) passes through **raw in device
 /// order** — Neptune axis/sign are **unverified** (different sensor; corrected later
 /// in `ControllerState`, PLAN §1.9).
-fn parse_neptune(p: NeptunePacket) -> NeptuneReport {
+fn parse_neptune(p: NeptuneState) -> NeptuneReport {
     // Copy packed fields into aligned locals before use.
     let btn = p.buttons; // [u8; 8] (SDL 8-byte button union)
     let (seq, left_trigger, right_trigger) = (p.seq, p.left_trigger, p.right_trigger);
@@ -359,15 +359,15 @@ fn parse_neptune(p: NeptunePacket) -> NeptuneReport {
 /// reading rather than surfacing a bogus frame.
 pub(crate) fn parse_triton(buf: &[u8]) -> Option<RawReport> {
     match *buf.first()? {
-        triton::report::STATE | triton::report::STATE_NOQUAT => {
+        triton::report::CONTROLLER_STATE | triton::report::CONTROLLER_STATE_BLE => {
             parse_triton_state(buf).map(RawReport::Triton)
         }
-        triton::report::BATTERY => {
-            let p = TritonBatteryPacket::from_bytes(buf)?; // None if the read is too short
+        triton::report::BATTERY_STATUS => {
+            let p = TritonBatteryStatus::from_bytes(buf)?; // None if the read is too short
             let (level, voltage) = (p.battery_level, p.voltage_mv);
             Some(RawReport::Battery(BatteryRaw { voltage_mv: voltage, charge_percent: level }))
         }
-        triton::report::WIRELESS | triton::report::WIRELESS_X => {
+        triton::report::WIRELESS_STATUS | triton::report::WIRELESS_STATUS_X => {
             match TritonWirelessStatus::from_bytes(buf)?.state {
                 triton::wireless::DISCONNECT => Some(RawReport::Disconnected),
                 triton::wireless::CONNECT => Some(RawReport::Connected),
@@ -426,13 +426,13 @@ mod tests {
 
     #[test]
     fn parse_dispatches_lifecycle_frames() {
-        let mut b = frame_buf(event_type::CONNECT);
+        let mut b = frame_buf(event_type::WIRELESS);
         b[4] = wireless::CONNECTED;
         assert_eq!(parse(&b).unwrap(), RawReport::Connected);
         b[4] = wireless::DISCONNECTED;
         assert_eq!(parse(&b).unwrap(), RawReport::Disconnected);
 
-        let b = frame_buf(event_type::BATTERY);
+        let b = frame_buf(event_type::STATUS);
         assert!(matches!(parse(&b).unwrap(), RawReport::Battery(_)));
     }
 
@@ -440,7 +440,7 @@ mod tests {
     /// `LPAD_PRESS` bit, no `LPAD_TOUCH`) must not surface as a pad press.
     #[test]
     fn parse_gordon_demuxes_stick_click() {
-        let mut b = frame_buf(event_type::INPUT_DATA);
+        let mut b = frame_buf(event_type::STATE);
         let word = (GordonButtons::LPAD_PRESS | GordonButtons::LSTICK_PRESS).bits();
         b[0x08..0x0B].copy_from_slice(&word.to_le_bytes()[..3]);
         let RawReport::Gordon(g) = parse(&b).unwrap() else { panic!("expected Gordon") };
@@ -451,7 +451,7 @@ mod tests {
     /// A genuine pad click (`LPAD_PRESS` with `LPAD_TOUCH`) survives de-multiplexing.
     #[test]
     fn parse_gordon_keeps_touched_pad_click() {
-        let mut b = frame_buf(event_type::INPUT_DATA);
+        let mut b = frame_buf(event_type::STATE);
         let word = (GordonButtons::LPAD_PRESS | GordonButtons::LPAD_TOUCH).bits();
         b[0x08..0x0B].copy_from_slice(&word.to_le_bytes()[..3]);
         let RawReport::Gordon(g) = parse(&b).unwrap() else { panic!("expected Gordon") };
@@ -464,7 +464,7 @@ mod tests {
     /// not touch alone) — HW-verified on the dongle.
     #[test]
     fn parse_gordon_keeps_pad_click_via_and_joy() {
-        let mut b = frame_buf(event_type::INPUT_DATA);
+        let mut b = frame_buf(event_type::STATE);
         // pad click + stick click, LPAD_TOUCH momentarily 0 but LPAD_AND_JOY set.
         let word = (GordonButtons::LPAD_PRESS
             | GordonButtons::LSTICK_PRESS
@@ -480,7 +480,7 @@ mod tests {
     /// LPAD_TOUCH is 0, but LPAD_AND_JOY is set, so the reported touch is true (no flicker).
     #[test]
     fn parse_gordon_touch_steady_via_and_joy() {
-        let mut b = frame_buf(event_type::INPUT_DATA);
+        let mut b = frame_buf(event_type::STATE);
         let word = (GordonButtons::LSTICK_PRESS | GordonButtons::LPAD_AND_JOY).bits();
         b[0x08..0x0B].copy_from_slice(&word.to_le_bytes()[..3]);
         let RawReport::Gordon(g) = parse(&b).unwrap() else { panic!("expected Gordon") };
