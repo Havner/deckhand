@@ -820,9 +820,30 @@ impl Device {
         }
     }
 
-    /// Get a raw feature report into `buf` (report id in `buf[0]` on entry).
-    pub fn get_feature_report(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.backend.get_feature_report(buf)
+    /// Get a raw feature report, sizing the buffer to the device's report shape — the symmetric
+    /// counterpart to [`Self::send_feature_report`] (PLAN §1.4): Triton reads report id 0x01 into an
+    /// **exactly 64-byte** buffer (a longer GetFeature stalls the ioctl with Broken pipe, mirroring
+    /// the SET side), Gordon/Neptune read report id 0x00 into a 65-byte buffer. Returns the reply
+    /// bytes truncated to the count read, with the report-id byte still at `[0]`.
+    ///
+    /// NOTE: the Triton branch is a best effort that does NOT actually work — Triton stalls a
+    /// GET_FEATURE on report 0x01 regardless of buffer size, so the GET round-trips (serials/
+    /// attributes/settings) all Broken-pipe on it. Its feature channel is effectively write-only;
+    /// command replies come back over the interrupt-IN input stream instead (SDL's Triton driver
+    /// never issues a feature GET, and sc-controller leaves the read-back a TODO). Making getters
+    /// work on Triton would need reverse-engineering that reply framing — out of scope; getters is a
+    /// Gordon/Neptune tool. The kept 64-byte shape is correct-if-it-ever-answers, and harmless.
+    pub fn get_feature_report(&mut self) -> Result<Vec<u8>> {
+        let (report_id, buf_len) = if self.info.kind.is_triton() {
+            (protocol::REPORT_ID_TRITON, protocol::REPORT_LEN)
+        } else {
+            (protocol::REPORT_ID, 1 + protocol::REPORT_LEN)
+        };
+        let mut buf = vec![0u8; buf_len];
+        buf[0] = report_id;
+        let n = self.backend.get_feature_report(&mut buf)?;
+        buf.truncate(n);
+        Ok(buf)
     }
 
     // --- command helpers ---
@@ -870,21 +891,18 @@ impl Device {
         // a prior `GetFeature` EPIPEs, and a `GetFeature` can race the device mid-updating its reply
         // buffer (stale/half-written). So re-send the whole exchange each attempt, settling around
         // both halves, and only accept a reply whose `cmd` echo matches AND passes `valid`.
-        let mut buf = vec![0u8; 1 + protocol::REPORT_LEN];
         for _ in 0..8 {
             std::thread::sleep(Duration::from_millis(10));
             if self.send_feature_report(&request).is_err() {
                 continue; // busy → retry the SetFeature
             }
             std::thread::sleep(Duration::from_millis(20)); // let the reply compute
-            buf.iter_mut().for_each(|b| *b = 0);
-            buf[0] = protocol::REPORT_ID;
-            let n = self.get_feature_report(&mut buf)?;
-            // The reply is `[report-id(0), cmd, len, body…]` — hidapi keeps the report-id byte at [0]
-            // for report 0 (matches SDL's `ReadResponse`, HW-confirmed on Gordon). Reject a stale /
-            // other-report reply whose echoed cmd at [1] doesn't match (the device replies out of
-            // order under back-to-back GETs).
-            if n < 3 || buf[1] != echo {
+            let buf = self.get_feature_report()?;
+            // The reply is `[report-id, cmd, len, body…]` — hidapi keeps the report-id byte at [0]
+            // (report 0 on Gordon/Neptune, 0x01 on Triton; matches SDL's `ReadResponse`, HW-confirmed
+            // on Gordon). Reject a stale / other-report reply whose echoed cmd at [1] doesn't match
+            // (the device replies out of order under back-to-back GETs).
+            if buf.len() < 3 || buf[1] != echo {
                 continue;
             }
             let body = buf[3..].to_vec();
