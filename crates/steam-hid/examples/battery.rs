@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::{Duration, Instant};
 
-use steam_hid::{Manager, RawReport};
+use steam_hid::{Manager, Report};
 
 fn main() -> steam_hid::Result<()> {
     let mut manager = Manager::new()?;
@@ -40,10 +40,10 @@ fn main() -> steam_hid::Result<()> {
             device.dongle_get_wireless_state().ok();
         }
 
-        let line = match device.poll_raw(Duration::from_millis(500))? {
-            Some(RawReport::Battery(b)) => format!("{} mV, {}%", b.voltage_mv, b.charge_percent),
-            Some(RawReport::Connected) => "[connected]".to_string(),
-            Some(RawReport::Disconnected) => "[disconnected]".to_string(),
+        let line = match device.poll(Duration::from_millis(500))? {
+            Some(Report::Battery(b)) => format!("{} mV, {}%", b.voltage_mv, b.charge_percent),
+            Some(Report::Connected) => "[connected]".to_string(),
+            Some(Report::Disconnected) => "[disconnected]".to_string(),
             _ => continue,
         };
         println!("{line}");

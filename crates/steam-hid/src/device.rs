@@ -12,8 +12,7 @@ use crate::protocol::{
     self, ControllerStringAttributes, GyroMode, HapticIntensity, HapticPosition, HapticSide,
     HapticStyle, HapticType, MsgId, TrackpadDPadMode, TritonOutReport, Wire, setting,
 };
-use crate::report::{self, RawReport};
-use crate::state::{Battery, Report};
+use crate::state::{self, Battery, ControllerState, Report};
 use crate::value::Timestamp;
 
 /// Internal read timeout for the "blocking" `read_*`; looped so it can later be
@@ -34,7 +33,7 @@ pub struct HapticPulse {
     pub gain: i8,
 }
 
-/// Which Steam device this is (Valve codenames; unified with [`RawReport`]).
+/// Which Steam device this is (Valve codenames).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeviceKind {
     /// Original Steam Controller.
@@ -324,8 +323,9 @@ struct BleState {
     assembled: [u8; protocol::ble::SEGMENT_PAYLOAD * protocol::ble::MAX_SEGMENTS],
     /// Next segment number expected (resets to 0 on a completed/!ordered packet).
     expected_seg: usize,
-    /// Accumulated controller state (only-changed chunks arrive per packet).
-    acc: report::GordonReport,
+    /// Accumulated snapshot — BLE chunks decode straight into it (only-changed chunks arrive per
+    /// packet), so there is no decoded-report intermediate (see `state::apply_gordon_ble`).
+    acc: ControllerState,
     /// Synthesized sequence counter, bumped per input snapshot.
     seq: u32,
 }
@@ -335,7 +335,7 @@ impl BleState {
         BleState {
             assembled: [0u8; protocol::ble::SEGMENT_PAYLOAD * protocol::ble::MAX_SEGMENTS],
             expected_seg: 0,
-            acc: report::GordonReport::default(),
+            acc: ControllerState::default(),
             seq: 0,
         }
     }
@@ -386,32 +386,18 @@ impl Device {
 
     // --- input: one physical read == one frame of some type ---
 
-    /// Read one raw wire frame, blocking until one arrives (PLAN §1.5).
-    pub fn read_raw(&mut self) -> Result<RawReport> {
+    /// Read one high-level frame (normalized snapshot or lifecycle), blocking (PLAN §1.5).
+    pub fn read(&mut self) -> Result<Report> {
         loop {
-            if let Some(raw) = self.next_frame(READ_TIMEOUT_MS)? {
-                return Ok(raw);
+            if let Some(report) = self.next_frame(READ_TIMEOUT_MS)? {
+                return Ok(report);
             }
         }
     }
 
-    /// Read one raw wire frame, waiting up to `timeout`. `None` on timeout.
-    pub fn poll_raw(&mut self, timeout: Duration) -> Result<Option<RawReport>> {
-        self.next_frame(clamp_timeout(timeout))
-    }
-
-    /// Read one high-level frame (normalized snapshot or lifecycle), blocking.
-    pub fn read(&mut self) -> Result<Report> {
-        let raw = self.read_raw()?;
-        Ok(Report::decode(&raw, self.now()))
-    }
-
     /// Read one high-level frame, waiting up to `timeout`. `None` on timeout.
     pub fn poll(&mut self, timeout: Duration) -> Result<Option<Report>> {
-        match self.poll_raw(timeout)? {
-            Some(raw) => Ok(Some(Report::decode(&raw, self.now()))),
-            None => Ok(None),
-        }
+        self.next_frame(clamp_timeout(timeout))
     }
 
     /// The change-driven [`Events`] view over this device (PLAN §1.5).
@@ -419,8 +405,18 @@ impl Device {
         Events::new(self)
     }
 
-    /// Read one frame, update cached connection/battery state, and decode it.
-    fn next_frame(&mut self, timeout_ms: i32) -> Result<Option<RawReport>> {
+    /// Update the cached connection/battery state from a decoded frame.
+    fn update_cache(&mut self, report: &Report) {
+        match report {
+            Report::Connected => self.connected = true,
+            Report::Disconnected => self.connected = false,
+            Report::Battery(b) => self.battery = Some(b.clone()),
+            Report::State(_) => {}
+        }
+    }
+
+    /// Read one frame, decode it straight to a [`Report`], and update cached state.
+    fn next_frame(&mut self, timeout_ms: i32) -> Result<Option<Report>> {
         if self.info.kind.is_triton() {
             return self.next_frame_triton(timeout_ms);
         }
@@ -428,55 +424,46 @@ impl Device {
             return self.next_frame_ble(timeout_ms);
         }
         // The default path: **USB Gordon (wired + dongle) and Neptune** — one physical read is one
-        // 64-byte `0x01`-framed report (`[0x01, 0x00, <event>, …]`), decoded by `report::parse`.
+        // 64-byte `0x01`-framed report (`[0x01, 0x00, <event>, …]`), decoded by `state::parse`.
         let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;
         if n == 0 {
             return Ok(None);
         }
-        let raw = report::parse(&self.buf)?;
-        match &raw {
-            RawReport::Connected => self.connected = true,
-            RawReport::Disconnected => self.connected = false,
-            RawReport::Battery(b) => self.battery = Some(Battery::from(b)),
-            _ => {}
-        }
-        Ok(Some(raw))
+        let report = state::parse(&self.buf, self.now())?;
+        self.update_cache(&report);
+        Ok(Some(report))
     }
 
     /// Triton read path: one physical read == one report, dispatched by the **report id in byte 0**
-    /// (not the `0x01`-framed event byte Gordon/Neptune use — see `report::parse_triton`). Works for
+    /// (not the `0x01`-framed event byte Gordon/Neptune use — see `state::parse_triton`). Works for
     /// every Triton transport: the puck and wire stream state as `0x42`, **Bluetooth streams `0x45`**
     /// (both the same "NoQuat" body). On Linux/Windows the OS HID-over-GATT stack reassembles BLE and
     /// prepends the report id, so BT reports arrive here exactly like USB (no segmentation, unlike
     /// Gordon BLE). Reports we don't decode as a frame (the `0x47` timestamped body, unknown ids) are
     /// skipped by reading again within the timeout budget; a read timeout returns `None`.
-    fn next_frame_triton(&mut self, timeout_ms: i32) -> Result<Option<RawReport>> {
+    fn next_frame_triton(&mut self, timeout_ms: i32) -> Result<Option<Report>> {
         loop {
             let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;
             if n == 0 {
                 return Ok(None);
             }
-            let Some(raw) = report::parse_triton(&self.buf[..n]) else {
+            let Some(report) = state::parse_triton(&self.buf[..n], self.now()) else {
                 continue; // undecoded report — keep reading
             };
-            match &raw {
-                RawReport::Connected => self.connected = true,
-                RawReport::Disconnected => self.connected = false,
-                RawReport::Battery(b) => self.battery = Some(Battery::from(b)),
-                _ => {}
-            }
-            return Ok(Some(raw));
+            self.update_cache(&report);
+            return Ok(Some(report));
         }
     }
 
-    /// BLE read path: reassemble 20-byte segments into a packet, accumulate its
-    /// chunks, and emit a full snapshot per completed **input** packet (PLAN §1.4).
+    /// BLE read path: reassemble 20-byte segments into a packet, accumulate its chunks, and emit a
+    /// full snapshot per completed **input** packet (PLAN §1.4).
     ///
-    /// Loops within one call so a multi-segment frame returns as one `RawReport`;
-    /// a read timeout returns `None` with partial reassembly state preserved for the
-    /// next call. Non-input (status) packets are skipped (read again).
-    fn next_frame_ble(&mut self, timeout_ms: i32) -> Result<Option<RawReport>> {
+    /// Loops within one call so a multi-segment frame returns as one [`Report`]; a read timeout
+    /// returns `None` with partial reassembly state preserved for the next call. Non-input (status)
+    /// packets are skipped (read again).
+    fn next_frame_ble(&mut self, timeout_ms: i32) -> Result<Option<Report>> {
         use protocol::ble;
+        let start = self.start; // Copy — stamp the snapshot without re-borrowing self
         loop {
             let mut seg = [0u8; ble::SEGMENT_SIZE];
             let n = self.backend.read_timeout(&mut seg, timeout_ms)?;
@@ -512,14 +499,15 @@ impl Device {
                 continue; // need more segments
             }
 
-            // Packet complete: apply its chunks to the accumulator.
+            // Packet complete: decode its chunks into the accumulated snapshot.
             ble_state.expected_seg = 0;
             let len = (segnum + 1) * ble::SEGMENT_PAYLOAD;
             let assembled = ble_state.assembled;
-            if report::apply_gordon_ble(&mut ble_state.acc, &assembled[..len]) {
+            if state::apply_gordon_ble(&mut ble_state.acc, &assembled[..len]) {
                 ble_state.seq = ble_state.seq.wrapping_add(1);
                 ble_state.acc.seq = ble_state.seq;
-                return Ok(Some(RawReport::Gordon(ble_state.acc.clone())));
+                ble_state.acc.timestamp = Timestamp(start.elapsed());
+                return Ok(Some(Report::State(ble_state.acc.clone())));
             }
             // Non-input (status) packet — keep reading within the timeout budget.
         }

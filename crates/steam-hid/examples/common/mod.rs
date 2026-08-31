@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use steam_hid::{Device, DeviceInfo, Manager, RawReport, Result, Transport};
+use steam_hid::{Device, DeviceInfo, Manager, Report, Result, Transport};
 
 /// Ctrl-C run flag returned by [`install_ctrlc`]. [`alive`](Running::alive) is `true`
 /// until the first Ctrl-C; loop examples run `while running.alive()`.
@@ -82,8 +82,8 @@ pub fn select_device(manager: &mut Manager) -> Result<Option<(String, Device)>> 
         let mut device = manager.open(info)?;
         for _ in 0..8 {
             if matches!(
-                device.poll_raw(Duration::from_millis(200))?,
-                Some(RawReport::Gordon(_) | RawReport::Neptune(_) | RawReport::Triton(_) | RawReport::Connected)
+                device.poll(Duration::from_millis(200))?,
+                Some(Report::State(_) | Report::Connected)
             ) {
                 return Ok(Some((describe(info), device)));
             }

@@ -13,7 +13,7 @@
 //! (Local-only built; the seam is kept — PLAN §4.1/§6).
 
 use config::{Chords, DeviceConfig};
-use steam_hid::{Device, DeviceId, DeviceInfo, Manager, RawReport, Transport};
+use steam_hid::{Device, DeviceId, DeviceInfo, Manager, Report, Transport};
 use std::fmt;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -540,8 +540,8 @@ impl Engine {
                         return Ok(device);
                     }
                     if matches!(
-                        device.poll_raw(Duration::from_millis(200))?,
-                        Some(RawReport::Gordon(_) | RawReport::Neptune(_) | RawReport::Triton(_) | RawReport::Connected)
+                        device.poll(Duration::from_millis(200))?,
+                        Some(Report::State(_) | Report::Connected)
                     ) {
                         return Ok(device);
                     }

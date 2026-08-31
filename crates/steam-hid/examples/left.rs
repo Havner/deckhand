@@ -1,8 +1,8 @@
 //! `left` — dump the resolved left pad/stick + flags (throttled), for debugging.
 //!
-//! The pad and analog stick share `0x10`, disambiguated by `LPAD_TOUCH` (see
-//! `report::parse_gordon`); this prints the parsed result (raw i16, not deadbanded
-//! like `read`'s events) so you can watch the multiplex resolve live.
+//! The pad and analog stick share `0x10`, disambiguated by `LPAD_TOUCH` (resolved in
+//! `state::from_gordon`); this prints the normalized snapshot so you can watch the multiplex
+//! resolve live — pad and stick land in separate fields (`left_pad.pos` vs `left_stick`).
 //!
 //! Disables lizard mode (raw pads); `--wired`/`--dongle` pick the transport.
 //! Run: `cargo run -p steam-hid --example left -- [--wired|--dongle]`.
@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::{Duration, Instant};
 
-use steam_hid::{GordonButtons, Manager, RawReport};
+use steam_hid::{Buttons, Manager, Report};
 
 fn main() -> steam_hid::Result<()> {
     let mut manager = Manager::new()?;
@@ -36,18 +36,18 @@ fn main() -> steam_hid::Result<()> {
     let running = common::install_ctrlc();
     let mut last = Instant::now();
     while running.alive() {
-        if let Some(RawReport::Gordon(g)) = device.poll_raw(Duration::from_millis(100))?
+        if let Some(Report::State(s)) = device.poll(Duration::from_millis(100))?
             && last.elapsed() >= Duration::from_millis(120)
         {
             last = Instant::now();
             let line = format!(
-                "pad=({:>6},{:>6})  stick=({:>6},{:>6})  touch={} sclick={}",
-                g.left_pad.x,
-                g.left_pad.y,
-                g.left_stick.x,
-                g.left_stick.y,
-                g.buttons.contains(GordonButtons::LPAD_TOUCH) as u8,
-                g.buttons.contains(GordonButtons::LSTICK_PRESS) as u8,
+                "pad=({:+.3},{:+.3})  stick=({:+.3},{:+.3})  touch={} sclick={}",
+                s.left_pad.pos.x,
+                s.left_pad.pos.y,
+                s.left_stick.x,
+                s.left_stick.y,
+                s.left_pad.touched as u8,
+                s.buttons.contains(Buttons::LSTICK_PRESS) as u8,
             );
             println!("{line}");
             writeln!(log, "{line}").ok();

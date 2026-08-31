@@ -11,8 +11,9 @@
 //!
 //! # Model at a glance
 //! - Every input frame is a **full snapshot**; the read stream also carries
-//!   lifecycle frames (connect/disconnect/battery). One read → one [`RawReport`]
-//!   (low level) or [`Report`] (unified), never a bare state.
+//!   lifecycle frames (connect/disconnect/battery). One read → one [`Report`]:
+//!   [`Report::State`] (a unified [`ControllerState`]) or a lifecycle signal,
+//!   never a bare state. The wire packet decodes straight to it (in `state`).
 //! - Snapshots come from [`Device::read`]/[`Device::poll`]; [`Device::events`] is
 //!   a change-driven view over the same stream; [`ControllerState::diff`] is the
 //!   stateless primitive underneath it.
@@ -23,7 +24,6 @@ mod device;
 mod error;
 mod event;
 mod protocol;
-mod report;
 mod state;
 mod value;
 
@@ -36,6 +36,5 @@ pub use protocol::{
 pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, HapticPulse, Manager, Transport};
 pub use error::{Error, Result};
 pub use event::{Event, Events};
-pub use report::{BatteryRaw, GordonReport, NeptuneReport, RawReport, TritonReport};
 pub use state::{Battery, ControllerState, Report};
 pub use value::{Quati, Timestamp, TrackPad, Vec2, Vec2i, Vec3i};
