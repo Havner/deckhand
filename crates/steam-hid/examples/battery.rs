@@ -37,7 +37,7 @@ fn main() -> steam_hid::Result<()> {
         // Actively prompt an 0x04 status frame every few seconds.
         if last_request.elapsed() >= Duration::from_secs(3) {
             last_request = Instant::now();
-            device.send_feature_report(&[0xB4, 0x00]).ok(); // DONGLE_GET_WIRELESS_STATE
+            device.dongle_get_wireless_state().ok();
         }
 
         let line = match device.poll_raw(Duration::from_millis(500))? {

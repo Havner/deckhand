@@ -363,7 +363,7 @@ impl Device {
         // Gordon dongle only — this is the original receiver's wireless-state command; the Triton
         // puck streams state by default when a controller is present, so it needs no prompt.
         if matches!(dev.info.transport, Transport::UsbDongle) && !dev.info.kind.is_triton() {
-            let _ = dev.feature(MsgId::DongleGetWirelessState, &[]);
+            let _ = dev.dongle_get_wireless_state();
         }
         Ok(dev)
     }
@@ -529,7 +529,136 @@ impl Device {
         Timestamp(self.start.elapsed())
     }
 
-    // --- commands (PLAN §1.4; byte layouts provisional, verify on HW) ---
+    // --- commands: raw transport primitives ---
+
+    /// Send a raw feature report. Takes the **logical** command
+    /// `[cmd_id, len, payload…]`; the transport framing is applied here, not by the
+    /// caller (PLAN §1.4): USB prepends report id 0 and pads to 64; Bluetooth splits
+    /// the command into Report-ID-3 segments (`[0x03][0x80|seg|(0x40 if last)]
+    /// [<=18 data]`, zero-padded to 20 — the command bytes are identical to USB).
+    fn send_feature_report(&mut self, cmd: &[u8]) -> Result<()> {
+        if self.info.transport.is_bluetooth() && !self.info.kind.is_triton() {
+            for seg in frame_ble(cmd) {
+                self.backend.send_feature_report(&seg)?;
+            }
+            Ok(())
+        } else if self.info.kind.is_triton() {
+            // Triton's command channel rides feature report **0x01** and the whole HID report is
+            // **exactly 64 bytes** (report-id byte + 63 payload) — the device stalls a SET_REPORT of
+            // any other length (Broken pipe otherwise). Gordon/Neptune use report id 0x00 with 64
+            // *data* bytes (65-byte buffer; report 0 is unnumbered so nothing extra goes on the wire).
+            self.backend
+                .send_feature_report(&frame(cmd, protocol::REPORT_ID_TRITON, protocol::REPORT_LEN))
+        } else {
+            self.backend
+                .send_feature_report(&frame(cmd, protocol::REPORT_ID, 1 + protocol::REPORT_LEN))
+        }
+    }
+
+    /// Get a raw feature report, sizing the buffer to the device's report shape — the symmetric
+    /// counterpart to [`Self::send_feature_report`] (PLAN §1.4): Triton reads report id 0x01 into an
+    /// **exactly 64-byte** buffer (a longer GetFeature stalls the ioctl with Broken pipe, mirroring
+    /// the SET side), Gordon/Neptune read report id 0x00 into a 65-byte buffer. Returns the reply
+    /// bytes truncated to the count read, with the report-id byte still at `[0]`.
+    ///
+    /// NOTE: the Triton branch is a best effort that does NOT actually work — Triton stalls a
+    /// GET_FEATURE on report 0x01 regardless of buffer size, so the GET round-trips (serials/
+    /// attributes/settings) all Broken-pipe on it. Its feature channel is effectively write-only;
+    /// command replies come back over the interrupt-IN input stream instead (SDL's Triton driver
+    /// never issues a feature GET, and sc-controller leaves the read-back a TODO). Making getters
+    /// work on Triton would need reverse-engineering that reply framing — out of scope; getters is a
+    /// Gordon/Neptune tool. The kept 64-byte shape is correct-if-it-ever-answers, and harmless.
+    fn get_feature_report(&mut self) -> Result<Vec<u8>> {
+        let (report_id, buf_len) = if self.info.kind.is_triton() {
+            (protocol::REPORT_ID_TRITON, protocol::REPORT_LEN)
+        } else {
+            (protocol::REPORT_ID, 1 + protocol::REPORT_LEN)
+        };
+        let mut buf = vec![0u8; buf_len];
+        buf[0] = report_id;
+        let n = self.backend.get_feature_report(&mut buf)?;
+        buf.truncate(n);
+        Ok(buf)
+    }
+
+    /// Write a GET request (`request[0]` = command id) and read the reply, retrying a few times (the
+    /// device may return other reports first — mirrors SDL's `ReadResponse`). Locates the echoed
+    /// command id (at offset 0 or 1, absorbing hidapi's report-id-byte ambiguity for report 0),
+    /// strips the `[cmd, len]` header, and returns `(body, len)`: `body` = the reply payload ready to
+    /// cast (the bytes after the header), `len` = the reply's length byte clamped to the bytes
+    /// available. `valid(len, body)` gates acceptance (rejects stale/other-report replies).
+    fn get_roundtrip(
+        &mut self,
+        cmd: MsgId,
+        length: u8,
+        payload: &[u8],
+        valid: impl Fn(usize, &[u8]) -> bool,
+    ) -> Result<(Vec<u8>, usize)> {
+        // Build the request through the shared `FeatureReportHeader` (same header as `feature()`) —
+        // GET commands vary the header's `length` field: payload length for SETTINGS, `0` for
+        // ATTRIBUTES, and the requested max response length for the STRING getter, so it's passed in
+        // rather than derived from `payload.len()`.
+        let echo = cmd as u8;
+        let mut request = protocol::FeatureReportHeader { cmd: echo, length }.as_bytes().to_vec();
+        request.extend_from_slice(payload);
+        // The dongle's feature endpoint is flaky under back-to-back I/O: a `SetFeature` too soon after
+        // a prior `GetFeature` EPIPEs, and a `GetFeature` can race the device mid-updating its reply
+        // buffer (stale/half-written). So re-send the whole exchange each attempt, settling around
+        // both halves, and only accept a reply whose `cmd` echo matches AND passes `valid`.
+        for _ in 0..8 {
+            std::thread::sleep(Duration::from_millis(10));
+            if self.send_feature_report(&request).is_err() {
+                continue; // busy → retry the SetFeature
+            }
+            std::thread::sleep(Duration::from_millis(20)); // let the reply compute
+            let buf = self.get_feature_report()?;
+            // The reply is `[report-id, cmd, len, body…]` — hidapi keeps the report-id byte at [0]
+            // (report 0 on Gordon/Neptune, 0x01 on Triton; matches SDL's `ReadResponse`, HW-confirmed
+            // on Gordon). Reject a stale / other-report reply whose echoed cmd at [1] doesn't match
+            // (the device replies out of order under back-to-back GETs).
+            if buf.len() < 3 || buf[1] != echo {
+                continue;
+            }
+            let body = buf[3..].to_vec();
+            let len = (buf[2] as usize).min(body.len());
+            if valid(len, &body) {
+                return Ok((body, len));
+            }
+        }
+        Err(Error::Unsupported("GET response not received/validated"))
+    }
+
+    /// Build `[FeatureReportHeader, payload…]` and send it framed.
+    fn feature(&mut self, cmd: MsgId, payload: &[u8]) -> Result<()> {
+        let header = protocol::FeatureReportHeader { cmd: cmd as u8, length: payload.len() as u8 };
+        let mut bytes = Vec::with_capacity(2 + payload.len());
+        bytes.extend_from_slice(header.as_bytes());
+        bytes.extend_from_slice(payload);
+        self.send_feature_report(&bytes)
+    }
+
+    /// Build `[report_id, payload…]` and send it as a Triton haptic **output** report. The output-
+    /// report analog of [`Self::feature`], but the framing is a single report-id byte (no length
+    /// field) and it rides the interrupt-OUT endpoint. Output reports carry their own fixed lengths,
+    /// so no `frame`-style padding.
+    fn output(&mut self, cmd: TritonOutReport, payload: &[u8]) -> Result<()> {
+        let mut report = Vec::with_capacity(1 + payload.len());
+        report.push(cmd as u8);
+        report.extend_from_slice(payload);
+        self.backend.send_output_report(&report)
+    }
+
+    // --- commands: simple generic (most apply to every device) ---
+
+    /// Write settings via `SET_SETTINGS_VALUES` — a concatenation of [`protocol::ControllerSetting`]
+    /// `(id, value-le)` triples. Takes `(id, value)` pairs for call-site ergonomics.
+    fn set_settings(&mut self, pairs: &[(u8, u16)]) -> Result<()> {
+        let mut payload = Vec::with_capacity(pairs.len() * 3);
+        for &(setting_num, value) in pairs {
+            payload.extend_from_slice(protocol::ControllerSetting { setting_num, value }.as_bytes());
+        }
+        self.feature(MsgId::SetSettingsValues, &payload)
+    }
 
     /// Enable ("lizard") or disable raw mode.
     ///
@@ -579,146 +708,13 @@ impl Device {
         self.set_settings(&[(setting::SLEEP_INACTIVITY_TIMEOUT, secs)])
     }
 
-    /// Trigger a trackpad haptic **pulse** (`0x8f`), kernel 8-byte form.
-    ///
-    /// **Verified on Gordon** (PLAN §1.9): [`HapticPosition`] is the trackpad actuator (Gordon's wire
-    /// values are swapped: `Right = 0`, `Left = 1`). There is no "both" (pad 2 no-ops on Gordon), so
-    /// the caller fires the two pads separately. `params.gain` is honored on the Deck but ignored on
-    /// Gordon. This drives the *trackpad* actuator (Gordon's only haptic; works on the Deck too). For
-    /// the Deck's native continuous rumble use [`Self::rumble_cmd`].
-    pub fn haptic_pulse(&mut self, position: HapticPosition, params: HapticPulse) -> Result<()> {
-        let msg = protocol::MsgFireHapticPulse {
-            which_pad: position as u8,
-            duration: params.duration,
-            interval: params.interval,
-            count: params.count,
-            gain: params.gain,
-        };
-        self.feature(MsgId::TriggerHapticPulse, msg.as_bytes())
-    }
-
-    /// Drive the Deck's dual haptic motors — **rumble** (`0xeb` `TRIGGER_RUMBLE_CMD`), kernel
-    /// 9-byte form.
-    ///
-    /// The Deck's native rumble, what the Linux `hid-steam` driver wires `FF_RUMBLE` to. Each
-    /// command plays a **fixed short burst** (~0.5 s, HW-measured — the packet has no length field),
-    /// so a sustained rumble must be **re-issued** periodically; `(0, 0)` stops it. Character is
-    /// **pulsating**: `left`/`right` set the **pulse rate** (higher = faster; *not* a rumble
-    /// frequency), while amplitude has two levers — `left_gain`/`right_gain` (dB, coarse) and
-    /// **`intensity`** (a finer amplitude control gain lacks, but **inverted**: `0` = strongest,
-    /// larger = weaker, ~unfelt near `u16::MAX`; usable ~`0..16k`). We currently pass `intensity = 0`
-    /// (strongest) everywhere — plumbed but not yet used as a mapping lever.
-    ///
-    /// **`intensity` is a `u16` (LE), kernel- and SDL-confirmed** (`report[3]` = LSB, `report[4]` =
-    /// MSB — kernel `steam_haptic_rumble`; SDL `MsgSimpleRumbleCmd.unIntensity`). A HW sweep of the
-    /// low byte *alone* feels like it does nothing, but that's only because it's the least-significant
-    /// byte (0..255 of a 0..65535 range) — it's fine resolution, not a dead field (the low bytes of
-    /// `left`/`right` behave the same). InputPlumber's "single-byte intensity + event_type" split is
-    /// wrong. The leading `report[2]` (kernel 0 / SDL `unRumbleType`) is a rumble-type selector we
-    /// leave at 0.
-    ///
-    /// **Deck-only:** Gordon has no motors, so `0xeb` no-ops there — use [`Self::haptic_pulse`] for
-    /// Gordon. (`left` = strong/large motor, `right` = weak/small, matching the kernel's
-    /// `rumble_left`/`rumble_right` ← FF strong/weak.)
-    pub fn rumble_cmd(
-        &mut self,
-        intensity: u16,
-        left: u16,
-        right: u16,
-        left_gain: i8,
-        right_gain: i8,
-    ) -> Result<()> {
-        let msg = protocol::MsgSimpleRumbleCmd {
-            rumble_type: 0,
-            intensity,
-            left_speed: left,
-            right_speed: right,
-            left_gain,
-            right_gain,
-        };
-        self.feature(MsgId::TriggerRumbleCmd, msg.as_bytes())
-    }
-
-    /// Fire the Deck's `0xEA` `SET_HAPTIC2` — a short, finely-tuned trackpad **click** haptic (much
-    /// better than `0x8f` for command clicks; the strongest setting beats a full `0x8f` click). `cmd`
-    /// picks the haptic type (we use [`HapticType::Tick`]/[`HapticType::Click`]), `ui_intensity` is a
-    /// second HW-confirmed lever (see [`HapticIntensity`]), and `gain` (dB) scales it — together a
-    /// wide range of click strengths.
-    ///
-    /// **Deck-only** (no-ops on Gordon). Payload is the full [`protocol::MsgTriggerHaptic`] (SDL);
-    /// only `side`/`cmd`/`ui_intensity`/`dbgain` are set, the tone/lfo/sweep fields stay zero.
-    /// [`HapticSide`] is the `0/1/2` Left/Right/Both convention (the **reverse** of `0x8f`'s pads).
-    pub fn haptic_cmd(
-        &mut self,
-        side: HapticSide,
-        cmd: HapticType,
-        intensity: HapticIntensity,
-        gain: i8,
-    ) -> Result<()> {
-        let msg = protocol::MsgTriggerHaptic {
-            side: side as u8,
-            cmd: cmd as u8,
-            ui_intensity: intensity as u8,
-            dbgain: gain,
-            ..Default::default()
-        };
-        self.feature(MsgId::TriggerHapticCmd, msg.as_bytes())
-    }
-
-    /// Drive Triton's dual-motor **continuous rumble** — output report `0x80` (`HapticRumble`,
-    /// 10 bytes). Unlike the Deck's `0xeb`, this rides an **output** report on the interrupt-OUT
-    /// endpoint. `left`/`right` are the per-motor drive (SDL feeds the 16-bit rumble magnitudes here
-    /// as the field it calls `speed`); `*_gain` are per-motor dB trims; `intensity` is a finer
-    /// amplitude lever (SDL passes 0). The firmware safety-times out in ~50 ms, so a sustained rumble
-    /// must be **re-issued** (the reader does, ~40 ms); `(0, 0)` stops it.
-    ///
-    /// **HW-verified on the puck (PLAN §1.9), same levers as the Deck's `0xeb`:** `left`/`right` are
-    /// the per-motor **rate** (SDL's "speed"; higher = stronger, the coarse amplitude), `*_gain` (dB)
-    /// the real strength trim, and `intensity` a finer **inverted** amplitude lever (`0` = no change,
-    /// larger = weaker). Param order mirrors [`Self::rumble_cmd`] (per-motor `left`/`right`, no side
-    /// byte). **Triton-only.**
-    pub fn rumble_triton(
-        &mut self,
-        intensity: u16,
-        left: u16,
-        right: u16,
-        left_gain: i8,
-        right_gain: i8,
-    ) -> Result<()> {
-        // rumble_type (SDL MsgHapticRumble.type) is HW-confirmed inert (swept 0..255, no effect);
-        // every reference sends 0, so we do too.
-        let msg = protocol::MsgHapticRumble {
-            rumble_type: 0,
-            intensity,
-            left_speed: left,
-            left_gain,
-            right_speed: right,
-            right_gain,
-        };
-        self.output(TritonOutReport::Rumble, msg.as_bytes())
-    }
-
-    /// Fire a Triton **haptic command / click** — output report `0x82` (`HapticCommand`, 4 bytes):
-    /// `[side, style, amplitude]`. `style` is a [`HapticStyle`] (`0` off / `1` weak / `2` strong —
-    /// HW: `Weak` is a light click, `Strong` a firm one; this is the **main strength lever**).
-    /// `amplitude` is an **unsigned** trim, `0x00` = medium … `0xFF` = strong (sc-controller's
-    /// observed layout — SDL's struct misleadingly types this byte as a signed `gain_db`, but its own
-    /// driver never sends `0x82`; HW confirms the audible effect of this byte is subtle).
-    /// [`HapticSide`] is the `0/1/2` Left/Right/Both convention. **Triton-only.**
-    pub fn haptic_command_triton(
-        &mut self,
-        side: HapticSide,
-        style: HapticStyle,
-        amplitude: u8,
-    ) -> Result<()> {
-        // `command` = the haptic style (off/weak/strong); `gain_db` carries our unsigned amplitude
-        // trim (SDL types the byte i8, but HW treats it as 0=medium..255=strong — see the struct doc).
-        let msg = protocol::MsgHapticCommand {
-            side: side as u8,
-            command: style as u8,
-            gain_db: amplitude as i8,
-        };
-        self.output(TritonOutReport::Command, msg.as_bytes())
+    /// Prompt the dongle for a wireless-state / battery status frame (`DONGLE_GET_WIRELESS_STATE`,
+    /// `0xB4`, no payload). The Gordon receiver answers with a `0x04` status frame carrying the
+    /// connection state and battery charge, so this both surfaces an already-connected controller and
+    /// refreshes battery: [`Device::new`] sends it once on open, and a battery poller re-sends it
+    /// periodically (see the `battery` example). Dongle-only — a harmless no-op prompt elsewhere.
+    pub fn dongle_get_wireless_state(&mut self) -> Result<()> {
+        self.feature(MsgId::DongleGetWirelessState, &[])
     }
 
     /// Power the controller off.
@@ -726,7 +722,7 @@ impl Device {
         self.feature(MsgId::TurnOffController, b"off!")
     }
 
-    // --- reads / queries (GET round-trips; **HW-UNTESTED** — probe with the `getters` example) ---
+    // --- commands: GET round-trip queries (probe with the `getters` example) ---
 
     /// Read a string attribute (e.g. the unit serial) via `GET_STRING_ATTRIBUTE` (`0xAE`). Request is
     /// `[0xAE, max_len, tag]` (kernel `steam_get_serial` uses `max_len` = 0x16); the reply is
@@ -794,135 +790,148 @@ impl Device {
             .collect())
     }
 
-    // --- escape hatch (PLAN §1.5) ---
+    // --- commands: device-specific (haptics / rumble) ---
 
-    /// Send a raw feature report. Takes the **logical** command
-    /// `[cmd_id, len, payload…]`; the transport framing is applied here, not by the
-    /// caller (PLAN §1.4): USB prepends report id 0 and pads to 64; Bluetooth splits
-    /// the command into Report-ID-3 segments (`[0x03][0x80|seg|(0x40 if last)]
-    /// [<=18 data]`, zero-padded to 20 — the command bytes are identical to USB).
-    pub fn send_feature_report(&mut self, cmd: &[u8]) -> Result<()> {
-        if self.info.transport.is_bluetooth() && !self.info.kind.is_triton() {
-            for seg in frame_ble(cmd) {
-                self.backend.send_feature_report(&seg)?;
-            }
-            Ok(())
-        } else if self.info.kind.is_triton() {
-            // Triton's command channel rides feature report **0x01** and the whole HID report is
-            // **exactly 64 bytes** (report-id byte + 63 payload) — the device stalls a SET_REPORT of
-            // any other length (Broken pipe otherwise). Gordon/Neptune use report id 0x00 with 64
-            // *data* bytes (65-byte buffer; report 0 is unnumbered so nothing extra goes on the wire).
-            self.backend
-                .send_feature_report(&frame(cmd, protocol::REPORT_ID_TRITON, protocol::REPORT_LEN))
-        } else {
-            self.backend
-                .send_feature_report(&frame(cmd, protocol::REPORT_ID, 1 + protocol::REPORT_LEN))
-        }
-    }
-
-    /// Get a raw feature report, sizing the buffer to the device's report shape — the symmetric
-    /// counterpart to [`Self::send_feature_report`] (PLAN §1.4): Triton reads report id 0x01 into an
-    /// **exactly 64-byte** buffer (a longer GetFeature stalls the ioctl with Broken pipe, mirroring
-    /// the SET side), Gordon/Neptune read report id 0x00 into a 65-byte buffer. Returns the reply
-    /// bytes truncated to the count read, with the report-id byte still at `[0]`.
+    /// Trigger a trackpad haptic **pulse** (`0x8f`), kernel 8-byte form.
     ///
-    /// NOTE: the Triton branch is a best effort that does NOT actually work — Triton stalls a
-    /// GET_FEATURE on report 0x01 regardless of buffer size, so the GET round-trips (serials/
-    /// attributes/settings) all Broken-pipe on it. Its feature channel is effectively write-only;
-    /// command replies come back over the interrupt-IN input stream instead (SDL's Triton driver
-    /// never issues a feature GET, and sc-controller leaves the read-back a TODO). Making getters
-    /// work on Triton would need reverse-engineering that reply framing — out of scope; getters is a
-    /// Gordon/Neptune tool. The kept 64-byte shape is correct-if-it-ever-answers, and harmless.
-    pub fn get_feature_report(&mut self) -> Result<Vec<u8>> {
-        let (report_id, buf_len) = if self.info.kind.is_triton() {
-            (protocol::REPORT_ID_TRITON, protocol::REPORT_LEN)
-        } else {
-            (protocol::REPORT_ID, 1 + protocol::REPORT_LEN)
+    /// **Verified on Gordon** (PLAN §1.9): [`HapticPosition`] is the trackpad actuator (Gordon's wire
+    /// values are swapped: `Right = 0`, `Left = 1`). There is no "both" (pad 2 no-ops on Gordon), so
+    /// the caller fires the two pads separately. `params.gain` is honored on the Deck but ignored on
+    /// Gordon. This drives the *trackpad* actuator (Gordon's only haptic; works on the Deck too). For
+    /// the Deck's native continuous rumble use [`Self::rumble_cmd`].
+    pub fn haptic_pulse(&mut self, position: HapticPosition, params: HapticPulse) -> Result<()> {
+        let msg = protocol::MsgFireHapticPulse {
+            which_pad: position as u8,
+            duration: params.duration,
+            interval: params.interval,
+            count: params.count,
+            gain: params.gain,
         };
-        let mut buf = vec![0u8; buf_len];
-        buf[0] = report_id;
-        let n = self.backend.get_feature_report(&mut buf)?;
-        buf.truncate(n);
-        Ok(buf)
+        self.feature(MsgId::TriggerHapticPulse, msg.as_bytes())
     }
 
-    // --- command helpers ---
-
-    /// Build `[FeatureReportHeader, payload…]` and send it framed.
-    fn feature(&mut self, cmd: MsgId, payload: &[u8]) -> Result<()> {
-        let header = protocol::FeatureReportHeader { cmd: cmd as u8, length: payload.len() as u8 };
-        let mut bytes = Vec::with_capacity(2 + payload.len());
-        bytes.extend_from_slice(header.as_bytes());
-        bytes.extend_from_slice(payload);
-        self.send_feature_report(&bytes)
-    }
-
-    /// Write settings via `SET_SETTINGS_VALUES` — a concatenation of [`protocol::ControllerSetting`]
-    /// `(id, value-le)` triples. Takes `(id, value)` pairs for call-site ergonomics.
-    fn set_settings(&mut self, pairs: &[(u8, u16)]) -> Result<()> {
-        let mut payload = Vec::with_capacity(pairs.len() * 3);
-        for &(setting_num, value) in pairs {
-            payload.extend_from_slice(protocol::ControllerSetting { setting_num, value }.as_bytes());
-        }
-        self.feature(MsgId::SetSettingsValues, &payload)
-    }
-
-    /// Write a GET request (`request[0]` = command id) and read the reply, retrying a few times (the
-    /// device may return other reports first — mirrors SDL's `ReadResponse`). Locates the echoed
-    /// command id (at offset 0 or 1, absorbing hidapi's report-id-byte ambiguity for report 0),
-    /// strips the `[cmd, len]` header, and returns `(body, len)`: `body` = the reply payload ready to
-    /// cast (the bytes after the header), `len` = the reply's length byte clamped to the bytes
-    /// available. `valid(len, body)` gates acceptance (rejects stale/other-report replies).
-    fn get_roundtrip(
+    /// Fire the Deck's `0xEA` `SET_HAPTIC2` — a short, finely-tuned trackpad **click** haptic (much
+    /// better than `0x8f` for command clicks; the strongest setting beats a full `0x8f` click). `cmd`
+    /// picks the haptic type (we use [`HapticType::Tick`]/[`HapticType::Click`]), `ui_intensity` is a
+    /// second HW-confirmed lever (see [`HapticIntensity`]), and `gain` (dB) scales it — together a
+    /// wide range of click strengths.
+    ///
+    /// **Deck-only** (no-ops on Gordon). Payload is the full [`protocol::MsgTriggerHaptic`] (SDL);
+    /// only `side`/`cmd`/`ui_intensity`/`dbgain` are set, the tone/lfo/sweep fields stay zero.
+    /// [`HapticSide`] is the `0/1/2` Left/Right/Both convention (the **reverse** of `0x8f`'s pads).
+    pub fn haptic_cmd(
         &mut self,
-        cmd: MsgId,
-        length: u8,
-        payload: &[u8],
-        valid: impl Fn(usize, &[u8]) -> bool,
-    ) -> Result<(Vec<u8>, usize)> {
-        // Build the request through the shared `FeatureReportHeader` (same header as `feature()`) —
-        // GET commands vary the header's `length` field: payload length for SETTINGS, `0` for
-        // ATTRIBUTES, and the requested max response length for the STRING getter, so it's passed in
-        // rather than derived from `payload.len()`.
-        let echo = cmd as u8;
-        let mut request = protocol::FeatureReportHeader { cmd: echo, length }.as_bytes().to_vec();
-        request.extend_from_slice(payload);
-        // The dongle's feature endpoint is flaky under back-to-back I/O: a `SetFeature` too soon after
-        // a prior `GetFeature` EPIPEs, and a `GetFeature` can race the device mid-updating its reply
-        // buffer (stale/half-written). So re-send the whole exchange each attempt, settling around
-        // both halves, and only accept a reply whose `cmd` echo matches AND passes `valid`.
-        for _ in 0..8 {
-            std::thread::sleep(Duration::from_millis(10));
-            if self.send_feature_report(&request).is_err() {
-                continue; // busy → retry the SetFeature
-            }
-            std::thread::sleep(Duration::from_millis(20)); // let the reply compute
-            let buf = self.get_feature_report()?;
-            // The reply is `[report-id, cmd, len, body…]` — hidapi keeps the report-id byte at [0]
-            // (report 0 on Gordon/Neptune, 0x01 on Triton; matches SDL's `ReadResponse`, HW-confirmed
-            // on Gordon). Reject a stale / other-report reply whose echoed cmd at [1] doesn't match
-            // (the device replies out of order under back-to-back GETs).
-            if buf.len() < 3 || buf[1] != echo {
-                continue;
-            }
-            let body = buf[3..].to_vec();
-            let len = (buf[2] as usize).min(body.len());
-            if valid(len, &body) {
-                return Ok((body, len));
-            }
-        }
-        Err(Error::Unsupported("GET response not received/validated"))
+        side: HapticSide,
+        cmd: HapticType,
+        intensity: HapticIntensity,
+        gain: i8,
+    ) -> Result<()> {
+        let msg = protocol::MsgTriggerHaptic {
+            side: side as u8,
+            cmd: cmd as u8,
+            ui_intensity: intensity as u8,
+            dbgain: gain,
+            ..Default::default()
+        };
+        self.feature(MsgId::TriggerHapticCmd, msg.as_bytes())
     }
 
-    /// Build `[report_id, payload…]` and send it as a Triton haptic **output** report. The output-
-    /// report analog of [`Self::feature`], but the framing is a single report-id byte (no length
-    /// field) and it rides the interrupt-OUT endpoint. Output reports carry their own fixed lengths,
-    /// so no `frame`-style padding.
-    fn output(&mut self, cmd: TritonOutReport, payload: &[u8]) -> Result<()> {
-        let mut report = Vec::with_capacity(1 + payload.len());
-        report.push(cmd as u8);
-        report.extend_from_slice(payload);
-        self.backend.send_output_report(&report)
+    /// Drive the Deck's dual haptic motors — **rumble** (`0xeb` `TRIGGER_RUMBLE_CMD`), kernel
+    /// 9-byte form.
+    ///
+    /// The Deck's native rumble, what the Linux `hid-steam` driver wires `FF_RUMBLE` to. Each
+    /// command plays a **fixed short burst** (~0.5 s, HW-measured — the packet has no length field),
+    /// so a sustained rumble must be **re-issued** periodically; `(0, 0)` stops it. Character is
+    /// **pulsating**: `left`/`right` set the **pulse rate** (higher = faster; *not* a rumble
+    /// frequency), while amplitude has two levers — `left_gain`/`right_gain` (dB, coarse) and
+    /// **`intensity`** (a finer amplitude control gain lacks, but **inverted**: `0` = strongest,
+    /// larger = weaker, ~unfelt near `u16::MAX`; usable ~`0..16k`). We currently pass `intensity = 0`
+    /// (strongest) everywhere — plumbed but not yet used as a mapping lever.
+    ///
+    /// **`intensity` is a `u16` (LE), kernel- and SDL-confirmed** (`report[3]` = LSB, `report[4]` =
+    /// MSB — kernel `steam_haptic_rumble`; SDL `MsgSimpleRumbleCmd.unIntensity`). A HW sweep of the
+    /// low byte *alone* feels like it does nothing, but that's only because it's the least-significant
+    /// byte (0..255 of a 0..65535 range) — it's fine resolution, not a dead field (the low bytes of
+    /// `left`/`right` behave the same). InputPlumber's "single-byte intensity + event_type" split is
+    /// wrong. The leading `report[2]` (kernel 0 / SDL `unRumbleType`) is a rumble-type selector we
+    /// leave at 0.
+    ///
+    /// **Deck-only:** Gordon has no motors, so `0xeb` no-ops there — use [`Self::haptic_pulse`] for
+    /// Gordon. (`left` = strong/large motor, `right` = weak/small, matching the kernel's
+    /// `rumble_left`/`rumble_right` ← FF strong/weak.)
+    pub fn rumble_cmd(
+        &mut self,
+        intensity: u16,
+        left: u16,
+        right: u16,
+        left_gain: i8,
+        right_gain: i8,
+    ) -> Result<()> {
+        let msg = protocol::MsgSimpleRumbleCmd {
+            rumble_type: 0,
+            intensity,
+            left_speed: left,
+            right_speed: right,
+            left_gain,
+            right_gain,
+        };
+        self.feature(MsgId::TriggerRumbleCmd, msg.as_bytes())
+    }
+
+    /// Drive Triton's dual-motor **continuous rumble** — output report `0x80` (`HapticRumble`,
+    /// 10 bytes). Unlike the Deck's `0xeb`, this rides an **output** report on the interrupt-OUT
+    /// endpoint. `left`/`right` are the per-motor drive (SDL feeds the 16-bit rumble magnitudes here
+    /// as the field it calls `speed`); `*_gain` are per-motor dB trims; `intensity` is a finer
+    /// amplitude lever (SDL passes 0). The firmware safety-times out in ~50 ms, so a sustained rumble
+    /// must be **re-issued** (the reader does, ~40 ms); `(0, 0)` stops it.
+    ///
+    /// **HW-verified on the puck (PLAN §1.9), same levers as the Deck's `0xeb`:** `left`/`right` are
+    /// the per-motor **rate** (SDL's "speed"; higher = stronger, the coarse amplitude), `*_gain` (dB)
+    /// the real strength trim, and `intensity` a finer **inverted** amplitude lever (`0` = no change,
+    /// larger = weaker). Param order mirrors [`Self::rumble_cmd`] (per-motor `left`/`right`, no side
+    /// byte). **Triton-only.**
+    pub fn rumble_triton(
+        &mut self,
+        intensity: u16,
+        left: u16,
+        right: u16,
+        left_gain: i8,
+        right_gain: i8,
+    ) -> Result<()> {
+        // rumble_type (SDL MsgHapticRumble.type) is HW-confirmed inert (swept 0..255, no effect);
+        // every reference sends 0, so we do too.
+        let msg = protocol::MsgHapticRumble {
+            rumble_type: 0,
+            intensity,
+            left_speed: left,
+            left_gain,
+            right_speed: right,
+            right_gain,
+        };
+        self.output(TritonOutReport::Rumble, msg.as_bytes())
+    }
+
+    /// Fire a Triton **haptic command / click** — output report `0x82` (`HapticCommand`, 4 bytes):
+    /// `[side, style, amplitude]`. `style` is a [`HapticStyle`] (`0` off / `1` weak / `2` strong —
+    /// HW: `Weak` is a light click, `Strong` a firm one; this is the **main strength lever**).
+    /// `amplitude` is an **unsigned** trim, `0x00` = medium … `0xFF` = strong (sc-controller's
+    /// observed layout — SDL's struct misleadingly types this byte as a signed `gain_db`, but its own
+    /// driver never sends `0x82`; HW confirms the audible effect of this byte is subtle).
+    /// [`HapticSide`] is the `0/1/2` Left/Right/Both convention. **Triton-only.**
+    pub fn haptic_command_triton(
+        &mut self,
+        side: HapticSide,
+        style: HapticStyle,
+        amplitude: u8,
+    ) -> Result<()> {
+        // `command` = the haptic style (off/weak/strong); `gain_db` carries our unsigned amplitude
+        // trim (SDL types the byte i8, but HW treats it as 0=medium..255=strong — see the struct doc).
+        let msg = protocol::MsgHapticCommand {
+            side: side as u8,
+            command: style as u8,
+            gain_db: amplitude as i8,
+        };
+        self.output(TritonOutReport::Command, msg.as_bytes())
     }
 }
 
