@@ -2,17 +2,34 @@
 //! back**: serials (`GET_STRING_ATTRIBUTE`), read-only attributes (`GET_ATTRIBUTES_VALUES`), and a
 //! few settings (`GET_SETTINGS_VALUES`). Safe reads only, no writes.
 //!
-//! Attributes are requested via the [`ControllerAttributes`] enum; settings are `const` ids (per the
-//! protocol.rs "grouped consts" rule — there is no settings *enum*), so they're labelled by name.
-//! HW-verified on Gordon (dongle). The dongle's feature endpoint is flaky under back-to-back I/O, so
-//! the getters re-send + settle + validate each reply (see `Device::get_roundtrip`).
+//! Attributes and settings are both `const` ids (per the protocol.rs const-vs-enum rule — inbound /
+//! dispatched-on tags are consts, not enums), so they're labelled by name against a local `(name, id)`
+//! table. HW-verified on Gordon (dongle). The dongle's feature endpoint is flaky under back-to-back
+//! I/O, so the getters re-send + settle + validate each reply (see `Device::get_roundtrip`).
 //!
 //! Gordon-focused; **USB only** (dongle/wired). `--wired`/`--dongle` pick the transport. Run:
 //!   `cargo run -p steam-hid --example getters -- [--dongle]`
 
 mod common;
 
-use steam_hid::{ControllerAttributes, ControllerStringAttributes, Manager, Result};
+use steam_hid::{ControllerStringAttributes, Manager, Result};
+
+/// Read-only attribute tags — `(name, id)` from `protocol::attribute` (a private const module, so
+/// spelled out). `GET_ATTRIBUTES_VALUES` returns the full set; this names each tag that comes back.
+const ATTRIBUTES: [(&str, u8); 12] = [
+    ("UniqueId", 0),
+    ("ProductId", 1),
+    ("Capabilities", 2),
+    ("FirmwareVersion", 3),
+    ("FirmwareBuildTime", 4),
+    ("RadioFirmwareBuildTime", 5),
+    ("RadioDeviceId0", 6),
+    ("RadioDeviceId1", 7),
+    ("DongleFirmwareBuildTime", 8),
+    ("BoardRevision", 9),
+    ("BootloaderBuildTime", 10),
+    ("ConnectionIntervalInUs", 11),
+];
 
 /// Settings to request — `(name, id)` from `protocol::setting` (a private const module, so spelled
 /// out): 45 LED_USER_BRIGHTNESS, 48 IMU_MODE, 50 SLEEP_INACTIVITY_TIMEOUT, 71 STEAM_WATCHDOG_ENABLE.
@@ -43,8 +60,8 @@ fn main() -> Result<()> {
     match device.get_attributes() {
         Ok(attrs) => {
             for (tag, value) in attrs {
-                match ControllerAttributes::from_tag(tag) {
-                    Some(a) => println!("  {a:?} = {value:#010x} ({value})"),
+                match ATTRIBUTES.iter().find(|&&(_, id)| id == tag).map(|&(name, _)| name) {
+                    Some(name) => println!("  {name} ({tag}) = {value:#010x} ({value})"),
                     None => println!("  tag {tag} = {value:#010x} ({value})"),
                 }
             }

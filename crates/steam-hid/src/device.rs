@@ -10,7 +10,7 @@ use crate::command::{HapticPulse, HapticStyle, Motor};
 use crate::error::{Error, Result};
 use crate::event::Events;
 use crate::protocol::{
-    self, Cmd, ControllerStringAttributes, GyroMode, HapticIntensity, HapticType, TrackpadDPadMode,
+    self, ControllerStringAttributes, GyroMode, HapticIntensity, HapticType, MsgId, TrackpadDPadMode,
     TritonOutReport, Wire, setting,
 };
 use crate::report::{self, RawReport};
@@ -350,7 +350,7 @@ impl Device {
         // Gordon dongle only — this is the original receiver's wireless-state command; the Triton
         // puck streams state by default when a controller is present, so it needs no prompt.
         if matches!(dev.info.transport, Transport::UsbDongle) && !dev.info.kind.is_triton() {
-            let _ = dev.feature(Cmd::DongleGetWirelessState, &[]);
+            let _ = dev.feature(MsgId::DongleGetWirelessState, &[]);
         }
         Ok(dev)
     }
@@ -529,10 +529,10 @@ impl Device {
     /// cadence lives in the owner's read loop, alongside its other device writes.
     pub fn set_lizard_mode(&mut self, on: bool) -> Result<()> {
         if on {
-            self.feature(Cmd::SetDefaultDigitalMappings, &[])?;
-            self.feature(Cmd::LoadDefaultSettings, &[])?;
+            self.feature(MsgId::SetDefaultDigitalMappings, &[])?;
+            self.feature(MsgId::LoadDefaultSettings, &[])?;
         } else {
-            self.feature(Cmd::ClearDigitalMappings, &[])?;
+            self.feature(MsgId::ClearDigitalMappings, &[])?;
             self.set_settings(&[
                 (setting::LEFT_TRACKPAD_MODE, TrackpadDPadMode::None as u16),
                 (setting::RIGHT_TRACKPAD_MODE, TrackpadDPadMode::None as u16),
@@ -591,7 +591,7 @@ impl Device {
             count: params.count,
             gain: params.gain,
         };
-        self.feature(Cmd::TriggerHapticPulse, msg.as_bytes())
+        self.feature(MsgId::TriggerHapticPulse, msg.as_bytes())
     }
 
     /// Drive the Deck's dual haptic motors — **rumble** (`0xeb` `TRIGGER_RUMBLE_CMD`), kernel
@@ -633,7 +633,7 @@ impl Device {
             left_gain,
             right_gain,
         };
-        self.feature(Cmd::TriggerRumbleCmd, msg.as_bytes())
+        self.feature(MsgId::TriggerRumbleCmd, msg.as_bytes())
     }
 
     /// Fire the Deck's `0xEA` `SET_HAPTIC2` — a short, finely-tuned trackpad **click** haptic (much
@@ -665,7 +665,7 @@ impl Device {
             dbgain: gain,
             ..Default::default()
         };
-        self.feature(Cmd::TriggerHapticCmd, msg.as_bytes())
+        self.feature(MsgId::TriggerHapticCmd, msg.as_bytes())
     }
 
     /// Drive Triton's dual-motor **continuous rumble** — output report `0x80` (`HapticRumble`,
@@ -722,7 +722,7 @@ impl Device {
 
     /// Power the controller off.
     pub fn power_off(&mut self) -> Result<()> {
-        self.feature(Cmd::TurnOffController, b"off!")
+        self.feature(MsgId::TurnOffController, b"off!")
     }
 
     // --- reads / queries (GET round-trips; **HW-UNTESTED** — probe with the `getters` example) ---
@@ -738,7 +738,7 @@ impl Device {
         // value[20] }`; `len` = the reply header's body length (tag + value = 21, HW-observed), an
         // upper bound only — the string itself is NUL-terminated, so we cut `value` at the first NUL.
         let (body, len) = self.get_roundtrip(
-            Cmd::GetStringAttribute,
+            MsgId::GetStringAttribute,
             0x16, // requested max response length (kernel `steam_get_serial`)
             &[tag],
             |_len, body| body.first() == Some(&tag) && body.get(1).is_some_and(|&b| b != 0),
@@ -753,11 +753,11 @@ impl Device {
 
     /// Read the controller's read-only attributes via `GET_ATTRIBUTES_VALUES` (`0x83`) — the **full**
     /// list of `(tag, value)` (SDL sends a bare `[0x83]`; the firmware returns all — there's no
-    /// per-tag request). `tag` is a [`protocol::ControllerAttributes`] (name it via
-    /// [`protocol::ControllerAttributes::from_tag`]), `value` a `u32`. **USB only.**
+    /// per-tag request). `tag` is a raw byte (name it against the `protocol::attribute` const ids),
+    /// `value` a `u32`. **USB only.**
     pub fn get_attributes(&mut self) -> Result<Vec<(u8, u32)>> {
         let (data, len) = self.get_roundtrip(
-            Cmd::GetAttributesValues,
+            MsgId::GetAttributesValues,
             0, // no request payload — returns the full set
             &[],
             |len, _| len > 0, // non-empty attribute list
@@ -783,7 +783,7 @@ impl Device {
             );
         }
         let (data, len) =
-            self.get_roundtrip(Cmd::GetSettingsValues, entries.len() as u8, &entries, |_, _| true)?;
+            self.get_roundtrip(MsgId::GetSettingsValues, entries.len() as u8, &entries, |_, _| true)?;
         Ok(data[..len]
             .as_chunks::<3>() // ControllerSetting = {id:u8, value:u16}
             .0
@@ -827,7 +827,7 @@ impl Device {
     // --- command helpers ---
 
     /// Build `[FeatureReportHeader, payload…]` and send it framed.
-    fn feature(&mut self, cmd: Cmd, payload: &[u8]) -> Result<()> {
+    fn feature(&mut self, cmd: MsgId, payload: &[u8]) -> Result<()> {
         let header = protocol::FeatureReportHeader { cmd: cmd as u8, length: payload.len() as u8 };
         let mut bytes = Vec::with_capacity(2 + payload.len());
         bytes.extend_from_slice(header.as_bytes());
@@ -842,7 +842,7 @@ impl Device {
         for &(setting_num, value) in pairs {
             payload.extend_from_slice(protocol::ControllerSetting { setting_num, value }.as_bytes());
         }
-        self.feature(Cmd::SetSettingsValues, &payload)
+        self.feature(MsgId::SetSettingsValues, &payload)
     }
 
     /// Write a GET request (`request[0]` = command id) and read the reply, retrying a few times (the
@@ -853,7 +853,7 @@ impl Device {
     /// available. `valid(len, body)` gates acceptance (rejects stale/other-report replies).
     fn get_roundtrip(
         &mut self,
-        cmd: Cmd,
+        cmd: MsgId,
         length: u8,
         payload: &[u8],
         valid: impl Fn(usize, &[u8]) -> bool,
@@ -1036,10 +1036,10 @@ mod tests {
 
     #[test]
     fn frame_prepends_report_id_and_pads_to_64() {
-        let f = frame(&[Cmd::SetSettingsValues as u8, 0x02, 0xAA], protocol::REPORT_ID, 1 + protocol::REPORT_LEN);
+        let f = frame(&[MsgId::SetSettingsValues as u8, 0x02, 0xAA], protocol::REPORT_ID, 1 + protocol::REPORT_LEN);
         assert_eq!(f.len(), 1 + protocol::REPORT_LEN);
         assert_eq!(f[0], protocol::REPORT_ID);
-        assert_eq!(&f[1..4], &[Cmd::SetSettingsValues as u8, 0x02, 0xAA]);
+        assert_eq!(&f[1..4], &[MsgId::SetSettingsValues as u8, 0x02, 0xAA]);
         assert!(f[4..].iter().all(|&x| x == 0));
     }
 

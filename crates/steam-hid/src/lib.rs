@@ -31,8 +31,8 @@ mod value;
 pub use buttons::{Axis, Button, Buttons, GordonButtons, NeptuneButtons, TritonButtons, button_flag};
 pub use command::{HapticPulse, HapticStyle, Motor};
 pub use protocol::{
-    ACCEL_RES_PER_G, ControllerAttributes, ControllerStringAttributes, GYRO_RES_PER_DPS, GyroMode,
-    HapticIntensity, HapticType,
+    ACCEL_RES_PER_G, ControllerStringAttributes, GYRO_RES_PER_DPS, GyroMode, HapticIntensity,
+    HapticType,
 };
 pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, Manager, Transport};
 pub use error::{Error, Result};
