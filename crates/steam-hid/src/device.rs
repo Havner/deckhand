@@ -824,6 +824,70 @@ impl Device {
         self.feature(MsgId::TriggerHapticCmd, msg.as_bytes())
     }
 
+    /// Fire a firmware-synthesized **tone** via `0xEA` (`cmd = Tone`): a clean `freq`-Hz tone held for
+    /// `dur_ms`, scaled by `gain` (dB). The Deck's audible-beep path — unlike the `0x8f` pulse (a
+    /// hand-timed square wave that collapses toward the LRA resonance so only ~5-6 pitches come
+    /// through), the firmware tracks pitch cleanly from ~200 Hz up to a ~2 kHz ceiling (higher is
+    /// silent). `ui_intensity` is HW-inert for a tone, so `gain` is the only amplitude lever (`0` is
+    /// very quiet; ~8 dB is a usable level).
+    ///
+    /// `lfo_freq`/`lfo_depth` add a low-frequency-oscillator modulation on top of the carrier
+    /// (`lfo_depth = 0` = a plain unmodulated tone; nonzero = a tremolo/textured tone). These are the
+    /// same fields Triton exposes as its own [`Self::lfo_tone_triton`] (`0x83`) report. **HW-tested:**
+    /// the LFO does make an audible difference on a Tone, but subtly and not yet as a predictable lever
+    /// (how to drive it consistently is unclear); `lfo_freq` is a `u16` whose character keeps shifting
+    /// above ~64.
+    ///
+    /// **Deck-only** (`0xEA` no-ops on Gordon — use [`Self::haptic_pulse`] there). Same
+    /// [`HapticSide`] `0/1/2` convention as [`Self::haptic_cmd`]; see also [`Self::haptic_logsweep`].
+    pub fn haptic_tone(
+        &mut self,
+        side: HapticSide,
+        freq: u16,
+        dur_ms: i16,
+        gain: i8,
+        lfo_freq: u16,
+        lfo_depth: u8,
+    ) -> Result<()> {
+        let msg = protocol::MsgTriggerHaptic {
+            side: side as u8,
+            cmd: HapticType::Tone as u8,
+            dbgain: gain,
+            freq,
+            dur_ms,
+            lfo_freq,
+            lfo_depth,
+            ..Default::default()
+        };
+        self.feature(MsgId::TriggerHapticCmd, msg.as_bytes())
+    }
+
+    /// Fire a firmware **log-frequency sweep** (chirp) via `0xEA` (`cmd = LogSweep`): glide from
+    /// `start` to `end` Hz over `dur_ms`, scaled by `gain` (dB). A rising/falling glide reads as a
+    /// distinct "enter"/"exit" cue and is the nicest-feeling `0xEA` feedback (HW-verified on the Deck).
+    ///
+    /// **Deck-only** (no-ops on Gordon). Same [`HapticSide`] convention as [`Self::haptic_cmd`]; the
+    /// single-pitch counterpart is [`Self::haptic_tone`].
+    pub fn haptic_logsweep(
+        &mut self,
+        side: HapticSide,
+        start: u16,
+        end: u16,
+        dur_ms: i16,
+        gain: i8,
+    ) -> Result<()> {
+        let msg = protocol::MsgTriggerHaptic {
+            side: side as u8,
+            cmd: HapticType::LogSweep as u8,
+            dbgain: gain,
+            dur_ms,
+            lss_start_freq: start,
+            lss_end_freq: end,
+            ..Default::default()
+        };
+        self.feature(MsgId::TriggerHapticCmd, msg.as_bytes())
+    }
+
     /// Drive the Deck's dual haptic motors — **rumble** (`0xeb` `TRIGGER_RUMBLE_CMD`), kernel
     /// 9-byte form.
     ///
@@ -920,6 +984,55 @@ impl Device {
             gain_db: amplitude as i8,
         };
         self.output(TritonOutReport::Command, msg.as_bytes())
+    }
+
+    /// Fire a Triton **LFO tone** — output report `0x83` (`HapticLfoTone`): a firmware-synthesized
+    /// tone at `freq` Hz for `dur_ms`, scaled by `gain` (dB), with an optional low-frequency-oscillator
+    /// modulation (`lfo_freq` Hz = rate, `lfo_depth` = amount; `lfo_depth = 0` = a plain unmodulated
+    /// tone). Triton's counterpart to the Deck's `0xEA` `cmd = Tone` [`Self::haptic_tone`] — the
+    /// promising Triton audio path, and the one primitive that carries the LFO as a first-class report.
+    /// **Triton-only; HW-tested:** the tone works (pitch tracks up to a ~1.9 kHz ceiling; 2 kHz+ is
+    /// silent or repeats lower pitches), and the LFO makes an audible difference — subtly, not yet a
+    /// predictable lever (as on the Deck's [`Self::haptic_tone`]).
+    pub fn lfo_tone_triton(
+        &mut self,
+        side: HapticSide,
+        freq: u16,
+        dur_ms: u16,
+        gain: i8,
+        lfo_freq: u16,
+        lfo_depth: u8,
+    ) -> Result<()> {
+        let msg = protocol::MsgHapticLfoTone {
+            side: side as u8,
+            gain_db: gain,
+            frequency: freq,
+            duration_ms: dur_ms,
+            lfo_freq,
+            lfo_depth,
+        };
+        self.output(TritonOutReport::LfoTone, msg.as_bytes())
+    }
+
+    /// Fire a Triton **log-frequency sweep** (chirp) — output report `0x84` (`HapticLogSweep`): glide
+    /// `start`→`end` Hz over `dur_ms`, scaled by `gain` (dB). Triton's counterpart to the Deck's `0xEA`
+    /// `cmd = LogSweep` [`Self::haptic_logsweep`]. **Triton-only; HW-tested** — glides cleanly.
+    pub fn logsweep_triton(
+        &mut self,
+        side: HapticSide,
+        start: u16,
+        end: u16,
+        dur_ms: u16,
+        gain: i8,
+    ) -> Result<()> {
+        let msg = protocol::MsgHapticLogSweep {
+            side: side as u8,
+            gain_db: gain,
+            duration_ms: dur_ms,
+            start_freq: start,
+            end_freq: end,
+        };
+        self.output(TritonOutReport::LogSweep, msg.as_bytes())
     }
 }
 

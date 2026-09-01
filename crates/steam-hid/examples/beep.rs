@@ -1,35 +1,34 @@
 //! `beep` — audible feedback tones on the **haptic actuator** (`TRIGGER_HAPTIC_PULSE`, `0x8f`).
 //!
-//! The original Steam Controller (Gordon) has **no speaker** — its startup jingle, pairing chirps
-//! and mode-switch beeps are all played on the trackpad voice coils. Driven at an audio frequency
-//! the actuator *is* the speaker. This replaces the abandoned `PLAY_AUDIO` (`0xB6`) probe: `0xB6`
-//! only ever plays firmware preset *slots* that stay empty until Steam uploads a blob over
-//! `0xB7`–`0xB9`+`0xC1` (a format no reference documents), whereas a plain haptic pulse needs no
-//! upload and works on demand.
+//! The Gordon-side counterpart to `beep-neptune` (which drives the Deck's firmware-synthesized
+//! `0xEA`). The original Steam Controller (Gordon) has **no speaker** — its startup jingle, pairing
+//! chirps and mode-switch beeps are all played on the trackpad voice coils. Driven at an audio
+//! frequency the actuator *is* the speaker, and Gordon's broadband voice coils reproduce arbitrary
+//! tones faithfully. This route also runs on the Deck, but there the **LRAs are resonant (~1.5–2 kHz)**
+//! so off-resonance pitch collapses/rings down (that's the whole reason `beep-neptune`/`0xEA` exists).
 //!
 //! **Mechanism:** with `duration == interval` the pulse is a 50%-duty square wave at
-//! `f = 1_000_000 / (duration + interval)` Hz, lasting `count` cycles (so `count ≈ f·ms/1000`). A
-//! sound is fully defined by **frequency + duration + which actuator** (amplitude is pinned: fixed
-//! 50% duty, `gain = 0`, which Gordon ignores anyway — revisit later). Every mode fires **both**
-//! actuators (left == right in testing).
+//! `f = 1_000_000 / (duration + interval)` Hz, lasting `count` cycles (so `count ≈ f·ms/1000`).
+//! Amplitude is the **duty cycle** on Gordon (`gain` ignored there; honored on the Deck). Every tone
+//! fires **both** actuators (Gordon no-ops `pad=2`, so we fire left and right separately).
 //!
-//! **Device caveat:** Gordon's broadband voice coils reproduce arbitrary tones faithfully. The
-//! **Deck's LRAs are resonant (~1.5–2 kHz)** — off-resonance frequencies collapse toward the
-//! resonance and ring down, so pitch is unreliable there (that's what `fine`/`ringdown` explore).
-//!
-//! Gordon-focused. `--wired`/`--dongle` pick the transport. Verification is behavioral — you *hear*
-//! it. Run:
-//!   `cargo run -p steam-hid --example beep -- [--dongle]`             replay the kernel's mode-switch notes
-//!   `cargo run -p steam-hid --example beep -- [--dongle] click`       compare candidate feedback beeps
-//!   `cargo run -p steam-hid --example beep -- [--dongle] sweep`       sweep 400..3000 Hz, hear each
-//!   `cargo run -p steam-hid --example beep -- [--dongle] fine`        fine sweep 800..2200 Hz (find LRA resonance)
-//!   `cargo run -p steam-hid --example beep -- [--dongle] ringdown`    fixed pitch × rising duration + above-resonance tail
-//!   `cargo run -p steam-hid --example beep -- [--dongle] pattern`     candidate feedback patterns (pitch × count × length × gap)
-//!   `cargo run -p steam-hid --example beep -- [--dongle] duty`        volume via duty cycle (Gordon's lever)
-//!   `cargo run -p steam-hid --example beep -- [--dongle] gain`        volume via gain dB (Deck's lever)
-//!   `cargo run -p steam-hid --example beep -- [--dongle] note 1500`   one tone (Hz [, ms])
-//!   `cargo run -p steam-hid --example beep -- [--dongle] melody`      a short tune (notes work!)
-//! Ctrl-C to stop a sweep early.
+//! The command set is **kept parallel with `beep-neptune`**: the shared tone modes come first in the
+//! same order and with the same names; the `0x8f`-only probes/levers come at the end. Run:
+//!   `cargo run -p steam-hid --example beep -- [--dongle] [MODE]`
+//! Shared modes (same in `beep-neptune`; the first three are the practical feedback uses):
+//!   kernel            replay the kernel's mode-switch notes (default)
+//!   pattern           candidate feedback patterns (pitch × count × length × gap)
+//!   feedback          candidate single feedback beeps (short/distinct)
+//!   note <hz> [ms]    one tone (default 1500 Hz, 200 ms)
+//!   sweep             frequency sweep — hear which tones come through
+//!   fine              fine sweep 500..3000 Hz (find the LRA resonance on the Deck)
+//!   gain              volume via gain dB (Deck's lever; Gordon ignores it)
+//!   melody            a short tune (C-E-G-C) — proof of pitch
+//!   vader             the Imperial March
+//! `0x8f`-only modes (Gordon's route):
+//!   duty              volume via duty cycle (Gordon's amplitude lever)
+//!   ringdown          fixed pitch × rising duration, and above-resonance ring-down tail
+//! `--wired`/`--dongle` pick the transport. Ctrl-C to stop a sweep early.
 
 mod common;
 
@@ -37,6 +36,12 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use steam_hid::{Device, HapticPosition, HapticPulse, Result};
+
+/// Frequency-sweep points shared with `beep-neptune`'s `sweep` (kept identical for A/B). Spans the
+/// Deck LRA band and beyond so you hear where each device falls off.
+const SWEEP_FREQS: [u32; 9] = [400, 600, 800, 1000, 1250, 1500, 1800, 2200, 3000];
+/// dB-gain sweep points shared with `beep-neptune`'s `gain`.
+const GAINS: [i8; 9] = [-16, -12, -8, -4, 0, 4, 8, 12, 16];
 
 /// Play a square-wave tone of `freq_hz` for `ms` on one actuator (`duration == interval` = 50 % duty;
 /// `count` = number of cycles ≈ `freq·ms/1000`). Gordon ignores gain, so it stays 0.
@@ -80,11 +85,14 @@ fn pulse_both(dev: &mut Device, freq_hz: u32, ms: u32, duty_pct: u32, gain: i8) 
 /// Play a sequence of `(freq_hz, ms)` notes on both actuators, separated by `gap_ms` of silence.
 /// Since `tone_both` fires the pulse and returns (it plays out on the device), we sleep each note's
 /// own duration before the next so the notes don't overlap.
-fn play_pattern(dev: &mut Device, steps: &[(u32, u32)], gap_ms: u64) -> Result<()> {
-    for (hz, ms) in steps {
+fn play_tune(dev: &mut Device, running: &common::Running, steps: &[(u32, u32)], gap_ms: u64) -> Result<()> {
+    for &(hz, ms) in steps {
+        if !running.alive() {
+            break;
+        }
         keep_lizard_off(dev);
-        tone_both(dev, *hz, *ms)?;
-        sleep(Duration::from_millis(*ms as u64 + gap_ms));
+        tone_both(dev, hz, ms)?;
+        sleep(Duration::from_millis(ms as u64 + gap_ms));
     }
     Ok(())
 }
@@ -104,13 +112,13 @@ fn main() -> Result<()> {
     let running = common::install_ctrlc();
 
     match positional.first().map(String::as_str) {
+        // === shared modes (mirror beep-neptune, same order/names) ===
+
         // Replay the LINUX `hid-steam` KERNEL driver's mode-switch beep as pure tones: its "on" note
-        // (1502 Hz) then its "off" note (1000 Hz), straight from `steam_do_deck_input`. This is the
-        // *kernel's* sound when it toggles gamepad/desktop (lizard) mode — a known-exact, reference-
-        // backed example of the haptic-tone mechanism. It is NOT (necessarily) what Steam the app
-        // plays on a layer change; we have no reference for Steam's actual notes, only that any such
-        // click must ride the haptics (the SC has no speaker). (The kernel also prepends a single-
-        // pulse ack *haptic* tick — a felt click, not audio — which lives in the `haptic` example.)
+        // (1502 Hz) then its "off" note (1000 Hz), straight from `steam_do_deck_input`. A known-exact,
+        // reference-backed example of the haptic-tone mechanism (the kernel's sound when it toggles
+        // gamepad/desktop mode). NOT necessarily what Steam plays on a layer change — we have no
+        // reference for that, only that any such click must ride the haptics (the SC has no speaker).
         None | Some("kernel") => {
             println!("kernel mode-switch notes: [1502Hz 'on']  …  [1000Hz 'off']");
             tone_both(&mut device, 1502, 30)?;
@@ -118,8 +126,32 @@ fn main() -> Result<()> {
             tone_both(&mut device, 1000, 30)?;
             sleep(Duration::from_millis(400));
         }
-        // Candidate feedback beeps to pick from for on-demand audible feedback. Short and distinct.
-        Some("click") => {
+        // Candidate feedback PATTERNS built from the portable levers (pitch level × count × length ×
+        // gap). The real question isn't "can I hear a pitch" but "can I tell these apart" — on the
+        // Deck especially, where pitch is coarse. Judge mutual distinguishability; the labels are just
+        // a strawman command mapping.
+        Some("pattern") => {
+            type Pat = (&'static str, &'static [(u32, u32)], u64); // label, notes, gap_ms
+            let patterns: [Pat; 6] = [
+                ("1 short  high        (add-layer?)",    &[(1500, 30)], 0),
+                ("1 long   high        (change-set?)",   &[(1500, 160)], 0),
+                ("2 short  high        (remove-layer?)", &[(1500, 30), (1500, 30)], 70),
+                ("3 short  high",                        &[(1500, 25), (1500, 25), (1500, 25)], 60),
+                ("low->high rising     (enter?)",        &[(600, 60), (1500, 60)], 40),
+                ("high->low falling    (exit?)",         &[(1500, 60), (600, 60)], 40),
+            ];
+            println!("candidate feedback patterns (~1s apart) — judge whether they're distinguishable:");
+            for (label, steps, gap) in patterns {
+                if !running.alive() {
+                    break;
+                }
+                println!("  {label}");
+                play_tune(&mut device, &running, steps, gap)?;
+                sleep(Duration::from_millis(1000));
+            }
+        }
+        // Candidate single feedback beeps to pick from for on-demand audible feedback. Short/distinct.
+        Some("feedback") => {
             let candidates: [(&str, u32, u32); 3] = [
                 ("A low  beep  (1000Hz, 25ms)", 1000, 25),
                 ("B mid  beep  (1500Hz, 25ms)", 1500, 25),
@@ -136,11 +168,18 @@ fn main() -> Result<()> {
                 sleep(Duration::from_millis(800));
             }
         }
-        // Sweep frequencies so you can hear which tones come through cleanly (and which just buzz).
+        // Play a single tone: `note <freq_hz> [ms]` (default 1500 Hz, 200 ms).
+        Some("note") => {
+            let hz: u32 = positional.get(1).and_then(|s| s.parse().ok()).unwrap_or(1500);
+            let ms: u32 = positional.get(2).and_then(|s| s.parse().ok()).unwrap_or(200);
+            println!("note {hz} Hz for {ms} ms");
+            tone_both(&mut device, hz, ms)?;
+            sleep(Duration::from_millis(ms as u64 + 200));
+        }
+        // Frequency sweep so you can hear which tones come through cleanly (and which just buzz).
         Some("sweep") => {
-            const FREQS: [u32; 9] = [400, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000];
             println!("frequency sweep (~40ms each, ~0.8s apart). Ctrl-C to stop.");
-            for hz in FREQS {
+            for hz in SWEEP_FREQS {
                 if !running.alive() {
                     break;
                 }
@@ -154,15 +193,61 @@ fn main() -> Result<()> {
         // the only frequencies worth using there. 800..=2200 Hz in 100 Hz steps. On Gordon this is
         // just a smooth chromatic rise (broadband voice coil); on the Deck listen for where it peaks.
         Some("fine") => {
-            println!("fine sweep 800..=2200 Hz, 100 Hz steps (~40ms each). Find the resonance peak.");
-            for hz in (800..=2200).step_by(100) {
+            println!("fine sweep 500..=3000 Hz, 100 Hz steps (~40ms each). Find the resonance peak.");
+            for hz in (500..=3000).step_by(100) {
                 if !running.alive() {
                     break;
                 }
                 println!("  {hz:>4} Hz");
                 keep_lizard_off(&mut device);
-                tone_both(&mut device, hz, 40)?;
+                tone_both(&mut device, hz as u32, 40)?;
                 sleep(Duration::from_millis(700));
+            }
+        }
+        // VOLUME via GAIN (dB). Fixed 1500 Hz + 50% duty, vary the `0x8f` gain byte. Honored on the
+        // Deck (louder as it rises), ignored on Gordon (no change — that's the expected result there).
+        Some("gain") => {
+            const HZ: u32 = 1500;
+            const MS: u32 = 150;
+            println!("volume via GAIN dB @ {HZ}Hz, {MS}ms, 50% duty (Deck's lever; Gordon ignores it):");
+            for gain in GAINS {
+                if !running.alive() {
+                    break;
+                }
+                println!("  gain {gain:>3} dB");
+                keep_lizard_off(&mut device);
+                pulse_both(&mut device, HZ, MS, 50, gain)?;
+                sleep(Duration::from_millis(800));
+            }
+        }
+        // A short tune — proof the actuator renders arbitrary notes, not just a buzz. C-E-G-C octave.
+        Some("melody") => {
+            println!("melody (C5 E5 G5 C6)…");
+            play_tune(&mut device, &running, common::MELODY, 40)?;
+        }
+        // The Imperial March — a longer recognizable tune (shared note table with beep-neptune).
+        Some("vader") => {
+            println!("the Imperial March…");
+            play_tune(&mut device, &running, common::VADER, 40)?;
+        }
+
+        // === 0x8f-only modes (Gordon's amplitude/ring-down levers) ===
+
+        // VOLUME via DUTY CYCLE (Gordon's lever). Fixed 1500 Hz + fixed length, vary the high-time
+        // fraction of the period. On Gordon amplitude ≈ duty (gain is ignored), useful ~1–25% then it
+        // saturates; here we also see whether duty changes anything on the Deck's LRA.
+        Some("duty") => {
+            const HZ: u32 = 1500;
+            const MS: u32 = 150;
+            println!("volume via DUTY CYCLE @ {HZ}Hz, {MS}ms (Gordon's lever; gain=0):");
+            for duty in [2u32, 5, 10, 15, 20, 25, 35, 50] {
+                if !running.alive() {
+                    break;
+                }
+                println!("  duty {duty:>2}%");
+                keep_lizard_off(&mut device);
+                pulse_both(&mut device, HZ, MS, duty, 0)?;
+                sleep(Duration::from_millis(800));
             }
         }
         // Ring-down test. Part 1: a fixed near-resonance pitch at rising durations — hear whether
@@ -192,86 +277,10 @@ fn main() -> Result<()> {
                 sleep(Duration::from_millis(700));
             }
         }
-        // VOLUME via DUTY CYCLE (Gordon's lever). Fixed 1500 Hz + fixed length, vary the high-time
-        // fraction of the period. On Gordon amplitude ≈ duty (gain is ignored), useful ~1–25% then it
-        // saturates; here we also see whether duty changes anything on the Deck's LRA.
-        Some("duty") => {
-            const HZ: u32 = 1500;
-            const MS: u32 = 150;
-            println!("volume via DUTY CYCLE @ {HZ}Hz, {MS}ms (Gordon's lever; gain=0):");
-            for duty in [2u32, 5, 10, 15, 20, 25, 35, 50] {
-                if !running.alive() {
-                    break;
-                }
-                println!("  duty {duty:>2}%");
-                keep_lizard_off(&mut device);
-                pulse_both(&mut device, HZ, MS, duty, 0)?;
-                sleep(Duration::from_millis(800));
-            }
-        }
-        // VOLUME via GAIN (dB). Fixed 1500 Hz + 50% duty, vary the `0x8f` gain byte. Honored on the
-        // Deck (louder as it rises), ignored on Gordon (no change — that's the expected result there).
-        Some("gain") => {
-            const HZ: u32 = 1500;
-            const MS: u32 = 150;
-            println!("volume via GAIN dB @ {HZ}Hz, {MS}ms, 50% duty (Deck's lever; Gordon ignores it):");
-            for gain in [-8i8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16] {
-                if !running.alive() {
-                    break;
-                }
-                println!("  gain {gain:>3} dB");
-                keep_lizard_off(&mut device);
-                pulse_both(&mut device, HZ, MS, 50, gain)?;
-                sleep(Duration::from_millis(800));
-            }
-        }
-        // Candidate feedback PATTERNS built from the portable levers (pitch level × count × length ×
-        // gap). The real question isn't "can I hear a pitch" but "can I tell these apart" — on the
-        // Deck especially, where pitch is coarse (~2 usable levels here: low ~600, high ~1500). Judge
-        // mutual distinguishability; the labels are just a strawman command mapping.
-        Some("pattern") => {
-            let patterns: [(&str, &[(u32, u32)], u64); 6] = [
-                ("1 short  high        (add-layer?)",    &[(1500, 30)], 0),
-                ("1 long   high        (change-set?)",   &[(1500, 160)], 0),
-                ("2 short  high        (remove-layer?)", &[(1500, 30), (1500, 30)], 70),
-                ("3 short  high",                        &[(1500, 25), (1500, 25), (1500, 25)], 60),
-                ("low->high rising     (enter?)",        &[(600, 60), (1500, 60)], 40),
-                ("high->low falling    (exit?)",         &[(1500, 60), (600, 60)], 40),
-            ];
-            println!("candidate feedback patterns (~1s apart) — judge whether they're distinguishable:");
-            for (label, steps, gap) in patterns {
-                if !running.alive() {
-                    break;
-                }
-                println!("  {label}");
-                play_pattern(&mut device, steps, gap)?;
-                sleep(Duration::from_millis(1000));
-            }
-        }
-        // Play a single tone: `note <freq_hz> [ms]` (default 200ms).
-        Some("note") => {
-            let hz: u32 = positional.get(1).and_then(|s| s.parse().ok()).unwrap_or(1500);
-            let ms: u32 = positional.get(2).and_then(|s| s.parse().ok()).unwrap_or(200);
-            println!("note {hz} Hz for {ms} ms");
-            tone_both(&mut device, hz, ms)?;
-            sleep(Duration::from_millis(ms as u64 + 200));
-        }
-        // A short tune — proof the actuator renders arbitrary notes, not just a buzz. C-E-G-C octave.
-        Some("melody") => {
-            const NOTES: [(u32, u32); 4] = [(523, 180), (659, 180), (784, 180), (1047, 300)];
-            println!("melody (C5 E5 G5 C6)…");
-            for (hz, ms) in NOTES {
-                if !running.alive() {
-                    break;
-                }
-                keep_lizard_off(&mut device);
-                tone_both(&mut device, hz, ms)?;
-                sleep(Duration::from_millis(ms as u64 + 40));
-            }
-        }
         Some(other) => {
             println!(
-                "unknown mode {other:?} — use: kernel | click | sweep | fine | ringdown | pattern | duty | gain | note <hz> [ms] | melody"
+                "unknown mode {other:?} — use: kernel | pattern | feedback | note <hz> [ms] | \
+                 sweep | fine | gain | melody | vader | duty | ringdown"
             );
         }
     }

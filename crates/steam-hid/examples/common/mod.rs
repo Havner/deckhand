@@ -10,6 +10,22 @@ use std::time::Duration;
 
 use steam_hid::{Device, DeviceInfo, Manager, Report, Result, Transport};
 
+/// Shared note tables for the `beep` / `beep-neptune` tune modes as `(freq_hz, ms)`. The notes are
+/// device-independent (only the *player* differs: Gordon's `0x8f` pulse vs the Deck's `0xEA` Tone),
+/// so both examples read the same tables — keeping `melody`/`vader` identical across them.
+///
+/// `MELODY`: a plain C-major arpeggio (C5 E5 G5 C6) — the proof-of-pitch tune.
+pub const MELODY: &[(u32, u32)] = &[(523, 180), (659, 180), (784, 180), (1047, 300)];
+
+/// `VADER`: the *Imperial March* opening (two phrases). All notes sit in ~310–620 Hz, well inside
+/// both the Gordon voice coil's range and the Deck LRA's usable Tone band.
+pub const VADER: &[(u32, u32)] = &[
+    // G4 G4 G4  Eb4. Bb4  G4  Eb4. Bb4  G4~
+    (392, 350), (392, 350), (392, 350), (311, 250), (466, 120), (392, 350), (311, 250), (466, 120), (392, 700),
+    // D5 D5 D5  Eb5. Bb4  Gb4 Eb4. Bb4  G4~
+    (587, 350), (587, 350), (587, 350), (622, 250), (466, 120), (370, 350), (311, 250), (466, 120), (392, 700),
+];
+
 /// Ctrl-C run flag returned by [`install_ctrlc`]. [`alive`](Running::alive) is `true`
 /// until the first Ctrl-C; loop examples run `while running.alive()`.
 pub struct Running(Arc<AtomicBool>);
