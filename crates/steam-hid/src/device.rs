@@ -963,6 +963,27 @@ impl Device {
         self.output(TritonOutReport::Rumble, msg.as_bytes())
     }
 
+    /// Fire a Triton trackpad **pulse** — output report `0x81` (`HapticPulse`): `on_us` high then
+    /// `off_us` low, `repeat_count` times (freq ~= `1e6/(on+off)`). **Triton-only; HW-usable both
+    /// ways.** As a **train** (`repeat_count > 1`) it's a pulse/rumble usable across the whole swept
+    /// range — a narrow band around ~600–700 Hz oscillates oddly (harmless, just odd), the rest behaves
+    /// cleanly; it is NOT a clean *tone* path (`0x83` LfoTone / `0x84` LogSweep are — see `beep-triton`)
+    /// but works well as a rumble. As a **single** pulse (`repeat_count = 1`) it's a discrete **click**
+    /// whose width (`on_us`) sets strength — Gordon-style, finer than the two-step `0x82` click.
+    /// **LEFT/RIGHT are physically swapped** like Gordon's `0x8f` ([`HapticSide::Left`] drives the right
+    /// pad); BOTH works. `off_us` is trailing-only at `repeat_count = 1`. Probed in `haptic-triton`
+    /// (`pulse` train / `clicks-pulse` single).
+    pub fn pulse_triton(
+        &mut self,
+        side: HapticSide,
+        on_us: u16,
+        off_us: u16,
+        repeat_count: u16
+    ) -> Result<()> {
+        let msg = protocol::MsgHapticPulse { side: side as u8, on_us, off_us, repeat_count };
+        self.output(TritonOutReport::Pulse, msg.as_bytes())
+    }
+
     /// Fire a Triton **haptic command / click** — output report `0x82` (`HapticCommand`, 4 bytes):
     /// `[side, style, amplitude]`. `style` is a [`HapticStyle`] (`0` off / `1` weak / `2` strong —
     /// HW: `Weak` is a light click, `Strong` a firm one; this is the **main strength lever**).

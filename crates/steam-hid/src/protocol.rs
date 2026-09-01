@@ -1117,11 +1117,13 @@ const _: () = assert!(core::mem::size_of::<MsgHapticRumble>() == 9);
 
 /// Triton `0x81` trackpad **pulse** body - SDL `MsgHapticPulse` (structurally Gordon's `0x8f` analog).
 /// `on_us`/`off_us` = pulse high/low us, `repeat_count` = pulses. Report id [`TritonOutReport::Pulse`].
-/// **Unused - kept only as a protocol reference. HW: ERRATIC.** Swept as a tone it produced an
-/// unpredictable mix of tones, strange noises, and haptic thumps with no clear frequency relationship
-/// (nothing like Gordon's clean pulse) - some outputs alarming enough to risk the hardware - so the
-/// `pulse_triton` method and its `beep-triton` probe were dropped. The clean Triton beep paths are
-/// `0x83` LfoTone and `0x84` LogSweep instead.
+/// Sent by [`Device::pulse_triton`]. **HW-usable both ways.** As a **train** (`repeat_count > 1`) it
+/// plays a pulse/rumble across the swept frequency range - a narrow band ~600-700 Hz oscillates oddly,
+/// the rest is clean; it is NOT a clean *tone* path (`0x83` LfoTone / `0x84` LogSweep are - see
+/// `beep-triton`), but works well as a rumble. As a **single** pulse (`repeat_count = 1`) it is a
+/// discrete **click** whose width (`on_us`) sets strength - finer than the two-step `0x82` click.
+/// LEFT/RIGHT are physically SWAPPED (as Gordon's `0x8f`); BOTH works. Probed in `haptic-triton`
+/// (`pulse` train / `clicks-pulse` single).
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct MsgHapticPulse {
