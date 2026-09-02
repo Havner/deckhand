@@ -9,7 +9,6 @@ use std::thread::JoinHandle;
 
 use vigem_client::{Client, TargetId, XButtons, XGamepad, XTarget};
 
-use super::ControllerBackend;
 use crate::event::{AxisButtons, Dpad, Rumble};
 use vocab_out::{GamepadAxis, GamepadButton};
 
@@ -55,9 +54,7 @@ impl VigemController {
             GamepadAxis::RightTrigger => self.gamepad.right_trigger = trigger(v),
         }
     }
-}
 
-impl ControllerBackend for VigemController {
     /// Connect to ViGEmBus, plug in a virtual Xbox 360 pad, and start the rumble notification
     /// thread. Fails if the ViGEmBus driver isn't installed/running.
     fn new() -> crate::Result<Self> {
@@ -90,6 +87,7 @@ impl ControllerBackend for VigemController {
         })
     }
 
+    /// Update the pending gamepad report for a button (dpad directions fold into the hat).
     fn set_button(&mut self, b: &GamepadButton, down: bool) {
         if self.dpad.set(b, down) {
             // dpad -> hat bits, folded in at flush
@@ -103,6 +101,7 @@ impl ControllerBackend for VigemController {
         self.dirty = true;
     }
 
+    /// Update the pending gamepad report for an axis (`-1.0..=1.0` sticks, `0.0..=1.0` triggers).
     fn set_axis(&mut self, a: &GamepadAxis, v: f32) {
         // Cache the analog value and write it combined with any held axis-button (which overrides).
         self.axis_buttons.set_analog(a, v);
@@ -111,6 +110,7 @@ impl ControllerBackend for VigemController {
         self.dirty = true;
     }
 
+    /// Submit the pending report to the OS iff anything changed since the last flush.
     fn flush(&mut self) -> crate::Result<()> {
         if !self.dirty {
             return Ok(());

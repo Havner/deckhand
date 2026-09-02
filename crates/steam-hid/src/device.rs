@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use hidapi::HidApi;
 
-use crate::backend::{HidapiDevice, RawHid};
+use crate::backend::HidapiDevice;
 use crate::error::{Error, Result};
 use crate::event::Events;
 use crate::protocol::{
@@ -287,7 +287,7 @@ impl Manager {
     /// Open a specific enumerated device.
     pub fn open(&self, info: &DeviceInfo) -> Result<Device> {
         let dev = self.api.open_path(&info.path)?;
-        Device::new(Box::new(HidapiDevice::new(dev)), info.clone())
+        Device::new(HidapiDevice::new(dev), info.clone())
     }
 
     /// Open the first enumerated device (convenience).
@@ -303,7 +303,7 @@ impl Manager {
 /// Driven in **one** mode at a time - snapshots (`read`/`poll`) or events
 /// (`events`) - since both consume the single frame stream.
 pub struct Device {
-    backend: Box<dyn RawHid>,
+    backend: HidapiDevice,
     info: DeviceInfo,
     start: Instant,
     connected: bool,
@@ -342,7 +342,7 @@ impl BleState {
 }
 
 impl Device {
-    fn new(backend: Box<dyn RawHid>, info: DeviceInfo) -> Result<Self> {
+    fn new(backend: HidapiDevice, info: DeviceInfo) -> Result<Self> {
         // Wired USB and Bluetooth are point-to-point (connected the moment the
         // endpoint opens); only the dongle multiplexes an absent controller.
         let connected = matches!(info.transport, Transport::UsbWired | Transport::Bluetooth);

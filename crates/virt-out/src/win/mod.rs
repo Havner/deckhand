@@ -45,6 +45,12 @@ use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
 // `viiper` (VIIPER USB/IP pad), or - with neither feature - the `none` stub, which drops
 // gamepad output with a warning while kb/mouse keep working. The two real backends are
 // mutually exclusive; enabling both is a build error rather than a silent pick.
+//
+// `Sink` holds the selected `Backend` directly and drives only the gamepad path through it:
+// state is accumulated via `set_button`/`set_axis` and pushed to the OS by `flush` (once per
+// `emit`, only if something changed); `poll_rumble` reads the pad's current rumble. Keyboard/
+// mouse never touch the backend (always `SendInput`). The three backends share that method
+// set by convention - the identical shape is what lets `Backend` be a drop-in alias.
 
 #[cfg(all(feature = "vigem", feature = "viiper"))]
 compile_error!(
@@ -68,27 +74,8 @@ mod none;
 #[cfg(not(any(feature = "vigem", feature = "viiper")))]
 use none::NoController as Backend;
 
-/// A virtual-controller backend, selected at compile time by feature. The keyboard/mouse
-/// path in [`Sink`] is backend-independent - only gamepad output routes through here.
-/// Gamepad state is accumulated by `set_button`/`set_axis` and pushed to the OS by `flush`
-/// (once per `emit`, only if something changed). When no backend feature is enabled,
-/// [`none::NoController`] implements this by dropping everything with a warn-once.
-pub(crate) trait ControllerBackend: Sized {
-    /// Create / plug in the virtual controller. Fails if the backend's driver is
-    /// unavailable (e.g. ViGEmBus not installed).
-    fn new() -> crate::Result<Self>;
-    /// Update the pending report for a gamepad button (dpad directions fold into the hat).
-    fn set_button(&mut self, b: &GamepadButton, down: bool);
-    /// Update the pending report for a gamepad axis (`-1.0..=1.0` sticks, `0.0..=1.0` triggers).
-    fn set_axis(&mut self, a: &GamepadAxis, v: f32);
-    /// Submit the pending report to the OS iff anything changed since the last flush.
-    fn flush(&mut self) -> crate::Result<()>;
-    /// The controller's current rumble (game -> pad), zero if nothing is playing.
-    fn poll_rumble(&mut self) -> crate::Result<Rumble>;
-}
-
 /// The output sink: realizes [`OutputEvent`]s - keyboard/mouse via `SendInput`, gamepad via
-/// the compile-time [`ControllerBackend`]. Sync - call [`Sink::emit`] from the engine's
+/// the compile-time-selected controller backend. Sync - call [`Sink::emit`] from the engine's
 /// mapping loop; [`Sink::poll_rumble`] returns the pad's current rumble. Dropping the `Sink`
 /// drops the backend (unplugging the virtual pad, if any).
 pub struct Sink {

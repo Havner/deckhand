@@ -1,27 +1,12 @@
-//! Internal HID backend abstraction (PLAN 1.6).
+//! Internal HID backend (PLAN 1.6): a thin wrapper over `hidapi`'s `HidDevice` giving `Device`
+//! the minimal raw-HID surface it needs - timed reads plus feature/output reports. Not exported.
 //!
-//! Kept behind this trait so the `hidapi` backend can be swapped for a raw
-//! `hidraw`/`nusb` Linux backend later without touching the public API. Not
-//! exported.
+//! `hidapi::HidDevice` is `Send`, so a `HidapiDevice` (and the `Device` holding it) can be moved
+//! onto a per-device reader thread (PLAN 1.6).
 
 use crate::error::Result;
 
-/// The minimal raw-HID surface `Device` needs: timed reads + feature reports.
-///
-/// `Send` so a `Device` can be moved onto a worker thread (PLAN 1.6).
-pub(crate) trait RawHid: Send {
-    /// Read one input report, waiting up to `timeout_ms` (0 returned on timeout).
-    fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize>;
-    /// Send an already-framed feature report (report-ID byte included).
-    fn send_feature_report(&self, data: &[u8]) -> Result<()>;
-    /// Send an **output** report (`data[0]` = report id). Triton drives haptics this way (its
-    /// `0x80`-`0x85` output reports) rather than via feature reports.
-    fn send_output_report(&self, data: &[u8]) -> Result<()>;
-    /// Get a feature report; `buf[0]` should carry the report id on entry.
-    fn get_feature_report(&self, buf: &mut [u8]) -> Result<usize>;
-}
-
-/// `hidapi`-backed implementation.
+/// `hidapi`-backed raw HID handle.
 pub(crate) struct HidapiDevice {
     dev: hidapi::HidDevice,
 }
@@ -30,10 +15,9 @@ impl HidapiDevice {
     pub(crate) fn new(dev: hidapi::HidDevice) -> Self {
         HidapiDevice { dev }
     }
-}
 
-impl RawHid for HidapiDevice {
-    fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize> {
+    /// Read one input report, waiting up to `timeout_ms` (0 returned on timeout).
+    pub(crate) fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize> {
         match self.dev.read_timeout(buf, timeout_ms) {
             // A signal (e.g. SIGINT from Ctrl-C) can interrupt the blocking wait
             // with EINTR. hidapi doesn't expose errno, so we match its strerror
@@ -48,17 +32,21 @@ impl RawHid for HidapiDevice {
         }
     }
 
-    fn send_feature_report(&self, data: &[u8]) -> Result<()> {
+    /// Send an already-framed feature report (report-ID byte included).
+    pub(crate) fn send_feature_report(&self, data: &[u8]) -> Result<()> {
         self.dev.send_feature_report(data)?;
         Ok(())
     }
 
-    fn send_output_report(&self, data: &[u8]) -> Result<()> {
+    /// Send an **output** report (`data[0]` = report id). Triton drives haptics this way (its
+    /// `0x80`-`0x85` output reports) rather than via feature reports.
+    pub(crate) fn send_output_report(&self, data: &[u8]) -> Result<()> {
         self.dev.write(data)?;
         Ok(())
     }
 
-    fn get_feature_report(&self, buf: &mut [u8]) -> Result<usize> {
+    /// Get a feature report; `buf[0]` should carry the report id on entry.
+    pub(crate) fn get_feature_report(&self, buf: &mut [u8]) -> Result<usize> {
         Ok(self.dev.get_feature_report(buf)?)
     }
 }

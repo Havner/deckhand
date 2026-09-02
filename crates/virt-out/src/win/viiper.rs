@@ -27,7 +27,6 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use viiper_client::devices::xbox360::{OUTPUT_SIZE, Xbox360Input};
 use viiper_client::{DeviceCreateRequest, DeviceStream, ViiperClient};
 
-use super::ControllerBackend;
 use crate::event::{AxisButtons, Dpad, Rumble};
 use vocab_out::{GamepadAxis, GamepadButton};
 
@@ -79,9 +78,7 @@ impl ViiperController {
             GamepadAxis::RightTrigger => self.input.rt = trigger(v),
         }
     }
-}
 
-impl ControllerBackend for ViiperController {
     /// Connect to the VIIPER server, create a bus + Xbox 360 device, open the device stream, and
     /// start receiving rumble. Fails if the server isn't reachable/authenticated; note the
     /// device only appears to the OS if the `usbip-win2` driver is installed and the server's

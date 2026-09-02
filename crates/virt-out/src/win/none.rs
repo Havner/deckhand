@@ -3,7 +3,6 @@
 //! with a single warning the first time any controller event arrives, so a controller-bound
 //! profile isn't silently doing nothing while the log stays quiet under the ~250 Hz axis stream.
 
-use super::ControllerBackend;
 use crate::event::Rumble;
 use vocab_out::{GamepadAxis, GamepadButton};
 
@@ -23,9 +22,7 @@ impl NoController {
             self.warned = true;
         }
     }
-}
 
-impl ControllerBackend for NoController {
     fn new() -> crate::Result<Self> {
         log::info!(
             "virt-out(win): controller backend = none (no `vigem` feature; gamepad output dropped)"
