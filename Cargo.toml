@@ -53,25 +53,10 @@ sd-notify = "0.5"
 # iced (Rust-native retained-mode GUI, Elm architecture) - the real UI toolkit. Pinned to git
 # 0.15-dev, NOT 0.14: on Wayland, 0.14 corrupts the wl_data_device/clipboard when a window is closed
 # and reopened (our hide-to-tray), crashing with a "data_offer" protocol error; fixed on main by the
-# new wl-clipboard-rs backend (verified: 200 close/reopen cycles clean). The `ui-test-iced` prototype
-# stays on 0.14 (pinned in its own manifest). rfd = native file dialogs, shared for the path pickers.
+# new wl-clipboard-rs backend (verified: 200 close/reopen cycles clean).
 iced = { git = "https://github.com/iced-rs/iced", rev = "d188d6fa" }
-# egui via its `eframe` framework (immediate-mode) - the second bake-off toolkit. Contrast to
-# iced: no message/task loop; redraw every frame + push off-thread work over channels + repaint.
-eframe = "0.36"
+# rfd = native file dialogs, shared for the path pickers.
 rfd = "0.17"
-# gtk4-rs: GTK4 Rust bindings (retained-mode, GObject, glib main loop) - the fourth toolkit. Pure
-# gtk4, not libadwaita (impractical to ship on Windows; see PLAN 5.2).
-gtk4 = "0.11"
-# Thread -> glib-main-loop bridge for the gtk build (drained via spawn_future_local): async MPMC channel.
-async-channel = "2"
-# System-tray icon + menu for the real UI (the chosen companion crate - no toolkit ships one). Runs
-# on its own event-loop thread (gtk3 on Linux, win32 on Windows); events arrive via its global
-# channels. Linux needs system libs: gtk3 + libappindicator (or libayatana). `libxdo` feature dropped
-# - it's only for the predefined Copy/Cut/Paste menu items we don't use.
-tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
-# gtk3-rs: only to init + run the glib/gtk3 loop on the tray thread (tray-icon is gtk3-based on
-# Linux). Not a UI toolkit here - iced owns the UI; this is Linux-only tray plumbing.
-gtk = { version = "0.18", package = "gtk" }
-# Decode the bundled tray-icon PNG to RGBA for tray-icon's `Icon::from_rgba` (image-rs, small).
+# Decode the bundled tray/window PNG to RGBA (image-rs, small). The tray crates themselves are
+# declared per-consumer: deckhand pins its own `tray-icon` (Linux = ksni, Windows = win32; no gtk).
 png = "0.18"
