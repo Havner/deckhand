@@ -1,9 +1,18 @@
-//! Small value types shared across reports and state (PLAN §1.5).
+//! Normalized value vocabulary for the input snapshot (PLAN §1.5).
+//!
+//! The geometry/analog types that make up a [`crate::ControllerState`]: normalized
+//! `Vec2`/`TrackPad`, the raw wire `Vec2i`/`Vec3i`/`Quati`, and `Timestamp`. The
+//! structural conversions **from** the packed wire chunks in `protocol` (`WireVec2`
+//! etc.) into these raw types live here, next to the target types; the decode layer
+//! (`state.rs`) then applies its own *policy* (normalization divisors, gyro
+//! handedness) on top.
 //!
 //! Per project convention these derive `Clone` but **not** `Copy` — clone
 //! explicitly where a copy is wanted.
 
 use core::time::Duration;
+
+use crate::protocol::{WireQuat, WireVec2, WireVec3};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -41,6 +50,25 @@ pub struct Quati {
     pub y: i16,
     pub z: i16,
     pub w: i16,
+}
+
+// Structural conversions from the packed wire chunks (`protocol`) into the raw value types. Plain
+// field copies — no policy; the decode layer normalizes on top (see `state.rs`). Kept separate from
+// the serde types so the packed `Wire` structs never need `Serialize`/refs into unaligned fields.
+impl From<WireVec2> for Vec2i {
+    fn from(v: WireVec2) -> Self {
+        Vec2i { x: v.x, y: v.y }
+    }
+}
+impl From<WireVec3> for Vec3i {
+    fn from(v: WireVec3) -> Self {
+        Vec3i { x: v.x, y: v.y, z: v.z }
+    }
+}
+impl From<WireQuat> for Quati {
+    fn from(q: WireQuat) -> Self {
+        Quati { x: q.x, y: q.y, z: q.z, w: q.w }
+    }
 }
 
 /// A normalized trackpad sample: position in `-1.0..=1.0`, pressure in `0.0..=1.0`.

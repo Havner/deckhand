@@ -3,10 +3,14 @@
 //! [`Buttons`] (bitflags) and [`Button`] (one variant per bit) are two views of the
 //! same unified superset — the device-independent button vocabulary. The **raw
 //! per-device wire bitfields** (`GordonButtons`/`NeptuneButtons`/`TritonButtons`)
-//! live in `protocol`, next to the reports that carry them; `state.rs` folds each
-//! into this unified set. One naming scheme throughout (PLAN §1.4): `LB/RB` bumpers,
-//! `LT/RT` trigger full-pulls, `LGRIP/RGRIP` (+ `LGRIP2/RGRIP2` on the Deck) back
-//! buttons, `View/Menu` the two small top buttons.
+//! live in `protocol`, next to the wire structs that carry them; the folds into this
+//! unified set ([`map_gordon`]/[`map_neptune`]/[`map_triton`]) live **here**, next to
+//! the target bitflags (the decode layer in `state.rs` only *calls* them). One naming
+//! scheme throughout (PLAN §1.4): `LB/RB` bumpers, `LT/RT` trigger full-pulls,
+//! `LGRIP/RGRIP` (+ `LGRIP2/RGRIP2` on the Deck) back buttons, `View/Menu` the two
+//! small top buttons.
+
+use crate::protocol::{GordonButtons, NeptuneButtons, TritonButtons};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -92,6 +96,126 @@ pub fn button_flag(b: &Button) -> Buttons {
         Button::LGripTouch => Buttons::LGRIP_TOUCH,
         Button::RGripTouch => Buttons::RGRIP_TOUCH,
     }
+}
+
+/// Fold Gordon's per-device button bits into the unified [`Buttons`] superset.
+///
+/// Serves **both** USB and Bluetooth Gordon (they share [`GordonButtons`]). A plain 1:1 fold: the USB
+/// left-click multiplex is already resolved in `state::from_gordon`, and BLE has none, so no
+/// touch-gating happens here.
+pub(crate) fn map_gordon(g: &GordonButtons) -> Buttons {
+    let mut out = Buttons::empty();
+    let mut set = |cond: bool, flag: Buttons| {
+        if cond {
+            out |= flag;
+        }
+    };
+    set(g.contains(GordonButtons::A), Buttons::A);
+    set(g.contains(GordonButtons::B), Buttons::B);
+    set(g.contains(GordonButtons::X), Buttons::X);
+    set(g.contains(GordonButtons::Y), Buttons::Y);
+    set(g.contains(GordonButtons::DPAD_UP), Buttons::DPAD_UP);
+    set(g.contains(GordonButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
+    set(g.contains(GordonButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
+    set(g.contains(GordonButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
+    set(g.contains(GordonButtons::LB), Buttons::LB);
+    set(g.contains(GordonButtons::RB), Buttons::RB);
+    set(g.contains(GordonButtons::LT), Buttons::LT);
+    set(g.contains(GordonButtons::RT), Buttons::RT);
+    set(g.contains(GordonButtons::LGRIP), Buttons::LGRIP);
+    set(g.contains(GordonButtons::RGRIP), Buttons::RGRIP);
+    set(g.contains(GordonButtons::VIEW), Buttons::VIEW);
+    set(g.contains(GordonButtons::MENU), Buttons::MENU);
+    set(g.contains(GordonButtons::STEAM), Buttons::STEAM);
+    // Pad/stick clicks arrive already de-multiplexed (USB in `state::from_gordon`; BLE has no multiplex).
+    set(g.contains(GordonButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    set(g.contains(GordonButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
+    set(g.contains(GordonButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
+    set(g.contains(GordonButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
+    set(g.contains(GordonButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
+    out
+}
+
+/// Fold Neptune's per-device button bits into the unified [`Buttons`] superset (1:1 — the Deck has
+/// dedicated press/touch bits and its raw layout already matches the unified naming).
+pub(crate) fn map_neptune(n: &NeptuneButtons) -> Buttons {
+    let mut out = Buttons::empty();
+    let mut set = |cond: bool, flag: Buttons| {
+        if cond {
+            out |= flag;
+        }
+    };
+    set(n.contains(NeptuneButtons::A), Buttons::A);
+    set(n.contains(NeptuneButtons::B), Buttons::B);
+    set(n.contains(NeptuneButtons::X), Buttons::X);
+    set(n.contains(NeptuneButtons::Y), Buttons::Y);
+    set(n.contains(NeptuneButtons::DPAD_UP), Buttons::DPAD_UP);
+    set(n.contains(NeptuneButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
+    set(n.contains(NeptuneButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
+    set(n.contains(NeptuneButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
+    set(n.contains(NeptuneButtons::LB), Buttons::LB);
+    set(n.contains(NeptuneButtons::RB), Buttons::RB);
+    set(n.contains(NeptuneButtons::LT), Buttons::LT);
+    set(n.contains(NeptuneButtons::RT), Buttons::RT);
+    set(n.contains(NeptuneButtons::LGRIP), Buttons::LGRIP);
+    set(n.contains(NeptuneButtons::RGRIP), Buttons::RGRIP);
+    set(n.contains(NeptuneButtons::LGRIP2), Buttons::LGRIP2);
+    set(n.contains(NeptuneButtons::RGRIP2), Buttons::RGRIP2);
+    set(n.contains(NeptuneButtons::VIEW), Buttons::VIEW);
+    set(n.contains(NeptuneButtons::MENU), Buttons::MENU);
+    set(n.contains(NeptuneButtons::STEAM), Buttons::STEAM);
+    set(n.contains(NeptuneButtons::QUICK_ACCESS), Buttons::QUICK_ACCESS);
+    set(n.contains(NeptuneButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    set(n.contains(NeptuneButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
+    set(n.contains(NeptuneButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
+    set(n.contains(NeptuneButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
+    set(n.contains(NeptuneButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
+    set(n.contains(NeptuneButtons::RSTICK_PRESS), Buttons::RSTICK_PRESS);
+    set(n.contains(NeptuneButtons::LSTICK_TOUCH), Buttons::LSTICK_TOUCH);
+    set(n.contains(NeptuneButtons::RSTICK_TOUCH), Buttons::RSTICK_TOUCH);
+    out
+}
+
+/// Fold Triton's per-device button bits into the unified [`Buttons`] superset (1:1). The two
+/// capacitive **grip-touch** sensors fold into the `L/RGRIP_TOUCH` bits (a Triton-only input).
+pub(crate) fn map_triton(t: &TritonButtons) -> Buttons {
+    let mut out = Buttons::empty();
+    let mut set = |cond: bool, flag: Buttons| {
+        if cond {
+            out |= flag;
+        }
+    };
+    set(t.contains(TritonButtons::A), Buttons::A);
+    set(t.contains(TritonButtons::B), Buttons::B);
+    set(t.contains(TritonButtons::X), Buttons::X);
+    set(t.contains(TritonButtons::Y), Buttons::Y);
+    set(t.contains(TritonButtons::DPAD_UP), Buttons::DPAD_UP);
+    set(t.contains(TritonButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
+    set(t.contains(TritonButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
+    set(t.contains(TritonButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
+    set(t.contains(TritonButtons::LB), Buttons::LB);
+    set(t.contains(TritonButtons::RB), Buttons::RB);
+    set(t.contains(TritonButtons::LT), Buttons::LT);
+    set(t.contains(TritonButtons::RT), Buttons::RT);
+    set(t.contains(TritonButtons::LGRIP), Buttons::LGRIP);
+    set(t.contains(TritonButtons::RGRIP), Buttons::RGRIP);
+    set(t.contains(TritonButtons::LGRIP2), Buttons::LGRIP2);
+    set(t.contains(TritonButtons::RGRIP2), Buttons::RGRIP2);
+    set(t.contains(TritonButtons::LGRIP_TOUCH), Buttons::LGRIP_TOUCH);
+    set(t.contains(TritonButtons::RGRIP_TOUCH), Buttons::RGRIP_TOUCH);
+    set(t.contains(TritonButtons::VIEW), Buttons::VIEW);
+    set(t.contains(TritonButtons::MENU), Buttons::MENU);
+    set(t.contains(TritonButtons::STEAM), Buttons::STEAM);
+    set(t.contains(TritonButtons::QUICK_ACCESS), Buttons::QUICK_ACCESS);
+    set(t.contains(TritonButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    set(t.contains(TritonButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
+    set(t.contains(TritonButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
+    set(t.contains(TritonButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
+    set(t.contains(TritonButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
+    set(t.contains(TritonButtons::RSTICK_PRESS), Buttons::RSTICK_PRESS);
+    set(t.contains(TritonButtons::LSTICK_TOUCH), Buttons::LSTICK_TOUCH);
+    set(t.contains(TritonButtons::RSTICK_TOUCH), Buttons::RSTICK_TOUCH);
+    out
 }
 
 /// Normalized analog channels (PLAN §1.5).
