@@ -1,8 +1,8 @@
-//! Validation — **collect-all** diagnostics over a [`ConfigDoc`] / [`DeviceConfig`]
-//! (PLAN §3). Not fail-fast: the UI surfaces every problem at once. This is where the
+//! Validation - **collect-all** diagnostics over a [`ConfigDoc`] / [`DeviceConfig`]
+//! (PLAN 3). Not fail-fast: the UI surfaces every problem at once. This is where the
 //! (deferred) `compile()` will hook in; today it stops at diagnostics.
 //!
-//! It does **not** check device presence — profiles are device-independent, so a binding
+//! It does **not** check device presence - profiles are device-independent, so a binding
 //! for an input a device lacks is not an error (the engine ignores it; the UI may warn via
 //! `Shape`).
 
@@ -30,7 +30,7 @@ pub struct Diagnostic {
 }
 
 impl ConfigDoc {
-    /// Validate the profile, collecting all diagnostics. No `Error`s ⇒ well-formed.
+    /// Validate the profile, collecting all diagnostics. No `Error`s => well-formed.
     pub fn validate(&self) -> Vec<Diagnostic> {
         let mut out = Vec::new();
 
@@ -73,7 +73,7 @@ impl DeviceConfig {
 
 impl Chords {
     /// Validate the chords: each must name at least one button. (Chord members are
-    /// `vocab_hid::Button`s now — every value is a real hardware button, so "is it a physical
+    /// `vocab_hid::Button`s now - every value is a real hardware button, so "is it a physical
     /// button" is no longer representable-as-invalid.)
     pub fn validate(&self) -> Vec<Diagnostic> {
         let mut out = Vec::new();
@@ -97,7 +97,7 @@ fn check_bindings(
         if !binding.is_valid_for(&input.kind()) {
             error(out, format!("{ctx}: binding not valid for {input:?} (kind {:?})", input.kind()));
         }
-        // Gaters are `vocab_hid::Button`s now — every value is a real hardware button, so there's
+        // Gaters are `vocab_hid::Button`s now - every value is a real hardware button, so there's
         // nothing to validate about them here (invalid-unrepresentable).
         for cmd in binding.commands() {
             if cmd.actions.is_empty() {
@@ -198,7 +198,7 @@ mod tests {
             action_sets: vec![ActionSet { name: "Game".into(), bindings, layers: vec![] }],
             rumble: Default::default(),
         };
-        // ≥ 2 errors: dangling layer, kind mismatch. (Gaters can't be "bad" now — they're Buttons.)
+        // >= 2 errors: dangling layer, kind mismatch. (Gaters can't be "bad" now - they're Buttons.)
         assert!(errors(&doc.validate()) >= 2);
     }
 }

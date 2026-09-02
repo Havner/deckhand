@@ -1,7 +1,7 @@
-//! The daemon's engine wrapper: owns the [`Engine`] — the *sole* source of truth — and turns a
+//! The daemon's engine wrapper: owns the [`Engine`] - the *sole* source of truth - and turns a
 //! [`Request`] into a [`Response`]. It keeps no shadow state; everything the control protocol
 //! reports (staged input/output, which programs are loaded) is read back from the engine. Input/
-//! output specs round-trip through the engine's `Input`/`Output` `FromStr`/`Display` (PLAN §4.4).
+//! output specs round-trip through the engine's `Input`/`Output` `FromStr`/`Display` (PLAN 4.4).
 
 use config::{ConfigDoc, Diagnostic, Severity, Shape};
 use engine::{
@@ -10,7 +10,7 @@ use engine::{
 };
 use ipc::{BoundDevice, Event, ProfileRole, Request, Response, RunState, StatusSnapshot};
 
-/// The running daemon state around the engine — just the engine, no shadow copies.
+/// The running daemon state around the engine - just the engine, no shadow copies.
 pub struct Daemon {
     engine: Engine,
 }
@@ -55,7 +55,7 @@ impl Daemon {
         self.engine.start()
     }
 
-    /// Enumerate the currently-attached devices as their stable `DeviceId` strings — shared by the
+    /// Enumerate the currently-attached devices as their stable `DeviceId` strings - shared by the
     /// CLI `--list-devices` and the `ListDevices` request. `Err` is a human-readable reason.
     pub fn devices(&mut self) -> Result<Vec<String>, String> {
         self.engine
@@ -104,14 +104,14 @@ impl Daemon {
         }
     }
 
-    /// Subscribe to the engine's event stream (D7) — the serve loop hands the resulting stream to a
+    /// Subscribe to the engine's event stream (D7) - the serve loop hands the resulting stream to a
     /// per-connection monitor thread.
     pub fn subscribe(&self) -> EventStream {
         self.engine.subscribe()
     }
 
-    /// Compile a shipped `ConfigDoc` and, iff it has no errors, apply it — else reject with the
-    /// diagnostics (client ships config, daemon compiles; PLAN §4.4). `config: None` **clears** the
+    /// Compile a shipped `ConfigDoc` and, iff it has no errors, apply it - else reject with the
+    /// diagnostics (client ships config, daemon compiles; PLAN 4.4). `config: None` **clears** the
     /// role (reverts it to `None` so the other role takes over live).
     fn apply_config(&mut self, role: ProfileRole, config: Option<ConfigDoc>) -> Response {
         let Some(config) = config else {
@@ -144,7 +144,7 @@ impl Daemon {
         }
     }
 
-    /// Release hardware (→ lizard restored, pad unplugged). Takes `&mut self` (not `self`) so the
+    /// Release hardware (-> lizard restored, pad unplugged). Takes `&mut self` (not `self`) so the
     /// engine can live behind the serve loop's `Arc<Mutex<Daemon>>` and be shut down in place after
     /// the accept loop ends.
     pub fn shutdown(&mut self) -> engine::Result<()> {
@@ -162,7 +162,7 @@ fn role_of(r: ProfileRole) -> Role {
 
 /// Flatten the engine's typed [`DeviceId`] to the wire [`BoundDevice`]: the id string plus the
 /// [`Shape`] derived from its kind. The engine's `DeviceId`/`DeviceKind` don't cross the wire, so
-/// this is where kind→shape is resolved (once), for both `status().bound` and `BindingAcquired`.
+/// this is where kind->shape is resolved (once), for both `status().bound` and `BindingAcquired`.
 fn bound_device(id: DeviceId) -> BoundDevice {
     let shape = shape_of(&id.kind);
     BoundDevice { id: id.to_string(), shape }

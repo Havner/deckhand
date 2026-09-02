@@ -1,4 +1,4 @@
-//! `list` — enumerate Steam controller gamepad interfaces.
+//! `list` - enumerate Steam controller gamepad interfaces.
 //!
 //! Safe/read-only: it only enumerates (no `open`, no commands), so it can't
 //! affect controller state. Run: `cargo run -p steam-hid --example list`.
@@ -16,7 +16,7 @@ fn main() -> steam_hid::Result<()> {
 
     println!("Found {} gamepad interface(s):", devices.len());
     for d in &devices {
-        // `id` is the stable DeviceId string (PLAN §4.3) — usable as `--input <id>`; a `serial`
+        // `id` is the stable DeviceId string (PLAN 4.3) - usable as `--input <id>`; a `serial`
         // of `None` (empty last field) means single-dongle stays unique via transport+slot.
         println!(
             "  {:?} / {:?}  {:04x}:{:04x} iface={} serial={:?}  id={}",

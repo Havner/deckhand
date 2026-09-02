@@ -1,6 +1,6 @@
-//! Behavior settings palette (PLAN §3, Round B).
+//! Behavior settings palette (PLAN 3, Round B).
 //!
-//! Shared setting types (deadzone, curve, sensitivity, …) plus the per-behavior settings
+//! Shared setting types (deadzone, curve, sensitivity, ...) plus the per-behavior settings
 //! structs. These carry `f32` tuning values, so they are `PartialEq` but **not** `Eq`.
 //! Each has a sensible `Default` and struct-level `#[serde(default)]`, so RON stays
 //! forgiving (omit what you don't override).
@@ -56,9 +56,9 @@ impl Default for Sensitivity {
     }
 }
 
-/// Simplest acceleration: output scaled by `1 + speed·factor` (`0` = off). Only the two **velocity**
-/// mouse behaviors carry it — **`AsMouse`** (pad-swipe velocity, pad-units/s) and **`GyroToMouse`**
-/// (angular velocity, deg/s) — both wanting small values (~0.02–0.05). Deflection behaviors
+/// Simplest acceleration: output scaled by `1 + speed*factor` (`0` = off). Only the two **velocity**
+/// mouse behaviors carry it - **`AsMouse`** (pad-swipe velocity, pad-units/s) and **`GyroToMouse`**
+/// (angular velocity, deg/s) - both wanting small values (~0.02-0.05). Deflection behaviors
 /// (`Joystick`/`JoystickMouse`/`Trigger`) shape their response with `Curve` instead (a held
 /// deflection has no velocity to accelerate on; accel there would just be a narrower curve).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -131,7 +131,7 @@ impl Default for SoftPull {
 #[serde(default)]
 pub struct Activation {
     pub mode: ActivationMode,
-    /// Held hardware buttons that gate the behaviour (OR-combined). Raw controller button bits —
+    /// Held hardware buttons that gate the behaviour (OR-combined). Raw controller button bits -
     /// any of them, including face buttons / dpad directions (`vocab_hid::Button`), not just the
     /// standalone `SourceKind::Button` inputs.
     pub gaters: Vec<vocab_hid::Button>,
@@ -148,7 +148,7 @@ pub enum ActivationMode {
 
 // --- output-target choices --------------------------------------------------------------
 
-/// Which gamepad stick a `Joystick` drives — or `None` to drive no stick axis (keeping only the
+/// Which gamepad stick a `Joystick` drives - or `None` to drive no stick axis (keeping only the
 /// outer-ring virtual button).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum StickOutput {
@@ -159,7 +159,7 @@ pub enum StickOutput {
     None,
 }
 
-/// Which gamepad trigger a `Trigger` drives — or `None` to drive no trigger axis (keeping only the
+/// Which gamepad trigger a `Trigger` drives - or `None` to drive no trigger axis (keeping only the
 /// soft-pull virtual button, e.g. a trigger bound purely to a mouse click on the desktop).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum TriggerOutput {
@@ -170,20 +170,20 @@ pub enum TriggerOutput {
     None,
 }
 
-/// A mouse behavior's output — cursor or scroll (scroll is our extension over Steam).
+/// A mouse behavior's output - cursor or scroll (scroll is our extension over Steam).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MouseOutput {
     #[default]
     Cursor,
-    /// Discrete wheel notches (`REL_WHEEL`) — compatible with every app.
+    /// Discrete wheel notches (`REL_WHEEL`) - compatible with every app.
     Scroll,
-    /// High-resolution smooth scroll (`REL_WHEEL_HI_RES`; Windows sub-`WHEEL_DELTA`) — pixel-smooth
+    /// High-resolution smooth scroll (`REL_WHEEL_HI_RES`; Windows sub-`WHEEL_DELTA`) - pixel-smooth
     /// in apps that support it, with a legacy notch fallback so others still scroll.
     SmoothScroll,
 }
 
 /// Which axes a 2D behaviour is allowed to output. `Both` (the default) passes x and y through
-/// unchanged; `Horizontal` keeps x and forces y to 0; `Vertical` keeps y and forces x to 0 — so a
+/// unchanged; `Horizontal` keeps x and forces y to 0; `Vertical` keeps y and forces x to 0 - so a
 /// stick or mouse behaviour can be constrained to a single screen axis. Applied by the mapper.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Axis {
@@ -201,19 +201,19 @@ pub enum DpadLayout {
     EightWay,
 }
 
-/// How gyro rotation maps to cursor motion (Round B; more spaces — World/Laser — later). Vertical
+/// How gyro rotation maps to cursor motion (Round B; more spaces - World/Laser - later). Vertical
 /// is local pitch in every variant here; they differ in what drives **horizontal**.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum GyroSpace {
-    /// Local preset — horizontal from **yaw** (turn around the controller's vertical axis).
+    /// Local preset - horizontal from **yaw** (turn around the controller's vertical axis).
     Yaw,
-    /// Local preset — horizontal from **roll** (lean around the controller's forward axis).
+    /// Local preset - horizontal from **roll** (lean around the controller's forward axis).
     Roll,
-    /// Local preset — horizontal from **yaw + roll** (turn and lean combined). The robust local
-    /// default — works whether you turn the controller or lean it.
+    /// Local preset - horizontal from **yaw + roll** (turn and lean combined). The robust local
+    /// default - works whether you turn the controller or lean it.
     #[default]
     YawRoll,
-    /// Player space — horizontal from yaw + roll **around the gravity axis** (from the
+    /// Player space - horizontal from yaw + roll **around the gravity axis** (from the
     /// accelerometer), vertical from local pitch. "Turning around real-world vertical" maps to
     /// horizontal regardless of how the controller is tilted/rolled.
     PlayerSpace,
@@ -221,7 +221,7 @@ pub enum GyroSpace {
 
 // --- per-behavior settings --------------------------------------------------------------
 
-/// `Joystick` (Pad + Stick → gamepad stick + an outer-ring button).
+/// `Joystick` (Pad + Stick -> gamepad stick + an outer-ring button).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JoystickSettings {
@@ -236,7 +236,7 @@ pub struct JoystickSettings {
     pub activation: Activation,
 }
 
-/// `DirectionalPad` (Pad + Stick → 4 direction + outer-ring buttons).
+/// `DirectionalPad` (Pad + Stick -> 4 direction + outer-ring buttons).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DirectionalPadSettings {
@@ -248,9 +248,9 @@ pub struct DirectionalPadSettings {
     pub activation: Activation,
 }
 
-/// `AsMouse` (Pad → cursor/scroll). No deadzone (relative delta, Round B). A **velocity** behavior
-/// (finger-swipe speed), so it carries `acceleration`, NOT `curve` — a curve remaps a held
-/// deflection, which a relative pad delta doesn't have (matches Steam; PLAN §3 Round B).
+/// `AsMouse` (Pad -> cursor/scroll). No deadzone (relative delta, Round B). A **velocity** behavior
+/// (finger-swipe speed), so it carries `acceleration`, NOT `curve` - a curve remaps a held
+/// deflection, which a relative pad delta doesn't have (matches Steam; PLAN 3 Round B).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AsMouseSettings {
@@ -264,11 +264,11 @@ pub struct AsMouseSettings {
     pub activation: Activation,
 }
 
-/// `JoystickMouse` (Stick → cursor/scroll via deflection→rate). A **deflection** behavior, so it
-/// carries `curve` (which shapes the deflection→rate response — precision near center, fast at the
+/// `JoystickMouse` (Stick -> cursor/scroll via deflection->rate). A **deflection** behavior, so it
+/// carries `curve` (which shapes the deflection->rate response - precision near center, fast at the
 /// edge), NOT `acceleration`: accel on a stick would read *deflection* as its speed, which is just a
 /// narrower curve (matches Steam). No `smoothing`: a stick is already a smooth analog signal, so a
-/// 1€ filter would only add lag — only `AsMouse` (pad delta) and `GyroToMouse` (noisy IMU) carry one.
+/// 1-Euro filter would only add lag - only `AsMouse` (pad delta) and `GyroToMouse` (noisy IMU) carry one.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JoystickMouseSettings {
@@ -282,7 +282,7 @@ pub struct JoystickMouseSettings {
     pub activation: Activation,
 }
 
-/// `GyroToMouse` (Gyro → cursor/scroll). Player-space + 1€ filter are V1.
+/// `GyroToMouse` (Gyro -> cursor/scroll). Player-space + 1-Euro filter are V1.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GyroToMouseSettings {
@@ -292,7 +292,7 @@ pub struct GyroToMouseSettings {
     pub sensitivity: Sensitivity,
     pub acceleration: Acceleration,
     pub smoothing: Option<OneEuroFilter>,
-    /// Radial deadzone — kills the resting-bias drift (Round B / bridge).
+    /// Radial deadzone - kills the resting-bias drift (Round B / bridge).
     pub deadzone: Deadzone,
     pub invert: Invert,
     pub rotation: Rotation,

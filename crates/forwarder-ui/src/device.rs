@@ -1,8 +1,8 @@
 //! Persistence for the device config, in RON at `$XDG_CONFIG_HOME/deckhand/devcfg.ron`.
 //!
-//! This is the **same file the main `deckhand` UI owns** — intentionally shared. The forwarder edits
+//! This is the **same file the main `deckhand` UI owns** - intentionally shared. The forwarder edits
 //! only the bound device's rumble shaping, and it does so by loading the whole [`DeviceConfig`],
-//! mutating those fields, and saving — so the rest (LED / idle / the other devices' rumble) is
+//! mutating those fields, and saving - so the rest (LED / idle / the other devices' rumble) is
 //! preserved untouched. The in-memory copy, this file, and the daemon stay in lock-step (a
 //! `DeviceConfigSet` event re-lands the value; see `apply_event`).
 
@@ -13,13 +13,13 @@ use config::DeviceConfig;
 use crate::settings::config_dir;
 
 /// Where the device config lives (`$XDG_CONFIG_HOME/deckhand/devcfg.ron`,
-/// `%APPDATA%\deckhand\devcfg.ron`) — shared with the main UI.
+/// `%APPDATA%\deckhand\devcfg.ron`) - shared with the main UI.
 fn device_path() -> PathBuf {
     config_dir().join("deckhand").join("devcfg.ron")
 }
 
 /// Load from [`device_path`]; returns the default (never an error) when the file is missing or
-/// unparseable — a stale device file shouldn't stop the app launching.
+/// unparseable - a stale device file shouldn't stop the app launching.
 pub(crate) fn load() -> DeviceConfig {
     crate::persist::load_or_default(&device_path())
 }

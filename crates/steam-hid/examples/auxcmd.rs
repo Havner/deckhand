@@ -1,7 +1,7 @@
-//! `auxcmd` — smoke-test the auxiliary output commands (LED, idle timeout, power off).
+//! `auxcmd` - smoke-test the auxiliary output commands (LED, idle timeout, power off).
 //! (Named `auxcmd`, not `aux`: `aux` is a reserved device name on Windows.)
 //!
-//! These have no readable response — verification is **behavioral** (watch the LED,
+//! These have no readable response - verification is **behavioral** (watch the LED,
 //! watch it auto-power-off, watch it power off). Each subcommand fires the command
 //! then keeps the device open (Drop restores lizard/defaults, which reverts LED &
 //! idle, so we must stay alive to observe) and logs lifecycle frames with timestamps.
@@ -33,7 +33,7 @@ fn main() -> steam_hid::Result<()> {
 
     let mut manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&mut manager)? else {
-        println!("No matching controller found — connected/on?");
+        println!("No matching controller found - connected/on?");
         return Ok(());
     };
     println!("selected {desc}");
@@ -43,19 +43,19 @@ fn main() -> steam_hid::Result<()> {
         "led" => {
             let percent: u8 = value.and_then(|v| v.parse().ok()).unwrap_or(100);
             device.set_led_intensity(percent)?;
-            format!("LED set to {percent}% — watch the Steam-button LED (reverts on exit)")
+            format!("LED set to {percent}% - watch the Steam-button LED (reverts on exit)")
         }
         "idle" => {
             let secs: u16 = value.and_then(|v| v.parse().ok()).unwrap_or(30);
             device.set_idle_timeout(secs)?;
             format!(
-                "idle timeout set to {secs}s — leave the controller UNTOUCHED; it should \
+                "idle timeout set to {secs}s - leave the controller UNTOUCHED; it should \
                  power off (look for a [disconnected] line ~{secs}s from now)"
             )
         }
         "off" => {
             device.power_off()?;
-            "power-off sent — expect an immediate [disconnected]".to_string()
+            "power-off sent - expect an immediate [disconnected]".to_string()
         }
         other => {
             eprintln!("unknown subcommand {other:?}; use: led N | idle SECS | off");
@@ -74,24 +74,24 @@ fn main() -> steam_hid::Result<()> {
     let start = Instant::now();
     while running.alive() {
         let Some(report) = device.poll(Duration::from_millis(500))? else {
-            continue; // timeout — dongle alive, nothing this interval
+            continue; // timeout - dongle alive, nothing this interval
         };
         let signal = match &report {
             Report::Connected => "[connected]",
             Report::Disconnected => "[disconnected]",
             Report::Battery(_) => "[battery]",
-            _ => continue, // input state — ignore
+            _ => continue, // input state - ignore
         };
         let line = format!("t={:>6.1}  {signal}", start.elapsed().as_secs_f32());
         println!("{line}");
         writeln!(log, "{line}").ok();
         log.flush().ok();
 
-        // For `off`/`idle`, the controller powering off (a Disconnected *value* — the
+        // For `off`/`idle`, the controller powering off (a Disconnected *value* - the
         // dongle transport is still alive, so this is not a read error) is the terminal
         // success signal, so stop instead of lingering. `led` keeps running (visual).
         if matches!(report, Report::Disconnected) && matches!(sub, "off" | "idle") {
-            println!("controller powered off — done.");
+            println!("controller powered off - done.");
             return Ok(());
         }
     }

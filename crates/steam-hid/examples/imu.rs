@@ -1,7 +1,7 @@
-//! `imu` — enable gyro and sample raw accel/gyro to verify the IMU parse.
+//! `imu` - enable gyro and sample raw accel/gyro to verify the IMU parse.
 //!
 //! Enables the IMU (raw accel + raw gyro) and prints throttled samples with the
-//! raw i16 values and their conversion to g / deg·s⁻¹ (PLAN §1.4 scale constants,
+//! raw i16 values and their conversion to g / deg*s^-1 (PLAN 1.4 scale constants,
 //! provisional). Also disables lizard mode so handling the controller doesn't move
 //! the host cursor / fire pad click-haptics while you sample; both the IMU setting
 //! and lizard mode are restored on clean exit (Drop).
@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use steam_hid::{ACCEL_RES_PER_G, GYRO_RES_PER_DPS, Manager, Report};
 
-/// Which of the three channels dominates, with its sign — e.g. `+Z`. Returns `~0`
+/// Which of the three channels dominates, with its sign - e.g. `+Z`. Returns `~0`
 /// when the largest channel is below `noise` (nothing meaningfully happening).
 fn dominant(vals: [(i32, &'static str); 3], noise: i32) -> String {
     let (v, label) = vals.iter().copied().max_by_key(|(v, _)| v.abs()).unwrap();
@@ -30,7 +30,7 @@ fn dominant(vals: [(i32, &'static str); 3], noise: i32) -> String {
 fn main() -> steam_hid::Result<()> {
     let mut manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&mut manager)? else {
-        println!("No matching controller found — connected/on?");
+        println!("No matching controller found - connected/on?");
         return Ok(());
     };
     println!("selected {desc}");
@@ -69,9 +69,9 @@ fn main() -> steam_hid::Result<()> {
             last = Instant::now();
             let t = start.elapsed().as_secs_f32();
             let (a, g) = (&s.accel, &s.gyro);
-            // Dominant-axis hints: gravity always drives one accel axis (noise ≈ 0.5g raw);
-            // gyro only when actually turning (noise ≈ 30°/s raw). Frame is the verified
-            // right-handed X=right, Y=forward, Z=up (PLAN §1.9); gyro is pitch/roll/yaw.
+            // Dominant-axis hints: gravity always drives one accel axis (noise ~ 0.5g raw);
+            // gyro only when actually turning (noise ~ 30deg/s raw). Frame is the verified
+            // right-handed X=right, Y=forward, Z=up (PLAN 1.9); gyro is pitch/roll/yaw.
             let accel_dom = dominant(
                 [(a.x as i32, "X"), (a.y as i32, "Y"), (a.z as i32, "Z")],
                 (0.5 * ACCEL_RES_PER_G) as i32,

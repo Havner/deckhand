@@ -1,4 +1,4 @@
-//! Device screen — a live editor over the UI-owned [`DeviceConfig`](config::DeviceConfig). Every
+//! Device screen - a live editor over the UI-owned [`DeviceConfig`](config::DeviceConfig). Every
 //! edit persists to `devcfg.ron` and ships to the daemon (`App::apply_device_config`); this always
 //! renders `app.device_config` (the source of truth), never the daemon's status snapshot.
 
@@ -17,7 +17,7 @@ use crate::{
 pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
     let d = &app.device_config;
 
-    // LED brightness: an `Option` — the checkbox gates a 0–100% slider. When off it's the same
+    // LED brightness: an `Option` - the checkbox gates a 0-100% slider. When off it's the same
     // slider widget (identical geometry) but styled inert and non-interactive, so `None` reads as
     // "leave default" without the jarring size change a different widget would cause.
     let led_on = d.led_brightness.is_some();
@@ -36,7 +36,7 @@ pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
     .spacing(12.0)
     .align_y(Center);
 
-    // Idle timeout: an `Option` — the checkbox gates a minutes combobox (values stored as seconds).
+    // Idle timeout: an `Option` - the checkbox gates a minutes combobox (values stored as seconds).
     let idle_on = d.idle_timeout.is_some();
     let idle_min = d.idle_timeout.map(|s| s / 60).unwrap_or(crate::DEFAULT_IDLE_TIMEOUT / 60);
     let mut idle_combo = pick_list(
@@ -87,7 +87,7 @@ pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-/// A **speed/rate** lever row (percent). The checkbox toggles fixed↔scaled: fixed shows one slider,
+/// A **speed/rate** lever row (percent). The checkbox toggles fixed<->scaled: fixed shows one slider,
 /// scaled shows a min + max pair. `id` routes every edit to the right lever ([`Message::DeviceRumbleLever`]).
 fn speed_lever_row<'a>(label: &'static str, lever: &Lever<u8>, id: RumbleLeverId) -> Element<'a, Message> {
     let controls: Element<'a, Message> = match *lever {
@@ -115,7 +115,7 @@ fn speed_lever_row<'a>(label: &'static str, lever: &Lever<u8>, id: RumbleLeverId
 
 /// A **gain** lever row (dB). Same shape as [`speed_lever_row`] over the dB range.
 fn gain_lever_row<'a>(label: &'static str, lever: &Lever<i8>, id: RumbleLeverId) -> Element<'a, Message> {
-    // `slider`'s wrapper requires `From<u8>`, which `i8` lacks — drive the dB sliders as `i16` (the
+    // `slider`'s wrapper requires `From<u8>`, which `i8` lacks - drive the dB sliders as `i16` (the
     // message already carries `i16`); the readouts use the underlying `i8`.
     let range = GAIN_MIN_DB as i16..=GAIN_MAX_DB as i16;
     let controls: Element<'a, Message> = match *lever {
@@ -164,7 +164,7 @@ fn edit(id: RumbleLeverId, e: RumbleLeverEdit) -> Message {
     Message::DeviceRumbleLever(id, e)
 }
 
-/// A fixed-width trailing percentage readout (`None` → "default"), keeping the sliders aligned.
+/// A fixed-width trailing percentage readout (`None` -> "default"), keeping the sliders aligned.
 fn pct_text(v: Option<u8>) -> Element<'static, Message> {
     text(v.map(|x| format!("{x}%")).unwrap_or_else(|| "default".into())).width(60.0).into()
 }

@@ -1,4 +1,4 @@
-# Grant the logged-in user write access to /dev/uinput (PLAN §2.1).
+# Grant the logged-in user write access to /dev/uinput (PLAN 2.1).
 #
 # virt-out creates virtual keyboard/mouse/gamepad devices through /dev/uinput, which
 # is root-only by default. This tags the node with `uaccess` so the active local user

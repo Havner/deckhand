@@ -8,7 +8,7 @@ publish.workspace = true
 
 [features]
 default = []
-# Opt-in (de)serialization — enabled by `config` (RON) and `steam-hid` (wire), off otherwise.
+# Opt-in (de)serialization - enabled by `config` (RON) and `steam-hid` (wire), off otherwise.
 serde = ["dep:serde"]
 
 [dependencies]

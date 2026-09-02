@@ -6,10 +6,10 @@
 //!
 //! - [`Client`] holds a **command** connection (status / list-devices / apply / set-input/output /
 //!   start / stop). It lazily connects and, on any I/O error, drops the connection so the next call
-//!   reconnects — so a daemon that comes and goes just works.
+//!   reconnects - so a daemon that comes and goes just works.
 //! - [`run_event_loop`] owns a **second** connection subscribed to the event stream. It runs on a
 //!   dedicated thread (the iced subscription bridges its callback into the async event pump) and
-//!   reconnects forever. Each attempt runs the on-connect sequence — see [`run_event_loop`].
+//!   reconnects forever. Each attempt runs the on-connect sequence - see [`run_event_loop`].
 //!
 //! The loop reads [`AppSettings`] fresh from disk on every attempt (the UI persists them on every
 //! edit), so option changes take effect on the next retry with no shared state between threads.
@@ -26,7 +26,7 @@ use ipc::{Client as IpcClient, Event, ProfileRole, Request, Response, StatusSnap
 use crate::settings::AppSettings;
 
 /// Open a fresh connection to the daemon (honoring the optional socket/pipe override, else the
-/// shared default — the same resolution `deckhandctl` uses).
+/// shared default - the same resolution `deckhandctl` uses).
 #[cfg(unix)]
 fn open(socket: Option<&str>) -> io::Result<IpcClient> {
     let path = socket.map(PathBuf::from).unwrap_or_else(ipc::default_socket_path);
@@ -79,12 +79,12 @@ impl Client {
         }
     }
 
-    /// Stage the input source (spec string — `auto|dongle|wired|bt|<device-id>|host:port`).
+    /// Stage the input source (spec string - `auto|dongle|wired|bt|<device-id>|host:port`).
     pub(crate) fn set_input(&mut self, spec: String) -> io::Result<()> {
         expect_ok(self.call(Request::SetInput(spec))?)
     }
 
-    /// Stage the output sink (spec string — `local|host:port`).
+    /// Stage the output sink (spec string - `local|host:port`).
     pub(crate) fn set_output(&mut self, spec: String) -> io::Result<()> {
         expect_ok(self.call(Request::SetOutput(spec))?)
     }
@@ -110,7 +110,7 @@ impl Client {
     }
 
     /// Apply a profile to a role, or clear it (`config: None`). Compile diagnostics come back as
-    /// [`Response::Diagnostics`] — folded into the error string so callers see one uniform result.
+    /// [`Response::Diagnostics`] - folded into the error string so callers see one uniform result.
     pub(crate) fn apply(&mut self, role: ProfileRole, config: Option<Box<ConfigDoc>>) -> io::Result<()> {
         match self.call(Request::Apply { role, config })? {
             Response::Ok => Ok(()),
@@ -119,7 +119,7 @@ impl Client {
         }
     }
 
-    /// Ask the daemon to exit (full teardown). Graceful — it runs its clean shutdown (restores
+    /// Ask the daemon to exit (full teardown). Graceful - it runs its clean shutdown (restores
     /// lizard mode), unlike `Child::kill`. The reply may not arrive (the daemon can close first), so
     /// callers treat this as best-effort.
     pub(crate) fn shutdown(&mut self) -> io::Result<()> {
@@ -128,7 +128,7 @@ impl Client {
 }
 
 /// Shared state for the UI-managed daemon: the child process we launched (if any) plus a `quitting`
-/// flag. Both live under one lock so the connect loop and the UI-exit path can't race — the loop
+/// flag. Both live under one lock so the connect loop and the UI-exit path can't race - the loop
 /// never spawns a replacement daemon once the UI has begun tearing down.
 #[derive(Default)]
 pub(crate) struct Managed {
@@ -145,7 +145,7 @@ pub(crate) fn handle() -> Handle {
     Arc::new(Mutex::new(Managed::default()))
 }
 
-/// Whether the UI currently owns a launched daemon child — i.e. we started it and will shut it down
+/// Whether the UI currently owns a launched daemon child - i.e. we started it and will shut it down
 /// on exit. Drives the "managed" vs plain "connected" status label.
 pub(crate) fn is_managed(managed: &Handle) -> bool {
     managed.lock().unwrap().child.is_some()
@@ -162,9 +162,9 @@ pub(crate) fn shutdown_managed(managed: &Handle) {
     };
     let Some(mut child) = child else { return };
     if matches!(child.try_wait(), Ok(Some(_))) {
-        return; // already gone (external kill) — nothing to stop
+        return; // already gone (external kill) - nothing to stop
     }
-    // Uses the default socket — the UI never overrides it (there's no UI to set one).
+    // Uses the default socket - the UI never overrides it (there's no UI to set one).
     let _ = Client::new(None).shutdown();
     // Bounded wait so a wedged daemon can't hang UI exit; SIGKILL only as a last resort (it skips
     // the daemon's cleanup, leaving the controller in lizard-off).
@@ -182,7 +182,7 @@ pub(crate) fn shutdown_managed(managed: &Handle) {
 /// non-fatal errors from the connect/setup sequence.
 #[derive(Debug, Clone)]
 pub(crate) enum DaemonUpdate {
-    /// The event connection was (re)established — the consumer should seed a fresh status /
+    /// The event connection was (re)established - the consumer should seed a fresh status /
     /// device list, since the stream itself carries only deltas.
     Connected,
     /// The event connection dropped (daemon stopped / restarting).
@@ -190,7 +190,7 @@ pub(crate) enum DaemonUpdate {
     /// A daemon event.
     Event(Event),
     /// A non-fatal problem during a connect attempt (daemon launch failed, a profile failed to
-    /// load/apply, start refused, …) — surfaced in the status bar; the loop keeps going.
+    /// load/apply, start refused, ...) - surfaced in the status bar; the loop keeps going.
     Error(String),
 }
 
@@ -205,16 +205,16 @@ const RETRY: Duration = Duration::from_millis(1000);
 /// 0. Reap a daemon *we* launched that has since died (external kill / crash): drop the managed
 ///    handle so a daemon that appeared externally isn't mistaken for ours, and we're free to
 ///    relaunch. (Also the point where a `quitting` UI stops the loop.)
-/// 1. Try to connect to a running daemon (the subscribe connection doubles as the probe) — this may
+/// 1. Try to connect to a running daemon (the subscribe connection doubles as the probe) - this may
 ///    be one we launched, or an external one that appeared while ours was down.
 /// 2. If it isn't reachable: launch one when *Launch the daemon* is set (a UI-owned child process,
 ///    marked managed, never double-spawned), else just retry next tick.
-/// 3. Once connected: load the Main profile from its path (empty path → clear the role).
+/// 3. Once connected: load the Main profile from its path (empty path -> clear the role).
 /// 4. Same for the Fallback profile.
 /// 5. Push the app's saved global config (unconditional), read fresh from `device_config.ron`.
 /// 6. Start the engine when *Start the engine* is set.
 ///
-/// Steps 3–6 run on a **separate** command connection (subscribe is terminal) and are best-effort —
+/// Steps 3-6 run on a **separate** command connection (subscribe is terminal) and are best-effort -
 /// each failure is reported as [`DaemonUpdate::Error`] and the sequence continues.
 pub(crate) fn run_event_loop(socket: Option<String>, managed: Handle, mut on: impl FnMut(DaemonUpdate) -> bool) {
     loop {
@@ -243,10 +243,10 @@ pub(crate) fn run_event_loop(socket: Option<String>, managed: Handle, mut on: im
                 if !on(DaemonUpdate::Connected) {
                     return;
                 }
-                // Steps 3–6, on their own command connection.
+                // Steps 3-6, on their own command connection.
                 run_on_connect(socket.as_deref(), &settings, &mut on);
 
-                // Loops while events arrive; a clean close or I/O error ends it → reconnect.
+                // Loops while events arrive; a clean close or I/O error ends it -> reconnect.
                 while let Ok(Some(ev)) = sub.next_event() {
                     if !on(DaemonUpdate::Event(ev)) {
                         return;
@@ -256,18 +256,18 @@ pub(crate) fn run_event_loop(socket: Option<String>, managed: Handle, mut on: im
                     return;
                 }
             }
-            // subscribe failed (raced the daemon going away) — fall through and retry.
+            // subscribe failed (raced the daemon going away) - fall through and retry.
         } else if settings.start_daemon {
             // Step 2: daemon not reachable and the user asked us to launch one.
             spawn_daemon(socket.as_deref(), &managed, &mut on);
         }
 
-        // Daemon absent / stream dropped / just-launched and still binding — wait before retrying.
+        // Daemon absent / stream dropped / just-launched and still binding - wait before retrying.
         std::thread::sleep(RETRY);
     }
 }
 
-/// Steps 3–6 of a connect attempt, on a fresh command connection (the just-subscribed daemon is
+/// Steps 3-6 of a connect attempt, on a fresh command connection (the just-subscribed daemon is
 /// reachable). Best-effort: each failure is reported and the rest still runs.
 fn run_on_connect(socket: Option<&str>, s: &AppSettings, on: &mut dyn FnMut(DaemonUpdate) -> bool) {
     let mut cmd = Client::new(socket.map(str::to_owned));
@@ -279,7 +279,7 @@ fn run_on_connect(socket: Option<&str>, s: &AppSettings, on: &mut dyn FnMut(Daem
         apply_profile(&mut cmd, ProfileRole::Fallback, &s.fallback_path, on);
     }
     // Step 5 (unconditional): push the app's saved chords + device config, read fresh from disk (the
-    // UI owns them — see `crate::chords`/`crate::device`; they stay in lock-step with the files and
+    // UI owns them - see `crate::chords`/`crate::device`; they stay in lock-step with the files and
     // the daemon).
     report(on, cmd.set_chords(crate::chords::to_push(&crate::chords::load())));
     report(on, cmd.set_device_config(crate::device::load()));
@@ -322,7 +322,7 @@ fn apply_profile(
 
 /// Launch a UI-owned `deckhandd` and record it as managed. Does nothing if the UI is quitting or a
 /// daemon we launched is still alive (step 0 has already reaped any dead one, so `child.is_some()`
-/// here means it's alive — just-launched and still binding; the connect retries next tick). The
+/// here means it's alive - just-launched and still binding; the connect retries next tick). The
 /// lock is held across the spawn so the UI-exit path adopts the fresh child rather than orphaning it.
 fn spawn_daemon(socket: Option<&str>, managed: &Handle, on: &mut dyn FnMut(DaemonUpdate) -> bool) {
     let mut m = managed.lock().unwrap();
@@ -366,7 +366,7 @@ fn daemon_bin() -> PathBuf {
 }
 
 /// Report a command result to the consumer: nothing on success, a [`DaemonUpdate::Error`] on
-/// failure. The `bool` from `on` (consumer shutting down) is ignored — setup is a short burst.
+/// failure. The `bool` from `on` (consumer shutting down) is ignored - setup is a short burst.
 fn report(on: &mut dyn FnMut(DaemonUpdate) -> bool, r: io::Result<()>) {
     if let Err(e) = r {
         on(DaemonUpdate::Error(e.to_string()));

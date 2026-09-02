@@ -7,27 +7,27 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-# The mapping model we compile into the runtime Program (PLAN §4.1, decision A: the IR
-# and compile() live HERE, not in config — config stays pure authoring data).
+# The mapping model we compile into the runtime Program (PLAN 4.1, decision A: the IR
+# and compile() live HERE, not in config - config stays pure authoring data).
 config = { path = "../config" }
 # Shared output vocabulary (Key / MouseButton / GamepadButton / GamepadAxis). serde on so the
-# compiled Program IR (which embeds these) can be sent over the §6 network wire.
+# compiled Program IR (which embeds these) can be sent over the 6 network wire.
 vocab-out = { path = "../vocab-out", features = ["serde"] }
 # Input HAL (devices, ControllerState) and output HAL (Sink, OutputEvent, Rumble). The
-# engine owns and drives both directly (PLAN §4). virt-out's controller (virtual-gamepad)
+# engine owns and drives both directly (PLAN 4). virt-out's controller (virtual-gamepad)
 # backend is compile-time selectable and off by default; forward the choice via the engine's
 # own `vigem` feature below. A plain engine build is controller-less (kb/mouse only). steam-hid
-# serde is on so ControllerState/Report cross the §6 wire.
+# serde is on so ControllerState/Report cross the 6 wire.
 steam-hid = { path = "../steam-hid", features = ["serde"] }
 virt-out = { path = "../virt-out", default-features = false }
 # Sync concurrency: `select!` in the central loop over frame/control/tick channels.
 crossbeam-channel.workspace = true
 log.workspace = true
 thiserror.workspace = true
-# (De)serialization of the Program IR + wire messages for the §6 network transport. Always
-# compiled — the network role is a *runtime* choice (set_input/set_output), not a cargo feature.
+# (De)serialization of the Program IR + wire messages for the 6 network transport. Always
+# compiled - the network role is a *runtime* choice (set_input/set_output), not a cargo feature.
 serde.workspace = true
-# Compact serde-native codec for the §6 network wire (datagrams + length-prefixed TCP frames).
+# Compact serde-native codec for the 6 network wire (datagrams + length-prefixed TCP frames).
 postcard.workspace = true
 
 [features]
@@ -35,7 +35,7 @@ postcard.workspace = true
 # backend), so a plain `cargo run -p engine` gets the ViGEm pad. Build `--no-default-features` for a
 # controller-less (kb/mouse-only) engine, or `--no-default-features --features viiper` for the
 # experimental VIIPER backend. The two backends are mutually exclusive (virt-out enforces this with
-# a compile error), so bare `--features viiper` would clash with the default `vigem` — drop the
+# a compile error), so bare `--features viiper` would clash with the default `vigem` - drop the
 # default. (virt-out itself keeps NO default feature; only the engine, as the app, picks one.)
 default = ["vigem"]
 vigem = ["virt-out/vigem"]
@@ -43,6 +43,6 @@ vigem = ["virt-out/vigem"]
 viiper = ["virt-out/viiper"]
 
 # RON parsing for the profile-compile test (the runnable harness now lives in the `deckhandd`
-# binary crate; PLAN §4.4).
+# binary crate; PLAN 4.4).
 [dev-dependencies]
 ron.workspace = true

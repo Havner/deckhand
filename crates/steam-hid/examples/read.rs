@@ -1,4 +1,4 @@
-//! `read` — open the target controller and log input **changes** (events).
+//! `read` - open the target controller and log input **changes** (events).
 //!
 //! Disables lizard mode (raw pads) so the controller feeds real input instead of
 //! emulating mouse/keyboard, then streams the change-driven `events()` view and logs
@@ -16,7 +16,7 @@ use steam_hid::Manager;
 fn main() -> steam_hid::Result<()> {
     let mut manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&mut manager)? else {
-        println!("No matching controller found — connected/on?");
+        println!("No matching controller found - connected/on?");
         return Ok(());
     };
     println!("selected {desc}");
@@ -32,7 +32,7 @@ fn main() -> steam_hid::Result<()> {
     println!("Logging changes to {}. Ctrl-C to stop.\n", log_path.display());
 
     // Ctrl-C ends the stream. `events()` blocks until the next frame, so the exit fires
-    // when the next event arrives — immediate while you're driving the controller, and
+    // when the next event arrives - immediate while you're driving the controller, and
     // within the dongle's ~1s battery heartbeat when idle. (A wired Gordon sends nothing
     // while untouched, so there it exits on the next input.)
     let running = common::install_ctrlc();

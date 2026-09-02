@@ -8,11 +8,11 @@ publish.workspace = true
 
 [dependencies]
 thiserror.workspace = true
-# Logging facade — warn when an output event can't be realized on this backend
+# Logging facade - warn when an output event can't be realized on this backend
 # (e.g. a key Windows has no virtual key for).
 log.workspace = true
 # The shared, platform-agnostic output vocabulary (Key / MouseButton / GamepadButton /
-# GamepadAxis). No serde here — that's `config`'s concern (PLAN §2.1/§3).
+# GamepadAxis). No serde here - that's `config`'s concern (PLAN 2.1/3).
 vocab-out = { path = "../vocab-out" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -21,21 +21,21 @@ libc.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Virtual Xbox 360 pad via the ViGEmBus driver. `unstable_xtarget_notification` is
-# required to receive game rumble back from the virtual pad (PLAN §2.1 FF back-channel).
+# required to receive game rumble back from the virtual pad (PLAN 2.1 FF back-channel).
 # Optional: pulled in only by the `vigem` feature so the controller backend can be swapped
 # out (a future `viiper`) or dropped entirely (kb/mouse-only build).
 vigem-client = { version = "0.1", features = ["unstable_xtarget_notification"], optional = true }
-# SendInput for virtual keyboard/mouse (no driver needed). Always present — the kb/mouse path
+# SendInput for virtual keyboard/mouse (no driver needed). Always present - the kb/mouse path
 # is independent of which controller backend (if any) is compiled in.
 windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse"] }
 # Alternative virtual-gamepad backend via VIIPER (USB/IP-based). Optional: pulled in only by
-# the `viiper` feature. Experimental — see `win/viiper.rs`.
+# the `viiper` feature. Experimental - see `win/viiper.rs`.
 viiper-client = { version = "0.7", optional = true }
 
 [features]
 # The controller (virtual-gamepad) backend is compile-time selectable and Windows-only; on
 # other platforms these features are inert. Backends are mutually exclusive; with none enabled
-# (the default — no `default` feature for now) the build is kb/mouse-only and controller output
+# (the default - no `default` feature for now) the build is kb/mouse-only and controller output
 # is dropped with a warning. Opt in explicitly with `--features vigem` (or `--features viiper`).
 # Virtual Xbox 360 pad via the ViGEmBus driver (needs ViGEmBus installed). See `win/vigem.rs`.
 vigem = ["dep:vigem-client"]
@@ -43,8 +43,8 @@ vigem = ["dep:vigem-client"]
 viiper = ["dep:viiper-client"]
 
 [dev-dependencies]
-# The `bridge` example wires a real Steam controller into the virtual pad (PLAN §2.1
-# Phase B). Dev-only — does NOT enter virt-out's dependency graph or its consumers'.
+# The `bridge` example wires a real Steam controller into the virtual pad (PLAN 2.1
+# Phase B). Dev-only - does NOT enter virt-out's dependency graph or its consumers'.
 steam-hid = { path = "../steam-hid" }
 # Ctrl-C handling for the examples so they exit their loop and run Drop (restore the
 # controller's lizard mode, unplug the virtual pad). On Windows Ctrl-C otherwise aborts

@@ -1,15 +1,15 @@
 //! VIIPER controller backend: a virtual Xbox 360 pad via VIIPER (Virtual Input over IP
-//! EmulatoR). Gated behind the `viiper` feature. **Experimental** — VIIPER is new and the
+//! EmulatoR). Gated behind the `viiper` feature. **Experimental** - VIIPER is new and the
 //! deployment is heavier than ViGEm.
 //!
 //! Unlike ViGEm (a local kernel driver we IOCTL directly), VIIPER is a **USB/IP** system with
 //! three parts, none of which we link:
-//!   1. `usbip-win2` — a USB/IP vhci kernel driver (the ViGEmBus-equivalent), installed
+//!   1. `usbip-win2` - a USB/IP vhci kernel driver (the ViGEmBus-equivalent), installed
 //!      separately: <https://github.com/vadimgrn/usbip-win2>.
-//!   2. `viiper.exe server` — a server process hosting a USB/IP endpoint (`:3241`) plus a
+//!   2. `viiper.exe server` - a server process hosting a USB/IP endpoint (`:3241`) plus a
 //!      management/streaming API (`:3242`), which auto-attaches created devices to the local
 //!      `usbip-win2` driver so the OS sees a real pad.
-//!   3. `viiper-client` (this crate's dep) — a **pure-Rust TCP client** to that API. No driver,
+//!   3. `viiper-client` (this crate's dep) - a **pure-Rust TCP client** to that API. No driver,
 //!      no DLL, no FFI. So this file compiles and links anywhere Windows does; it only *works*
 //!      at runtime once the driver is installed and the server is running.
 //!
@@ -60,14 +60,14 @@ pub(crate) struct ViiperController {
     dpad: Dpad,
     // Full-trigger / stick-direction pseudo-buttons, folded into the stick/trigger axes.
     axis_buttons: AxisButtons,
-    // Set by set_button/set_axis; cleared on flush — avoids resending an unchanged snapshot.
+    // Set by set_button/set_axis; cleared on flush - avoids resending an unchanged snapshot.
     dirty: bool,
     rumble: Arc<RumbleState>,
 }
 
 impl ViiperController {
     /// Write a (combined) axis value into the snapshot, translating the shared evdev-signed vocab to
-    /// XInput (sticks are +up → negate Y; triggers `0..1`). Shared by `set_axis` and the axis
+    /// XInput (sticks are +up -> negate Y; triggers `0..1`). Shared by `set_axis` and the axis
     /// pseudo-buttons (`AxisButtons`).
     fn write_axis(&mut self, a: &GamepadAxis, v: f32) {
         match a {
@@ -142,9 +142,9 @@ impl ControllerBackend for ViiperController {
 
     fn set_button(&mut self, b: &GamepadButton, down: bool) {
         if self.dpad.set(b, down) {
-            // dpad → hat bits, folded in at flush
+            // dpad -> hat bits, folded in at flush
         } else if let Some(axis) = self.axis_buttons.set_button(b, down) {
-            // Full-trigger / stick-direction pseudo-button → drive its axis to the combined value.
+            // Full-trigger / stick-direction pseudo-button -> drive its axis to the combined value.
             let vc = self.axis_buttons.value(&axis);
             self.write_axis(&axis, vc);
         } else {
@@ -176,7 +176,7 @@ impl ControllerBackend for ViiperController {
     }
 
     fn poll_rumble(&mut self) -> crate::Result<Rumble> {
-        // VIIPER delivers each motor as a u8; widen by ×257 so 0xFF maps to 0xFFFF (full scale).
+        // VIIPER delivers each motor as a u8; widen by x257 so 0xFF maps to 0xFFFF (full scale).
         let widen = |v: u8| (v as u16) * 257;
         Ok(Rumble {
             strong: widen(self.rumble.strong.load(Ordering::Relaxed)),
@@ -187,12 +187,12 @@ impl ControllerBackend for ViiperController {
 
 impl Drop for ViiperController {
     fn drop(&mut self) {
-        // Drop the stream first — its `Drop` shuts the socket (unblocking the rumble reader thread)
-        // and joins it — then remove the bus (cascades to the device) so we don't leak one per run.
+        // Drop the stream first - its `Drop` shuts the socket (unblocking the rumble reader thread)
+        // and joins it - then remove the bus (cascades to the device) so we don't leak one per run.
         // Clean teardown relies on the **plain-TCP** path: `viiper-client` 0.7's `EncryptedStream`
         // deadlocks here (its `read` holds the mutex `shutdown` needs), so we default to an
         // unauthenticated connection (see `resolve_password`). Note `bus_remove` does *not* close
-        // our API device-stream socket — only the server's URB stream — so it cannot rescue the
+        // our API device-stream socket - only the server's URB stream - so it cannot rescue the
         // encrypted path; avoiding encryption is the actual fix.
         drop(self.stream.take());
         let _ = self.client.bus_remove(Some(self.bus_id));
@@ -209,13 +209,13 @@ fn resolve_addr() -> SocketAddr {
         .unwrap_or_else(|| DEFAULT_ADDR.parse().expect("valid default addr"))
 }
 
-/// The API password, or `None` to connect **unauthenticated (plain TCP)** — the default. Only
+/// The API password, or `None` to connect **unauthenticated (plain TCP)** - the default. Only
 /// `DECKHAND_VIIPER_PASSWORD` (if non-empty) opts into the encrypted path.
 ///
 /// We do **not** auto-read the server's key file (`%APPDATA%\VIIPER\viiper.key.txt`) because that
 /// would force the encrypted path, which **deadlocks on shutdown** in `viiper-client` 0.7: its
 /// `EncryptedStream::read` holds the shared read mutex across the blocking `recv`, while
-/// `DeviceStream::drop` → `shutdown` needs that same mutex — so with a concurrent rumble reader
+/// `DeviceStream::drop` -> `shutdown` needs that same mutex - so with a concurrent rumble reader
 /// (`on_output`) any clean teardown hangs until the socket is closed by the server (which
 /// `bus_remove` does *not* do for the API stream). Plain TCP has no such lock, so it shuts down
 /// cleanly, and localhost needs no auth by default. Set the env var only if the server enforces
@@ -226,10 +226,10 @@ fn resolve_password() -> Option<String> {
     if pw.is_empty() { None } else { Some(pw) }
 }
 
-// --- gamepad vocabulary → XInput (VIIPER Xbox360) mapping ---
+// --- gamepad vocabulary -> XInput (VIIPER Xbox360) mapping ---
 
 // Standard XInput button bits, as the VIIPER Xbox360 wire format uses them (dpad lives in the
-// same button word — no separate hat). Kept as clean `u32`s (the crate's generated constants
+// same button word - no separate hat). Kept as clean `u32`s (the crate's generated constants
 // are a mix of `u8`/`i32`).
 const BTN_DPAD_UP: u32 = 0x0001;
 const BTN_DPAD_DOWN: u32 = 0x0002;
@@ -267,10 +267,10 @@ fn set_button_bit(buttons: &mut u32, b: &GamepadButton, down: bool) {
         | GamepadButton::DpadDown
         | GamepadButton::DpadLeft
         | GamepadButton::DpadRight => {
-            unreachable!("dpad directions fold into the hat — see Dpad / set_button")
+            unreachable!("dpad directions fold into the hat - see Dpad / set_button")
         }
         b if b.is_axis_button() => {
-            unreachable!("axis pseudo-buttons fold into the stick/trigger axes — see AxisButtons")
+            unreachable!("axis pseudo-buttons fold into the stick/trigger axes - see AxisButtons")
         }
         _ => unreachable!("set_button_bit covers every non-hat, non-axis button"),
     };
@@ -281,7 +281,7 @@ fn set_button_bit(buttons: &mut u32, b: &GamepadButton, down: bool) {
     }
 }
 
-/// Dpad hat state (`+1`/`-1` per axis) → XInput dpad bits. `DpadX +1 = right`,
+/// Dpad hat state (`+1`/`-1` per axis) -> XInput dpad bits. `DpadX +1 = right`,
 /// `DpadY +1 = down` (matches the vocabulary / evdev hat convention).
 fn dpad_bits((x, y): (i32, i32)) -> u32 {
     let mut bits = 0;
@@ -298,12 +298,12 @@ fn dpad_bits((x, y): (i32, i32)) -> u32 {
     bits
 }
 
-/// Normalized stick `-1.0..=1.0` → XInput `i16`.
+/// Normalized stick `-1.0..=1.0` -> XInput `i16`.
 fn stick(v: f32) -> i16 {
     (v.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
 }
 
-/// Normalized trigger `0.0..=1.0` → XInput `u8`.
+/// Normalized trigger `0.0..=1.0` -> XInput `u8`.
 fn trigger(v: f32) -> u8 {
     (v.clamp(0.0, 1.0) * u8::MAX as f32) as u8
 }

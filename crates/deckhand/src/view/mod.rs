@@ -1,9 +1,9 @@
 //! The iced widget layer: the four-region window and the per-category screens.
 //!
-//! This module owns the **chrome** — the top daemon bar, left sidebar, scrollable content pane, and
-//! bottom status bar — and dispatches the content pane to a per-category screen. The screens live in
+//! This module owns the **chrome** - the top daemon bar, left sidebar, scrollable content pane, and
+//! bottom status bar - and dispatches the content pane to a per-category screen. The screens live in
 //! submodules: [`profiles`] (profile management), [`settings`], [`chords`], [`device`], and [`editor`] (the
-//! profile-edit pages — the Profile page plus the still-mock per-input tabs).
+//! profile-edit pages - the Profile page plus the still-mock per-input tabs).
 //!
 //! Small shared building blocks (headings, body/caption/monospace text, the panel card, the status
 //! separator, the modal shell) stay here; the submodules reach them via `super::`.
@@ -41,17 +41,17 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
 
 // --- shared building blocks (used across the screen submodules via `super::`) ---------------
 
-/// A screen's big title (e.g. "Settings", "Buttons") — the largest heading on a page.
+/// A screen's big title (e.g. "Settings", "Buttons") - the largest heading on a page.
 fn section_header<'a>(title: impl text::IntoFragment<'a>) -> Element<'a, Message> {
     text(title).size(24.0).into()
 }
 
 /// An icon glyph (gear `⚙`, arrows `▶`/`◀`) rendered from a symbol font. On Windows cosmic-text's
 /// fallback chain resolves these through the *colour* "Segoe UI Emoji" ahead of the monochrome
-/// "Segoe UI Symbol", and it has no text/emoji presentation-selector logic — so without help they
+/// "Segoe UI Symbol", and it has no text/emoji presentation-selector logic - so without help they
 /// render as colour emoji that ignore the widget's text colour (blue-boxed arrows; a beige gear that
 /// won't dim when its button is disabled). Pin the monochrome symbol font so the glyph takes the
-/// text colour. Other platforms already fall back to a colourable monochrome glyph — leave them be.
+/// text colour. Other platforms already fall back to a colourable monochrome glyph - leave them be.
 /// Callers keep chaining `.size(..)` / `.style(..)` on the returned [`Text`].
 fn icon<'a>(glyph: &'a str) -> Text<'a> {
     let t = text(glyph);
@@ -60,24 +60,24 @@ fn icon<'a>(glyph: &'a str) -> Text<'a> {
     t
 }
 
-/// A sub-group heading within a screen (e.g. "UI", "Face Buttons", "Profile") — the smaller
+/// A sub-group heading within a screen (e.g. "UI", "Face Buttons", "Profile") - the smaller
 /// subtitle under a [`section_header`].
 fn group_header<'a>(title: impl text::IntoFragment<'a>) -> Element<'a, Message> {
     text(title).size(20.0).into()
 }
 
-/// Regular body copy inside a content screen (13 px) — the unified default text size for pure text
+/// Regular body copy inside a content screen (13 px) - the unified default text size for pure text
 /// (paragraphs, captions, readouts); not for control/combobox labels.
 fn body<'a>(fragment: impl text::IntoFragment<'a>) -> Element<'a, Message> {
     text(fragment).size(13.0).into()
 }
 
-/// Small/secondary copy inside a content screen (12 px) — captions and hints. Same use as [`body`].
+/// Small/secondary copy inside a content screen (12 px) - captions and hints. Same use as [`body`].
 fn small<'a>(fragment: impl text::IntoFragment<'a>) -> Element<'a, Message> {
     text(fragment).size(12.0).into()
 }
 
-/// Monospaced copy (12 px) — command lines and other verbatim text. Same use as [`body`].
+/// Monospaced copy (12 px) - command lines and other verbatim text. Same use as [`body`].
 fn monospace<'a>(fragment: impl text::IntoFragment<'a>) -> Element<'a, Message> {
     text(fragment).size(12.0).font(iced::Font::MONOSPACE).into()
 }
@@ -100,7 +100,7 @@ pub(in crate::view) fn setting_label(s: &'static str) -> Element<'static, Messag
 /// An optional glyph-colour dot (a theme-role text style) for a button label.
 pub(in crate::view) type Dot = Option<fn(&Theme) -> text::Style>;
 
-/// A slot's display label + optional colour dot — the **single source of truth** for how a button
+/// A slot's display label + optional colour dot - the **single source of truth** for how a button
 /// reads, shared by its command bar(s) and its gear-menu title, so a future glyph/colour/name change
 /// happens in exactly one place.
 pub(in crate::view) fn slot_display(input: &InputSource, slot: CommandSlot) -> (&'static str, Dot) {
@@ -129,7 +129,7 @@ pub(in crate::view) fn slot_display(input: &InputSource, slot: CommandSlot) -> (
     }
 }
 
-/// Render a "● Label" row (dot optional) — the shared label widget for command bars and menu titles.
+/// Render a "● Label" row (dot optional) - the shared label widget for command bars and menu titles.
 pub(in crate::view) fn label_row(label: &str, dot: Dot) -> Row<'static, Message> {
     let mut r = row![].spacing(12.0).align_y(Center);
     if let Some(role) = dot {
@@ -142,8 +142,8 @@ pub(in crate::view) fn label_row(label: &str, dot: Dot) -> Row<'static, Message>
 /// match the `+` sign (not the smaller natural chip height).
 const CHIP_H: f32 = 30.0;
 
-/// A small removable "chip": a button's name in a pill with a ✕ that emits `on_remove`. Shared by
-/// the gater list (Activation) and chord triggers (Chords) — the compact set representation.
+/// A small removable "chip": a button's name in a pill with a x that emits `on_remove`. Shared by
+/// the gater list (Activation) and chord triggers (Chords) - the compact set representation.
 pub(in crate::view) fn chip(label: &str, on_remove: Message) -> Element<'static, Message> {
     let x = button(text("✕").size(11.0)).style(style::combo_button).padding([1.0, 5.0]).on_press(on_remove);
     container(row![text(label.to_string()).size(12.0), x].spacing(6.0).align_y(Center))
@@ -169,7 +169,7 @@ pub(in crate::view) fn button_chips(
     r.into()
 }
 
-/// UI-owned display label for a raw controller [`Button`](vocab_hid::Button) — used by the gater/
+/// UI-owned display label for a raw controller [`Button`](vocab_hid::Button) - used by the gater/
 /// chord chips and the Button picker. (`vocab-hid` stays presentation-free, like `vocab-out`.)
 pub(in crate::view) fn button_label(b: &vocab_hid::Button) -> &'static str {
     use vocab_hid::Button as B;
@@ -322,7 +322,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
 }
 
 /// One sidebar entry; the selected one gets the primary style. Profile-editor categories are
-/// disabled (no `on_press` → iced greys them) until a profile is loaded for editing.
+/// disabled (no `on_press` -> iced greys them) until a profile is loaded for editing.
 fn nav_button(app: &App, c: Category) -> Element<'static, Message> {
     let enabled = !c.is_editor() || app.is_editing();
     let style = if app.category == c { button::primary } else { button::text };
@@ -356,7 +356,7 @@ fn content(app: &App) -> Element<'_, Message> {
 
 // --- bottom bar -----------------------------------------------------------------------------
 
-/// Full-width status bar from the engine status (device bound, profiles, chord count, …).
+/// Full-width status bar from the engine status (device bound, profiles, chord count, ...).
 fn bottom_bar(app: &App) -> Element<'_, Message> {
     // Dot color from theme roles: success (green, matching Start) / danger (red, matching Stop).
     // "managed" (green dot) when the UI launched the daemon and will shut it down on exit; a plain
@@ -374,8 +374,8 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
 
     if let Some(s) = &app.status {
         // Controller-presence dot, left of the device id: green = connected, red = disconnected,
-        // and *no dot* when there's no local reader (`controller: None` — idle, or the network
-        // server role), so a stopped engine shows just "device: —".
+        // and *no dot* when there's no local reader (`controller: None` - idle, or the network
+        // server role), so a stopped engine shows just "device: -".
         let device: Element<'_, Message> = {
             let dev = s.bound.as_ref().map(|b| b.id.as_str()).unwrap_or("—");
             // Battery (wireless controller) is appended as " (B%)"; omitted when unknown.
@@ -411,9 +411,9 @@ fn bottom_bar(app: &App) -> Element<'_, Message> {
     container(bar).style(container::dark).width(Fill).into()
 }
 
-/// A bottom-bar profile slot — `"<name>: <profile>"` (or `—` when the role is unassigned/
+/// A bottom-bar profile slot - `"<name>: <profile>"` (or `-` when the role is unassigned/
 /// disconnected), with a green ▶ prefix when it's the **live** role. Literal: the arrow follows
-/// `status.active` verbatim (it can sit on an empty `—` when a chord/boot put us in an empty slot),
+/// `status.active` verbatim (it can sit on an empty `-` when a chord/boot put us in an empty slot),
 /// per the design decision. Only one of main/fallback is ever active, so at most one arrow shows.
 fn role_label(name: &str, profile: Option<&str>, active: bool) -> Element<'static, Message> {
     let label = text(format!("{name}: {}", profile.unwrap_or("—"))).size(13.0);

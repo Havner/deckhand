@@ -1,4 +1,4 @@
-//! End-to-end client ↔ server over a real local socket (Unix). Binds a unique temp socket, runs a
+//! End-to-end client <-> server over a real local socket (Unix). Binds a unique temp socket, runs a
 //! tiny echo-ish server in a thread, and drives it through the `Client` API.
 
 #![cfg(unix)]

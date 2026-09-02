@@ -1,13 +1,13 @@
-//! Player-space gyro support (PLAN §3 Round B). Player space projects the angular velocity onto
+//! Player-space gyro support (PLAN 3 Round B). Player space projects the angular velocity onto
 //! real-world vertical, so "turning around vertical" maps to horizontal aim no matter how the
 //! controller is tilted/rolled. That needs the **gravity direction**, which we recover with a slow
 //! low-pass of the accelerometer: the accel reads gravity + linear motion, and while aiming (little
 //! sustained linear acceleration) the low-pass settles on gravity. Full gyro/accel sensor fusion is
-//! deferred — this is the crude-but-good-enough estimate (like the crude local-space start).
+//! deferred - this is the crude-but-good-enough estimate (like the crude local-space start).
 
-/// Gravity-direction estimate — an EMA of the raw accel vector, kept per gyro source in the
+/// Gravity-direction estimate - an EMA of the raw accel vector, kept per gyro source in the
 /// [`Mapper`](super::Mapper). [`Self::update`] returns the current **up** unit vector (points up,
-/// opposite gravity) — the axis player space projects yaw+roll onto.
+/// opposite gravity) - the axis player space projects yaw+roll onto.
 #[derive(Debug, Clone, Default)]
 pub(super) struct GravityEst {
     v: [f32; 3],
@@ -32,7 +32,7 @@ impl GravityEst {
         }
         let mag = (self.v[0] * self.v[0] + self.v[1] * self.v[1] + self.v[2] * self.v[2]).sqrt();
         if mag < 1e-6 {
-            [0.0, 0.0, 1.0] // no reading yet → assume flat (up = +Z)
+            [0.0, 0.0, 1.0] // no reading yet -> assume flat (up = +Z)
         } else {
             [self.v[0] / mag, self.v[1] / mag, self.v[2] / mag]
         }
@@ -45,7 +45,7 @@ mod tests {
 
     #[test]
     fn settles_on_the_gravity_direction_and_normalizes() {
-        // A steady accel of (0,0,2g-ish) → up unit vector (0,0,1) after enough samples.
+        // A steady accel of (0,0,2g-ish) -> up unit vector (0,0,1) after enough samples.
         let mut g = GravityEst::default();
         let mut up = [0.0; 3];
         for _ in 0..500 {
@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn first_sample_seeds_immediately() {
         let mut g = GravityEst::default();
-        let up = g.update([16384.0, 0.0, 0.0], 0.004); // right-side down → up = +X
+        let up = g.update([16384.0, 0.0, 0.0], 0.004); // right-side down -> up = +X
         assert!((up[0] - 1.0).abs() < 1e-3);
     }
 }

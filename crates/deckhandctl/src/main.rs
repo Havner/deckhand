@@ -1,6 +1,6 @@
-//! `deckhandctl` — the thin CLI client for the deckhand daemon (PLAN §4.4).
+//! `deckhandctl` - the thin CLI client for the deckhand daemon (PLAN 4.4).
 //!
-//! Parses a **sequence** of commands and runs them in order over **one connection** — the daemon
+//! Parses a **sequence** of commands and runs them in order over **one connection** - the daemon
 //! serves multiple request/reply pairs per connection. Global flags (`--socket`, `-h`, `-V`) must
 //! precede the commands. Depends only on `ipc` (+ `config` to read RON profiles), never on `engine`.
 //!
@@ -53,7 +53,7 @@ enum Step {
     /// A request/reply command. `label` is the command as typed (e.g. `main game.ron`), so a chain's
     /// replies can be told apart.
     Call { label: String, req: Request },
-    /// The streaming follow mode — terminal (subscribes on the connection and never returns).
+    /// The streaming follow mode - terminal (subscribes on the connection and never returns).
     Monitor,
 }
 
@@ -87,7 +87,7 @@ fn main() -> ExitCode {
         }
     };
     if steps.is_empty() {
-        eprintln!("no command given — try `deckhandctl --help`");
+        eprintln!("no command given - try `deckhandctl --help`");
         return ExitCode::FAILURE;
     }
 
@@ -158,12 +158,12 @@ fn parse_steps(tokens: &[String]) -> Result<Vec<Step>, String> {
                 let d = load_device_config(&p)?;
                 call(&format!("devcfg {p}"), Request::SetDeviceConfig(d))
             }
-            other => return Err(format!("unknown command '{other}' — try `deckhandctl --help`")),
+            other => return Err(format!("unknown command '{other}' - try `deckhandctl --help`")),
         };
         steps.push(step);
     }
 
-    // `shutdown` and `monitor` end / take over the connection — nothing may follow them.
+    // `shutdown` and `monitor` end / take over the connection - nothing may follow them.
     let last = steps.len().saturating_sub(1);
     for (idx, step) in steps.iter().enumerate() {
         let terminal = match step {
@@ -187,12 +187,12 @@ fn take_arg(tokens: &[String], i: &mut usize, cmd: &str) -> Result<String, Strin
     Ok(a)
 }
 
-/// Connect to the daemon, resolving the `--socket` override: `None` → the env/default
+/// Connect to the daemon, resolving the `--socket` override: `None` -> the env/default
 /// ([`ipc::default_socket_path`], honoring `$DECKHAND_SOCKET`); otherwise the given path (Unix) /
 /// pipe name (Windows). Mirrors `deckhandd`'s own resolution so client and daemon agree.
 fn connect(socket: Option<&str>) -> Result<Client, ExitCode> {
     open(socket).map_err(|e| {
-        eprintln!("cannot reach deckhandd ({e}) — is it running?");
+        eprintln!("cannot reach deckhandd ({e}) - is it running?");
         ExitCode::FAILURE
     })
 }
@@ -251,7 +251,7 @@ fn fmt_event(ev: &Event) -> String {
     }
 }
 
-/// A comma-joined name list, or `(none)` when empty — for the layer-view events.
+/// A comma-joined name list, or `(none)` when empty - for the layer-view events.
 fn name_list(names: &[String]) -> String {
     if names.is_empty() { "(none)".into() } else { names.join(", ") }
 }
@@ -272,7 +272,7 @@ fn lever_db(l: &Lever<i8>) -> String {
     }
 }
 
-/// Device-config summary as lines (LED/idle, then one line per device's rumble) — the status block
+/// Device-config summary as lines (LED/idle, then one line per device's rumble) - the status block
 /// prints them stacked; the event stream joins them onto one line.
 fn devcfg_lines(d: &DeviceConfig) -> Vec<String> {
     let led = d.led_brightness.map_or_else(|| "default".to_string(), |v| format!("{v}%"));
@@ -288,7 +288,7 @@ fn devcfg_lines(d: &DeviceConfig) -> Vec<String> {
     ]
 }
 
-/// Chords as lines: `(none)`, or the count followed by one `#N buttons → action` line per chord.
+/// Chords as lines: `(none)`, or the count followed by one `#N buttons -> action` line per chord.
 fn chord_lines(chords: &Option<Chords>) -> Vec<String> {
     let Some(c) = chords else {
         return vec!["(none)".to_string()];
@@ -314,7 +314,7 @@ fn chord_desc(ch: &Chord) -> String {
     format!("{buttons} -> {action}")
 }
 
-/// `(none)` when no chords are set, else the count — the shared rendering for status + events.
+/// `(none)` when no chords are set, else the count - the shared rendering for status + events.
 fn chord_summary(chords: &Option<Chords>) -> String {
     chords.as_ref().map_or_else(|| "(none)".to_string(), |c| c.chords.len().to_string())
 }

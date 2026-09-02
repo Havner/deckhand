@@ -1,4 +1,4 @@
-//! Normalized value vocabulary for the input snapshot (PLAN §1.5).
+//! Normalized value vocabulary for the input snapshot (PLAN 1.5).
 //!
 //! The geometry/analog types that make up a [`crate::ControllerState`]: normalized
 //! `Vec2`/`TrackPad`, the raw wire `Vec2i`/`Vec3i`/`Quati`, and `Timestamp`. The
@@ -7,7 +7,7 @@
 //! (`state.rs`) then applies its own *policy* (normalization divisors, gyro
 //! handedness) on top.
 //!
-//! Per project convention these derive `Clone` but **not** `Copy` — clone
+//! Per project convention these derive `Clone` but **not** `Copy` - clone
 //! explicitly where a copy is wanted.
 
 use core::time::Duration;
@@ -33,7 +33,7 @@ pub struct Vec2i {
     pub y: i16,
 }
 
-/// A raw wire 3D vector (i16) — accel / gyro.
+/// A raw wire 3D vector (i16) - accel / gyro.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Vec3i {
@@ -42,7 +42,7 @@ pub struct Vec3i {
     pub z: i16,
 }
 
-/// A raw wire quaternion (i16) — device orientation.
+/// A raw wire quaternion (i16) - device orientation.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Quati {
@@ -53,7 +53,7 @@ pub struct Quati {
 }
 
 // Structural conversions from the packed wire chunks (`protocol`) into the raw value types. Plain
-// field copies — no policy; the decode layer normalizes on top (see `state.rs`). Kept separate from
+// field copies - no policy; the decode layer normalizes on top (see `state.rs`). Kept separate from
 // the serde types so the packed `Wire` structs never need `Serialize`/refs into unaligned fields.
 impl From<WireVec2> for Vec2i {
     fn from(v: WireVec2) -> Self {
@@ -83,7 +83,7 @@ pub struct TrackPad {
 /// Monotonic capture time of a frame, as elapsed since the device's stream start.
 ///
 /// Relative (not wall-clock) so it is serializable for traces and can drive the
-/// engine's injected clock on replay (PLAN §1.8, §4).
+/// engine's injected clock on replay (PLAN 1.8, 4).
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Timestamp(pub Duration);

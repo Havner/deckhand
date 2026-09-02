@@ -1,5 +1,5 @@
-//! Command evaluation — a button-like node's commands → output levels, through the activator
-//! state machine (PLAN §4 step 5 / Round C, §4.2 S7).
+//! Command evaluation - a button-like node's commands -> output levels, through the activator
+//! state machine (PLAN 4 step 5 / Round C, 4.2 S7).
 //!
 //! Shared by physical buttons and every behavior virtual button (soft-pull, outer-ring, dpad
 //! directions, button-pad members): each computes its held-state and calls [`eval_commands`]
@@ -10,17 +10,17 @@
 //!
 //! Five activators, in two roles:
 //!
-//! - **`Start` / `Release`** — independent one-shot taps (on the press / release edge). They never
+//! - **`Start` / `Release`** - independent one-shot taps (on the press / release edge). They never
 //!   interrupt and are never interrupted; they don't participate in anything below.
-//! - **`Long` / `Double`** — the *interrupters* and *hold-takers*. Each fires when its condition
+//! - **`Long` / `Double`** - the *interrupters* and *hold-takers*. Each fires when its condition
 //!   holds (`Long`: held past `hold_ms`; `Double`: a second press within `window_ms` **of the first
-//!   press**) and then **holds from that point until release**. They **never contest each other** —
+//!   press**) and then **holds from that point until release**. They **never contest each other** -
 //!   several may be active at once and they all stay held (`double(200),long(300),long(500)` held
-//!   long → all three down until you release). While any of them is active, an interruptible
+//!   long -> all three down until you release). While any of them is active, an interruptible
 //!   `Regular` on the node is killed.
-//! - **`Regular`** — the only interruptible command, and the whole model collapses to one rule:
+//! - **`Regular`** - the only interruptible command, and the whole model collapses to one rule:
 //!
-//!   > **A `Regular` presses-and-holds the moment it becomes *safe* from interruption** — where
+//!   > **A `Regular` presses-and-holds the moment it becomes *safe* from interruption** - where
 //!   > "safe" = no `Long`/`Double` on the node can still fire from this interaction. If it's safe at
 //!   > press (no interrupters present at all) it holds from press; if it becomes safe later *while
 //!   > still held* it holds from that moment; if it only becomes safe after release (or the button
@@ -28,20 +28,20 @@
 //!   > interrupted and outputs nothing.
 //!
 //!   Consequences (all fall out of the one rule):
-//!   - No interrupters on the node → safe at press → **plain press/release hold** (`interruptible`
+//!   - No interrupters on the node -> safe at press -> **plain press/release hold** (`interruptible`
 //!     is a no-op).
-//!   - `Long` present, short press → released before the `Long` fired → safe on release, button up
-//!     → **tap**. Hold past the threshold → the `Long` fires → **interrupted**.
-//!   - `Double` present → safe only when the window has closed (measured from the first press). A
-//!     quick press → **tap after the window**; a **press-and-hold** past the window (no `Long` to
-//!     interrupt) → a **real, delayed press-and-hold**; a genuine second press → `Double` fires,
+//!   - `Long` present, short press -> released before the `Long` fired -> safe on release, button up
+//!     -> **tap**. Hold past the threshold -> the `Long` fires -> **interrupted**.
+//!   - `Double` present -> safe only when the window has closed (measured from the first press). A
+//!     quick press -> **tap after the window**; a **press-and-hold** past the window (no `Long` to
+//!     interrupt) -> a **real, delayed press-and-hold**; a genuine second press -> `Double` fires,
 //!     `Regular` **interrupted**.
-//!   - Why "no `Long` ⇒ can real-hold": a `Long` either fires (interrupt) or, while you hold below
-//!     its threshold, keeps threatening — there is no "safe while held" with a `Long` present, so a
+//!   - Why "no `Long` => can real-hold": a `Long` either fires (interrupt) or, while you hold below
+//!     its threshold, keeps threatening - there is no "safe while held" with a `Long` present, so a
 //!     committed hold only happens with `Double`(s) and no `Long`.
 //!
 //! `toggle`/`turbo`/haptics are per-command post-processing on the resolved level (S7b); they are
-//! meaningful on holds — on the one-shot taps they are effectively inert (and the editor hides the
+//! meaningful on holds - on the one-shot taps they are effectively inert (and the editor hides the
 //! ones that don't apply).
 
 use config::{Activator, HapticEdge, Haptics, Side, Turbo};
@@ -53,12 +53,12 @@ use super::reconcile::DesiredLevels;
 use super::{HapticReq, Tick};
 use crate::program::{CompiledAction, CompiledCommand};
 
-/// How long a tap-style output holds from its trigger edge, in ms — one-shot `Start`/`Release`
+/// How long a tap-style output holds from its trigger edge, in ms - one-shot `Start`/`Release`
 /// taps and the committed interruptible-`Regular` tap. Long enough for a game to register, short
 /// enough to feel like a tap. HW-tuned later.
 const TAP_MS: u64 = 40;
 
-/// Advance a node's commands one tick and apply the firing ones' actions — output leaves into
+/// Advance a node's commands one tick and apply the firing ones' actions - output leaves into
 /// `sinks.desired`, layer/set actions into `sinks.ops` (for the next tick), command-haptic
 /// pulses into `sinks.haptics`.
 ///
@@ -81,7 +81,7 @@ pub(super) fn eval_commands(
     let released = !held && slot.prev_held;
 
     // Node facts: the interrupters present, and the widest double window (the latest a `Double` on
-    // this node can still form → the point an interruptible `Regular` is finally safe).
+    // this node can still form -> the point an interruptible `Regular` is finally safe).
     let has_long = commands.iter().any(|c| matches!(c.activator, Activator::Long { .. }));
     let max_double_window = commands
         .iter()
@@ -114,7 +114,7 @@ pub(super) fn eval_commands(
             Activator::Double { window_ms } => {
                 let cs = slot.command(i);
                 if pressed {
-                    // A double forms when the previous press is within the window — unless that press
+                    // A double forms when the previous press is within the window - unless that press
                     // already completed a double (cycles don't chain: the 2nd click of a triple can't
                     // open another pair). Carrying that one fact forward is all it takes.
                     let within = prev_press.as_ref().is_some_and(|pp| now.0.saturating_sub(pp.0) <= *window_ms as u64);
@@ -210,23 +210,23 @@ fn regular_deferred(
     match cs.deferred {
         Deferred::Pending => {
             if interrupter_active {
-                cs.deferred = Deferred::Idle; // a Long fired (or a Double formed) → interrupted
+                cs.deferred = Deferred::Idle; // a Long fired (or a Double formed) -> interrupted
                 return false;
             }
             let start = cs.deferred_start.as_ref().map_or(now.0, |t| t.0);
             let window_closed = now.0.saturating_sub(start) >= max_double_window.unwrap_or(0);
             if held && !has_long && window_closed {
-                // Safe while still held (no `Long` to fire, every `Double` window closed) → the real,
+                // Safe while still held (no `Long` to fire, every `Double` window closed) -> the real,
                 // delayed press-and-hold.
                 cs.deferred = Deferred::Holding;
                 true
             } else if !held && window_closed {
-                // Safe on release (window closed with no second press) → a delayed tap.
+                // Safe on release (window closed with no second press) -> a delayed tap.
                 cs.tap_until = Some(Tick(now.0 + TAP_MS));
                 cs.deferred = Deferred::Idle;
                 true
             } else {
-                false // still threatened (a `Long` may fire, or the double window is still open) — wait
+                false // still threatened (a `Long` may fire, or the double window is still open) - wait
             }
         }
         Deferred::Holding => {
@@ -257,14 +257,14 @@ fn haptic_req(cmd: &CompiledCommand, side: &Side) -> HapticReq {
 
 /// The shape of a command's effect, which decides where its haptic click fires. The three are
 /// mutually exclusive and classified in this priority order (`Level` is the catch-all):
-/// - `PersistentOpSet` — the command does *only* `ChangeActionSet`/`AddLayer`/`RemoveLayer`. Its
+/// - `PersistentOpSet` - the command does *only* `ChangeActionSet`/`AddLayer`/`RemoveLayer`. Its
 ///   click is deferred to [`reconcile_layer_ops`](super::Mapper::reconcile_layer_ops) and fired iff
 ///   the op actually changes state (past dedup, `set_change`-wins, and no-op applies), because a
 ///   dropped op produces no effect and must produce no click. A persistent op has no release edge.
-/// - `Hold` — the command does *only* `HoldLayer`. Its click is deferred onto the held layer and
+/// - `Hold` - the command does *only* `HoldLayer`. Its click is deferred onto the held layer and
 ///   fired on the layer's real engage/disengage, so the disengage (release) click survives the
 ///   self-shadow that hides the command on the release tick.
-/// - `Level` — everything else: any output leaf, a bare `None`, or a mix. A held output level whose
+/// - `Level` - everything else: any output leaf, a bare `None`, or a mix. A held output level whose
 ///   click rides the command's own output edges inline.
 enum Effect {
     Level,
@@ -323,7 +323,7 @@ fn tap_active(cs: &CmdState, now: &Tick) -> bool {
 }
 
 /// Arm a `TAP_MS` output window when `fire` (the activator's edge), then report whether one is
-/// running — the shared body of the `Start`/`Release` one-shot taps.
+/// running - the shared body of the `Start`/`Release` one-shot taps.
 fn tap_on_edge(cs: &mut CmdState, fire: bool, now: &Tick) -> bool {
     if fire {
         cs.tap_until = Some(Tick(now.0 + TAP_MS));
@@ -334,15 +334,15 @@ fn tap_on_edge(cs: &mut CmdState, fire: bool, now: &Tick) -> bool {
 /// Apply one action of a firing command. Output leaves drive the desired levels every held tick;
 /// layer/set actions queue into `ops` for the next tick, each carrying its trigger `node`. `HoldLayer`
 /// fires every tick and latches to that node's held-state; the persistent mutations
-/// (`ChangeActionSet`/`AddLayer`/`RemoveLayer`) fire only on the command's rising `edge` — so a held
-/// command (e.g. a `Regular` tap's `TAP_MS` tail) applies its stack change once, not every tick —
-/// and `reconcile_layer_ops` dedups them per node so a self-toggling button can't strobe (PLAN §4).
+/// (`ChangeActionSet`/`AddLayer`/`RemoveLayer`) fire only on the command's rising `edge` - so a held
+/// command (e.g. a `Regular` tap's `TAP_MS` tail) applies its stack change once, not every tick -
+/// and `reconcile_layer_ops` dedups them per node so a self-toggling button can't strobe (PLAN 4).
 /// `None` does nothing.
 ///
 /// Scroll pseudo-buttons (`MouseButton::Scroll*`) ride the ordinary button-level path: virt-out
 /// realizes a scroll button's **press** as one wheel tick and no-ops its release, so a plain press
 /// scrolls one notch and a `Turbo` command (which pulses the level on/off) scrolls one notch per
-/// pulse — continuous scroll while held. (No held-state to reconcile; the backend collapses it.)
+/// pulse - continuous scroll while held. (No held-state to reconcile; the backend collapses it.)
 fn apply_action(
     action: &CompiledAction,
     edge: bool,
@@ -360,7 +360,7 @@ fn apply_action(
         CompiledAction::RemoveLayer(l) => if edge { ops.removes.push((l.clone(), node.clone())) },
         CompiledAction::HoldLayer(l) => {
             // The hold's engage/disengage click travels with the held layer (`hold_haptic`), fired by
-            // `reconcile_layer_ops` on the layer's lifecycle — not inline off this command's level.
+            // `reconcile_layer_ops` on the layer's lifecycle - not inline off this command's level.
             ops.holds.insert(l.clone(), HeldLayer { node: node.clone(), haptic: hold_haptic.cloned() });
         }
         CompiledAction::None => {}
@@ -425,14 +425,14 @@ mod tests {
     fn regular_holds_while_held() {
         let c = cmd(regular(false));
         let mut s = SlotState::default();
-        assert!(step(&c, &mut s, true, 0)); // press → held
+        assert!(step(&c, &mut s, true, 0)); // press -> held
         assert!(step(&c, &mut s, true, 4)); // still held
-        assert!(!step(&c, &mut s, false, 8)); // release → up
+        assert!(!step(&c, &mut s, false, 8)); // release -> up
     }
 
     #[test]
     fn interruptible_regular_alone_is_a_plain_hold() {
-        // Rule 5: with no Long/Double on the node, `interruptible` is a no-op — press/release hold.
+        // Rule 5: with no Long/Double on the node, `interruptible` is a no-op - press/release hold.
         let c = cmd(regular(true));
         let mut s = SlotState::default();
         assert!(step(&c, &mut s, true, 0)); // holds from press, not a deferred tap
@@ -446,7 +446,7 @@ mod tests {
         let mut s = SlotState::default();
         assert!(step(&c, &mut s, true, 0)); // fires on the press edge
         assert!(step(&c, &mut s, true, 20)); // within TAP_MS, still down
-        assert!(!step(&c, &mut s, true, 60)); // past TAP_MS (40) → up, even though still held
+        assert!(!step(&c, &mut s, true, 60)); // past TAP_MS (40) -> up, even though still held
     }
 
     #[test]
@@ -464,45 +464,45 @@ mod tests {
     fn double_fires_on_second_press_within_window() {
         let c = cmd(Activator::Double { window_ms: 200 });
         let mut s = SlotState::default();
-        assert!(!step(&c, &mut s, true, 0)); // first press → not a double
+        assert!(!step(&c, &mut s, true, 0)); // first press -> not a double
         assert!(!step(&c, &mut s, false, 20)); // release
-        assert!(step(&c, &mut s, true, 60)); // second press within 200ms → fires
+        assert!(step(&c, &mut s, true, 60)); // second press within 200ms -> fires
         assert!(step(&c, &mut s, true, 64)); // held
-        assert!(!step(&c, &mut s, false, 70)); // release → clears (a user release ends it, no floor)
+        assert!(!step(&c, &mut s, false, 70)); // release -> clears (a user release ends it, no floor)
 
         // A second press *outside* the window does not fire.
         let mut s = SlotState::default();
         assert!(!step(&c, &mut s, true, 0));
         assert!(!step(&c, &mut s, false, 20));
-        assert!(!step(&c, &mut s, true, 500)); // 500ms later → no double
+        assert!(!step(&c, &mut s, true, 500)); // 500ms later -> no double
     }
 
     #[test]
     fn double_window_is_measured_from_the_first_press() {
-        // Hold the first press past the window, release, quick re-press → NOT a double, because the
+        // Hold the first press past the window, release, quick re-press -> NOT a double, because the
         // window runs from the first *press*, not its release.
         let c = cmd(Activator::Double { window_ms: 200 });
         let mut s = SlotState::default();
         assert!(!step(&c, &mut s, true, 0)); // first press
         assert!(!step(&c, &mut s, true, 300)); // held past 200
         assert!(!step(&c, &mut s, false, 300)); // release
-        assert!(!step(&c, &mut s, true, 320)); // re-press: 320 − 0 > 200 → no double
+        assert!(!step(&c, &mut s, true, 320)); // re-press: 320 - 0 > 200 -> no double
     }
 
     #[test]
     fn release_taps_on_release_edge() {
         let c = cmd(Activator::Release);
         let mut s = SlotState::default();
-        assert!(!step(&c, &mut s, true, 0)); // press → nothing
-        assert!(!step(&c, &mut s, true, 10)); // held → nothing
-        assert!(step(&c, &mut s, false, 20)); // release → taps
+        assert!(!step(&c, &mut s, true, 0)); // press -> nothing
+        assert!(!step(&c, &mut s, true, 10)); // held -> nothing
+        assert!(step(&c, &mut s, false, 20)); // release -> taps
         assert!(step(&c, &mut s, false, 40)); // within TAP_MS
-        assert!(!step(&c, &mut s, false, 80)); // past TAP_MS → up
+        assert!(!step(&c, &mut s, false, 80)); // past TAP_MS -> up
     }
 
     #[test]
     fn short_press_long_activator_never_fires() {
-        // A short tap on a Long activator: pressed then released before the threshold → nothing.
+        // A short tap on a Long activator: pressed then released before the threshold -> nothing.
         let c = cmd(Activator::Long { hold_ms: 100 });
         let mut s = SlotState::default();
         assert!(!step(&c, &mut s, true, 0));
@@ -538,11 +538,11 @@ mod tests {
         step_many(&cmds, &mut s, true, 0);
         let d = step_many(&cmds, &mut s, true, 300); // long(300) fires
         assert!(d.has_key(&Key::B) && !d.has_key(&Key::C) && !d.has_key(&Key::A));
-        let d = step_many(&cmds, &mut s, true, 500); // long(500) fires too → both held
+        let d = step_many(&cmds, &mut s, true, 500); // long(500) fires too -> both held
         assert!(d.has_key(&Key::B) && d.has_key(&Key::C) && !d.has_key(&Key::A));
         let d = step_many(&cmds, &mut s, true, 900);
         assert!(d.has_key(&Key::B) && d.has_key(&Key::C));
-        let d = step_many(&cmds, &mut s, false, 1000); // release → all up
+        let d = step_many(&cmds, &mut s, false, 1000); // release -> all up
         assert!(!d.has_key(&Key::B) && !d.has_key(&Key::C) && !d.has_key(&Key::A));
     }
 
@@ -557,14 +557,14 @@ mod tests {
         assert!(!step_many(&cmds, &mut s, true, 0).has_key(&Key::A)); // deferred
         assert!(!step_many(&cmds, &mut s, false, 50).has_key(&Key::A)); // released, still in window
         assert!(!step_many(&cmds, &mut s, false, 400).has_key(&Key::A)); // waiting
-        assert!(step_many(&cmds, &mut s, false, 500).has_key(&Key::A)); // window closed → tap
+        assert!(step_many(&cmds, &mut s, false, 500).has_key(&Key::A)); // window closed -> tap
         assert!(step_many(&cmds, &mut s, false, 530).has_key(&Key::A)); // tap still on
         assert!(!step_many(&cmds, &mut s, false, 545).has_key(&Key::A)); // tap over (500 + 40)
     }
 
     #[test]
     fn regular_with_double_real_holds_when_held_past_the_window() {
-        // The key new behaviour: regular(interruptible) + double(500), press-and-hold → after 500 a
+        // The key new behaviour: regular(interruptible) + double(500), press-and-hold -> after 500 a
         // real (delayed) press-and-hold, not a tap.
         let cmds = [
             cmd_key(regular(true), Key::A, CommandSettings::default()),
@@ -573,9 +573,9 @@ mod tests {
         let mut s = SlotState::default();
         assert!(!step_many(&cmds, &mut s, true, 0).has_key(&Key::A)); // deferred
         assert!(!step_many(&cmds, &mut s, true, 250).has_key(&Key::A)); // window still open
-        assert!(step_many(&cmds, &mut s, true, 500).has_key(&Key::A)); // window closed, held → real hold
+        assert!(step_many(&cmds, &mut s, true, 500).has_key(&Key::A)); // window closed, held -> real hold
         assert!(step_many(&cmds, &mut s, true, 900).has_key(&Key::A)); // stays held (not a 40ms tap)
-        assert!(!step_many(&cmds, &mut s, false, 1000).has_key(&Key::A)); // release → up
+        assert!(!step_many(&cmds, &mut s, false, 1000).has_key(&Key::A)); // release -> up
     }
 
     #[test]
@@ -587,7 +587,7 @@ mod tests {
         let mut s = SlotState::default();
         step_many(&cmds, &mut s, true, 0);
         step_many(&cmds, &mut s, false, 50);
-        let d = step_many(&cmds, &mut s, true, 100); // second press within window → double, regular killed
+        let d = step_many(&cmds, &mut s, true, 100); // second press within window -> double, regular killed
         assert!(d.has_key(&Key::B) && !d.has_key(&Key::A));
         let d = step_many(&cmds, &mut s, true, 150);
         assert!(d.has_key(&Key::B) && !d.has_key(&Key::A));
@@ -597,18 +597,18 @@ mod tests {
     #[test]
     fn triple_click_is_one_double_then_a_single_not_two_doubles() {
         // A quick triple click: presses 1+2 form a double; press 3 must NOT pair with press 2 (which
-        // already completed a double) — cycles don't chain, so press 3 is a fresh single (no double).
+        // already completed a double) - cycles don't chain, so press 3 is a fresh single (no double).
         let c = cmd(Activator::Double { window_ms: 200 });
         let mut s = SlotState::default();
         assert!(!step(&c, &mut s, true, 0)); // press 1
         assert!(!step(&c, &mut s, false, 20));
-        assert!(step(&c, &mut s, true, 60)); // press 2 within window → double fires
+        assert!(step(&c, &mut s, true, 60)); // press 2 within window -> double fires
         assert!(!step(&c, &mut s, false, 80));
         assert!(!step(&c, &mut s, true, 120)); // press 3 within window of press 2, but no double
         assert!(!step(&c, &mut s, false, 140));
 
-        // A fourth click *does* pair with the third (the next cycle) — clicks group 1-2, 3-4.
-        assert!(step(&c, &mut s, true, 180)); // press 4 within window of press 3 → double fires
+        // A fourth click *does* pair with the third (the next cycle) - clicks group 1-2, 3-4.
+        assert!(step(&c, &mut s, true, 180)); // press 4 within window of press 3 -> double fires
     }
 
     // --- Hold-takers coexist (Long/Double never contest) --------------------------------
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn two_doubles_both_hold() {
-        // Example 3 (corrected): double(500), double(200); second press within 200 → both fire and
+        // Example 3 (corrected): double(500), double(200); second press within 200 -> both fire and
         // both stay held until release.
         let cmds = [
             cmd_key(Activator::Double { window_ms: 500 }, Key::A, CommandSettings::default()),
@@ -665,7 +665,7 @@ mod tests {
 
     #[test]
     fn double_then_two_longs_all_hold_on_the_second_press() {
-        // Example 5 (corrected): double(200), long(300), long(600); double then hold → the double
+        // Example 5 (corrected): double(200), long(300), long(600); double then hold -> the double
         // and both longs each fire and all three stay held until release.
         let cmds = [
             cmd_key(Activator::Double { window_ms: 200 }, Key::A, CommandSettings::default()),
@@ -691,12 +691,12 @@ mod tests {
     fn toggle_latches_on_alternate_presses() {
         let c = cmd_key(regular(false), Key::A, CommandSettings { toggle: true, ..Default::default() });
         let mut s = SlotState::default();
-        assert!(step(&c, &mut s, true, 0)); // press → latched on
-        assert!(step(&c, &mut s, true, 4)); // held → stays on
-        assert!(step(&c, &mut s, false, 8)); // release → STAYS on (that's toggle)
-        assert!(!step(&c, &mut s, true, 12)); // next press → off
+        assert!(step(&c, &mut s, true, 0)); // press -> latched on
+        assert!(step(&c, &mut s, true, 4)); // held -> stays on
+        assert!(step(&c, &mut s, false, 8)); // release -> STAYS on (that's toggle)
+        assert!(!step(&c, &mut s, true, 12)); // next press -> off
         assert!(!step(&c, &mut s, false, 16)); // stays off
-        assert!(step(&c, &mut s, true, 20)); // press again → on
+        assert!(step(&c, &mut s, true, 20)); // press again -> on
     }
 
     #[test]
@@ -708,10 +708,10 @@ mod tests {
         );
         let mut s = SlotState::default();
         assert!(step(&c, &mut s, true, 0)); // fires immediately
-        assert!(!step(&c, &mut s, true, 50)); // half period → off
-        assert!(step(&c, &mut s, true, 100)); // full period → on
+        assert!(!step(&c, &mut s, true, 50)); // half period -> off
+        assert!(step(&c, &mut s, true, 100)); // full period -> on
         assert!(!step(&c, &mut s, true, 150)); // off
-        assert!(!step(&c, &mut s, false, 160)); // released → train stops
+        assert!(!step(&c, &mut s, false, 160)); // released -> train stops
     }
 
     #[test]
@@ -730,16 +730,16 @@ mod tests {
         // Plain press: ScrollUp is a level while held; the reconcile's press edge is one wheel tick.
         let c = up(CommandSettings::default());
         let mut s = SlotState::default();
-        assert!(one(&c, &mut s, true, 0)); // press → member (→ one notch)
-        assert!(one(&c, &mut s, true, 4)); // held → still member (backend already ticked, no repeat)
-        assert!(!one(&c, &mut s, false, 8)); // release → gone
+        assert!(one(&c, &mut s, true, 0)); // press -> member (-> one notch)
+        assert!(one(&c, &mut s, true, 4)); // held -> still member (backend already ticked, no repeat)
+        assert!(!one(&c, &mut s, false, 8)); // release -> gone
 
         // Turbo pulses the level on/off, so a fresh press (another notch) lands each on-phase.
         let c = up(CommandSettings { turbo: Some(Turbo { interval_ms: 100 }), ..Default::default() });
         let mut s = SlotState::default();
-        assert!(one(&c, &mut s, true, 0)); // on → notch
+        assert!(one(&c, &mut s, true, 0)); // on -> notch
         assert!(!one(&c, &mut s, true, 50)); // off phase
-        assert!(one(&c, &mut s, true, 100)); // on → next notch
+        assert!(one(&c, &mut s, true, 100)); // on -> next notch
     }
 
     #[test]
@@ -763,7 +763,7 @@ mod tests {
         assert_eq!(h.len(), 1);
         assert_eq!((h[0].side.clone(), h[0].strength.clone()), (Side::Right, HapticStrength::High));
         assert!(step_haptics(&c, &mut s, true, 4).is_empty()); // held, no edge
-        assert!(step_haptics(&c, &mut s, false, 8).is_empty()); // release, OnPress → quiet
+        assert!(step_haptics(&c, &mut s, false, 8).is_empty()); // release, OnPress -> quiet
 
         // OnRelease: quiet on press, fires on release.
         let c = with(HapticEdge::OnRelease);

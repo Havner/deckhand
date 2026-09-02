@@ -1,16 +1,16 @@
-//! `compile()` — [`config::ConfigDoc`] → [`Program`] (PLAN §4.2 S2).
+//! `compile()` - [`config::ConfigDoc`] -> [`Program`] (PLAN 4.2 S2).
 //!
 //! The bridge between authoring data and the runtime IR. It:
 //! 1. runs [`ConfigDoc::validate`] and **bails on any `Error`-severity diagnostic**
-//!    (warnings don't block — the UI surfaces those itself);
-//! 2. resolves `ActionSetRef`/`LayerRef` **names → ids** ([`SetId`]/[`LayerId`]); layer ids
+//!    (warnings don't block - the UI surfaces those itself);
+//! 2. resolves `ActionSetRef`/`LayerRef` **names -> ids** ([`SetId`]/[`LayerId`]); layer ids
 //!    are per-set and *are* the declared-order precedence;
 //! 3. mirrors each [`config::SourceBinding`] into a [`CompiledBinding`], reusing settings
 //!    verbatim and rewriting only the ref-carrying actions.
 //!
 //! Post-validation the refs are guaranteed to resolve, so resolution uses `expect` on that
-//! invariant — a failure means `validate()` and `compile()` disagree (a bug), not bad input.
-//! The `InputSource → ControllerState` mapping is **not** here — it's the device-specific
+//! invariant - a failure means `validate()` and `compile()` disagree (a bug), not bad input.
+//! The `InputSource -> ControllerState` mapping is **not** here - it's the device-specific
 //! runtime table (S3); `compile` stays device-independent, like `config`.
 
 use std::collections::{BTreeMap, HashMap};
@@ -25,7 +25,7 @@ use crate::program::{
 };
 
 /// Name-resolution context for one action set: set names are program-global, layer names are
-/// scoped to the set being compiled (PLAN §4 — layers are per-set).
+/// scoped to the set being compiled (PLAN 4 - layers are per-set).
 struct Names<'a> {
     sets: &'a HashMap<&'a str, SetId>,
     layers: HashMap<&'a str, LayerId>,
@@ -33,7 +33,7 @@ struct Names<'a> {
 
 /// Compile a profile into the runtime [`Program`]. `Err` carries **all** diagnostics (so the
 /// caller/UI can show them) when any is an `Error`. The result is tagged [`Role::Main`];
-/// `Engine::apply` re-tags it to the slot it lands in (PLAN §4.1).
+/// `Engine::apply` re-tags it to the slot it lands in (PLAN 4.1).
 pub fn compile(doc: &ConfigDoc) -> Result<Program, Vec<Diagnostic>> {
     let diags = doc.validate();
     if diags.iter().any(|d| d.severity == Severity::Error) {
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(game.name, "Game");
         assert_eq!(game.layers.len(), 1);
 
-        // HoldLayer("aim") → LayerId(0) within Game.
+        // HoldLayer("aim") -> LayerId(0) within Game.
         let lb = game.base.get(&InputSource::LeftBumper).unwrap();
         match lb {
             CompiledBinding::Button { commands } => {
@@ -230,7 +230,7 @@ mod tests {
             _ => panic!("expected Button"),
         }
 
-        // ChangeActionSet("Drive") → SetId(1).
+        // ChangeActionSet("Drive") -> SetId(1).
         let menu = game.base.get(&InputSource::Menu).unwrap();
         match menu {
             CompiledBinding::Button { commands } => {

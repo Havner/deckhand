@@ -1,23 +1,23 @@
-//! The transport seam between the reader (device side) and the mapping loop (mapper side) — PLAN
-//! §6.1. Today this is a **loopback link**: both ends are co-located in one process, wired by
+//! The transport seam between the reader (device side) and the mapping loop (mapper side) - PLAN
+//! 6.1. Today this is a **loopback link**: both ends are co-located in one process, wired by
 //! in-process crossbeams. The network adapter (later) will add a second construction path behind the
 //! same [`LinkClient`]/[`LinkServer`] method surface, so `reader`/`mapping` stay identical and
 //! network-free.
 //!
-//! - [`LinkClient`] — device/reader side (the "client" role: controller/Deck). Owns the current
+//! - [`LinkClient`] - device/reader side (the "client" role: controller/Deck). Owns the current
 //!   session's device-side channels; across a transport outage it re-mints a session and hands the
 //!   mapper its fresh ends (the old reader.rs channel-swap dance, now internal here).
-//! - [`LinkServer`] — mapper/output side (the "server" role: PC). Owns the current session's
+//! - [`LinkServer`] - mapper/output side (the "server" role: PC). Owns the current session's
 //!   mapper-side channels plus the persistent control + reattach receivers.
 //!
-//! The reader↔mapper *lifecycle* stays observable to the mapper (it changes phases), but the
+//! The reader<->mapper *lifecycle* stays observable to the mapper (it changes phases), but the
 //! *mechanism* is hidden: the reader calls [`LinkClient::detach`]/[`LinkClient::reattach`], the
 //! mapper reads [`LinkServer::is_detached`] and swaps sessions via [`LinkServer::reattach`].
 //!
 //! [`LinkClient`]/[`LinkServer`] are `Local | Network` enums dispatching to the loopback session
 //! ([`LocalClient`]/[`LocalServer`]) or the socket bridge ([`net`]). The network variants are
 //! constructed via [`LinkClient::connect`]/[`LinkServer::bind`]; the handle wires those to
-//! `set_output(Network)`/`set_input(Network)` in slice 4b. Network reconnect/lifecycle is slice 5 —
+//! `set_output(Network)`/`set_input(Network)` in slice 4b. Network reconnect/lifecycle is slice 5 -
 //! for now those arms are single-connection stubs (`detach`/`reattach` no-op, `is_detached` false).
 
 mod net;
@@ -33,7 +33,7 @@ use steam_hid::Report;
 use super::{Click, Control, RumbleCmd};
 
 /// The mapper-side endpoints for one connected session (re-minted on each reattach). Opaque to the
-/// mapping loop — it only shuttles it from `reattach_rx` into [`LinkServer::reattach`].
+/// mapping loop - it only shuttles it from `reattach_rx` into [`LinkServer::reattach`].
 pub(crate) struct ServerSession {
     frame_rx: Receiver<Report>,
     rumble_tx: Sender<RumbleCmd>,
@@ -49,7 +49,7 @@ struct ClientSession {
 
 impl ClientSession {
     /// A dead session: senders whose receivers are already dropped (and vice-versa), so all I/O
-    /// fails harmlessly. Installed on `detach` so the *previous* session's ends drop — which
+    /// fails harmlessly. Installed on `detach` so the *previous* session's ends drop - which
     /// disconnects the mapper's `frame_rx` and drives it into the waiting phase.
     fn dead() -> Self {
         let (frame_tx, _) = unbounded();
@@ -71,7 +71,7 @@ fn session_pair() -> (ClientSession, ServerSession) {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Local (loopback) ends — plain crossbeam sessions.
+// Local (loopback) ends - plain crossbeam sessions.
 // ------------------------------------------------------------------------------------------------
 
 /// Device-side (reader) end of a loopback link.
@@ -85,7 +85,7 @@ pub(crate) struct LocalClient {
 
 impl LocalClient {
     /// Flag transport-gone, then drop the session's device-side ends so the mapper's `frame_rx`
-    /// disconnects (→ waiting phase). Order matters — flag *before* the drop.
+    /// disconnects (-> waiting phase). Order matters - flag *before* the drop.
     fn detach(&mut self) {
         self.detached.store(true, Ordering::SeqCst);
         self.session = ClientSession::dead();
@@ -110,11 +110,11 @@ pub(crate) struct LocalServer {
 }
 
 // ------------------------------------------------------------------------------------------------
-// The transport-agnostic ends — `Local | Network`, one method surface for reader/mapper.
+// The transport-agnostic ends - `Local | Network`, one method surface for reader/mapper.
 // ------------------------------------------------------------------------------------------------
 
 /// Device-side (reader) end of the link. The reader talks only to this; whether it is a crossbeam
-/// loopback or real sockets is chosen at construction (PLAN §6.1).
+/// loopback or real sockets is chosen at construction (PLAN 6.1).
 pub(crate) enum LinkClient {
     Local(LocalClient),
     Network(net::NetClient),
@@ -140,8 +140,8 @@ impl LinkClient {
         }
     }
 
-    /// The device's transport went away → drive the mapper into its waiting phase. **Local:** flag +
-    /// drop the session. **Network:** drop the connection so the *server* sees link-down (→
+    /// The device's transport went away -> drive the mapper into its waiting phase. **Local:** flag +
+    /// drop the session. **Network:** drop the connection so the *server* sees link-down (->
     /// `WaitingForDevice`) and stop reconnecting until the device returns.
     pub(crate) fn detach(&mut self) {
         match self {
@@ -150,7 +150,7 @@ impl LinkClient {
         }
     }
 
-    /// The device returned → resume. **Local:** mint a fresh session (`false` if the mapper is gone).
+    /// The device returned -> resume. **Local:** mint a fresh session (`false` if the mapper is gone).
     /// **Network:** allow the uplink thread to re-dial.
     pub(crate) fn reattach(&mut self) -> bool {
         match self {
@@ -159,7 +159,7 @@ impl LinkClient {
         }
     }
 
-    /// The shared "waiting" flag (device transport gone → `WaitingForDevice`), for
+    /// The shared "waiting" flag (device transport gone -> `WaitingForDevice`), for
     /// `Runtime::is_waiting` / `status()`.
     pub(crate) fn detached(&self) -> Arc<AtomicBool> {
         match self {
@@ -168,12 +168,12 @@ impl LinkClient {
         }
     }
 
-    /// Dial a remote server (client/forwarder role) — the handle wires this to `set_output(Network)`.
+    /// Dial a remote server (client/forwarder role) - the handle wires this to `set_output(Network)`.
     pub(crate) fn connect(server: std::net::SocketAddr) -> std::io::Result<LinkClient> {
         Ok(LinkClient::Network(net::NetClient::connect(server)?))
     }
 
-    /// The config uplink — the handle routes `apply`/`set_device_config` here (Network only). `None` for a
+    /// The config uplink - the handle routes `apply`/`set_device_config` here (Network only). `None` for a
     /// loopback client: its control reaches the co-located mapper via [`LocalLink::control_tx`].
     pub(crate) fn control_tx(&self) -> Option<&Sender<Control>> {
         match self {
@@ -223,7 +223,7 @@ impl LinkServer {
         }
     }
 
-    /// Poll (from the waiting phase) whether the link has (re)attached — if so, leave the waiting
+    /// Poll (from the waiting phase) whether the link has (re)attached - if so, leave the waiting
     /// phase. **Local:** a fresh session arrived on `reattach_rx`, swap it in (the pad never left).
     /// **Network:** the server re-accepted a client, resume on the same persistent channel (no swap).
     /// `false` = keep waiting.
@@ -242,8 +242,8 @@ impl LinkServer {
     }
 
     /// Bind for a remote client (server role). Returns the server end, the `control_tx` for the
-    /// server's *own* handle (merged with the client's wire config — the two-feeder `control_rx`),
-    /// and the shared detached flag (true while no client is connected → `Runtime::is_waiting`). The
+    /// server's *own* handle (merged with the client's wire config - the two-feeder `control_rx`),
+    /// and the shared detached flag (true while no client is connected -> `Runtime::is_waiting`). The
     /// handle wires the `control_tx` to `set_input(Network)`.
     pub(crate) fn bind(
         addr: std::net::SocketAddr,
@@ -271,7 +271,7 @@ pub(crate) struct LocalLink {
     pub(crate) detached: Arc<AtomicBool>,
 }
 
-/// Build a loopback link: device side ↔ mapper side, wired by in-process crossbeams.
+/// Build a loopback link: device side <-> mapper side, wired by in-process crossbeams.
 pub(crate) fn local_link() -> LocalLink {
     let detached = Arc::new(AtomicBool::new(false));
     let (control_tx, control_rx) = unbounded();
@@ -303,7 +303,7 @@ mod tests {
             _ => unreachable!(),
         };
         let client = LinkClient::connect(addr).unwrap();
-        // A lifecycle event rides reliable TCP → deterministic without UDP retries.
+        // A lifecycle event rides reliable TCP -> deterministic without UDP retries.
         client.frame_tx().send(Report::Connected).unwrap();
         assert_eq!(
             server.frame_rx().recv_timeout(Duration::from_secs(2)).unwrap(),

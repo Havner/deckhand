@@ -55,17 +55,17 @@ fn ctl_drives_a_fake_daemon() {
     assert!(stdout.contains("Running"), "status stdout: {stdout}");
     assert!(stdout.contains("dongle"), "status stdout: {stdout}");
 
-    // `input <id>` → SetInput → ok.
+    // `input <id>` -> SetInput -> ok.
     let out = run_ctl(&sock, &["input", "gordon:dongle:1:"]);
     assert!(out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("ok"));
 
-    // A rejected spec → non-zero exit, error on stderr.
+    // A rejected spec -> non-zero exit, error on stderr.
     let out = run_ctl(&sock, &["input", "nope"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("bad spec"));
 
-    // `shutdown` → ok, and the fake daemon returns.
+    // `shutdown` -> ok, and the fake daemon returns.
     let out = run_ctl(&sock, &["shutdown"]);
     assert!(out.status.success());
 
@@ -87,7 +87,7 @@ fn ctl_monitor_streams_events() {
                 conn.send_event(&Event::ControllerConnected(true)).expect("send");
                 conn.send_event(&Event::Battery { percent: 96 }).expect("send");
                 conn.send_event(&Event::State(RunState::Running)).expect("send");
-                return; // close → the client sees the stream end
+                return; // close -> the client sees the stream end
             }
         }
     });

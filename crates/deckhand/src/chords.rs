@@ -17,7 +17,7 @@ fn chords_path() -> PathBuf {
 }
 
 /// Load from [`chords_path`]; returns the default (empty, never an error) when the file is missing
-/// or unparseable — a stale chords file shouldn't stop the UI launching (mirrors [`AppSettings::load`]).
+/// or unparseable - a stale chords file shouldn't stop the UI launching (mirrors [`AppSettings::load`]).
 ///
 /// [`AppSettings::load`]: crate::settings::AppSettings::load
 pub(crate) fn load() -> Chords {
@@ -30,7 +30,7 @@ pub(crate) fn save(c: &Chords) -> std::io::Result<()> {
 }
 
 /// The value to ship to the daemon: `None` when there are no chords, else the chords themselves. The
-/// UI has no separate "cleared" state — an empty list *is* "no chords", so it clears the daemon's
+/// UI has no separate "cleared" state - an empty list *is* "no chords", so it clears the daemon's
 /// chords (`None`) rather than shipping an empty set.
 pub(crate) fn to_push(chords: &Chords) -> Option<Chords> {
     (!chords.chords.is_empty()).then(|| chords.clone())

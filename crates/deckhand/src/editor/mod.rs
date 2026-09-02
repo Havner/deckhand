@@ -1,4 +1,4 @@
-//! The profile editor's **state + update** — everything the editor pages read and mutate, kept out
+//! The profile editor's **state + update** - everything the editor pages read and mutate, kept out
 //! of the app's top-level `update` so the (soon large) editor logic lives in one place. The widgets
 //! for these live in [`crate::view::editor`]; the lifecycle brackets that create/destroy the editor
 //! state (`EditProfile` / `StopEditing`) stay App-level.
@@ -32,13 +32,13 @@ pub(crate) struct Editing {
     /// Which action set / layer the per-input editor pages currently target (the sidebar selector).
     pub(crate) target: EditTarget,
     /// An open settings sub-page shown *instead of* the current input page, or `None` for the normal
-    /// category pages. Cleared by any navigation (sidebar category or the target selector) — see
+    /// category pages. Cleared by any navigation (sidebar category or the target selector) - see
     /// [`SettingsView`].
     pub(crate) settings: Option<SettingsView>,
 }
 
-/// What the editor is pointed at: an action set (`layer: None` — its base bindings) or one of that
-/// set's layers. Addressed **by name** — set names are unique among sets and layer names unique
+/// What the editor is pointed at: an action set (`layer: None` - its base bindings) or one of that
+/// set's layers. Addressed **by name** - set names are unique among sets and layer names unique
 /// among a set's own layers (both enforced by the editor), so `(set, Option<layer>)` is a stable
 /// key that survives reorder/removal (an index would silently shift). Doubles as the identity a
 /// Profile-page bar's gear acts on. The sidebar's ◀/▶ selector walks these in [`edit_target_list`]
@@ -62,7 +62,7 @@ pub(crate) enum CommandSlot {
     SoftPull,
 }
 
-/// A specific command within a slot — the input, the slot, and which `Command` in that slot's
+/// A specific command within a slot - the input, the slot, and which `Command` in that slot's
 /// `Vec<Command>` (each command is one activator; a slot can hold several).
 #[derive(Debug, Clone)]
 pub(crate) struct CommandRef {
@@ -71,7 +71,7 @@ pub(crate) struct CommandRef {
     pub(crate) index: usize,
 }
 
-/// Where a picked action lands. `Replace` sets an existing action (main = index 0, subcommands ≥1);
+/// Where a picked action lands. `Replace` sets an existing action (main = index 0, subcommands >=1);
 /// `AddCommand` appends a new Regular command (the first/extra command); `AddSubCommand` appends an
 /// extra action (subcommand) to a command.
 #[derive(Debug, Clone)]
@@ -82,18 +82,18 @@ pub(crate) enum ActionTarget {
 }
 
 /// A focused settings sub-page, shown *instead of* the current input page (reached from a gear
-/// menu, left via Back). The general paradigm for every settings page — only per-command settings
+/// menu, left via Back). The general paradigm for every settings page - only per-command settings
 /// exist so far; per-behaviour settings will join as a second variant on the same model.
 #[derive(Debug, Clone)]
 pub(crate) enum SettingsView {
     /// Per-command settings (activator kind + time, interruptible/toggle/turbo/haptics).
     Command(CommandRef),
-    /// Per-behaviour settings for a rich source / button group (deadzone, curve, sensitivity, …).
+    /// Per-behaviour settings for a rich source / button group (deadzone, curve, sensitivity, ...).
     /// Addresses the input; the page reads its binding in the currently-edited set/layer.
     Behavior(InputSource),
 }
 
-/// One field-edit on a behaviour's settings — the wire form of "the user changed one control".
+/// One field-edit on a behaviour's settings - the wire form of "the user changed one control".
 /// A **sum type** (one variant per editable field), NOT a struct of all fields: a control emits
 /// exactly one of these, and [`apply_setting`] writes it into whichever binding field it names
 /// (a no-op if the current behaviour lacks that field). The typed `config` settings structs stay
@@ -171,7 +171,7 @@ impl ActivatorKind {
     pub(crate) fn to_activator(self) -> Activator {
         match self {
             // New commands default to interruptible: harmless when it's the node's only command
-            // (nothing to interrupt it → a plain hold), and the intent one wants the moment a
+            // (nothing to interrupt it -> a plain hold), and the intent one wants the moment a
             // Long/Double is added alongside it.
             ActivatorKind::Regular => Activator::Regular { interruptible: true },
             ActivatorKind::Long => Activator::Long { hold_ms: 450 },
@@ -258,7 +258,7 @@ pub(crate) enum EditorMessage {
     OpenActionPicker(ActionTarget),
     /// Switch the Action picker's tab.
     ActionPickerTab(ActionTab),
-    /// An action was picked — write it into the picker's target and close the picker.
+    /// An action was picked - write it into the picker's target and close the picker.
     ActionPicked(Action),
     /// Open a command's gear menu (activator / settings / remove / add).
     OpenCommandMenu(CommandRef),
@@ -272,7 +272,7 @@ pub(crate) enum EditorMessage {
     RemoveCommand(CommandRef),
     /// Remove every command from a slot.
     RemoveAllCommands(InputSource, CommandSlot),
-    /// Remove a subcommand (an action at index ≥1) from a command.
+    /// Remove a subcommand (an action at index >=1) from a command.
     RemoveSubCommand(CommandRef, usize),
     /// Open the per-command settings sub-page (the command gear menu's Settings item).
     OpenCommandSettings(CommandRef),
@@ -292,12 +292,12 @@ pub(crate) enum EditorMessage {
     OpenBehaviorSettings(InputSource),
     /// Apply one behaviour-settings field edit to an input's binding (settings sub-page).
     SetSetting(InputSource, SettingEdit),
-    /// Rumble edits — the profile-level `ConfigDoc.rumble` feel (strength + curve).
+    /// Rumble edits - the profile-level `ConfigDoc.rumble` feel (strength + curve).
     SetRumbleStrength(u8),
     SetRumbleCurve(Curve),
 }
 
-/// Handle one editor message against the app state. The **single doc-mutation site** — the place to
+/// Handle one editor message against the app state. The **single doc-mutation site** - the place to
 /// snapshot for undo later.
 pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
     match msg {
@@ -389,7 +389,7 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
                 }
             }
             app.save_editing();
-            // Also used from the Button gear menu (Disable) — close any open menu.
+            // Also used from the Button gear menu (Disable) - close any open menu.
             app.popup = None;
             Task::none()
         }
@@ -560,10 +560,10 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
     }
 }
 
-/// The turbo rate a freshly-enabled turbo starts at, in milliseconds (≈10 Hz).
+/// The turbo rate a freshly-enabled turbo starts at, in milliseconds (~10 Hz).
 pub(crate) const DEFAULT_TURBO_INTERVAL_MS: u32 = 100;
 
-/// The bindings map of the currently-edited action set / layer (read) — resolved by name from the
+/// The bindings map of the currently-edited action set / layer (read) - resolved by name from the
 /// selected [`EditTarget`]. `None` when no profile is loaded or the target has drifted.
 pub(crate) fn current_bindings(app: &App) -> Option<&BTreeMap<InputSource, SourceBinding>> {
     let ed = app.editing.as_ref()?;
@@ -663,7 +663,7 @@ fn apply_action(app: &mut App, target: ActionTarget, action: Action) {
         ActionTarget::AddCommand { input, slot } => {
             let Some(bindings) = current_bindings_mut(app) else { return };
             if slot == CommandSlot::Button {
-                // Create the plain-button binding on demand — for a missing entry (unbound/inherited)
+                // Create the plain-button binding on demand - for a missing entry (unbound/inherited)
                 // *or* an explicit `None` (a layer's disabled state), since adding a command must
                 // always leave a real binding (Q1: no state you can't click out of).
                 let e = bindings.entry(input.clone()).or_insert(SourceBinding::None);
@@ -685,7 +685,7 @@ fn apply_action(app: &mut App, target: ActionTarget, action: Action) {
 }
 
 /// Remove one command from a slot; if that empties a plain-button binding, drop its map entry
-/// (a rich binding's slot is just left empty — the binding persists).
+/// (a rich binding's slot is just left empty - the binding persists).
 fn remove_command(app: &mut App, cmd: &CommandRef) {
     let Some(bindings) = current_bindings_mut(app) else { return };
     let is_plain_button;
@@ -709,7 +709,7 @@ fn remove_command(app: &mut App, cmd: &CommandRef) {
 }
 
 /// Clear a slot: the plain-button slot addresses the whole InputSource entry, so it's dropped from
-/// the map (a `Button` binding's commands, or a layer `None` disable, alike) → back to no-entry. A
+/// the map (a `Button` binding's commands, or a layer `None` disable, alike) -> back to no-entry. A
 /// rich binding's slot vector is just emptied (the behaviour persists).
 fn clear_slot(app: &mut App, input: &InputSource, slot: CommandSlot) {
     let Some(bindings) = current_bindings_mut(app) else { return };
@@ -722,13 +722,13 @@ fn clear_slot(app: &mut App, input: &InputSource, slot: CommandSlot) {
     }
 }
 
-/// Whether the editor is currently pointed at a layer (vs an action set) — Inherited/Disabled UI
+/// Whether the editor is currently pointed at a layer (vs an action set) - Inherited/Disabled UI
 /// applies only on layers.
 pub(crate) fn on_layer(app: &App) -> bool {
     app.editing.as_ref().is_some_and(|e| e.target.layer.is_some())
 }
 
-/// Move the editor's target by `delta` steps through [`edit_target_list`] (−1 = previous, +1 = next),
+/// Move the editor's target by `delta` steps through [`edit_target_list`] (-1 = previous, +1 = next),
 /// clamped at the ends (the sidebar arrows disable there).
 fn step_target(app: &mut App, delta: isize) {
     if let Some(ed) = &mut app.editing {
@@ -737,7 +737,7 @@ fn step_target(app: &mut App, delta: isize) {
             let next = pos as isize + delta;
             if next >= 0 && (next as usize) < list.len() {
                 ed.target = list[next as usize].clone();
-                // A settings sub-page addresses a command in the *old* target — leave it on a switch.
+                // A settings sub-page addresses a command in the *old* target - leave it on a switch.
                 ed.settings = None;
             }
         }
@@ -745,9 +745,9 @@ fn step_target(app: &mut App, delta: isize) {
 }
 
 /// Whether a name-entry dialog's current text is an acceptable name for its [`NameEntryKind`]:
-/// non-empty (trimmed) and unique in scope — action-set names unique among sets, layer names unique
+/// non-empty (trimmed) and unique in scope - action-set names unique among sets, layer names unique
 /// among a set's own siblings (a rename may keep its own current name). Drives the OK button's
-/// enabled state, so invalid names are simply unconfirmable (decision B — invalid-unrepresentable).
+/// enabled state, so invalid names are simply unconfirmable (decision B - invalid-unrepresentable).
 pub(crate) fn name_entry_ok(doc: &ConfigDoc, kind: &NameEntryKind, text: &str) -> bool {
     let name = text.trim();
     if name.is_empty() {
@@ -792,7 +792,7 @@ fn apply_name_entry(app: &mut App, kind: NameEntryKind, name: String) {
             if let Some(s) = find_set_mut(&mut ed.doc, &set) {
                 s.name = name.clone();
             }
-            // `ChangeActionSet` refs resolve globally → repoint them across the whole profile.
+            // `ChangeActionSet` refs resolve globally -> repoint them across the whole profile.
             rename_set_refs(&mut ed.doc, &set, &name);
             // Follow the rename if the renamed set was the selected one.
             if ed.target.set == set {
@@ -804,7 +804,7 @@ fn apply_name_entry(app: &mut App, kind: NameEntryKind, name: String) {
                 if let Some(l) = s.layers.iter_mut().find(|l| l.name == layer) {
                     l.name = name.clone();
                 }
-                // Layer refs resolve *within their set* → repoint Hold/Add/RemoveLayer here only.
+                // Layer refs resolve *within their set* -> repoint Hold/Add/RemoveLayer here only.
                 rename_layer_refs(s, &layer, &name);
             }
             if ed.target.set == set && ed.target.layer.as_deref() == Some(layer.as_str()) {
@@ -849,7 +849,7 @@ fn find_set_mut<'a>(doc: &'a mut ConfigDoc, name: &str) -> Option<&'a mut Action
     doc.action_sets.iter_mut().find(|s| s.name == name)
 }
 
-/// Every `Vec<Command>` inside a binding, mutably — the mut counterpart of
+/// Every `Vec<Command>` inside a binding, mutably - the mut counterpart of
 /// [`SourceBinding::commands`](config::SourceBinding::commands), for rewriting actions in place.
 fn binding_command_slots_mut(binding: &mut SourceBinding) -> Vec<&mut Vec<Command>> {
     use SourceBinding as B;
@@ -965,7 +965,7 @@ mod tests {
         rename_set_refs(&mut doc, "Drive", "Racing");
         let want = Action::ChangeActionSet(ActionSetRef("Racing".into()));
         assert_eq!(action_of(&doc.action_sets[0].bindings[&InputSource::LeftBumper]), &want);
-        // …including refs living inside a layer's bindings.
+        // ...including refs living inside a layer's bindings.
         assert_eq!(action_of(&doc.action_sets[0].layers[0].bindings[&InputSource::RightBumper]), &want);
     }
 
@@ -989,7 +989,7 @@ mod tests {
         };
         let game = doc.action_sets.iter_mut().find(|s| s.name == "Game").unwrap();
         rename_layer_refs(game, "aim", "scope");
-        // Game's ref repointed; the same-named layer ref in Drive is a different layer → untouched.
+        // Game's ref repointed; the same-named layer ref in Drive is a different layer -> untouched.
         assert_eq!(action_of(&doc.action_sets[0].bindings[&InputSource::LeftBumper]), &hold("scope"));
         assert_eq!(action_of(&doc.action_sets[1].bindings[&InputSource::LeftBumper]), &hold("aim"));
     }

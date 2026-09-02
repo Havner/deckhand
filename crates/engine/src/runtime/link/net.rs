@@ -1,16 +1,16 @@
-//! The **network** adapter of the transport seam (PLAN §6.1/§6.2 slice 3): hidden bridge threads and
-//! sockets that carry the reader↔mapper channels over the wire, so the mapper's `select!` composes
+//! The **network** adapter of the transport seam (PLAN 6.1/6.2 slice 3): hidden bridge threads and
+//! sockets that carry the reader<->mapper channels over the wire, so the mapper's `select!` composes
 //! over *local* in-process crossbeams exactly as in the loopback case.
 //!
-//! Two peers (roles chosen by the handle's input/output staging — slice 4):
+//! Two peers (roles chosen by the handle's input/output staging - slice 4):
 //! - [`NetServer`] (output/PC side) **binds** TCP+UDP on one port and exposes the *mapper-side*
 //!   channels: `frame_rx` (fed by UDP snapshots + TCP lifecycle events), `control_rx` (fed by TCP
 //!   config), and `rumble_tx`/`click_tx` (drained to the client over UDP).
 //! - [`NetClient`] (controller/Deck side) **dials** the server and exposes the *device-side*
-//!   channels: `frame_tx` (Reports; `State`→UDP, lifecycle→TCP), `control_tx` (config→TCP), and
+//!   channels: `frame_tx` (Reports; `State`->UDP, lifecycle->TCP), `control_tx` (config->TCP), and
 //!   `rumble_rx`/`click_rx` (fed by the UDP back-channel).
 //!
-//! A **single connection** for now (no reconnect yet — slice 5). Idempotency split per §6.1:
+//! A **single connection** for now (no reconnect yet - slice 5). Idempotency split per 6.1:
 //! `State` snapshots ride UDP (latest-wins, `state.seq` drops stale); lifecycle + config ride TCP.
 //! Wired into [`LinkClient`](super::LinkClient)/[`LinkServer`](super::LinkServer) as the `Network`
 //! variants, which the handle selects via `set_output(Network)` / `set_input(Network)`.
@@ -34,7 +34,7 @@ const POLL: Duration = Duration::from_millis(200);
 /// How often the client sends a TCP keep-alive `Ping` (to detect a dead server promptly).
 const PING_INTERVAL: Duration = Duration::from_millis(1000);
 /// Bound on a TCP connect so an unreachable/no-route host fails fast instead of blocking on the OS
-/// SYN timeout (~2 min) — which would otherwise wedge the daemon (the `Start` handler holds the
+/// SYN timeout (~2 min) - which would otherwise wedge the daemon (the `Start` handler holds the
 /// engine lock) and stall shutdown. A refused host already returns immediately.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 /// Max UDP datagram we'll accept (a `ControllerState` is well under this; guards the recv buffer).
@@ -47,7 +47,7 @@ const UDP_BUF: usize = 2048;
 /// State shared between the server's bridge threads and its `Drop`.
 struct ServerShared {
     running: AtomicBool,
-    /// True when no client is connected — before the first `Hello` and between reconnects. The
+    /// True when no client is connected - before the first `Hello` and between reconnects. The
     /// mapper's cue for `WaitingForDevice`; shared with the `Runtime` (via [`NetServer::detached`])
     /// so `Runtime::is_waiting` / `status()` reflect it too.
     detached: Arc<AtomicBool>,
@@ -60,15 +60,15 @@ struct ServerShared {
 /// The mapper-side end of a network link. Owns the bridge threads; exposes the same channel surface
 /// as the loopback `LinkServer` session.
 pub(crate) struct NetServer {
-    /// The actually-bound address (resolves an ephemeral `:0` port). Only the tests read it — a real
-    /// server is given a fixed address — so it's `allow(dead_code)` rather than removed.
+    /// The actually-bound address (resolves an ephemeral `:0` port). Only the tests read it - a real
+    /// server is given a fixed address - so it's `allow(dead_code)` rather than removed.
     #[allow(dead_code)]
     addr: SocketAddr,
     frame_rx: Receiver<Report>,
     control_rx: Receiver<Control>,
-    /// A clone of the control sender the TCP thread feeds — exposed so the server's *own* handle can
+    /// A clone of the control sender the TCP thread feeds - exposed so the server's *own* handle can
     /// merge local `apply`/`set_device_config` into the same stream as the client's wire config (the
-    /// two-feeder `control_rx`, PLAN §6.1).
+    /// two-feeder `control_rx`, PLAN 6.1).
     control_tx: Sender<Control>,
     rumble_tx: Sender<RumbleCmd>,
     click_tx: Sender<Click>,
@@ -79,7 +79,7 @@ pub(crate) struct NetServer {
 impl NetServer {
     /// Bind TCP+UDP on `addr` (port `0` picks an ephemeral one, exposed via [`Self::addr`]) and spawn
     /// the bridge threads. Serves clients one at a time, **re-accepting after each disconnect** so the
-    /// server survives a client reconnect (the well-behaved server, PLAN §6.1).
+    /// server survives a client reconnect (the well-behaved server, PLAN 6.1).
     pub(super) fn bind(addr: SocketAddr) -> io::Result<NetServer> {
         let listener = TcpListener::bind(addr)?;
         let bound = listener.local_addr()?;
@@ -187,11 +187,11 @@ fn server_tcp(
             Err(_) => continue,
         }
         serve_connection(&mut stream, shared, frame_tx, control_tx);
-        // Connection ended → back to detached; forget the client's UDP address so a stale datagram
+        // Connection ended -> back to detached; forget the client's UDP address so a stale datagram
         // can't reach the next client's back-channel.
         shared.detached.store(true, Ordering::SeqCst);
         *shared.client_udp.lock().unwrap() = None;
-        log::info!("net: client disconnected — waiting for reconnect");
+        log::info!("net: client disconnected - waiting for reconnect");
     }
 }
 
@@ -205,7 +205,7 @@ fn accept_client(listener: &TcpListener, shared: &ServerShared) -> Option<TcpStr
             Ok((s, _)) => {
                 // Windows: an accepted socket inherits the listener's non-blocking flag (Linux
                 // does not), which would make `serve_connection`'s blocking reads return WouldBlock
-                // and drop the client immediately. Force blocking — the serve loop relies on it (and
+                // and drop the client immediately. Force blocking - the serve loop relies on it (and
                 // `Drop` unblocks it via `shutdown`).
                 let _ = s.set_nonblocking(false);
                 return Some(s);
@@ -218,8 +218,8 @@ fn accept_client(listener: &TcpListener, shared: &ServerShared) -> Option<TcpStr
     }
 }
 
-/// Pump one client connection: the first `Hello` (validated) marks it connected; then config →
-/// `control_tx`, lifecycle events → `frame_tx`, until EOF/error. Blocking reads; `Drop` shuts the
+/// Pump one client connection: the first `Hello` (validated) marks it connected; then config ->
+/// `control_tx`, lifecycle events -> `frame_tx`, until EOF/error. Blocking reads; `Drop` shuts the
 /// stream down to unblock this loop.
 fn serve_connection(
     stream: &mut TcpStream,
@@ -236,17 +236,17 @@ fn serve_connection(
             Ok(Some(msg)) => match msg {
                 Uplink::Hello { version } => {
                     if version != PROTOCOL_VERSION {
-                        log::warn!("net: client protocol {version} != {PROTOCOL_VERSION} — dropping");
+                        log::warn!("net: client protocol {version} != {PROTOCOL_VERSION} - dropping");
                         return;
                     }
                     greeted = true;
                     shared.detached.store(false, Ordering::SeqCst); // connected
                 }
                 _ if !greeted => {
-                    log::warn!("net: client sent data before Hello — dropping");
+                    log::warn!("net: client sent data before Hello - dropping");
                     return;
                 }
-                Uplink::Ping => {} // keep-alive — no-op (its arrival keeps this read loop live)
+                Uplink::Ping => {} // keep-alive - no-op (its arrival keeps this read loop live)
                 Uplink::Apply { program, role } => {
                     let _ = control_tx.send(Control::Apply { program: program.map(Box::new), role });
                 }
@@ -257,8 +257,8 @@ fn serve_connection(
                     let _ = frame_tx.send(report);
                 }
             },
-            Ok(None) => return, // clean EOF — client closed
-            Err(_) => return,   // error or Drop-shutdown — done
+            Ok(None) => return, // clean EOF - client closed
+            Err(_) => return,   // error or Drop-shutdown - done
         }
     }
 }
@@ -277,7 +277,7 @@ fn server_udp(udp: &UdpSocket, shared: &ServerShared, frame_tx: &Sender<Report>)
             Err(_) => continue,
         };
         // Between connections (detached), drop frames and reset the seq gate so the *next* client's
-        // stream isn't gated by the previous one's sequence (epoch boundary, PLAN §6.1).
+        // stream isn't gated by the previous one's sequence (epoch boundary, PLAN 6.1).
         if shared.detached.load(Ordering::SeqCst) {
             last_seq = None;
             continue;
@@ -327,7 +327,7 @@ struct ClientShared {
     running: AtomicBool,
     /// True while the local device is gone. The reader sets it on device-loss (`detach`) and clears
     /// it on reacquire (`reattach`); the uplink thread only (re)dials while it's *false*, so a device
-    /// outage drops the link (→ server `WaitingForDevice`) instead of reconnecting to nothing. Shared
+    /// outage drops the link (-> server `WaitingForDevice`) instead of reconnecting to nothing. Shared
     /// with the `Runtime` (via [`NetClient::detached`]) so `is_waiting`/`status()` report it too.
     detached: Arc<AtomicBool>,
     tcp: Mutex<Option<TcpStream>>,
@@ -354,7 +354,7 @@ pub(crate) struct NetClient {
 impl NetClient {
     /// Dial the server: bind+connect UDP (so datagrams default to the server and the server learns
     /// our return address), connect TCP + `Hello`, and spawn the bridge threads. The uplink thread
-    /// re-dials on its own after a drop (§6.1), so the initial dial here is just fail-fast.
+    /// re-dials on its own after a drop (6.1), so the initial dial here is just fail-fast.
     pub(super) fn connect(server: SocketAddr) -> io::Result<NetClient> {
         // Bind an ephemeral UDP port on the matching family and connect it to the server.
         let local: SocketAddr =
@@ -401,7 +401,7 @@ impl NetClient {
         &self.click_rx
     }
 
-    /// The local device went away → drop the connection so the server sees link-down (→
+    /// The local device went away -> drop the connection so the server sees link-down (->
     /// `WaitingForDevice`), and don't reconnect until the device returns.
     pub(super) fn detach(&self) {
         self.shared.detached.store(true, Ordering::SeqCst);
@@ -410,7 +410,7 @@ impl NetClient {
         }
     }
 
-    /// The device returned → let the uplink thread re-dial the server.
+    /// The device returned -> let the uplink thread re-dial the server.
     pub(super) fn reattach(&self) -> bool {
         self.shared.detached.store(false, Ordering::SeqCst);
         true
@@ -437,8 +437,8 @@ impl Drop for NetClient {
     }
 }
 
-/// Split the reader's Reports and the handle's Control onto the wire (`State`→UDP, lifecycle/config→
-/// TCP) and **re-dial** the server whenever the TCP link drops — but only while the device is present
+/// Split the reader's Reports and the handle's Control onto the wire (`State`->UDP, lifecycle/config->
+/// TCP) and **re-dial** the server whenever the TCP link drops - but only while the device is present
 /// (a device outage drops the link so the server waits). Exits on stop / the reader closing.
 fn client_uplink(
     mut tcp: TcpStream,
@@ -451,16 +451,16 @@ fn client_uplink(
     loop {
         match pump(&mut tcp, udp, shared, frame_rx, control_rx) {
             PumpEnd::Stop => return,
-            PumpEnd::Broke => log::warn!("net: connection to {server} lost — reconnecting"),
+            PumpEnd::Broke => log::warn!("net: connection to {server} lost - reconnecting"),
         }
-        // The link dropped — re-dial (only while running and the device is present).
+        // The link dropped - re-dial (only while running and the device is present).
         *shared.tcp.lock().unwrap() = None;
         loop {
             if !shared.running.load(Ordering::SeqCst) {
                 return;
             }
             if shared.detached.load(Ordering::SeqCst) {
-                thread::sleep(POLL); // device gone — nothing to forward, don't reconnect yet
+                thread::sleep(POLL); // device gone - nothing to forward, don't reconnect yet
                 continue;
             }
             match dial(server) {
@@ -472,7 +472,7 @@ fn client_uplink(
                     log::info!("net: (re)connected to {server}");
                     break;
                 }
-                Err(_) => thread::sleep(POLL), // server down — keep retrying
+                Err(_) => thread::sleep(POLL), // server down - keep retrying
             }
         }
     }
@@ -480,14 +480,14 @@ fn client_uplink(
 
 /// Why [`pump`] returned.
 enum PumpEnd {
-    /// Clean stop — the reader/handle closed the channels, or `running` was cleared.
+    /// Clean stop - the reader/handle closed the channels, or `running` was cleared.
     Stop,
-    /// The TCP link dropped (or the device went away) — the caller should re-dial.
+    /// The TCP link dropped (or the device went away) - the caller should re-dial.
     Broke,
 }
 
-/// Pump the current connection until the reader/handle close (→ `Stop`) or the TCP link drops / the
-/// device goes away (→ `Broke`). A periodic `Ping` detects a dead server over the otherwise-idle TCP
+/// Pump the current connection until the reader/handle close (-> `Stop`) or the TCP link drops / the
+/// device goes away (-> `Broke`). A periodic `Ping` detects a dead server over the otherwise-idle TCP
 /// (`State` frames ride UDP, which can't surface a broken peer).
 fn pump(
     tcp: &mut TcpStream,
@@ -502,7 +502,7 @@ fn pump(
             return PumpEnd::Stop;
         }
         if shared.detached.load(Ordering::SeqCst) {
-            return PumpEnd::Broke; // device gone → drop the link (re-dial gated until it returns)
+            return PumpEnd::Broke; // device gone -> drop the link (re-dial gated until it returns)
         }
         select! {
             recv(frame_rx) -> m => match m {
@@ -511,7 +511,7 @@ fn pump(
                         let _ = udp.send(&bytes);
                     }
                 }
-                // Connected / Disconnected / Battery → reliable TCP (never dropped).
+                // Connected / Disconnected / Battery -> reliable TCP (never dropped).
                 Ok(report) => {
                     if wire::write_frame(tcp, &Uplink::Event(report)).is_err() {
                         return PumpEnd::Broke;
@@ -588,22 +588,22 @@ mod tests {
         let server = NetServer::bind(loopback()).unwrap();
         let client = NetClient::connect(server.addr()).unwrap();
 
-        // Client → server: a controller snapshot (UDP) + a config apply is exercised via lifecycle.
+        // Client -> server: a controller snapshot (UDP) + a config apply is exercised via lifecycle.
         let state = ControllerState { seq: 7, left_trigger: 0.5, ..Default::default() };
-        // UDP can (in principle) drop on loopback; resend a few times — latest-wins makes this safe.
+        // UDP can (in principle) drop on loopback; resend a few times - latest-wins makes this safe.
         let recv_state = loop_send_until(&client, &server, Report::State(state.clone()));
         assert_eq!(recv_state, Report::State(state));
 
-        // Client → server: a lifecycle event over reliable TCP.
+        // Client -> server: a lifecycle event over reliable TCP.
         client.frame_tx().send(Report::Connected).unwrap();
         assert_eq!(server.frame_rx().recv_timeout(secs(2)).unwrap(), Report::Connected);
 
-        // Server → client: rumble over the UDP back-channel (address learned from the frame above).
+        // Server -> client: rumble over the UDP back-channel (address learned from the frame above).
         let cmd = RumbleCmd { strong: 30000, weak: 0 };
         let got = loop_backchannel(&server, &client, cmd.clone());
         assert_eq!(got, cmd);
 
-        // Server → client: a one-shot click.
+        // Server -> client: a one-shot click.
         server.click_tx().send(Click { side: Side::Left, strength: HapticStrength::Medium }).unwrap();
         assert_eq!(
             client.click_rx().recv_timeout(secs(2)).unwrap(),
@@ -637,7 +637,7 @@ mod tests {
         panic!("rumble never arrived");
     }
 
-    /// Poll `cond` (up to ~3 s) — for the async connect/disconnect transitions.
+    /// Poll `cond` (up to ~3 s) - for the async connect/disconnect transitions.
     fn wait_until(mut cond: impl FnMut() -> bool) -> bool {
         for _ in 0..300 {
             if cond() {
@@ -659,11 +659,11 @@ mod tests {
         client.frame_tx().send(Report::Connected).unwrap();
         assert_eq!(server.frame_rx().recv_timeout(secs(2)).unwrap(), Report::Connected);
 
-        // Disconnect → the server re-detaches.
+        // Disconnect -> the server re-detaches.
         drop(client);
         assert!(wait_until(|| server.is_detached()), "server never noticed the disconnect");
 
-        // Reconnect with a fresh client → the server re-accepts and frames resume on the same channel.
+        // Reconnect with a fresh client -> the server re-accepts and frames resume on the same channel.
         let client2 = NetClient::connect(server.addr()).unwrap();
         assert!(wait_until(|| !server.is_detached()), "server never registered the reconnect");
         client2.frame_tx().send(Report::Connected).unwrap();
@@ -676,11 +676,11 @@ mod tests {
         let client = NetClient::connect(server.addr()).unwrap();
         assert!(wait_until(|| !server.is_detached()), "server never registered the client");
 
-        // Device-loss on the client (reader `detach`) → it drops the link, the server sees link-down.
+        // Device-loss on the client (reader `detach`) -> it drops the link, the server sees link-down.
         client.detach();
         assert!(wait_until(|| server.is_detached()), "server never saw the client drop the link");
 
-        // Device back (`reattach`) → the client re-dials, the server re-accepts, frames resume.
+        // Device back (`reattach`) -> the client re-dials, the server re-accepts, frames resume.
         client.reattach();
         assert!(wait_until(|| !server.is_detached()), "client never re-dialed after reattach");
         client.frame_tx().send(Report::Connected).unwrap();

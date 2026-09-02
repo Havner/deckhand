@@ -12,12 +12,12 @@ use steam_hid::{Device, DeviceInfo, Manager, Report, Result, Transport};
 
 /// Shared note tables for the `beep` / `beep-neptune` tune modes as `(freq_hz, ms)`. The notes are
 /// device-independent (only the *player* differs: Gordon's `0x8f` pulse vs the Deck's `0xEA` Tone),
-/// so both examples read the same tables — keeping `melody`/`vader` identical across them.
+/// so both examples read the same tables - keeping `melody`/`vader` identical across them.
 ///
-/// `MELODY`: a plain C-major arpeggio (C5 E5 G5 C6) — the proof-of-pitch tune.
+/// `MELODY`: a plain C-major arpeggio (C5 E5 G5 C6) - the proof-of-pitch tune.
 pub const MELODY: &[(u32, u32)] = &[(523, 180), (659, 180), (784, 180), (1047, 300)];
 
-/// `VADER`: the *Imperial March* opening (two phrases). All notes sit in ~310–620 Hz, well inside
+/// `VADER`: the *Imperial March* opening (two phrases). All notes sit in ~310-620 Hz, well inside
 /// both the Gordon voice coil's range and the Deck LRA's usable Tone band.
 pub const VADER: &[(u32, u32)] = &[
     // G4 G4 G4  Eb4. Bb4  G4  Eb4. Bb4  G4~
@@ -41,7 +41,7 @@ impl Running {
 /// first Ctrl-C.
 ///
 /// Loop examples run `while running.alive()` so they fall out of the loop and drop their
-/// `Device` — running `Drop`, which restores lizard mode (and reverts LED/idle). This
+/// `Device` - running `Drop`, which restores lizard mode (and reverts LED/idle). This
 /// matters most on **Windows**, where Ctrl-C otherwise aborts the process *without*
 /// running destructors, leaving the controller stuck in lizard-off. (On Linux the kernel
 /// `hid-steam` driver re-asserts lizard on close, but relying on that is a Linux-only
@@ -55,7 +55,7 @@ pub fn install_ctrlc() -> Running {
     Running(flag)
 }
 
-/// Enumerate and open the target controller — the one selection path all examples
+/// Enumerate and open the target controller - the one selection path all examples
 /// share.
 ///
 /// Honors `--wired` / `--dongle` / `--bt` args to restrict transport. A single (or
@@ -87,7 +87,7 @@ pub fn select_device(manager: &mut Manager) -> Result<Option<(String, Device)>> 
         format!("{:?} / {:?} {:04x}:{:04x} iface={}", i.kind, i.transport, i.vid, i.pid, i.interface)
     };
 
-    // Unambiguous: open it directly (don't wait for a frame — wired is idle until moved).
+    // Unambiguous: open it directly (don't wait for a frame - wired is idle until moved).
     if candidates.len() == 1 {
         let info = candidates[0];
         return Ok(Some((describe(info), manager.open(info)?)));

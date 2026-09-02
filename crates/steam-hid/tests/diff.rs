@@ -1,4 +1,4 @@
-//! Public-API tests for the stateless `ControllerState::diff` (PLAN §1.5).
+//! Public-API tests for the stateless `ControllerState::diff` (PLAN 1.5).
 
 use steam_hid::{Axis, Button, Buttons, ControllerState, Event};
 

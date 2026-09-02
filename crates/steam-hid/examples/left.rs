@@ -1,8 +1,8 @@
-//! `left` — dump the resolved left pad/stick + flags (throttled), for debugging.
+//! `left` - dump the resolved left pad/stick + flags (throttled), for debugging.
 //!
 //! The pad and analog stick share `0x10`, disambiguated by `LPAD_TOUCH` (resolved in
 //! `state::from_gordon`); this prints the normalized snapshot so you can watch the multiplex
-//! resolve live — pad and stick land in separate fields (`left_pad.pos` vs `left_stick`).
+//! resolve live - pad and stick land in separate fields (`left_pad.pos` vs `left_stick`).
 //!
 //! Disables lizard mode (raw pads); `--wired`/`--dongle` pick the transport.
 //! Run: `cargo run -p steam-hid --example left -- [--wired|--dongle]`.
@@ -18,7 +18,7 @@ use steam_hid::{Buttons, Manager, Report};
 fn main() -> steam_hid::Result<()> {
     let mut manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&mut manager)? else {
-        println!("No matching controller found — connected/on?");
+        println!("No matching controller found - connected/on?");
         return Ok(());
     };
     println!("selected {desc}");

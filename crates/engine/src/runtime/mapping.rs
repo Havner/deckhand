@@ -1,6 +1,6 @@
-//! The central mapping loop (PLAN §4.2 S9): owns the `Sink` + `Mapper` + programs + device config, maps
+//! The central mapping loop (PLAN 4.2 S9): owns the `Sink` + `Mapper` + programs + device config, maps
 //! one tick per device frame, evaluates global chords first, and polls the pad's rumble back to the
-//! reader. It alternates a **connected phase** with a **waiting phase** (transport gone → release
+//! reader. It alternates a **connected phase** with a **waiting phase** (transport gone -> release
 //! outputs, keep the pad plugged, await reattach/stop), swapping the frame/rumble/click channels on
 //! reattach (D6) so the same `Sink` serves across an outage.
 
@@ -26,7 +26,7 @@ use super::link::LinkServer;
 use super::{Click, Control, RumbleCmd};
 
 /// The central mapping loop. Owns the `Sink` + `Mapper` + programs + device config; alternates a connected
-/// phase (map frames, poll rumble) with a waiting phase (transport gone → release + keep pad plugged
+/// phase (map frames, poll rumble) with a waiting phase (transport gone -> release + keep pad plugged
 /// until reattach/stop). Frame/rumble/click channels are swapped on reattach.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_mapper(
@@ -71,7 +71,7 @@ pub(super) fn run_mapper(
                         if outcome.role != role {
                             role = outcome.role;
                             let prog = program_for(&role, &main, &fallback);
-                            log::info!("chord: switched to {role:?} — profile '{}' now active", prog.meta.name);
+                            log::info!("chord: switched to {role:?} - profile '{}' now active", prog.meta.name);
                             mapper.switch_program(prog);
                             set_active(&fallback_active, &events, role.clone());
                         }
@@ -86,7 +86,7 @@ pub(super) fn run_mapper(
                         let program = program_for(&role, &main, &fallback);
                         mapper.tick(&masked, now, program, &mut out, &mut haptics);
                         sink.emit(&out)?;
-                        // Command-haptic clicks this tick → the reader, which maps the strength
+                        // Command-haptic clicks this tick -> the reader, which maps the strength
                         // level to the device (Gordon pulse duration / Deck gain).
                         for h in haptics.drain(..) {
                             let _ = link.click_tx().send(Click { side: h.side, strength: h.strength });
@@ -97,11 +97,11 @@ pub(super) fn run_mapper(
                             &mut last_set, &mut last_held, &mut last_persistent,
                         );
                     }
-                    // Controller gone but the transport (dongle) is alive → release outputs so
+                    // Controller gone but the transport (dongle) is alive -> release outputs so
                     // nothing sticks (e.g. a held stick keeping the character running). The reader
                     // stays up; a `Connected` report resumes mapping. DEFERRED (to-decide): this
                     // drops *outputs* but keeps latches (toggles, active layers), so a toggle
-                    // re-asserts on reconnect — revisit whether a disconnect should reset state.
+                    // re-asserts on reconnect - revisit whether a disconnect should reset state.
                     Ok(Report::Disconnected) => {
                         out.clear();
                         mapper.release_all(&mut out);
@@ -109,7 +109,7 @@ pub(super) fn run_mapper(
                     }
                     // Connected / Battery: surfaced by the reader (D4); nothing to map here.
                     Ok(Report::Connected | Report::Battery(_)) => {}
-                    // Frames gone: transport-lost (link detached) → waiting phase; else stop.
+                    // Frames gone: transport-lost (link detached) -> waiting phase; else stop.
                     Err(_) => {
                         if link.is_detached() {
                             lost = true;
@@ -136,10 +136,10 @@ pub(super) fn run_mapper(
             // persistent bridge threads), so detect the outage via the flag rather than a disconnect.
             if link.is_detached() {
                 lost = true;
-                break; // → waiting phase
+                break; // -> waiting phase
             }
 
-            // Rumble back-channel (game → virtual pad → real controller): scale by the *main*
+            // Rumble back-channel (game -> virtual pad -> real controller): scale by the *main*
             // profile's strength/curve. The per-device rumble shaping (levers, pulse Hz) is applied
             // reader-side (device-local, see `ReaderCfg::rumble`). On change.
             let prog = program_for(&role, &main, &fallback);
@@ -159,7 +159,7 @@ pub(super) fn run_mapper(
             &mut link, &running, &events,
         )? {
             WaitOutcome::Stopped => return Ok(()),
-            // Reattached → back to `Running` and resume the connected phase (local: on the reacquired
+            // Reattached -> back to `Running` and resume the connected phase (local: on the reacquired
             // device with channels swapped; network: on the reconnected client). The mapper owns this
             // `State(Running)` edge so it covers both transports (the reader only emits the
             // device-specific `BindingAcquired`).
@@ -193,8 +193,8 @@ fn apply_control(
                 Role::Main => *main = program,
                 Role::Fallback => *fallback = program,
             }
-            // Re-seed the mapper only if the applied role is the one currently live — on a clear this
-            // resolves through `program_for` to the other role (e.g. main→fallback).
+            // Re-seed the mapper only if the applied role is the one currently live - on a clear this
+            // resolves through `program_for` to the other role (e.g. main->fallback).
             if *role == target {
                 mapper.switch_program(program_for(role, main, fallback));
             }
@@ -240,7 +240,7 @@ fn run_waiting(
     sink.emit(&out)?;
     events.emit(EngineEvent::State(Status::WaitingForDevice));
 
-    // Owned clone so the `select!` doesn't borrow `link` — `poll_reattach` below needs `&mut link`.
+    // Owned clone so the `select!` doesn't borrow `link` - `poll_reattach` below needs `&mut link`.
     let control = link.control_rx().clone();
     while running.load(Ordering::Relaxed) {
         select! {
@@ -255,7 +255,7 @@ fn run_waiting(
         if link.poll_reattach() {
             return Ok(WaitOutcome::Reattached);
         }
-        // Discard rumble (no controller to feed) — but drain it so the game's FF thread isn't stuck.
+        // Discard rumble (no controller to feed) - but drain it so the game's FF thread isn't stuck.
         let _ = sink.poll_rumble();
     }
     Ok(WaitOutcome::Stopped)
@@ -263,12 +263,12 @@ fn run_waiting(
 
 /// Compute the effective per-pad drive from a raw game rumble and the main profile's rumble settings
 /// (strength % + response curve). The per-device rumble shaping (levers, pulse frequency) is NOT
-/// applied here — the reader does that (device-local; see `ReaderCfg::rumble`).
+/// applied here - the reader does that (device-local; see `ReaderCfg::rumble`).
 fn rumble_cmd(raw: Rumble, s: &RumbleSettings) -> RumbleCmd {
-    // Per-profile `strength` MAY exceed 100 to *boost* a game that under-drives its FF — many cap
+    // Per-profile `strength` MAY exceed 100 to *boost* a game that under-drives its FF - many cap
     // well below full range (observed: 25%), so at `MAX_DUTY` they'd never reach the actuator's
     // saturation. The boost normalizes such a game back up; the drive still clamps at `u16::MAX`
-    // (→ RUMBLE_MAX_DUTY), so it can't overshoot.
+    // (-> RUMBLE_MAX_DUTY), so it can't overshoot.
     let scale = s.strength as f32 / 100.0;
     let drive = |v: u16| {
         let full = (v as f32 / u16::MAX as f32) * scale;
@@ -278,8 +278,8 @@ fn rumble_cmd(raw: Rumble, s: &RumbleSettings) -> RumbleCmd {
 }
 
 /// The program driving a given role. Each role prefers its own slot, falls through to the other,
-/// and only when **both** are unset uses the [`empty_program`] placeholder (which maps nothing) —
-/// so the engine can run before any profile is applied (PLAN §6).
+/// and only when **both** are unset uses the [`empty_program`] placeholder (which maps nothing) -
+/// so the engine can run before any profile is applied (PLAN 6).
 fn program_for<'a>(
     role: &Role,
     main: &'a Option<Program>,
@@ -317,14 +317,14 @@ fn spawn_command(exec: ExecReq) {
 
 /// Publish the live role to the shared flag (store-before-emit) and emit [`EngineEvent::ActiveRole`].
 /// Called with the initial role at loop start (always emitted) and on each chord switch (which only
-/// fires on a real change), so no dedup is needed here — every call is a genuine set.
+/// fires on a real change), so no dedup is needed here - every call is a genuine set.
 fn set_active(flag: &AtomicBool, events: &EventSink, role: Role) {
     flag.store(role == Role::Fallback, Ordering::SeqCst);
     events.emit(EngineEvent::ActiveRole(role));
 }
 
 /// Diff the mapper's live layer stack against the last-emitted snapshot and emit the full new set on
-/// any change — the `ActiveSet`/`HeldLayers`/`PersistentLayers` debug view (absolute-valued, names
+/// any change - the `ActiveSet`/`HeldLayers`/`PersistentLayers` debug view (absolute-valued, names
 /// resolved against the current `program`). The **set** is diffed by name (a role/program swap onto
 /// the same `SetId` index still emits); the **layers** by id (they clear to empty on any swap, so an
 /// id diff self-heals and re-emits from the new program). Called after every mapped tick.
@@ -373,7 +373,7 @@ mod tests {
         let full = Rumble { strong: u16::MAX, weak: u16::MAX / 2 };
 
         // strength 100% (default) passes through unchanged. The per-device rumble shaping is NOT
-        // applied here — the reader does that (see `ReaderCfg::rumble`).
+        // applied here - the reader does that (see `ReaderCfg::rumble`).
         let s = RumbleSettings { strength: 100, curve: Curve::Linear };
         let cmd = rumble_cmd(full.clone(), &s);
         assert_eq!(cmd.strong, u16::MAX);
@@ -399,13 +399,13 @@ mod tests {
         let main = Some(prog("main"));
         let fb = Some(prog("fallback"));
         let none: Option<Program> = None;
-        // Both present → each role uses its own slot.
+        // Both present -> each role uses its own slot.
         assert_eq!(program_for(&Role::Main, &main, &fb).meta.name, "main");
         assert_eq!(program_for(&Role::Fallback, &main, &fb).meta.name, "fallback");
-        // One present → both roles fall through to it (symmetric).
+        // One present -> both roles fall through to it (symmetric).
         assert_eq!(program_for(&Role::Fallback, &main, &none).meta.name, "main");
         assert_eq!(program_for(&Role::Main, &none, &fb).meta.name, "fallback");
-        // Neither present → the empty placeholder (maps nothing).
+        // Neither present -> the empty placeholder (maps nothing).
         assert_eq!(program_for(&Role::Main, &none, &none).meta.name, "EMPTY_PROFILE");
         assert_eq!(program_for(&Role::Fallback, &none, &none).meta.name, "EMPTY_PROFILE");
     }
@@ -417,7 +417,7 @@ mod tests {
         use crate::{Mapper, Tick};
         use config::{Activator, CommandSettings, InputSource};
 
-        // set "game": base LB → AddLayer(0); layer 0 is named "aim".
+        // set "game": base LB -> AddLayer(0); layer 0 is named "aim".
         let program = Program {
             meta: ProgramMeta { name: "p".into(), role: Role::Main },
             default_set: SetId::new(0),
@@ -448,10 +448,10 @@ mod tests {
             emit_layer_view(m, &program, &events, ls, lh, lp)
         };
 
-        // Tick 0: press LB → the first tick emits the active set, and AddLayer(0) lands this tick.
+        // Tick 0: press LB -> the first tick emits the active set, and AddLayer(0) lands this tick.
         mapper.tick(&frame(steam_hid::Buttons::LB), Tick(0), &program, &mut out, &mut hap);
         view(&mapper, &mut last_set, &mut last_held, &mut last_persistent);
-        // Tick 1: still held, nothing changes → no further events.
+        // Tick 1: still held, nothing changes -> no further events.
         mapper.tick(&frame(steam_hid::Buttons::LB), Tick(4), &program, &mut out, &mut hap);
         view(&mapper, &mut last_set, &mut last_held, &mut last_persistent);
 

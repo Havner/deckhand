@@ -1,12 +1,12 @@
-//! Button and axis taxonomy (PLAN §1.4, §1.5).
+//! Button and axis taxonomy (PLAN 1.4, 1.5).
 //!
 //! [`Buttons`] (bitflags) and [`Button`] (one variant per bit) are two views of the
-//! same unified superset — the device-independent button vocabulary. The **raw
+//! same unified superset - the device-independent button vocabulary. The **raw
 //! per-device wire bitfields** (`GordonButtons`/`NeptuneButtons`/`TritonButtons`)
 //! live in `protocol`, next to the wire structs that carry them; the folds into this
 //! unified set ([`map_gordon`]/[`map_neptune`]/[`map_triton`]) live **here**, next to
 //! the target bitflags (the decode layer in `state.rs` only *calls* them). One naming
-//! scheme throughout (PLAN §1.4): `LB/RB` bumpers, `LT/RT` trigger full-pulls,
+//! scheme throughout (PLAN 1.4): `LB/RB` bumpers, `LT/RT` trigger full-pulls,
 //! `LGRIP/RGRIP` (+ `LGRIP2/RGRIP2` on the Deck) back buttons, `View/Menu` the two
 //! small top buttons.
 
@@ -16,7 +16,7 @@ use crate::protocol::{GordonButtons, NeptuneButtons, TritonButtons};
 use serde::{Deserialize, Serialize};
 
 bitflags::bitflags! {
-    /// Unified button superset across all supported devices (PLAN §1.4).
+    /// Unified button superset across all supported devices (PLAN 1.4).
     ///
     /// Buttons a given device lacks are simply never set.
     #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -57,7 +57,7 @@ bitflags::bitflags! {
 
 // The unified [`Button`] enum lives in `vocab-hid` (the shared input vocabulary) so `config` can
 // name hardware buttons in chords/gaters without depending on `steam-hid`. Re-exported here so this
-// crate's own consumers keep using `steam_hid::Button`. The `Button` ↔ [`Buttons`] mapping stays
+// crate's own consumers keep using `steam_hid::Button`. The `Button` <-> [`Buttons`] mapping stays
 // here, next to the bitflags.
 pub use vocab_hid::Button;
 
@@ -136,7 +136,7 @@ pub(crate) fn map_gordon(g: &GordonButtons) -> Buttons {
     out
 }
 
-/// Fold Neptune's per-device button bits into the unified [`Buttons`] superset (1:1 — the Deck has
+/// Fold Neptune's per-device button bits into the unified [`Buttons`] superset (1:1 - the Deck has
 /// dedicated press/touch bits and its raw layout already matches the unified naming).
 pub(crate) fn map_neptune(n: &NeptuneButtons) -> Buttons {
     let mut out = Buttons::empty();
@@ -218,7 +218,7 @@ pub(crate) fn map_triton(t: &TritonButtons) -> Buttons {
     out
 }
 
-/// Normalized analog channels (PLAN §1.5).
+/// Normalized analog channels (PLAN 1.5).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Axis {
@@ -237,7 +237,7 @@ pub enum Axis {
 }
 
 impl Axis {
-    /// Every analog axis — for iterating diffs.
+    /// Every analog axis - for iterating diffs.
     pub const ALL: [Axis; 12] = [
         Axis::LeftStickX,
         Axis::LeftStickY,

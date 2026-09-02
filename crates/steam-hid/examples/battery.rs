@@ -1,4 +1,4 @@
-//! `battery` — report Gordon battery status from the `0x04` frame.
+//! `battery` - report Gordon battery status from the `0x04` frame.
 //!
 //! The dongle sends battery `0x04` frames periodically; this also actively prompts
 //! one with a wireless-state request. Safe (no lizard-off). Wired Gordon is
@@ -18,7 +18,7 @@ use steam_hid::{Manager, Report};
 fn main() -> steam_hid::Result<()> {
     let mut manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&mut manager)? else {
-        println!("No matching controller found — connected/on?");
+        println!("No matching controller found - connected/on?");
         return Ok(());
     };
     println!("selected {desc}");

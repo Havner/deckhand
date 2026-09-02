@@ -7,13 +7,13 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-# serde is a hard dep — (de)serialization is the crate's purpose (PLAN §3).
+# serde is a hard dep - (de)serialization is the crate's purpose (PLAN 3).
 serde.workspace = true
 ron.workspace = true
 # The shared output vocabulary (Key / MouseButton / GamepadButton), with serde on so it
 # round-trips in RON.
 vocab-out = { path = "../vocab-out", features = ["serde"] }
-# The shared input vocabulary (controller Button bits) — chords/gaters name hardware buttons.
+# The shared input vocabulary (controller Button bits) - chords/gaters name hardware buttons.
 vocab-hid = { path = "../vocab-hid", features = ["serde"] }
 
 # The worked example carries a #[test] (write a profile to a file + round-trip it), so let

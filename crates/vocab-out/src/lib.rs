@@ -1,14 +1,14 @@
-//! `vocab-out` — the hardware-independent **output vocabulary** shared by `config` (which
+//! `vocab-out` - the hardware-independent **output vocabulary** shared by `config` (which
 //! names the target of a binding) and `virt-out` (which realizes it). Its input counterpart is
 //! `vocab-hid` (the raw controller button bits). No platform deps:
-//! each backend maps these **bare names** to OS codes (`virt-out` Linux → evdev, Windows
-//! → scancode/VK). PLAN §2.1 / §3.
+//! each backend maps these **bare names** to OS codes (`virt-out` Linux -> evdev, Windows
+//! -> scancode/VK). PLAN 2.1 / 3.
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// A keyboard key, grouped by function (modifiers → editing → arrows → nav → punctuation
-/// → digits → letters → function → print → keypad → media → …). Names are our own;
+/// A keyboard key, grouped by function (modifiers -> editing -> arrows -> nav -> punctuation
+/// -> digits -> letters -> function -> print -> keypad -> media -> ...). Names are our own;
 /// backends map them to OS codes. Adopted from the `uinput-simulation` reference through
 /// `KbdIllumUp`; the more obscure codes are added when needed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -52,7 +52,7 @@ pub enum Key {
 }
 
 impl Key {
-    /// Every variant, in declared (grouped) order — for advertising the virtual keyboard
+    /// Every variant, in declared (grouped) order - for advertising the virtual keyboard
     /// and for UI listings.
     pub const ALL: &'static [Key] = &[
         Key::LeftShift, Key::RightShift, Key::LeftCtrl, Key::RightCtrl,
@@ -82,7 +82,7 @@ impl Key {
     ];
 }
 
-/// A mouse button. The four `Scroll*` are **discrete-scroll pseudo-buttons** — a scroll
+/// A mouse button. The four `Scroll*` are **discrete-scroll pseudo-buttons** - a scroll
 /// tick is a button-like impulse (fires per activation, `Turbo` repeats), so it's folded
 /// in here (Round D); the backend realizes them as wheel ticks, not `BTN_*`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -124,7 +124,7 @@ impl MouseButton {
     }
 }
 
-/// High-resolution scroll units per wheel detent — the shared kernel/libinput/Windows
+/// High-resolution scroll units per wheel detent - the shared kernel/libinput/Windows
 /// convention (evdev `REL_WHEEL_HI_RES` and Windows `WHEEL_DELTA` both use 120). One
 /// source of truth for the engine (which scales motion into these units) and every
 /// `virt-out` backend (which emits them, synthesizing a legacy notch every 120).
@@ -207,7 +207,7 @@ impl GamepadButton {
         )
     }
 
-    /// True for the axis pseudo-buttons — the two full-trigger pulls and the eight stick-direction
+    /// True for the axis pseudo-buttons - the two full-trigger pulls and the eight stick-direction
     /// pushes. The backend realizes these by driving an **axis** to its extreme (opposing stick
     /// directions cancel), not a button bit, so they carry no `BTN_*`/XInput bit.
     pub fn is_axis_button(&self) -> bool {
@@ -227,7 +227,7 @@ impl GamepadButton {
     }
 }
 
-/// A virtual-gamepad axis — sticks and analog triggers only. The dpad is **not** here:
+/// A virtual-gamepad axis - sticks and analog triggers only. The dpad is **not** here:
 /// it's four logical [`GamepadButton`]s (the hat is a backend realization detail).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

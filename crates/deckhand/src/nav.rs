@@ -1,10 +1,10 @@
-//! The left-sidebar navigation model — one enum for every screen the content pane can show.
+//! The left-sidebar navigation model - one enum for every screen the content pane can show.
 //!
 //! Two sections, split by a flex spacer (declared top-to-bottom):
-//! - **Top** — the **profile-editor** bands ([`Category::EDITOR_BANDS`]: Profile / per-input pages),
+//! - **Top** - the **profile-editor** bands ([`Category::EDITOR_BANDS`]: Profile / per-input pages),
 //!   which edit the loaded profile, so they're disabled until one is loaded (see
 //!   `App::editing`).
-//! - **Bottom** ([`Category::BOTTOM`]) — profile *management* (Profiles) plus the app-level pages
+//! - **Bottom** ([`Category::BOTTOM`]) - profile *management* (Profiles) plus the app-level pages
 //!   (Device, Settings); always available.
 //!
 //! Profiles, Settings, and Device are wired; the editor pages are still mock screens.
@@ -70,11 +70,11 @@ impl Category {
     }
 
     /// The input groups shown on this category's editor page, in display order. Empty for the
-    /// non-input categories (Profile / Device / Settings / Profiles) — those render bespoke screens
+    /// non-input categories (Profile / Device / Settings / Profiles) - those render bespoke screens
     /// (action sets + name + rumble feel, app settings). See [`InputGroup`] for the header + primary
     /// + sub-button layout.
     ///
-    /// This is the static, device-independent superset (Gordon lacks a handful — greyed at render
+    /// This is the static, device-independent superset (Gordon lacks a handful - greyed at render
     /// time via [`config::Shape`], not filtered here). Every [`InputSource`] appears in exactly one
     /// group across all categories (checked by tests).
     pub(crate) fn groups(self) -> &'static [InputGroup] {
@@ -91,9 +91,9 @@ impl Category {
 
 /// One labelled group on an editor page. Two shapes share it:
 ///
-/// - a **button cluster** — a header over several standalone buttons (`Bumpers`: Left/Right Bumper);
+/// - a **button cluster** - a header over several standalone buttons (`Bumpers`: Left/Right Bumper);
 ///   `primary` holds the buttons, `sub` is empty.
-/// - a **rich source** — the header *is* the source (`Left Stick`); `primary` is the single rich
+/// - a **rich source** - the header *is* the source (`Left Stick`); `primary` is the single rich
 ///   input (its behaviour selector), and `sub` lists the buttons that live on it (its click/touch),
 ///   shown below with a small gap and no header of their own.
 pub(crate) struct InputGroup {
@@ -108,14 +108,14 @@ pub(crate) struct InputGroup {
 
 use InputSource as I;
 
-/// Buttons page — the standalone buttons + the two 4-button clusters, in labelled groups.
+/// Buttons page - the standalone buttons + the two 4-button clusters, in labelled groups.
 const BUTTONS_GROUPS: &[InputGroup] = &[
     InputGroup { header: "Face Buttons", primary: &[I::FaceButtons], sub: &[] },
     InputGroup { header: "D-Pad", primary: &[I::DPad], sub: &[] },
     InputGroup { header: "Bumpers", primary: &[I::LeftBumper, I::RightBumper], sub: &[] },
     InputGroup {
         header: "Grips",
-        // Grip-touch (capacitive handle sensors) is Triton-only — the shape filter drops it on
+        // Grip-touch (capacitive handle sensors) is Triton-only - the shape filter drops it on
         // Gordon/Neptune, so it appears here only when a Triton is shown.
         primary: &[
             I::LeftGrip,
@@ -130,32 +130,32 @@ const BUTTONS_GROUPS: &[InputGroup] = &[
     InputGroup { header: "Menu Buttons", primary: &[I::View, I::Menu, I::Steam, I::QuickAccess], sub: &[] },
 ];
 
-/// Triggers page — each analog trigger with its full-pull hardware bit nested under it.
+/// Triggers page - each analog trigger with its full-pull hardware bit nested under it.
 const TRIGGER_GROUPS: &[InputGroup] = &[
     InputGroup { header: "Left Trigger", primary: &[I::LeftTrigger], sub: &[I::LeftTriggerFull] },
     InputGroup { header: "Right Trigger", primary: &[I::RightTrigger], sub: &[I::RightTriggerFull] },
 ];
 
-/// Joysticks page — each stick with its click nested under it.
+/// Joysticks page - each stick with its click nested under it.
 const STICK_GROUPS: &[InputGroup] = &[
     InputGroup { header: "Left Stick", primary: &[I::LeftStick], sub: &[I::LeftStickClick, I::LeftStickTouch] },
     InputGroup { header: "Right Stick", primary: &[I::RightStick], sub: &[I::RightStickClick, I::RightStickTouch] },
 ];
 
-/// Trackpads page — each pad with its click + touch nested under it.
+/// Trackpads page - each pad with its click + touch nested under it.
 const PAD_GROUPS: &[InputGroup] = &[
     InputGroup { header: "Left Trackpad", primary: &[I::LeftPad], sub: &[I::LeftPadClick, I::LeftPadTouch] },
     InputGroup { header: "Right Trackpad", primary: &[I::RightPad], sub: &[I::RightPadClick, I::RightPadTouch] },
 ];
 
-/// Gyro page — the single motion source.
+/// Gyro page - the single motion source.
 const GYRO_GROUPS: &[InputGroup] = &[InputGroup { header: "Gyro", primary: &[I::Gyro], sub: &[] }];
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Every logical input appears exactly once across all category groups (primary or sub) — no
+    /// Every logical input appears exactly once across all category groups (primary or sub) - no
     /// input is dropped from the editor, and none is listed on two pages. Guards the mapping against
     /// drift when `InputSource` grows.
     #[test]

@@ -1,7 +1,7 @@
-//! Commands (activators) + per-command settings (PLAN §3, Round C).
+//! Commands (activators) + per-command settings (PLAN 3, Round C).
 //!
 //! Every button-like node (a standalone [`InputSource`](crate::InputSource) button, a
-//! `ButtonPad` member, or a behavior's virtual button) holds a `Vec<Command>` — several
+//! `ButtonPad` member, or a behavior's virtual button) holds a `Vec<Command>` - several
 //! activators per node. A [`Command`] *is* an activator: a type + settings + an ordered
 //! action combo.
 
@@ -12,14 +12,14 @@ use crate::action::Action;
 /// One command (activator) on a button-like node.
 ///
 /// `actions` is a combo: the 1st is the "command", the rest are **subcommands** (action-only) for
-/// key combos (e.g. `Ctrl` + `C`). All of them are **held together** while the command fires — they
+/// key combos (e.g. `Ctrl` + `C`). All of them are **held together** while the command fires - they
 /// are *not* sequenced; the engine's level reconciler emits them as one set per tick, sorted by the
 /// output enum's order, so **declared order does not affect output** (modifier combos work only
 /// because modifiers occupy the lowest `Key` ordinals). `settings` apply to the whole combo.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
     pub activator: Activator,
-    /// The combo; ≥1 in a well-formed config (validation flags empty).
+    /// The combo; >=1 in a well-formed config (validation flags empty).
     pub actions: Vec<Action>,
     #[serde(default)]
     pub settings: CommandSettings,
@@ -28,10 +28,10 @@ pub struct Command {
 /// The trigger condition for a [`Command`] (Round C). (Cycle / double-and-hold deferred.)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Activator {
-    /// Active while the input is held (press → down, release → up). The default.
+    /// Active while the input is held (press -> down, release -> up). The default.
     ///
     /// `interruptible`: suppress this command when another command on the same node fires
-    /// (`Long`/`Double`/…) — so one key on short, another on long, without the short firing.
+    /// (`Long`/`Double`/...) - so one key on short, another on long, without the short firing.
     /// If unset, it fires whenever held regardless of siblings. Meaningful only here (a
     /// short-vs-long distinction needs the held Regular), hence a field of the variant.
     Regular { interruptible: bool },
@@ -46,7 +46,7 @@ pub enum Activator {
 }
 
 /// Per-command settings (Round C). Applicability is activator-dependent (`turbo` is moot on
-/// `Release`) — the UI shows what applies; validation may warn. (Interruptibility is not here:
+/// `Release`) - the UI shows what applies; validation may warn. (Interruptibility is not here:
 /// it's Regular-only, so it's a field of [`Activator::Regular`].)
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -68,7 +68,7 @@ pub struct Turbo {
 
 /// Haptic feedback for a command (Round C). Fires on the **action's** edges (so `Long`
 /// pulses after its timeout, `Turbo` repeats it), on the [`side`](crate::InputSource::side)
-/// of the triggering input — a singular pulse at one of three strengths.
+/// of the triggering input - a singular pulse at one of three strengths.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Haptics {

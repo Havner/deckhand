@@ -6,8 +6,8 @@
 # --- shared data -------------------------------------------------------------
 
 # Input source spec: static selection keywords. Concrete device ids are added live at completion
-# time from the one-shot `deckhandd --list-devices` (no daemon/socket needed) — see _deckhand_input.
-#   auto | dongle | wired | bt  — policy selectors
+# time from the one-shot `deckhandd --list-devices` (no daemon/socket needed) - see _deckhand_input.
+#   auto | dongle | wired | bt  - policy selectors
 #   a device id is shape:transport:interface:serial (gordon|neptune : dongle|wired|bt : iface :
 #   serial; bt uses interface -1 and the MAC as serial), e.g. gordon:dongle:1: or gordon:bt:-1:<mac>
 _deckhand_input_keywords="auto dongle wired bt"
@@ -21,7 +21,7 @@ _deckhand_prevent_sleep_modes="auto screensaver powermanagement gnome login1"
 # --- colon handling ----------------------------------------------------------
 # Device ids are colon-delimited, but bash breaks words on ':' by default. These wrap
 # bash-completion's helpers (renamed across versions) to (a) rebuild cur/prev/words with ':'
-# kept in-word — so `-i <id>` is still recognized and cur holds the whole id — and (b) trim the
+# kept in-word - so `-i <id>` is still recognized and cur holds the whole id - and (b) trim the
 # already-typed prefix after adding candidates, so ids complete cleanly instead of duplicating.
 
 _deckhand_get_words() {
@@ -61,7 +61,7 @@ _deckhand_socket() {
 }
 
 # Complete an input spec: static keywords plus the live device ids from `deckhandd --list-devices`
-# (the one-shot enumerate — no socket/daemon needed). Colons handled. The enumerate is best-effort:
+# (the one-shot enumerate - no socket/daemon needed). Colons handled. The enumerate is best-effort:
 # skipped if deckhandd isn't on PATH, and only colon-bearing lines are kept (drops the "no devices"
 # message and any stray output).
 _deckhand_input() {

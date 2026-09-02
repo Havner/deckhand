@@ -1,13 +1,13 @@
-//! Behavior evaluation — a source's binding → gamepad axes + virtual-button levels (S6).
+//! Behavior evaluation - a source's binding -> gamepad axes + virtual-button levels (S6).
 //!
 //! Each rich source (Pad/Stick/Trigger/ButtonGroup) runs a behavior that produces an **output
 //! target** (a gamepad stick/trigger axis chosen in settings) and/or **virtual buttons**
 //! (soft-pull, outer-ring, dpad directions, button-pad members) whose commands run through
 //! [`eval_commands`] exactly like a physical button. Activation **gaters** are physical buttons
-//! read from the raw frame up front (PLAN §4 evaluation order: gates resolve before behaviors,
+//! read from the raw frame up front (PLAN 4 evaluation order: gates resolve before behaviors,
 //! keeping the tick one acyclic pass).
 //!
-//! **S6a — the non-relative producers below** (pure functions of the current frame). The three
+//! **S6a - the non-relative producers below** (pure functions of the current frame). The three
 //! relative mouse behaviors (`AsMouse`/`JoystickMouse`/`GyroToMouse`) are stubbed here and land
 //! in **S6b**: they integrate deltas over the injected clock and the previous frame, so they
 //! need `Tick` + prev state the level-based behaviors don't.
@@ -17,10 +17,10 @@
 //!
 //! **Vertical axis convention (HW-confirmed).** The controller reports stick/pad Y as **+up**
 //! (physical); evdev's cursor `REL_Y` and gamepad `ABS_Y` are both **+down**, and `virt-out`
-//! passes values through unchanged — so analog *vertical output* must be flipped at the emission
+//! passes values through unchanged - so analog *vertical output* must be flipped at the emission
 //! boundary (`emit_relative` cursor path, `eval_joystick` stick Y). X already agrees. Scroll
 //! (`REL_WHEEL`) has its own convention (left as-is). `GyroToMouse` additionally negates its
-//! **yaw→X** term (yaw-left = +z must move the cursor left) — a behavior-intrinsic handedness,
+//! **yaw->X** term (yaw-left = +z must move the cursor left) - a behavior-intrinsic handedness,
 //! HW-confirmed, distinct from the evdev vertical flip above.
 
 use config::{
@@ -41,8 +41,8 @@ use super::smooth::OneEuro2;
 use crate::logical::{Dir, LogicalFrame};
 use crate::program::{CompiledBinding, CompiledCommand};
 
-/// Behavior output gains — reasonable starting points; final feel is tuned against the bridge
-/// at HW validation (S10). Pixels per normalized-pad-delta / per stick-rate·second / per degree.
+/// Behavior output gains - reasonable starting points; final feel is tuned against the bridge
+/// at HW validation (S10). Pixels per normalized-pad-delta / per stick-rate*second / per degree.
 const PAD_MOUSE_GAIN: f32 = 200.0;
 const JOY_MOUSE_RATE: f32 = 2000.0;
 const GYRO_MOUSE_GAIN: f32 = 20.0;
@@ -51,7 +51,7 @@ const GYRO_MOUSE_GAIN: f32 = 20.0;
 /// pixels per wheel notch. Starting point, HW-tuned; per-behavior `sensitivity` tunes on top.
 const PIXELS_PER_SCROLL_TICK: f32 = 50.0;
 /// High-resolution scroll units per wheel detent (evdev `REL_WHEEL_HI_RES` / Windows `WHEEL_DELTA`).
-/// `SmoothScroll` covers the same distance as `Scroll` but in these finer units → ~120× smoother.
+/// `SmoothScroll` covers the same distance as `Scroll` but in these finer units -> ~120x smoother.
 const SCROLL_HI_RES_PER_TICK: f32 = vocab_out::SCROLL_HI_RES_PER_DETENT as f32;
 
 /// Per-tick context for behaviors: the current frame, the previous frame (the pad-delta source
@@ -67,7 +67,7 @@ pub(super) struct Ctx<'a> {
 /// The mutable output sinks the button/command path writes into: reconciled output levels
 /// (`desired`), layer/set changes collected for the next tick (`ops`), and command-haptic pulses
 /// (`haptics`). Bundled so `eval_commands` and the button-family behaviors thread one context
-/// instead of three `&mut`s. Relative motion (`rel`) is *not* here — only the mouse behaviors
+/// instead of three `&mut`s. Relative motion (`rel`) is *not* here - only the mouse behaviors
 /// write it, and they take it directly; folding it in would give every `Sinks` consumer a field
 /// it never touches.
 pub(super) struct Sinks<'a> {
@@ -130,7 +130,7 @@ pub(super) fn eval_binding(
     }
 }
 
-// --- Joystick (Pad/Stick → gamepad stick + outer-ring button) ---------------------------
+// --- Joystick (Pad/Stick -> gamepad stick + outer-ring button) ---------------------------
 
 fn eval_joystick(
     source: &InputSource,
@@ -142,7 +142,7 @@ fn eval_joystick(
     sinks: &mut Sinks,
 ) {
     // When the behavior is gated off (or a pad is untouched) it produces no axes (they
-    // reconcile to neutral) and its outer ring reads un-held — but we still advance the slot so
+    // reconcile to neutral) and its outer ring reads un-held - but we still advance the slot so
     // edge-based activators stay correct across the gap.
     let pos = is_active(&s.activation, frame).then(|| source_pos(source, frame)).flatten();
     let ring_held = if let Some(pos) = pos {
@@ -167,11 +167,11 @@ fn eval_joystick(
     eval_commands(outer_ring, ring_held, &NodeHeld::Virtual, &source.side(), slot, now, sinks);
 }
 
-/// Deadzone-rescale → curve → anti-deadzone, direction preserved, per-axis invert.
+/// Deadzone-rescale -> curve -> anti-deadzone, direction preserved, per-axis invert.
 fn process_joystick(pos: &Vec2, s: &JoystickSettings) -> (f32, f32) {
     let (rx, ry) = rotate(pos.x, pos.y, s.rotation.degrees);
     // Axis limit makes this a 1-D control: mask the discarded output axis *before* the radial
-    // deadzone/curve so the kept axis gates on its own magnitude and rescales <dz,1>→<0,1> alone
+    // deadzone/curve so the kept axis gates on its own magnitude and rescales <dz,1>-><0,1> alone
     // (masking after would let a large discarded-axis deflection carry a sub-deadzone kept value
     // through, under-scaled).
     let (rx, ry) = limit_axis(&s.axis, rx, ry);
@@ -195,7 +195,7 @@ fn process_joystick(pos: &Vec2, s: &JoystickSettings) -> (f32, f32) {
     (ox, oy)
 }
 
-// --- DirectionalPad (Pad/Stick → 4 direction + outer-ring buttons) ----------------------
+// --- DirectionalPad (Pad/Stick -> 4 direction + outer-ring buttons) ----------------------
 
 #[allow(clippy::too_many_arguments)] // one param per virtual button; a struct would not help.
 fn eval_directional_pad(
@@ -212,9 +212,9 @@ fn eval_directional_pad(
     sinks: &mut Sinks,
 ) {
     // Slots: 0=up 1=down 2=left 3=right 4=outer-ring. Gated off / untouched / inside the
-    // deadzone → all virtual buttons un-held, but every slot is still advanced (edges stay
+    // deadzone -> all virtual buttons un-held, but every slot is still advanced (edges stay
     // correct; reconcile releases any held output). Directions are layer-dependent virtual
-    // nodes, so a HoldLayer on one is not robustly re-derivable → NodeHeld::Virtual.
+    // nodes, so a HoldLayer on one is not robustly re-derivable -> NodeHeld::Virtual.
     let pos = is_active(&s.activation, frame).then(|| source_pos(source, frame)).flatten();
     let mag = pos.as_ref().map_or(0.0, magnitude);
     let (mut u, mut d, mut l, mut r) = (false, false, false, false);
@@ -286,7 +286,7 @@ fn eval_trigger(
     if let Some(axis) = axis {
         sinks.desired.set_axis(axis, process_trigger(pull, s));
     }
-    // Soft-pull virtual button fires on the raw analog pull vs its threshold — a frame-local
+    // Soft-pull virtual button fires on the raw analog pull vs its threshold - a frame-local
     // trigger, so a HoldLayer on it re-derives exactly (NodeHeld::SoftPull).
     let node = NodeHeld::SoftPull(source.clone(), s.soft_pull.threshold);
     eval_commands(soft_pull, pull >= s.soft_pull.threshold, &node, &source.side(), slot, now, sinks);
@@ -300,7 +300,7 @@ fn process_trigger(pull: f32, s: &TriggerSettings) -> f32 {
     s.curve.apply(scaled)
 }
 
-// --- AsMouse (Pad → cursor/scroll via frame-to-frame delta) -----------------------------
+// --- AsMouse (Pad -> cursor/scroll via frame-to-frame delta) -----------------------------
 
 fn eval_as_mouse(
     source: &InputSource,
@@ -312,7 +312,7 @@ fn eval_as_mouse(
     if !is_active(&s.activation, ctx.cur) {
         return;
     }
-    // Positional delta of a pad, only while touched on *both* this frame and the last — so a
+    // Positional delta of a pad, only while touched on *both* this frame and the last - so a
     // touch-down (or lift) never injects a jump. dt-independent (a trackpad reports position).
     let (Some(cur), Some(prev)) = (ctx.cur.pad(source), ctx.prev.and_then(|p| p.pad(source)))
     else {
@@ -321,13 +321,13 @@ fn eval_as_mouse(
     if !cur.touched || !prev.touched {
         return;
     }
-    // Op order matches `eval_gyro_to_mouse`: rotate into the output frame → mask to the allowed axis
-    // → 1€-smooth the velocity → accelerate on the (masked) speed → scale/invert. AsMouse's base
-    // motion is *positional* (a finger displacement, dt-independent) — only the accel multiplier and
-    // the velocity the filter sees read dt, where gyro's base is a rate·dt.
+    // Op order matches `eval_gyro_to_mouse`: rotate into the output frame -> mask to the allowed axis
+    // -> 1-Euro-smooth the velocity -> accelerate on the (masked) speed -> scale/invert. AsMouse's base
+    // motion is *positional* (a finger displacement, dt-independent) - only the accel multiplier and
+    // the velocity the filter sees read dt, where gyro's base is a rate*dt.
     let (rx, ry) = rotate(cur.pos.x - prev.pos.x, cur.pos.y - prev.pos.y, s.rotation.degrees);
     let (mut dx, mut dy) = limit_axis(&s.axis, rx, ry);
-    // Optional 1€ smoothing on the *velocity* (delta/dt, pad-units/s) — frame-rate-independent — then
+    // Optional 1-Euro smoothing on the *velocity* (delta/dt, pad-units/s) - frame-rate-independent - then
     // back to a delta. Guarded on dt>0: a stalled clock keeps the raw positional delta, unfiltered.
     if let (Some(cfg), Some(sm)) = (&s.smoothing, smoother)
         && ctx.dt > 0.0
@@ -335,7 +335,7 @@ fn eval_as_mouse(
         let (vx, vy) = sm.filter(dx / ctx.dt, dy / ctx.dt, ctx.dt, cfg);
         (dx, dy) = (vx * ctx.dt, vy * ctx.dt);
     }
-    // Acceleration scales with the kept axis' finger **speed** (velocity = delta/dt, pad-units/s) —
+    // Acceleration scales with the kept axis' finger **speed** (velocity = delta/dt, pad-units/s) -
     // poll-rate-independent. `factor = 0` is off. The base motion stays positional (dt-independent).
     let speed = if ctx.dt > 0.0 { (dx * dx + dy * dy).sqrt() / ctx.dt } else { 0.0 };
     let accel = 1.0 + speed * s.acceleration.factor;
@@ -350,7 +350,7 @@ fn eval_as_mouse(
     emit_relative(&s.output, mx, my, rel);
 }
 
-// --- JoystickMouse (Stick → cursor/scroll via deflection→rate·dt) -----------------------
+// --- JoystickMouse (Stick -> cursor/scroll via deflection->rate*dt) -----------------------
 
 fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ctx, rel: &mut RelAccum) {
     if !is_active(&s.activation, ctx.cur) {
@@ -358,15 +358,15 @@ fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ct
     }
     let pos = ctx.cur.pos(source);
     let (rx, ry) = rotate(pos.x, pos.y, s.rotation.degrees);
-    // Axis limit → 1-D control: mask the discarded output axis before the radial deadzone/curve, so
+    // Axis limit -> 1-D control: mask the discarded output axis before the radial deadzone/curve, so
     // the kept axis gates and rescales on its own magnitude (see `process_joystick`).
     let (rx, ry) = limit_axis(&s.axis, rx, ry);
     let mag = (rx * rx + ry * ry).sqrt();
     if mag <= s.deadzone.inner || mag < 1e-6 {
         return;
     }
-    // Deflection past the deadzone → speed; integrated over dt into a pixel delta. The `curve`
-    // shapes the deflection→rate response (precision near center, fast at the edge) — a stick is a
+    // Deflection past the deadzone -> speed; integrated over dt into a pixel delta. The `curve`
+    // shapes the deflection->rate response (precision near center, fast at the edge) - a stick is a
     // held deflection, not a velocity, so it takes a curve, not acceleration (matches Steam).
     let scaled = ((mag - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
     let speed = s.curve.apply(scaled) * JOY_MOUSE_RATE * ctx.dt;
@@ -382,7 +382,7 @@ fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ct
     emit_relative(&s.output, mx, my, rel);
 }
 
-// --- GyroToMouse (angular velocity → pixel delta, crude local space) --------------------
+// --- GyroToMouse (angular velocity -> pixel delta, crude local space) --------------------
 
 fn eval_gyro_to_mouse(
     s: &GyroToMouseSettings,
@@ -400,10 +400,10 @@ fn eval_gyro_to_mouse(
     let roll = g.y as f32 / GYRO_RES_PER_DPS;
     let yaw = g.z as f32 / GYRO_RES_PER_DPS;
 
-    // Vertical is always local pitch (pitch-up = +x → cursor up via the +up→+down flip in
+    // Vertical is always local pitch (pitch-up = +x -> cursor up via the +up->+down flip in
     // emit_relative). Horizontal depends on the space. Base sign: yaw-left is +z but should move
-    // the cursor **left** (−X), so yaw is negated; the roll sign is HW-verified (flip if leaning
-    // goes the wrong way — keep Roll and YawRoll consistent).
+    // the cursor **left** (-X), so yaw is negated; the roll sign is HW-verified (flip if leaning
+    // goes the wrong way - keep Roll and YawRoll consistent).
     let horizontal = match s.space {
         GyroSpace::Yaw => -yaw,
         GyroSpace::Roll => roll,
@@ -411,9 +411,9 @@ fn eval_gyro_to_mouse(
         GyroSpace::PlayerSpace => {
             // Rotation rate about the gravity (world-up) axis: project the angular velocity onto the
             // low-passed up vector. Both the state gyro AND the accel are proper right-handed and in
-            // the SAME frame, so use the gyro directly — do NOT un-negate the roll (that would fight
+            // the SAME frame, so use the gyro directly - do NOT un-negate the roll (that would fight
             // the accel frame and cancel true vertical-axis rotation at intermediate tilts). Negate
-            // the result to keep the yaw-left = −X convention; when flat (up = +Z) it reduces to −yaw.
+            // the result to keep the yaw-left = -X convention; when flat (up = +Z) it reduces to -yaw.
             let up = match gravity {
                 Some(gr) => {
                     let a = ctx.cur.accel();
@@ -426,20 +426,20 @@ fn eval_gyro_to_mouse(
         }
     };
 
-    // Op order matches `eval_as_mouse`: rotate into the output frame → mask to the allowed axis →
-    // 1€-smooth the rate → accelerate on the (masked) speed → scale/invert. Gyro's base motion is a
-    // rate·dt (angular velocity integrated over the tick), where AsMouse's is a positional delta.
+    // Op order matches `eval_as_mouse`: rotate into the output frame -> mask to the allowed axis ->
+    // 1-Euro-smooth the rate -> accelerate on the (masked) speed -> scale/invert. Gyro's base motion is a
+    // rate*dt (angular velocity integrated over the tick), where AsMouse's is a positional delta.
     let (rx, ry) = rotate(horizontal, pitch, s.rotation.degrees);
     let (mut h, mut v) = limit_axis(&s.axis, rx, ry);
-    // Optional 1€ smoothing on the angular velocity (deg/s) — already a velocity, so filtered
+    // Optional 1-Euro smoothing on the angular velocity (deg/s) - already a velocity, so filtered
     // directly (no /dt). Guarded on dt>0 to mirror AsMouse: a stalled clock emits nothing anyway via
-    // the ·dt below, so skip the filter and keep its state rather than re-seed it.
+    // the *dt below, so skip the filter and keep its state rather than re-seed it.
     if let (Some(cfg), Some(sm)) = (&s.smoothing, smoother)
         && ctx.dt > 0.0
     {
         (h, v) = sm.filter(h, v, ctx.dt, cfg);
     }
-    // Angular velocity (deg/s) is already an instantaneous speed → acceleration scales by the kept
+    // Angular velocity (deg/s) is already an instantaneous speed -> acceleration scales by the kept
     // axis' magnitude directly (poll-rate-independent). `factor = 0` is off.
     let accel = 1.0 + (h * h + v * v).sqrt() * s.acceleration.factor;
     let mut mx = h * s.sensitivity.x * GYRO_MOUSE_GAIN * ctx.dt * accel;
@@ -478,8 +478,8 @@ fn limit_axis(axis: &Axis, x: f32, y: f32) -> (f32, f32) {
 /// already agrees). Scroll (`REL_WHEEL`) has the opposite polarity (+ = up), so *not* flipping Y
 /// there likewise means "controller up = scroll up"; but a wheel is far coarser than the cursor,
 /// so scroll divides the pixel-scaled motion down to notches ([`PIXELS_PER_SCROLL_TICK`]).
-/// `SmoothScroll` covers the same distance at high resolution — the same notch value scaled up by
-/// `SCROLL_HI_RES_PER_TICK` (120 units per detent) so it emits ~120× finer and feels smooth.
+/// `SmoothScroll` covers the same distance at high resolution - the same notch value scaled up by
+/// `SCROLL_HI_RES_PER_TICK` (120 units per detent) so it emits ~120x finer and feels smooth.
 fn emit_relative(output: &MouseOutput, dx: f32, dy: f32, rel: &mut RelAccum) {
     match output {
         MouseOutput::Cursor => rel.add_mouse(dx, -dy),
@@ -626,7 +626,7 @@ mod tests {
             },
             outer_ring: Vec::new(),
         };
-        // Inside the deadzone → neutral (both axes 0.0).
+        // Inside the deadzone -> neutral (both axes 0.0).
         let d = desired_of(
             &binding,
             &InputSource::LeftStick,
@@ -637,7 +637,7 @@ mod tests {
         neutral.set_axis(GamepadAxis::LeftStickY, 0.0);
         assert_eq!(d, neutral);
 
-        // Full right deflection → near +1 on X (default output = Left stick).
+        // Full right deflection -> near +1 on X (default output = Left stick).
         let d = desired_of(
             &binding,
             &InputSource::LeftStick,
@@ -682,14 +682,14 @@ mod tests {
             settings: JoystickSettings { outer_ring: OuterRing { radius: 0.9 }, ..Default::default() },
             outer_ring: regular(Key::Space),
         };
-        // Below the ring radius → no ring button.
+        // Below the ring radius -> no ring button.
         let d = desired_of(
             &binding,
             &InputSource::LeftStick,
             ControllerState { left_stick: Vec2 { x: 0.5, y: 0.0 }, ..Default::default() },
         );
         assert!(!d.has_key(&Key::Space));
-        // Past it → fires.
+        // Past it -> fires.
         let d = desired_of(
             &binding,
             &InputSource::LeftStick,
@@ -717,7 +717,7 @@ mod tests {
         assert!(d.has_key(&Key::Up));
         assert!(!d.has_key(&Key::Down) && !d.has_key(&Key::Left) && !d.has_key(&Key::Right));
 
-        // Inside the deadzone → nothing.
+        // Inside the deadzone -> nothing.
         let d = desired_of(
             &binding,
             &InputSource::LeftStick,
@@ -740,7 +740,7 @@ mod tests {
             right: regular(Key::Right),
             outer_ring: Vec::new(),
         };
-        // Up-right diagonal → Up + Right.
+        // Up-right diagonal -> Up + Right.
         let d = desired_of(
             &binding,
             &InputSource::LeftStick,
@@ -756,7 +756,7 @@ mod tests {
             settings: TriggerSettings { soft_pull: SoftPull { threshold: 0.5 }, ..Default::default() },
             soft_pull: regular(Key::F),
         };
-        // Light pull below threshold → axis set, no soft-pull button.
+        // Light pull below threshold -> axis set, no soft-pull button.
         let d = desired_of(
             &binding,
             &InputSource::LeftTrigger,
@@ -764,7 +764,7 @@ mod tests {
         );
         assert_eq!(d.axis(&GamepadAxis::LeftTrigger), Some(0.3));
         assert!(!d.has_key(&Key::F));
-        // Past threshold → soft-pull fires.
+        // Past threshold -> soft-pull fires.
         let d = desired_of(
             &binding,
             &InputSource::LeftTrigger,
@@ -820,7 +820,7 @@ mod tests {
             settings: JoystickSettings::default(),
             outer_ring: Vec::new(),
         };
-        // Untouched pad with a stale position → no deflection at all.
+        // Untouched pad with a stale position -> no deflection at all.
         let d = desired_of(
             &binding,
             &InputSource::LeftPad,
@@ -845,14 +845,14 @@ mod tests {
             },
             outer_ring: Vec::new(),
         };
-        // Gater released → behavior off (no axes even at full deflection).
+        // Gater released -> behavior off (no axes even at full deflection).
         let d = desired_of(
             &binding,
             &InputSource::LeftStick,
             ControllerState { left_stick: Vec2 { x: 1.0, y: 0.0 }, ..Default::default() },
         );
         assert_eq!(d, DesiredLevels::default());
-        // Gater held → behavior live.
+        // Gater held -> behavior live.
         let d = desired_of(
             &binding,
             &InputSource::LeftStick,
@@ -870,7 +870,7 @@ mod tests {
     #[test]
     fn as_mouse_pad_delta_moves_cursor() {
         let binding = CompiledBinding::AsMouse { settings: AsMouseSettings::default() };
-        // Rightward swipe while touched across two frames → positive dx.
+        // Rightward swipe while touched across two frames -> positive dx.
         let prev = ControllerState { left_pad: touched(0.0, 0.0), ..Default::default() };
         let cur = ControllerState { left_pad: touched(0.5, 0.0), ..Default::default() };
         let out = relative_of(&binding, &InputSource::LeftPad, Some(prev), cur, 0.016);
@@ -909,14 +909,14 @@ mod tests {
         let prev = ControllerState { left_pad: touched(0.0, 0.0), ..Default::default() };
         let cur = ControllerState { left_pad: touched(0.0, 0.5), ..Default::default() };
 
-        // factor = 0: motion is purely positional — identical regardless of dt (poll rate).
+        // factor = 0: motion is purely positional - identical regardless of dt (poll rate).
         let plain = CompiledBinding::AsMouse { settings: AsMouseSettings::default() };
         let fast = relative_of(&plain, &InputSource::LeftPad, Some(prev.clone()), cur.clone(), 0.004);
         let slow = relative_of(&plain, &InputSource::LeftPad, Some(prev.clone()), cur.clone(), 0.016);
         assert_eq!(mouse_dy(&fast), mouse_dy(&slow));
 
         // factor > 0: acceleration scales with velocity (delta/dt), so the *same* delta moved
-        // faster (smaller dt) travels farther — the poll-rate-independent, proper behavior.
+        // faster (smaller dt) travels farther - the poll-rate-independent, proper behavior.
         let accel = CompiledBinding::AsMouse {
             settings: AsMouseSettings {
                 acceleration: config::Acceleration { factor: 0.05 },
@@ -965,7 +965,7 @@ mod tests {
 
     #[test]
     fn joystick_mouse_curve_shapes_the_deflection_response() {
-        // A stick-mouse is a deflection behavior: the `curve` shapes deflection→rate (not accel).
+        // A stick-mouse is a deflection behavior: the `curve` shapes deflection->rate (not accel).
         // At a partial deflection a Power(>1) curve eases the response (precision near center), so
         // it yields *less* cursor speed than Linear; at full deflection they'd match.
         let half = || ControllerState { left_stick: Vec2 { x: 0.5, y: 0.0 }, ..Default::default() };
@@ -984,7 +984,7 @@ mod tests {
     #[test]
     fn as_mouse_smooth_scroll_emits_fine_hi_res_units() {
         // A pad delta that yields ~1 discrete notch yields ~120 hi-res units (1 detent) as a
-        // SmoothScroll event — same distance, ~120× finer resolution.
+        // SmoothScroll event - same distance, ~120x finer resolution.
         let prev = ControllerState { left_pad: touched(0.0, 0.0), ..Default::default() };
         let cur = ControllerState { left_pad: touched(0.0, 0.15), ..Default::default() };
 
@@ -999,7 +999,7 @@ mod tests {
                 _ => None,
             })
             .expect("a SmoothScroll event");
-        // 0.15 pad-units * 200 gain / 50 px-per-tick * 120 hi-res = ~72 units — far finer than
+        // 0.15 pad-units * 200 gain / 50 px-per-tick * 120 hi-res = ~72 units - far finer than
         // the (sub-)1-notch discrete scroll the same delta would give.
         assert!(dy.abs() > 50, "expected hi-res units, got {dy}");
     }
@@ -1017,7 +1017,7 @@ mod tests {
     #[test]
     fn as_mouse_needs_touch_on_both_frames() {
         let binding = CompiledBinding::AsMouse { settings: AsMouseSettings::default() };
-        // Touch-down this frame (prev not touched) → no jump.
+        // Touch-down this frame (prev not touched) -> no jump.
         let prev = ControllerState {
             left_pad: TrackPad { pos: Vec2 { x: 0.0, y: 0.0 }, pressure: 0.0, touched: false },
             ..Default::default()
@@ -1025,7 +1025,7 @@ mod tests {
         let cur = ControllerState { left_pad: touched(0.5, 0.0), ..Default::default() };
         let out = relative_of(&binding, &InputSource::LeftPad, Some(prev), cur, 0.016);
         assert!(out.is_empty());
-        // No previous frame at all → nothing.
+        // No previous frame at all -> nothing.
         let cur = ControllerState { left_pad: touched(0.5, 0.0), ..Default::default() };
         let out = relative_of(&binding, &InputSource::LeftPad, None, cur, 0.016);
         assert!(out.is_empty());
@@ -1036,10 +1036,10 @@ mod tests {
         let binding =
             CompiledBinding::JoystickMouse { settings: JoystickMouseSettings::default() };
         let cur = || ControllerState { left_stick: Vec2 { x: 1.0, y: 0.0 }, ..Default::default() };
-        // dt = 0 (first tick) → no motion despite full deflection.
+        // dt = 0 (first tick) -> no motion despite full deflection.
         let out = relative_of(&binding, &InputSource::LeftStick, None, cur(), 0.0);
         assert!(out.is_empty());
-        // dt > 0 → moves right.
+        // dt > 0 -> moves right.
         let out = relative_of(&binding, &InputSource::LeftStick, None, cur(), 0.1);
         assert!(mouse_dx(&out) > 0);
     }
@@ -1093,8 +1093,8 @@ mod tests {
             };
             mouse_dx(&relative_of(&b, &InputSource::Gyro, None, state(), 0.1))
         };
-        assert!(dx(GyroSpace::Yaw) < 0); // only −yaw → left
-        assert!(dx(GyroSpace::Roll) > 0); // only +roll → right (opposite here)
+        assert!(dx(GyroSpace::Yaw) < 0); // only -yaw -> left
+        assert!(dx(GyroSpace::Roll) > 0); // only +roll -> right (opposite here)
         // Yaw+Roll sums the two: yaw dominates (still left) but roll pulls it toward zero.
         let yr = dx(GyroSpace::YawRoll);
         assert!(yr < 0 && yr > dx(GyroSpace::Yaw));
@@ -1104,14 +1104,14 @@ mod tests {
     fn player_space_flat_reduces_to_yaw() {
         use config::GyroSpace;
         // Flat controller (accel = up, +Z): player space projects yaw+roll onto +Z, so roll drops
-        // out and horizontal ≈ −yaw (same as Yaw). Non-flat orientations are HW-verified.
+        // out and horizontal ~ -yaw (same as Yaw). Non-flat orientations are HW-verified.
         let state = ControllerState {
             gyro: Vec3i {
                 x: 0,
                 y: (4.0 * GYRO_RES_PER_DPS) as i16,
                 z: (10.0 * GYRO_RES_PER_DPS) as i16,
             },
-            accel: Vec3i { x: 0, y: 0, z: 4096 }, // any +Z → up = (0,0,1)
+            accel: Vec3i { x: 0, y: 0, z: 4096 }, // any +Z -> up = (0,0,1)
             ..Default::default()
         };
         let b = CompiledBinding::GyroToMouse {
@@ -1123,20 +1123,20 @@ mod tests {
     #[test]
     fn player_space_tilted_tracks_rotation_about_gravity() {
         use config::GyroSpace;
-        // Controller pitched ~45° up → gravity/up ≈ (0, 1, 1) in the local frame. A rotation ABOUT
+        // Controller pitched ~45deg up -> gravity/up ~ (0, 1, 1) in the local frame. A rotation ABOUT
         // that world-up axis has EQUAL roll & yaw rates (state gyro (0, m, m)); player space must
-        // produce horizontal motion. (The pre-fix code un-negated roll → roll & yaw cancelled → 0.)
+        // produce horizontal motion. (The pre-fix code un-negated roll -> roll & yaw cancelled -> 0.)
         let m = (8.0 * GYRO_RES_PER_DPS) as i16;
         let state = ControllerState {
-            gyro: Vec3i { x: 0, y: m, z: m }, // roll = yaw ⇒ rotation about the tilted up axis
-            accel: Vec3i { x: 0, y: 4096, z: 4096 }, // up ≈ (0, 0.707, 0.707) → ~45° pitch
+            gyro: Vec3i { x: 0, y: m, z: m }, // roll = yaw => rotation about the tilted up axis
+            accel: Vec3i { x: 0, y: 4096, z: 4096 }, // up ~ (0, 0.707, 0.707) -> ~45deg pitch
             ..Default::default()
         };
         let b = CompiledBinding::GyroToMouse {
             settings: GyroToMouseSettings { space: GyroSpace::PlayerSpace, ..Default::default() },
         };
 
-        // A real gravity estimate (relative_of passes None → the flat fallback, which would hide it).
+        // A real gravity estimate (relative_of passes None -> the flat fallback, which would hide it).
         let frame = LogicalFrame::new(state);
         let ctx = Ctx { cur: &frame, prev: None, dt: 0.1, now: Tick(0) };
         let (mut d, mut rel, mut ops) =

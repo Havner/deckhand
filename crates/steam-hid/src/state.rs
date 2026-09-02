@@ -1,10 +1,10 @@
-//! Wire decoding: raw HID bytes -> the unified, normalized snapshot (PLAN §1.5).
+//! Wire decoding: raw HID bytes -> the unified, normalized snapshot (PLAN 1.5).
 //!
 //! One physical read yields exactly one frame of *some* type, so this module decodes
 //! straight from the wire packet ([`crate::protocol`]) into a [`Report`] in a single
 //! step: an input frame becomes [`Report::State`] (a normalized [`ControllerState`]),
 //! a lifecycle frame becomes [`Report::Connected`]/[`Report::Disconnected`]/
-//! [`Report::Battery`]. There is no separate decoded-report intermediate — the wire
+//! [`Report::Battery`]. There is no separate decoded-report intermediate - the wire
 //! struct converts directly here.
 
 use crate::buttons::{Axis, Buttons, map_gordon, map_neptune, map_triton};
@@ -19,7 +19,7 @@ use crate::value::{Quati, Timestamp, TrackPad, Vec2, Vec2i, Vec3i};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// A high-level frame: a unified input snapshot, or a lifecycle signal (PLAN §1.5).
+/// A high-level frame: a unified input snapshot, or a lifecycle signal (PLAN 1.5).
 ///
 /// `read`/`poll` return this. `State` is the normalized input snapshot; the other
 /// variants are the lifecycle frames.
@@ -32,7 +32,7 @@ pub enum Report {
     Battery(Battery),
 }
 
-/// Battery status (wireless controllers only; PLAN §1.5). Offsets per the kernel: voltage at
+/// Battery status (wireless controllers only; PLAN 1.5). Offsets per the kernel: voltage at
 /// `0x0C`, charge at `0x0E` (Gordon/Neptune `0x04`); Triton reports its own `0x43` layout.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -42,20 +42,20 @@ pub struct Battery {
     pub charge_percent: u8,
 }
 
-/// A unified, normalized controller snapshot (PLAN §1.5).
+/// A unified, normalized controller snapshot (PLAN 1.5).
 ///
 /// Analog inputs are normalized to `f32`; IMU (accel/gyro/orientation) passes
-/// through as raw `i16` with documented scale factors. Battery is *not* here —
+/// through as raw `i16` with documented scale factors. Battery is *not* here -
 /// it is a device-level [`Report::Battery`] signal.
 ///
-/// **IMU frame (HW-verified, PLAN §1.9):** right-handed, `X=right, Y=forward
+/// **IMU frame (HW-verified, PLAN 1.9):** right-handed, `X=right, Y=forward
 /// (toward the nose), Z=up (out of the face)`.
-/// - `accel` — specific force; reads `+1g` along whichever axis points up
+/// - `accel` - specific force; reads `+1g` along whichever axis points up
 ///   (`ACCEL_RES_PER_G = 16384`). Passed through raw (already right-handed).
-/// - `gyro` — angular velocity, `x`=pitch, `y`=roll, `z`=yaw rate
+/// - `gyro` - angular velocity, `x`=pitch, `y`=roll, `z`=yaw rate
 ///   (`GYRO_RES_PER_DPS = 16`), right-hand rule: pitch-up / yaw-left / roll-right
 ///   are positive. (Gordon's raw `y` is negated during conversion to make the
-///   triple right-handed — see [`gordon_gyro`].)
+///   triple right-handed - see [`gordon_gyro`].)
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ControllerState {
@@ -74,7 +74,7 @@ pub struct ControllerState {
 }
 
 impl ControllerState {
-    /// Read a normalized analog channel (used by `diff`, PLAN §1.5).
+    /// Read a normalized analog channel (used by `diff`, PLAN 1.5).
     pub fn axis(&self, axis: Axis) -> f32 {
         match axis {
             Axis::LeftStickX => self.left_stick.x,
@@ -125,7 +125,7 @@ pub(crate) fn parse(buf: &[u8], timestamp: Timestamp) -> Result<Report> {
             }))
         }
         // Unknown event byte: log it (so a new/unhandled type is visible, not silently dropped) and
-        // model as a benign connect ping for now (PLAN §1.4/§1.9).
+        // model as a benign connect ping for now (PLAN 1.4/1.9).
         ev => {
             log::debug!("steam-hid: unhandled Gordon/Neptune report event 0x{ev:02x}");
             Ok(Report::Connected)
@@ -133,22 +133,22 @@ pub(crate) fn parse(buf: &[u8], timestamp: Timestamp) -> Result<Report> {
     }
 }
 
-/// Decode a Gordon **USB** input frame into a unified snapshot (PLAN §1.4 offsets).
+/// Decode a Gordon **USB** input frame into a unified snapshot (PLAN 1.4 offsets).
 ///
 /// The USB wire multiplexes the left pad and analog stick two ways; both are fully resolved here so
-/// the snapshot is clean (matching the BLE path, which has no multiplex — see [`apply_gordon_ble`]):
-/// - **coordinates:** pad and stick share `left` (`0x10`), disambiguated by `LPAD_TOUCH` — the pad
+/// the snapshot is clean (matching the BLE path, which has no multiplex - see [`apply_gordon_ble`]):
+/// - **coordinates:** pad and stick share `left` (`0x10`), disambiguated by `LPAD_TOUCH` - the pad
 ///   when touched, the stick when not. Verified on **both** the wireless dongle and wired (`0x36` is
-///   *not* the stick — 0 on wireless, small noise on wired). When pad + stick are used **together**
+///   *not* the stick - 0 on wireless, small noise on wired). When pad + stick are used **together**
 ///   the firmware sets `LPAD_AND_JOY` and *flickers* `LPAD_TOUCH` frame-to-frame to tag which the
-///   coord belongs to (the coord split still keys on `LPAD_TOUCH` alone). PLAN §1.9.
+///   coord belongs to (the coord split still keys on `LPAD_TOUCH` alone). PLAN 1.9.
 /// - **click bit:** `LPAD_PRESS` fires for both a pad click *and* a stick click (HW-verified). It's a
-///   real pad click only when the pad is *engaged* — touched, **or** `LPAD_AND_JOY` set (so a pad
+///   real pad click only when the pad is *engaged* - touched, **or** `LPAD_AND_JOY` set (so a pad
 ///   click survives the `LPAD_TOUCH` flicker during simultaneous use). Otherwise it's a stick click
 ///   (which already sets `LSTICK_PRESS`), so the spurious `LPAD_PRESS` is dropped.
 /// - **touch bit:** reported as *engaged* too (`LPAD_TOUCH || LPAD_AND_JOY`) so the touch button
 ///   stays steady through the axis-tag flicker. (The pad *position* still can't be sampled every
-///   frame — a single-field wire limit, PLAN §1.9 — but the buttons are clean.)
+///   frame - a single-field wire limit, PLAN 1.9 - but the buttons are clean.)
 fn from_gordon(p: GordonState, timestamp: Timestamp) -> ControllerState {
     // Copy packed fields into aligned locals before use (can't reference a packed field).
     let (seq, btn, left_trigger, right_trigger) = (p.seq, p.buttons, p.left_trigger, p.right_trigger);
@@ -198,13 +198,13 @@ fn from_gordon(p: GordonState, timestamp: Timestamp) -> ControllerState {
 /// Decode a Neptune (Steam Deck) input frame into a unified snapshot.
 ///
 /// Offsets are cross-checked against the kernel `hid-steam.c` and the C# `NCInput` struct (they
-/// agree). Unlike Gordon there is **no multiplex** — sticks and pads are separate fields, direct
+/// agree). Unlike Gordon there is **no multiplex** - sticks and pads are separate fields, direct
 /// press/touch bits, a 1:1 button fold. Triggers are `i16` (`0..=32767`); the trigger **full-pull**
-/// is a firmware-synthesized button bit. IMU passes through **raw** — HW-verified (PLAN §1.9):
+/// is a firmware-synthesized button bit. IMU passes through **raw** - HW-verified (PLAN 1.9):
 /// Neptune's accel and gyro already sit in the same unified right-handed frame Gordon reaches *after*
 /// its `gordon_gyro` y-negation, so Neptune needs **no** correction. The `*_stick_force` capacitive
 /// fields (InputPlumber-only, beyond SDL) are present in the wire struct but deliberately not
-/// surfaced (PLAN §1.4).
+/// surfaced (PLAN 1.4).
 fn from_neptune(p: NeptuneState, timestamp: Timestamp) -> ControllerState {
     // Copy packed fields into aligned locals before use.
     let btn = p.buttons; // [u8; 8] (SDL 8-byte button union)
@@ -243,8 +243,8 @@ fn from_neptune(p: NeptuneState, timestamp: Timestamp) -> ControllerState {
 /// `buf` is the raw read (length already sliced by the caller); a `State` snapshot is stamped with
 /// `timestamp`.
 ///
-/// Returns `None` for a report we don't decode as a frame yet — the timestamped `0x47` "Ibex" body
-/// (added only if a unit streams it, PLAN §1.9) and any unknown id — so the caller keeps reading.
+/// Returns `None` for a report we don't decode as a frame yet - the timestamped `0x47` "Ibex" body
+/// (added only if a unit streams it, PLAN 1.9) and any unknown id - so the caller keeps reading.
 pub(crate) fn parse_triton(buf: &[u8], timestamp: Timestamp) -> Option<Report> {
     match *buf.first()? {
         triton::report::CONTROLLER_STATE | triton::report::CONTROLLER_STATE_BLE => {
@@ -264,8 +264,8 @@ pub(crate) fn parse_triton(buf: &[u8], timestamp: Timestamp) -> Option<Report> {
                 _ => None,
             }
         }
-        // Anything else (incl. the 0x47 Ibex timestamped body we don't decode yet, PLAN §1.9): an
-        // unhandled id — log it at debug so it's visible if a unit streams it, then skip (keep reading).
+        // Anything else (incl. the 0x47 Ibex timestamped body we don't decode yet, PLAN 1.9): an
+        // unhandled id - log it at debug so it's visible if a unit streams it, then skip (keep reading).
         id => {
             log::debug!("steam-hid: unhandled Triton report id 0x{id:02x}");
             None
@@ -277,12 +277,12 @@ pub(crate) fn parse_triton(buf: &[u8], timestamp: Timestamp) -> Option<Report> {
 ///
 /// Like the Deck: separate stick/pad fields (no Gordon multiplex), direct press/touch bits, a 1:1
 /// button fold. Triggers/pad pressure are the analog `i16` (`0..=32767`). The two capacitive
-/// **grip-touch** bits fold into the unified `L/RGRIP_TOUCH`. IMU passes through **raw** — HW-verified
-/// on a real Triton (PLAN §1.9): accel/gyro already sit in the unified right-handed frame (like
-/// Neptune, no correction). Triton's gyro full-scale is 2000 dps (res ≈16.384 LSB/dps) vs the
-/// canonical `GYRO_RES_PER_DPS = 16` (2048 dps) — a ~2.3 % difference **accepted un-rescaled**.
+/// **grip-touch** bits fold into the unified `L/RGRIP_TOUCH`. IMU passes through **raw** - HW-verified
+/// on a real Triton (PLAN 1.9): accel/gyro already sit in the unified right-handed frame (like
+/// Neptune, no correction). Triton's gyro full-scale is 2000 dps (res ~16.384 LSB/dps) vs the
+/// canonical `GYRO_RES_PER_DPS = 16` (2048 dps) - a ~2.3 % difference **accepted un-rescaled**.
 /// Orientation is not decoded (unused; the NoQuat body carries none). The `0x42` (Full) body is
-/// handled here too — NoQuat is its 46-byte prefix, the quaternion is trailing bytes we skip.
+/// handled here too - NoQuat is its 46-byte prefix, the quaternion is trailing bytes we skip.
 fn from_triton(p: TritonStateNoQuat, timestamp: Timestamp) -> ControllerState {
     // Copy packed fields into aligned locals before use.
     let (seq_num, buttons_raw, left_trigger, right_trigger) =
@@ -333,7 +333,7 @@ pub(crate) fn apply_gordon_ble(acc: &mut ControllerState, payload: &[u8]) -> boo
     let mask = ((payload[0] & 0xF0) as u16) | ((payload[1] as u16) << 8);
     let mut p = 2usize;
     // Read a chunk of `n` bytes at the cursor, advancing it; None if the payload is short
-    // (defensive — a well-formed packet always fits).
+    // (defensive - a well-formed packet always fits).
     let mut take = |n: usize| -> Option<usize> {
         if p + n <= payload.len() {
             let at = p;
@@ -356,7 +356,7 @@ pub(crate) fn apply_gordon_ble(acc: &mut ControllerState, payload: &[u8]) -> boo
         acc.right_trigger = norm_u8(payload[o + 1]);
     }
     if mask & chunk::BUTTON3 != 0 {
-        take(3); // high button bytes — unused on the original SC
+        take(3); // high button bytes - unused on the original SC
     }
     // `take(n)` guarantees `payload[o..]` has >= n bytes, so each chunk cast below is infallible.
     if mask & chunk::LSTICK != 0 && let Some(o) = take(4) {
@@ -384,13 +384,13 @@ pub(crate) fn apply_gordon_ble(acc: &mut ControllerState, payload: &[u8]) -> boo
     true
 }
 
-// --- normalization helpers (divisors provisional, verify on HW — PLAN §1.5/§1.9) ---
+// --- normalization helpers (divisors provisional, verify on HW - PLAN 1.5/1.9) ---
 
 /// Normalize Gordon's raw gyro into the unified right-handed IMU frame.
 ///
-/// HW-verified (PLAN §1.9): the raw channels are axis-aligned with the accel frame `X=right,
-/// Y=forward, Z=up` — `x`=pitch, `y`=roll, `z`=yaw rate — but the device's `y` (roll) channel is
-/// mounted **inverted**, giving a left-handed triple `(ωx, −ωy, ωz)`. Negating `y` yields a proper
+/// HW-verified (PLAN 1.9): the raw channels are axis-aligned with the accel frame `X=right,
+/// Y=forward, Z=up` - `x`=pitch, `y`=roll, `z`=yaw rate - but the device's `y` (roll) channel is
+/// mounted **inverted**, giving a left-handed triple `(wx, -wy, wz)`. Negating `y` yields a proper
 /// right-handed angular velocity (pitch-up, yaw-left, roll-right all positive).
 fn gordon_gyro(raw: &Vec3i) -> Vec3i {
     Vec3i {
@@ -403,7 +403,7 @@ fn gordon_gyro(raw: &Vec3i) -> Vec3i {
 fn norm_u8(v: u8) -> f32 {
     v as f32 / 255.0
 }
-/// Normalize an unsigned-range `i16` (`0..=32767`) to `0.0..=1.0` — Deck triggers and trackpad
+/// Normalize an unsigned-range `i16` (`0..=32767`) to `0.0..=1.0` - Deck triggers and trackpad
 /// pressure. (Bipolar sticks/pads use [`norm_axis`]. Pad-pressure full-scale is provisional.)
 fn norm_i16(v: i16) -> f32 {
     (v as f32 / 32767.0).clamp(0.0, 1.0)

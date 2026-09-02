@@ -34,7 +34,7 @@ ksni = { version = "0.3.6", default-features = false, features = ["blocking", "a
 
 # Windows tray: tray-icon's native win32 backend (no gtk, zero system deps). It needs a thread with a
 # running Win32 message loop; we give it a dedicated one (the `windows` crate provides the pump).
-# `default-features = false` drops the Linux-only gtk/libxdo features — the win32 backend is always
+# `default-features = false` drops the Linux-only gtk/libxdo features - the win32 backend is always
 # built off-Linux.
 [target.'cfg(target_os = "windows")'.dependencies]
 tray-icon = { version = "0.24", default-features = false }
@@ -42,7 +42,7 @@ windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Threading",
-    # LoadLibraryW/GetProcAddress — reach the undocumented uxtheme exports that make the native tray
+    # LoadLibraryW/GetProcAddress - reach the undocumented uxtheme exports that make the native tray
     # context menu follow the Windows dark/light setting (see tray.rs).
     "Win32_System_LibraryLoader",
 ] }

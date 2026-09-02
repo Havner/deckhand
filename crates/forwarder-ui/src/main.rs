@@ -1,12 +1,12 @@
-//! `deckhand-forwarder` — a minimal, touch-friendly UI for running the Deck as a **network
+//! `deckhand-forwarder` - a minimal, touch-friendly UI for running the Deck as a **network
 //! forwarder**: pick a local controller as input, type a `host:port` output, press Start.
 //!
 //! It's a deliberate, scoped duplicate of the parts of the main `deckhand` UI it reuses (the daemon
-//! client + connect loop, RON persistence, a few styles) — no shared crate yet; this is a prototype
+//! client + connect loop, RON persistence, a few styles) - no shared crate yet; this is a prototype
 //! to see whether the single-screen forwarder is worth keeping. Unlike the main UI it has:
 //!
 //! - a single always-visible window (no tray), forced to the persisted theme (default Dark);
-//! - **fixed** daemon policy (launch-if-absent, restore-input, never auto-start — see [`daemon`]);
+//! - **fixed** daemon policy (launch-if-absent, restore-input, never auto-start - see [`daemon`]);
 //! - one screen: the daemon controls, an on-screen numeric keypad for the output address, and a
 //!   master-rumble slider; plus a status bar.
 
@@ -32,24 +32,24 @@ use ipc::{Event, RunState, StatusSnapshot};
 use settings::Settings;
 
 /// Preset input selections offered before the daemon's live `list-devices` is appended. Same grammar
-/// the daemon parses for `SetInput`, but **without** the `<network>` entry — a forwarder's input is
+/// the daemon parses for `SetInput`, but **without** the `<network>` entry - a forwarder's input is
 /// always a local controller.
 pub(crate) const INPUT_PRESETS: &[&str] = &["auto", "dongle", "wired", "bt"];
 
-/// Global UI scale — the Steam Deck's touch display makes default-sized widgets too small, so the
-/// whole UI is drawn at 2×. A window/render scale (not per-widget sizes) so *everything* grows
+/// Global UI scale - the Steam Deck's touch display makes default-sized widgets too small, so the
+/// whole UI is drawn at 2x. A window/render scale (not per-widget sizes) so *everything* grows
 /// uniformly: text, buttons, comboboxes and their dropdown menus, the slider, padding. Note it halves
 /// the *logical* space, so the window opens larger (see `Settings` defaults) and the content pane
 /// scrolls if it doesn't fit.
 pub(crate) const UI_SCALE: f32 = 1.75;
 
-/// Rumble **gain** lever bounds, dB — the slider range and the edit clamp (Neptune/Triton). Mirrors
+/// Rumble **gain** lever bounds, dB - the slider range and the edit clamp (Neptune/Triton). Mirrors
 /// the main UI's device screen.
 pub(crate) const GAIN_MIN_DB: i8 = -8;
 pub(crate) const GAIN_MAX_DB: i8 = 16;
 
-/// Which per-device rumble lever a device-section edit targets (device × speed/gain). The speed
-/// levers carry `u8` percent, the gain levers `i8` dB — the handler routes each to the right field.
+/// Which per-device rumble lever a device-section edit targets (device x speed/gain). The speed
+/// levers carry `u8` percent, the gain levers `i8` dB - the handler routes each to the right field.
 /// A copy of the main UI's enum (the forwarder is a deliberate duplicate; no shared crate).
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RumbleLeverId {
@@ -156,7 +156,7 @@ pub(crate) struct App {
     device_config: DeviceConfig,
     /// The **live** content of the output (`ip:port`) text field. User-owned: seeded from
     /// `settings.last_output`, edited freely (typing or keypad), and **never** overwritten by the
-    /// daemon — it's applied to the daemon only at Start.
+    /// daemon - it's applied to the daemon only at Start.
     output_text: String,
     /// Socket/pipe override (`None` = default). The forwarder never overrides it.
     socket: Option<String>,
@@ -179,7 +179,7 @@ pub(crate) struct App {
 pub(crate) enum Message {
     /// An update from the event-stream subscription.
     Daemon(DaemonUpdate),
-    /// Re-enumerate devices + refresh status (no USB hotplug — the manual trigger).
+    /// Re-enumerate devices + refresh status (no USB hotplug - the manual trigger).
     Refresh,
     /// Daemon controls. Start sets the output from the text field, then starts the engine.
     Start,
@@ -188,15 +188,15 @@ pub(crate) enum Message {
     InputSelected(String),
     /// The output text field was edited directly.
     OutputChanged(String),
-    /// An on-screen keypad key (a digit / `.` / `:`) — appended to the output field.
+    /// An on-screen keypad key (a digit / `.` / `:`) - appended to the output field.
     Key(char),
-    /// The keypad backspace — drops the last char of the output field.
+    /// The keypad backspace - drops the last char of the output field.
     Backspace,
     /// The Gordon rumble-frequency slider moved.
     RumbleHzChanged(u16),
-    /// A per-device rumble lever edit (Gordon duty / Neptune·Triton speed + gain).
+    /// A per-device rumble lever edit (Gordon duty / Neptune*Triton speed + gain).
     RumbleLever(RumbleLeverId, RumbleLeverEdit),
-    /// Results of daemon calls run off the render thread (stringified — `io::Error` isn't `Clone`).
+    /// Results of daemon calls run off the render thread (stringified - `io::Error` isn't `Clone`).
     StatusFetched(Result<StatusSnapshot, String>),
     DevicesFetched(Result<Vec<String>, String>),
     CmdDone(Result<(), String>),
@@ -235,7 +235,7 @@ impl App {
         self.status.as_ref().map(|s| s.state)
     }
 
-    /// Whether the engine is started (not idle) — the condition for restarting it on an input change.
+    /// Whether the engine is started (not idle) - the condition for restarting it on an input change.
     fn engine_started(&self) -> bool {
         matches!(
             self.run_state(),
@@ -243,7 +243,7 @@ impl App {
         )
     }
 
-    /// Stage a new input spec: remember it as the last input, apply it — restarting the engine if it
+    /// Stage a new input spec: remember it as the last input, apply it - restarting the engine if it
     /// is already running (staged input only takes effect at start).
     fn apply_input(&mut self, spec: String) -> Task<Message> {
         self.settings.last_input = spec.clone();
@@ -297,7 +297,7 @@ impl App {
                     self.error = Some("output (ip:port) is empty".into());
                     return Task::none();
                 }
-                // Output is set from the text field verbatim, only now — then start. A rejected spec
+                // Output is set from the text field verbatim, only now - then start. A rejected spec
                 // aborts the start and surfaces as the error.
                 return Task::batch([
                     self.cmd_task(move |c| {
@@ -416,7 +416,7 @@ impl App {
             exit_on_close_request: false,
             size,
             // Restore maximized state. `size` stays the pre-maximize (floating) size, which winit
-            // keeps as the restore target — so un-maximizing lands back on it.
+            // keeps as the restore target - so un-maximizing lands back on it.
             maximized: settings.window_maximized,
             ..window::Settings::default()
         };
@@ -469,7 +469,7 @@ impl App {
     /// Apply one daemon event to the cached status in place. Events are absolute-valued, so after the
     /// initial seed the bar stays current without refetching. The forwarder tracks only what it
     /// displays (state / controller / bound device / battery / input) plus the shared device config;
-    /// the rest is ignored. The output text field is **never** touched by an event — it's user-owned.
+    /// the rest is ignored. The output text field is **never** touched by an event - it's user-owned.
     fn apply_event(&mut self, ev: Event) {
         // A device-config change (our echoed push, or another client's) syncs the UI copy + file.
         if let Event::DeviceConfigSet(d) = &ev {
@@ -496,7 +496,7 @@ impl App {
             Event::BindingAcquired(id) => status.bound = Some(id),
             Event::InputStaged(i) => status.input = i,
             Event::DeviceConfigSet(d) => status.device_config = d,
-            // Not shown by the forwarder — output field is user-owned; no profiles/chords/role; the
+            // Not shown by the forwarder - output field is user-owned; no profiles/chords/role; the
             // live layer-stack view is monitor-only debug.
             Event::OutputStaged(_)
             | Event::ActiveRole(_)

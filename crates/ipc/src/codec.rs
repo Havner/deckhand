@@ -1,4 +1,4 @@
-//! Length-prefixed `postcard` framing over any byte stream (PLAN §4.4). Each message is a 4-byte
+//! Length-prefixed `postcard` framing over any byte stream (PLAN 4.4). Each message is a 4-byte
 //! little-endian length followed by that many `postcard` bytes. Sync; works over the local socket
 //! or any `Read`/`Write` (so it is unit-testable without a socket).
 
@@ -93,7 +93,7 @@ mod tests {
         }
         let reply: Response = read_msg(&mut cur).unwrap().unwrap();
         assert!(matches!(reply, Response::Status(s) if s.input == "dongle"));
-        // Clean EOF at a frame boundary → None.
+        // Clean EOF at a frame boundary -> None.
         assert!(read_msg::<Request>(&mut cur).unwrap().is_none());
     }
 

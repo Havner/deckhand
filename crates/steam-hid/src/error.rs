@@ -1,4 +1,4 @@
-//! Error and result types (PLAN §1.5).
+//! Error and result types (PLAN 1.5).
 
 use thiserror::Error;
 
@@ -7,7 +7,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors surfaced by `steam-hid`.
 ///
-/// Note the two things that are deliberately **not** errors (PLAN §1.5):
+/// Note the two things that are deliberately **not** errors (PLAN 1.5):
 /// - a read timeout is `Ok(None)` from the `poll_*` methods, not an error;
 /// - a controller disconnecting while the transport stays alive is a
 ///   [`Report::Disconnected`](crate::Report) value, not an error.

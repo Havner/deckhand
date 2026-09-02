@@ -1,4 +1,4 @@
-//! Discovery, opening, and per-device I/O (PLAN §1.5, §1.6).
+//! Discovery, opening, and per-device I/O (PLAN 1.5, 1.6).
 
 use std::ffi::CString;
 use std::time::{Duration, Instant};
@@ -16,7 +16,7 @@ use crate::state::{self, Battery, ControllerState, Report};
 use crate::value::Timestamp;
 
 /// Internal read timeout for the "blocking" `read_*`; looped so it can later be
-/// made cancellable for cooperative shutdown (PLAN §1.6).
+/// made cancellable for cooperative shutdown (PLAN 1.6).
 const READ_TIMEOUT_MS: i32 = 1000;
 
 /// Parameters for a `TRIGGER_HAPTIC_PULSE` (`0x8f`) trackpad haptic pulse ([`Device::haptic_pulse`]):
@@ -66,7 +66,7 @@ impl DeviceKind {
 
     /// Whether this device auto-reverts to lizard mode and so needs the reader to periodically
     /// re-assert lizard-off. The Deck reverts after ~10 s and Triton after ~3 s (its firmware
-    /// watchdog); Gordon holds its config and needs none (PLAN §1.9). The reader uses a single
+    /// watchdog); Gordon holds its config and needs none (PLAN 1.9). The reader uses a single
     /// ~3 s cadence for whichever devices need it.
     pub fn needs_keepalive(&self) -> bool {
         match self {
@@ -98,7 +98,7 @@ pub enum Transport {
     UsbWired,
     UsbDongle,
     /// Bluetooth (BLE). Two very different framings by device: **Gordon** uses the segmented
-    /// Report-ID-3 delta format (`BleState`, PLAN §1.4); **Triton** does NOT segment — the OS
+    /// Report-ID-3 delta format (`BleState`, PLAN 1.4); **Triton** does NOT segment - the OS
     /// HID-over-GATT stack reassembles it into plain numbered reports (state id `0x45`), so it rides
     /// the same `next_frame_triton` path as USB. Which one is chosen by `DeviceKind`, not here.
     Bluetooth,
@@ -140,8 +140,8 @@ impl Transport {
     }
 }
 
-/// A stable, path-independent identity for a device (PLAN §4.3). Built from the fields that
-/// survive a replug — `kind`, `transport`, slot (`interface`), and `serial` — **not** the
+/// A stable, path-independent identity for a device (PLAN 4.3). Built from the fields that
+/// survive a replug - `kind`, `transport`, slot (`interface`), and `serial` - **not** the
 /// ephemeral OS path (Linux `/dev/hidrawN` is reassigned on replug). Used to pin a selection so
 /// it reconnects to the *same* physical device, and to name a device on the CLI / control socket.
 ///
@@ -197,14 +197,14 @@ pub struct DeviceInfo {
     pub serial: Option<String>,
     pub vid: u16,
     pub pid: u16,
-    /// HID interface number — identifies the wired gamepad iface / dongle slot.
+    /// HID interface number - identifies the wired gamepad iface / dongle slot.
     pub interface: i32,
     /// Opaque OS path used to open the device.
     pub(crate) path: CString,
 }
 
 impl DeviceInfo {
-    /// This device's stable, path-independent [`DeviceId`] (PLAN §4.3). An empty serial is
+    /// This device's stable, path-independent [`DeviceId`] (PLAN 4.3). An empty serial is
     /// normalized to `None` (the Gordon dongle reports `Some("")`) so the id is canonical and
     /// round-trips through its string form.
     pub fn id(&self) -> DeviceId {
@@ -230,7 +230,7 @@ fn classify(pid: u16) -> Option<(DeviceKind, Transport)> {
     }
 }
 
-/// Owns the HID context; enumerates and opens devices (PLAN §1.5).
+/// Owns the HID context; enumerates and opens devices (PLAN 1.5).
 pub struct Manager {
     api: HidApi,
 }
@@ -247,7 +247,7 @@ impl Manager {
     ///
     /// Filters to the Valve vendor gamepad interface (usage page in the
     /// `0xFF00` range), dropping the emulated mouse/keyboard interfaces
-    /// (PLAN §1.6). Interface filtering is provisional — verify on hardware.
+    /// (PLAN 1.6). Interface filtering is provisional - verify on hardware.
     pub fn enumerate(&mut self) -> Result<Vec<DeviceInfo>> {
         // Re-scan the bus: hidapi caches the device list at context creation, so without this a
         // long-lived `Manager` never sees hotplug changes (breaks `devices()` freshness and the
@@ -261,9 +261,9 @@ impl Manager {
             let Some((kind, transport)) = classify(info.product_id()) else {
                 continue;
             };
-            // Gamepad interface discriminator (PLAN §1.6): the vendor usage page
+            // Gamepad interface discriminator (PLAN 1.6): the vendor usage page
             // (>= 0xFF00) picks the gamepad interface, dropping the emulated
-            // mouse/keyboard. This works for BLE too — hidapi lists the single BLE
+            // mouse/keyboard. This works for BLE too - hidapi lists the single BLE
             // hidraw node once *per top-level collection* (mouse 0x01, keyboard
             // 0x01, vendor 0xFF00, all same path), so the filter keeps exactly the
             // one vendor entry (verified on HW).
@@ -298,10 +298,10 @@ impl Manager {
     }
 }
 
-/// An open device: a transport endpoint that outlives connect/disconnect (PLAN §1.5).
+/// An open device: a transport endpoint that outlives connect/disconnect (PLAN 1.5).
 ///
-/// Driven in **one** mode at a time — snapshots (`read`/`poll`) or events
-/// (`events`) — since both consume the single frame stream.
+/// Driven in **one** mode at a time - snapshots (`read`/`poll`) or events
+/// (`events`) - since both consume the single frame stream.
 pub struct Device {
     backend: Box<dyn RawHid>,
     info: DeviceInfo,
@@ -313,7 +313,7 @@ pub struct Device {
     ble: Option<BleState>,
 }
 
-/// Per-device state for the Bluetooth transport (PLAN §1.4).
+/// Per-device state for the Bluetooth transport (PLAN 1.4).
 ///
 /// BLE input is a segmented *delta* stream, so we reassemble 20-byte segments into
 /// a full packet and accumulate chunk updates into `acc`, emitting a snapshot per
@@ -323,7 +323,7 @@ struct BleState {
     assembled: [u8; protocol::ble::SEGMENT_PAYLOAD * protocol::ble::MAX_SEGMENTS],
     /// Next segment number expected (resets to 0 on a completed/!ordered packet).
     expected_seg: usize,
-    /// Accumulated snapshot — BLE chunks decode straight into it (only-changed chunks arrive per
+    /// Accumulated snapshot - BLE chunks decode straight into it (only-changed chunks arrive per
     /// packet), so there is no decoded-report intermediate (see `state::apply_gordon_ble`).
     acc: ControllerState,
     /// Synthesized sequence counter, bumped per input snapshot.
@@ -347,7 +347,7 @@ impl Device {
         // endpoint opens); only the dongle multiplexes an absent controller.
         let connected = matches!(info.transport, Transport::UsbWired | Transport::Bluetooth);
         // Gordon's BLE segmented-delta reassembly. Triton over BLE is a *different* framing (its own
-        // report ids, no segmentation) handled by the Triton path — so this state is Gordon-only.
+        // report ids, no segmentation) handled by the Triton path - so this state is Gordon-only.
         let ble = (info.transport.is_bluetooth() && !info.kind.is_triton()).then(BleState::new);
         let mut dev = Device {
             backend,
@@ -359,8 +359,8 @@ impl Device {
             ble,
         };
         // On a wireless endpoint, prompt the current connection status so an
-        // already-connected controller surfaces without waiting (PLAN §1.6).
-        // Gordon dongle only — this is the original receiver's wireless-state command; the Triton
+        // already-connected controller surfaces without waiting (PLAN 1.6).
+        // Gordon dongle only - this is the original receiver's wireless-state command; the Triton
         // puck streams state by default when a controller is present, so it needs no prompt.
         if matches!(dev.info.transport, Transport::UsbDongle) && !dev.info.kind.is_triton() {
             let _ = dev.dongle_get_wireless_state();
@@ -374,7 +374,7 @@ impl Device {
     }
 
     /// Whether a controller is currently connected on this endpoint (cached from
-    /// `0x03` frames; convenience, not load-bearing — PLAN §1.5).
+    /// `0x03` frames; convenience, not load-bearing - PLAN 1.5).
     pub fn is_connected(&self) -> bool {
         self.connected
     }
@@ -386,7 +386,7 @@ impl Device {
 
     // --- input: one physical read == one frame of some type ---
 
-    /// Read one high-level frame (normalized snapshot or lifecycle), blocking (PLAN §1.5).
+    /// Read one high-level frame (normalized snapshot or lifecycle), blocking (PLAN 1.5).
     pub fn read(&mut self) -> Result<Report> {
         loop {
             if let Some(report) = self.next_frame(READ_TIMEOUT_MS)? {
@@ -400,7 +400,7 @@ impl Device {
         self.next_frame(clamp_timeout(timeout))
     }
 
-    /// The change-driven [`Events`] view over this device (PLAN §1.5).
+    /// The change-driven [`Events`] view over this device (PLAN 1.5).
     pub fn events(&mut self) -> Events<'_> {
         Events::new(self)
     }
@@ -423,8 +423,8 @@ impl Device {
         if self.ble.is_some() {
             return self.next_frame_ble(timeout_ms);
         }
-        // The default path: **USB Gordon (wired + dongle) and Neptune** — one physical read is one
-        // 64-byte `0x01`-framed report (`[0x01, 0x00, <event>, …]`), decoded by `state::parse`.
+        // The default path: **USB Gordon (wired + dongle) and Neptune** - one physical read is one
+        // 64-byte `0x01`-framed report (`[0x01, 0x00, <event>, ...]`), decoded by `state::parse`.
         let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;
         if n == 0 {
             return Ok(None);
@@ -435,7 +435,7 @@ impl Device {
     }
 
     /// Triton read path: one physical read == one report, dispatched by the **report id in byte 0**
-    /// (not the `0x01`-framed event byte Gordon/Neptune use — see `state::parse_triton`). Works for
+    /// (not the `0x01`-framed event byte Gordon/Neptune use - see `state::parse_triton`). Works for
     /// every Triton transport: the puck and wire stream state as `0x42`, **Bluetooth streams `0x45`**
     /// (both the same "NoQuat" body). On Linux/Windows the OS HID-over-GATT stack reassembles BLE and
     /// prepends the report id, so BT reports arrive here exactly like USB (no segmentation, unlike
@@ -448,7 +448,7 @@ impl Device {
                 return Ok(None);
             }
             let Some(report) = state::parse_triton(&self.buf[..n], self.now()) else {
-                continue; // undecoded report — keep reading
+                continue; // undecoded report - keep reading
             };
             self.update_cache(&report);
             return Ok(Some(report));
@@ -456,19 +456,19 @@ impl Device {
     }
 
     /// BLE read path: reassemble 20-byte segments into a packet, accumulate its chunks, and emit a
-    /// full snapshot per completed **input** packet (PLAN §1.4).
+    /// full snapshot per completed **input** packet (PLAN 1.4).
     ///
     /// Loops within one call so a multi-segment frame returns as one [`Report`]; a read timeout
     /// returns `None` with partial reassembly state preserved for the next call. Non-input (status)
     /// packets are skipped (read again).
     fn next_frame_ble(&mut self, timeout_ms: i32) -> Result<Option<Report>> {
         use protocol::ble;
-        let start = self.start; // Copy — stamp the snapshot without re-borrowing self
+        let start = self.start; // Copy - stamp the snapshot without re-borrowing self
         loop {
             let mut seg = [0u8; ble::SEGMENT_SIZE];
             let n = self.backend.read_timeout(&mut seg, timeout_ms)?;
             if n == 0 {
-                return Ok(None); // timeout — partial reassembly (if any) is retained
+                return Ok(None); // timeout - partial reassembly (if any) is retained
             }
             if n < ble::SEGMENT_SIZE || seg[0] != ble::REPORT_ID {
                 continue;
@@ -509,7 +509,7 @@ impl Device {
                 ble_state.acc.timestamp = Timestamp(start.elapsed());
                 return Ok(Some(Report::State(ble_state.acc.clone())));
             }
-            // Non-input (status) packet — keep reading within the timeout budget.
+            // Non-input (status) packet - keep reading within the timeout budget.
         }
     }
 
@@ -520,10 +520,10 @@ impl Device {
     // --- commands: raw transport primitives ---
 
     /// Send a raw feature report. Takes the **logical** command
-    /// `[cmd_id, len, payload…]`; the transport framing is applied here, not by the
-    /// caller (PLAN §1.4): USB prepends report id 0 and pads to 64; Bluetooth splits
+    /// `[cmd_id, len, payload...]`; the transport framing is applied here, not by the
+    /// caller (PLAN 1.4): USB prepends report id 0 and pads to 64; Bluetooth splits
     /// the command into Report-ID-3 segments (`[0x03][0x80|seg|(0x40 if last)]
-    /// [<=18 data]`, zero-padded to 20 — the command bytes are identical to USB).
+    /// [<=18 data]`, zero-padded to 20 - the command bytes are identical to USB).
     fn send_feature_report(&mut self, cmd: &[u8]) -> Result<()> {
         if self.info.transport.is_bluetooth() && !self.info.kind.is_triton() {
             for seg in frame_ble(cmd) {
@@ -532,7 +532,7 @@ impl Device {
             Ok(())
         } else if self.info.kind.is_triton() {
             // Triton's command channel rides feature report **0x01** and the whole HID report is
-            // **exactly 64 bytes** (report-id byte + 63 payload) — the device stalls a SET_REPORT of
+            // **exactly 64 bytes** (report-id byte + 63 payload) - the device stalls a SET_REPORT of
             // any other length (Broken pipe otherwise). Gordon/Neptune use report id 0x00 with 64
             // *data* bytes (65-byte buffer; report 0 is unnumbered so nothing extra goes on the wire).
             self.backend
@@ -543,18 +543,18 @@ impl Device {
         }
     }
 
-    /// Get a raw feature report, sizing the buffer to the device's report shape — the symmetric
-    /// counterpart to [`Self::send_feature_report`] (PLAN §1.4): Triton reads report id 0x01 into an
+    /// Get a raw feature report, sizing the buffer to the device's report shape - the symmetric
+    /// counterpart to [`Self::send_feature_report`] (PLAN 1.4): Triton reads report id 0x01 into an
     /// **exactly 64-byte** buffer (a longer GetFeature stalls the ioctl with Broken pipe, mirroring
     /// the SET side), Gordon/Neptune read report id 0x00 into a 65-byte buffer. Returns the reply
     /// bytes truncated to the count read, with the report-id byte still at `[0]`.
     ///
-    /// NOTE: the Triton branch is a best effort that does NOT actually work — Triton stalls a
+    /// NOTE: the Triton branch is a best effort that does NOT actually work - Triton stalls a
     /// GET_FEATURE on report 0x01 regardless of buffer size, so the GET round-trips (serials/
     /// attributes/settings) all Broken-pipe on it. Its feature channel is effectively write-only;
     /// command replies come back over the interrupt-IN input stream instead (SDL's Triton driver
     /// never issues a feature GET, and sc-controller leaves the read-back a TODO). Making getters
-    /// work on Triton would need reverse-engineering that reply framing — out of scope; getters is a
+    /// work on Triton would need reverse-engineering that reply framing - out of scope; getters is a
     /// Gordon/Neptune tool. The kept 64-byte shape is correct-if-it-ever-answers, and harmless.
     fn get_feature_report(&mut self) -> Result<Vec<u8>> {
         let (report_id, buf_len) = if self.info.kind.is_triton() {
@@ -570,7 +570,7 @@ impl Device {
     }
 
     /// Write a GET request (`request[0]` = command id) and read the reply, retrying a few times (the
-    /// device may return other reports first — mirrors SDL's `ReadResponse`). Locates the echoed
+    /// device may return other reports first - mirrors SDL's `ReadResponse`). Locates the echoed
     /// command id (at offset 0 or 1, absorbing hidapi's report-id-byte ambiguity for report 0),
     /// strips the `[cmd, len]` header, and returns `(body, len)`: `body` = the reply payload ready to
     /// cast (the bytes after the header), `len` = the reply's length byte clamped to the bytes
@@ -582,7 +582,7 @@ impl Device {
         payload: &[u8],
         valid: impl Fn(usize, &[u8]) -> bool,
     ) -> Result<(Vec<u8>, usize)> {
-        // Build the request through the shared `FeatureReportHeader` (same header as `feature()`) —
+        // Build the request through the shared `FeatureReportHeader` (same header as `feature()`) -
         // GET commands vary the header's `length` field: payload length for SETTINGS, `0` for
         // ATTRIBUTES, and the requested max response length for the STRING getter, so it's passed in
         // rather than derived from `payload.len()`.
@@ -596,11 +596,11 @@ impl Device {
         for _ in 0..8 {
             std::thread::sleep(Duration::from_millis(10));
             if self.send_feature_report(&request).is_err() {
-                continue; // busy → retry the SetFeature
+                continue; // busy -> retry the SetFeature
             }
             std::thread::sleep(Duration::from_millis(20)); // let the reply compute
             let buf = self.get_feature_report()?;
-            // The reply is `[report-id, cmd, len, body…]` — hidapi keeps the report-id byte at [0]
+            // The reply is `[report-id, cmd, len, body...]` - hidapi keeps the report-id byte at [0]
             // (report 0 on Gordon/Neptune, 0x01 on Triton; matches SDL's `ReadResponse`, HW-confirmed
             // on Gordon). Reject a stale / other-report reply whose echoed cmd at [1] doesn't match
             // (the device replies out of order under back-to-back GETs).
@@ -616,7 +616,7 @@ impl Device {
         Err(Error::Unsupported("GET response not received/validated"))
     }
 
-    /// Build `[FeatureReportHeader, payload…]` and send it framed.
+    /// Build `[FeatureReportHeader, payload...]` and send it framed.
     fn feature(&mut self, cmd: MsgId, payload: &[u8]) -> Result<()> {
         let header = protocol::FeatureReportHeader { cmd: cmd as u8, length: payload.len() as u8 };
         let mut bytes = Vec::with_capacity(2 + payload.len());
@@ -625,7 +625,7 @@ impl Device {
         self.send_feature_report(&bytes)
     }
 
-    /// Build `[report_id, payload…]` and send it as a Triton haptic **output** report. The output-
+    /// Build `[report_id, payload...]` and send it as a Triton haptic **output** report. The output-
     /// report analog of [`Self::feature`], but the framing is a single report-id byte (no length
     /// field) and it rides the interrupt-OUT endpoint. Output reports carry their own fixed lengths,
     /// so no `frame`-style padding.
@@ -638,7 +638,7 @@ impl Device {
 
     // --- commands: simple generic (most apply to every device) ---
 
-    /// Write settings via `SET_SETTINGS_VALUES` — a concatenation of [`protocol::ControllerSetting`]
+    /// Write settings via `SET_SETTINGS_VALUES` - a concatenation of [`protocol::ControllerSetting`]
     /// `(id, value-le)` triples. Takes `(id, value)` pairs for call-site ergonomics.
     fn set_settings(&mut self, pairs: &[(u8, u16)]) -> Result<()> {
         let mut payload = Vec::with_capacity(pairs.len() * 3);
@@ -652,7 +652,7 @@ impl Device {
     ///
     /// Lizard-off clears digital mappings and sets both trackpads to `NONE`
     /// (raw). The Deck (Neptune) reverts to lizard ~10 s after lizard-off unless
-    /// it is re-asserted, so a long-lived consumer must call this periodically —
+    /// it is re-asserted, so a long-lived consumer must call this periodically -
     /// the engine reader does (~2 s, Neptune-gated; HW-verified holding a real
     /// Deck alive across a multi-minute session). steam-hid spawns NO keep-alive
     /// thread by design: `Device` is the single writer (Send, not Sync), so the
@@ -671,7 +671,7 @@ impl Device {
         Ok(())
     }
 
-    /// Set the IMU mode bits (gyro/accel/orientation), PLAN §1.4.
+    /// Set the IMU mode bits (gyro/accel/orientation), PLAN 1.4.
     pub fn set_imu_mode(&mut self, mode: GyroMode) -> Result<()> {
         self.set_settings(&[(setting::IMU_MODE, mode.bits())])
     }
@@ -700,7 +700,7 @@ impl Device {
     /// `0xB4`, no payload). The Gordon receiver answers with a `0x04` status frame carrying the
     /// connection state and battery charge, so this both surfaces an already-connected controller and
     /// refreshes battery: [`Device::new`] sends it once on open, and a battery poller re-sends it
-    /// periodically (see the `battery` example). Dongle-only — a harmless no-op prompt elsewhere.
+    /// periodically (see the `battery` example). Dongle-only - a harmless no-op prompt elsewhere.
     pub fn dongle_get_wireless_state(&mut self) -> Result<()> {
         self.feature(MsgId::DongleGetWirelessState, &[])
     }
@@ -714,14 +714,14 @@ impl Device {
 
     /// Read a string attribute (e.g. the unit serial) via `GET_STRING_ATTRIBUTE` (`0xAE`). Request is
     /// `[0xAE, max_len, tag]` (kernel `steam_get_serial` uses `max_len` = 0x16); the reply is
-    /// `[cmd, str_len, echoed_tag, string…]`. **USB only** (BLE feature-report segmentation not
+    /// `[cmd, str_len, echoed_tag, string...]`. **USB only** (BLE feature-report segmentation not
     /// handled here). **HW-UNTESTED.**
     pub fn get_string_attribute(&mut self, tag: ControllerStringAttributes) -> Result<String> {
         let tag = tag as u8;
         // Accept only a reply for *this* tag whose string is non-empty (rejects a stale other-tag
         // reply and the mid-update empty-buffer race). `body` = `MsgGetStringAttribute { tag,
         // value[20] }`; `len` = the reply header's body length (tag + value = 21, HW-observed), an
-        // upper bound only — the string itself is NUL-terminated, so we cut `value` at the first NUL.
+        // upper bound only - the string itself is NUL-terminated, so we cut `value` at the first NUL.
         let (body, len) = self.get_roundtrip(
             MsgId::GetStringAttribute,
             0x16, // requested max response length (kernel `steam_get_serial`)
@@ -736,14 +736,14 @@ impl Device {
         Ok(String::from_utf8_lossy(raw).into_owned())
     }
 
-    /// Read the controller's read-only attributes via `GET_ATTRIBUTES_VALUES` (`0x83`) — the **full**
-    /// list of `(tag, value)` (SDL sends a bare `[0x83]`; the firmware returns all — there's no
+    /// Read the controller's read-only attributes via `GET_ATTRIBUTES_VALUES` (`0x83`) - the **full**
+    /// list of `(tag, value)` (SDL sends a bare `[0x83]`; the firmware returns all - there's no
     /// per-tag request). `tag` is a raw byte (name it against the `protocol::attribute` const ids),
     /// `value` a `u32`. **USB only.**
     pub fn get_attributes(&mut self) -> Result<Vec<(u8, u32)>> {
         let (data, len) = self.get_roundtrip(
             MsgId::GetAttributesValues,
-            0, // no request payload — returns the full set
+            0, // no request payload - returns the full set
             &[],
             |len, _| len > 0, // non-empty attribute list
         )?;
@@ -756,8 +756,8 @@ impl Device {
             .collect())
     }
 
-    /// Read specific settings via `GET_SETTINGS_VALUES` (`0x89`) — returns `(id, value)` pairs. The
-    /// **request uses the same `ControllerSetting[]` shape as `SET_SETTINGS_VALUES`** — one `(id,
+    /// Read specific settings via `GET_SETTINGS_VALUES` (`0x89`) - returns `(id, value)` pairs. The
+    /// **request uses the same `ControllerSetting[]` shape as `SET_SETTINGS_VALUES`** - one `(id,
     /// value)` triple per wanted setting (the value is ignored on a read; HW-confirmed on Gordon).
     /// **USB only.**
     pub fn get_settings(&mut self, ids: &[u8]) -> Result<Vec<(u8, u16)>> {
@@ -782,7 +782,7 @@ impl Device {
 
     /// Trigger a trackpad haptic **pulse** (`0x8f`), kernel 8-byte form.
     ///
-    /// **Verified on Gordon** (PLAN §1.9): [`HapticPosition`] is the trackpad actuator (Gordon's wire
+    /// **Verified on Gordon** (PLAN 1.9): [`HapticPosition`] is the trackpad actuator (Gordon's wire
     /// values are swapped: `Right = 0`, `Left = 1`). There is no "both" (pad 2 no-ops on Gordon), so
     /// the caller fires the two pads separately. `params.gain` is honored on the Deck but ignored on
     /// Gordon. This drives the *trackpad* actuator (Gordon's only haptic; works on the Deck too). For
@@ -798,10 +798,10 @@ impl Device {
         self.feature(MsgId::TriggerHapticPulse, msg.as_bytes())
     }
 
-    /// Fire the Deck's `0xEA` `SET_HAPTIC2` — a short, finely-tuned trackpad **click** haptic (much
+    /// Fire the Deck's `0xEA` `SET_HAPTIC2` - a short, finely-tuned trackpad **click** haptic (much
     /// better than `0x8f` for command clicks; the strongest setting beats a full `0x8f` click). `cmd`
     /// picks the haptic type (we use [`HapticType::Tick`]/[`HapticType::Click`]), `ui_intensity` is a
-    /// second HW-confirmed lever (see [`HapticIntensity`]), and `gain` (dB) scales it — together a
+    /// second HW-confirmed lever (see [`HapticIntensity`]), and `gain` (dB) scales it - together a
     /// wide range of click strengths.
     ///
     /// **Deck-only** (no-ops on Gordon). Payload is the full [`protocol::MsgTriggerHaptic`] (SDL);
@@ -825,7 +825,7 @@ impl Device {
     }
 
     /// Fire a firmware-synthesized **tone** via `0xEA` (`cmd = Tone`): a clean `freq`-Hz tone held for
-    /// `dur_ms`, scaled by `gain` (dB). The Deck's audible-beep path — unlike the `0x8f` pulse (a
+    /// `dur_ms`, scaled by `gain` (dB). The Deck's audible-beep path - unlike the `0x8f` pulse (a
     /// hand-timed square wave that collapses toward the LRA resonance so only ~5-6 pitches come
     /// through), the firmware tracks pitch cleanly from ~200 Hz up to a ~2 kHz ceiling (higher is
     /// silent). `ui_intensity` is HW-inert for a tone, so `gain` is the only amplitude lever (`0` is
@@ -838,7 +838,7 @@ impl Device {
     /// (how to drive it consistently is unclear); `lfo_freq` is a `u16` whose character keeps shifting
     /// above ~64.
     ///
-    /// **Deck-only** (`0xEA` no-ops on Gordon — use [`Self::haptic_pulse`] there). Same
+    /// **Deck-only** (`0xEA` no-ops on Gordon - use [`Self::haptic_pulse`] there). Same
     /// [`HapticSide`] `0/1/2` convention as [`Self::haptic_cmd`]; see also [`Self::haptic_logsweep`].
     pub fn haptic_tone(
         &mut self,
@@ -888,29 +888,29 @@ impl Device {
         self.feature(MsgId::TriggerHapticCmd, msg.as_bytes())
     }
 
-    /// Drive the Deck's dual haptic motors — **rumble** (`0xeb` `TRIGGER_RUMBLE_CMD`), kernel
+    /// Drive the Deck's dual haptic motors - **rumble** (`0xeb` `TRIGGER_RUMBLE_CMD`), kernel
     /// 9-byte form.
     ///
     /// The Deck's native rumble, what the Linux `hid-steam` driver wires `FF_RUMBLE` to. Each
-    /// command plays a **fixed short burst** (~0.5 s, HW-measured — the packet has no length field),
+    /// command plays a **fixed short burst** (~0.5 s, HW-measured - the packet has no length field),
     /// so a sustained rumble must be **re-issued** periodically; `(0, 0)` stops it. Character is
     /// **pulsating**: `left`/`right` set the **pulse rate** (higher = faster; *not* a rumble
-    /// frequency), while amplitude has two levers — `left_gain`/`right_gain` (dB, coarse) and
+    /// frequency), while amplitude has two levers - `left_gain`/`right_gain` (dB, coarse) and
     /// **`intensity`** (a finer amplitude control gain lacks, but **inverted**: `0` = strongest,
     /// larger = weaker, ~unfelt near `u16::MAX`; usable ~`0..16k`). We currently pass `intensity = 0`
-    /// (strongest) everywhere — plumbed but not yet used as a mapping lever.
+    /// (strongest) everywhere - plumbed but not yet used as a mapping lever.
     ///
     /// **`intensity` is a `u16` (LE), kernel- and SDL-confirmed** (`report[3]` = LSB, `report[4]` =
-    /// MSB — kernel `steam_haptic_rumble`; SDL `MsgSimpleRumbleCmd.unIntensity`). A HW sweep of the
+    /// MSB - kernel `steam_haptic_rumble`; SDL `MsgSimpleRumbleCmd.unIntensity`). A HW sweep of the
     /// low byte *alone* feels like it does nothing, but that's only because it's the least-significant
-    /// byte (0..255 of a 0..65535 range) — it's fine resolution, not a dead field (the low bytes of
+    /// byte (0..255 of a 0..65535 range) - it's fine resolution, not a dead field (the low bytes of
     /// `left`/`right` behave the same). InputPlumber's "single-byte intensity + event_type" split is
     /// wrong. The leading `report[2]` (kernel 0 / SDL `unRumbleType`) is a rumble-type selector we
     /// leave at 0.
     ///
-    /// **Deck-only:** Gordon has no motors, so `0xeb` no-ops there — use [`Self::haptic_pulse`] for
+    /// **Deck-only:** Gordon has no motors, so `0xeb` no-ops there - use [`Self::haptic_pulse`] for
     /// Gordon. (`left` = strong/large motor, `right` = weak/small, matching the kernel's
-    /// `rumble_left`/`rumble_right` ← FF strong/weak.)
+    /// `rumble_left`/`rumble_right` <- FF strong/weak.)
     pub fn rumble_cmd(
         &mut self,
         intensity: u16,
@@ -930,14 +930,14 @@ impl Device {
         self.feature(MsgId::TriggerRumbleCmd, msg.as_bytes())
     }
 
-    /// Drive Triton's dual-motor **continuous rumble** — output report `0x80` (`HapticRumble`,
+    /// Drive Triton's dual-motor **continuous rumble** - output report `0x80` (`HapticRumble`,
     /// 10 bytes). Unlike the Deck's `0xeb`, this rides an **output** report on the interrupt-OUT
     /// endpoint. `left`/`right` are the per-motor drive (SDL feeds the 16-bit rumble magnitudes here
     /// as the field it calls `speed`); `*_gain` are per-motor dB trims; `intensity` is a finer
     /// amplitude lever (SDL passes 0). The firmware safety-times out in ~50 ms, so a sustained rumble
     /// must be **re-issued** (the reader does, ~40 ms); `(0, 0)` stops it.
     ///
-    /// **HW-verified on the puck (PLAN §1.9), same levers as the Deck's `0xeb`:** `left`/`right` are
+    /// **HW-verified on the puck (PLAN 1.9), same levers as the Deck's `0xeb`:** `left`/`right` are
     /// the per-motor **rate** (SDL's "speed"; higher = stronger, the coarse amplitude), `*_gain` (dB)
     /// the real strength trim, and `intensity` a finer **inverted** amplitude lever (`0` = no change,
     /// larger = weaker). Param order mirrors [`Self::rumble_cmd`] (per-motor `left`/`right`, no side
@@ -963,13 +963,13 @@ impl Device {
         self.output(TritonOutReport::Rumble, msg.as_bytes())
     }
 
-    /// Fire a Triton trackpad **pulse** — output report `0x81` (`HapticPulse`): `on_us` high then
+    /// Fire a Triton trackpad **pulse** - output report `0x81` (`HapticPulse`): `on_us` high then
     /// `off_us` low, `repeat_count` times (freq ~= `1e6/(on+off)`). **Triton-only; HW-usable both
     /// ways.** As a **train** (`repeat_count > 1`) it's a pulse/rumble usable across the whole swept
-    /// range — a narrow band around ~600–700 Hz oscillates oddly (harmless, just odd), the rest behaves
-    /// cleanly; it is NOT a clean *tone* path (`0x83` LfoTone / `0x84` LogSweep are — see `beep-triton`)
+    /// range - a narrow band around ~600-700 Hz oscillates oddly (harmless, just odd), the rest behaves
+    /// cleanly; it is NOT a clean *tone* path (`0x83` LfoTone / `0x84` LogSweep are - see `beep-triton`)
     /// but works well as a rumble. As a **single** pulse (`repeat_count = 1`) it's a discrete **click**
-    /// whose width (`on_us`) sets strength — Gordon-style, finer than the two-step `0x82` click.
+    /// whose width (`on_us`) sets strength - Gordon-style, finer than the two-step `0x82` click.
     /// **LEFT/RIGHT are physically swapped** like Gordon's `0x8f` ([`HapticSide::Left`] drives the right
     /// pad); BOTH works. `off_us` is trailing-only at `repeat_count = 1`. Probed in `haptic-triton`
     /// (`pulse` train / `clicks-pulse` single).
@@ -984,11 +984,11 @@ impl Device {
         self.output(TritonOutReport::Pulse, msg.as_bytes())
     }
 
-    /// Fire a Triton **haptic command / click** — output report `0x82` (`HapticCommand`, 4 bytes):
-    /// `[side, style, amplitude]`. `style` is a [`HapticStyle`] (`0` off / `1` weak / `2` strong —
+    /// Fire a Triton **haptic command / click** - output report `0x82` (`HapticCommand`, 4 bytes):
+    /// `[side, style, amplitude]`. `style` is a [`HapticStyle`] (`0` off / `1` weak / `2` strong -
     /// HW: `Weak` is a light click, `Strong` a firm one; this is the **main strength lever**).
-    /// `amplitude` is an **unsigned** trim, `0x00` = medium … `0xFF` = strong (sc-controller's
-    /// observed layout — SDL's struct misleadingly types this byte as a signed `gain_db`, but its own
+    /// `amplitude` is an **unsigned** trim, `0x00` = medium ... `0xFF` = strong (sc-controller's
+    /// observed layout - SDL's struct misleadingly types this byte as a signed `gain_db`, but its own
     /// driver never sends `0x82`; HW confirms the audible effect of this byte is subtle).
     /// [`HapticSide`] is the `0/1/2` Left/Right/Both convention. **Triton-only.**
     pub fn haptic_command_triton(
@@ -998,7 +998,7 @@ impl Device {
         amplitude: u8,
     ) -> Result<()> {
         // `command` = the haptic style (off/weak/strong); `gain_db` carries our unsigned amplitude
-        // trim (SDL types the byte i8, but HW treats it as 0=medium..255=strong — see the struct doc).
+        // trim (SDL types the byte i8, but HW treats it as 0=medium..255=strong - see the struct doc).
         let msg = protocol::MsgHapticCommand {
             side: side as u8,
             command: style as u8,
@@ -1007,13 +1007,13 @@ impl Device {
         self.output(TritonOutReport::Command, msg.as_bytes())
     }
 
-    /// Fire a Triton **LFO tone** — output report `0x83` (`HapticLfoTone`): a firmware-synthesized
+    /// Fire a Triton **LFO tone** - output report `0x83` (`HapticLfoTone`): a firmware-synthesized
     /// tone at `freq` Hz for `dur_ms`, scaled by `gain` (dB), with an optional low-frequency-oscillator
     /// modulation (`lfo_freq` Hz = rate, `lfo_depth` = amount; `lfo_depth = 0` = a plain unmodulated
-    /// tone). Triton's counterpart to the Deck's `0xEA` `cmd = Tone` [`Self::haptic_tone`] — the
+    /// tone). Triton's counterpart to the Deck's `0xEA` `cmd = Tone` [`Self::haptic_tone`] - the
     /// promising Triton audio path, and the one primitive that carries the LFO as a first-class report.
     /// **Triton-only; HW-tested:** the tone works (pitch tracks up to a ~1.9 kHz ceiling; 2 kHz+ is
-    /// silent or repeats lower pitches), and the LFO makes an audible difference — subtly, not yet a
+    /// silent or repeats lower pitches), and the LFO makes an audible difference - subtly, not yet a
     /// predictable lever (as on the Deck's [`Self::haptic_tone`]).
     pub fn lfo_tone_triton(
         &mut self,
@@ -1035,9 +1035,9 @@ impl Device {
         self.output(TritonOutReport::LfoTone, msg.as_bytes())
     }
 
-    /// Fire a Triton **log-frequency sweep** (chirp) — output report `0x84` (`HapticLogSweep`): glide
-    /// `start`→`end` Hz over `dur_ms`, scaled by `gain` (dB). Triton's counterpart to the Deck's `0xEA`
-    /// `cmd = LogSweep` [`Self::haptic_logsweep`]. **Triton-only; HW-tested** — glides cleanly.
+    /// Fire a Triton **log-frequency sweep** (chirp) - output report `0x84` (`HapticLogSweep`): glide
+    /// `start`->`end` Hz over `dur_ms`, scaled by `gain` (dB). Triton's counterpart to the Deck's `0xEA`
+    /// `cmd = LogSweep` [`Self::haptic_logsweep`]. **Triton-only; HW-tested** - glides cleanly.
     pub fn logsweep_triton(
         &mut self,
         side: HapticSide,
@@ -1060,7 +1060,7 @@ impl Device {
 impl Drop for Device {
     fn drop(&mut self) {
         // Best-effort: restore lizard mode so the controller isn't left dead
-        // after we exit (PLAN §1.6). No keep-alive thread to join — the owning
+        // after we exit (PLAN 1.6). No keep-alive thread to join - the owning
         // consumer (the engine reader) drives the Deck keep-alive from its read
         // loop, so it stops the instant this Device is dropped.
         let _ = self.set_lizard_mode(true);
@@ -1068,9 +1068,9 @@ impl Drop for Device {
 }
 
 /// Frame a logical command into a feature-report buffer of `buf_len` bytes: the `report_id` byte,
-/// then the command zero-padded to fill the buffer (PLAN §1.4). Gordon/Neptune use `report_id`
+/// then the command zero-padded to fill the buffer (PLAN 1.4). Gordon/Neptune use `report_id`
 /// `0x00` and `buf_len = 1 + 64` (64 data bytes); Triton uses `0x01` and `buf_len = 64` (the whole
-/// report is 64 bytes — report id + 63 payload — or the device stalls the transfer).
+/// report is 64 bytes - report id + 63 payload - or the device stalls the transfer).
 fn frame(cmd: &[u8], report_id: u8, buf_len: usize) -> Vec<u8> {
     let mut buf = vec![0u8; buf_len];
     buf[0] = report_id;
@@ -1079,8 +1079,8 @@ fn frame(cmd: &[u8], report_id: u8, buf_len: usize) -> Vec<u8> {
     buf
 }
 
-/// Frame a logical command into BLE feature segments (PLAN §1.4): split `cmd`
-/// (`[id, len, payload…]`) into ≤18-byte chunks, each a 20-byte Report-ID-3 report
+/// Frame a logical command into BLE feature segments (PLAN 1.4): split `cmd`
+/// (`[id, len, payload...]`) into <=18-byte chunks, each a 20-byte Report-ID-3 report
 /// `[0x03][0x80 | seg | (0x40 if last)][chunk, zero-padded]`. A single-segment
 /// command's header is `0xC0`.
 fn frame_ble(cmd: &[u8]) -> Vec<[u8; protocol::ble::SEGMENT_SIZE]> {
@@ -1160,7 +1160,7 @@ mod tests {
 
     #[test]
     fn device_info_id_normalizes_empty_serial() {
-        // The Gordon dongle reports serial = Some("") — id() must canonicalize it to None so the
+        // The Gordon dongle reports serial = Some("") - id() must canonicalize it to None so the
         // id round-trips through its string form (and a CLI `--input gordon:dongle:1:` matches).
         let info = DeviceInfo {
             kind: DeviceKind::Gordon,

@@ -1,15 +1,15 @@
-//! The editor's **settings sub-pages** — a focused full-width form rendered *instead of* the current
+//! The editor's **settings sub-pages** - a focused full-width form rendered *instead of* the current
 //! category page (reached from a gear menu, left via Back). Two kinds:
 //!
-//! - **Command settings** ([`command_settings`]) — the activator (kind + its own parameter) plus
+//! - **Command settings** ([`command_settings`]) - the activator (kind + its own parameter) plus
 //!   toggle / turbo / haptics.
-//! - **Per-behaviour settings** ([`behavior_settings`]) — a header over the behaviour's settings
+//! - **Per-behaviour settings** ([`behavior_settings`]) - a header over the behaviour's settings
 //!   **blocks** composed in the canonical field order (the per-behaviour compose fns). Each block is
 //!   a reusable row (shared across every behaviour that has that field) that emits one generic
 //!   `SetSetting(input, SettingEdit)`; the edit is applied by `editor::settings::apply_setting`.
 //!   Adding a behaviour = one compose fn from existing blocks.
 //!
-//! Form primitives ([`check_setting`], [`slider_row`], …) live here; the shared `setting_label` row
+//! Form primitives ([`check_setting`], [`slider_row`], ...) live here; the shared `setting_label` row
 //! label, the `CMD_SLOT` width, and the page's `input_label` come from the parent modules.
 
 use std::ops::RangeInclusive;
@@ -28,7 +28,7 @@ use crate::editor::{ActivatorKind, Behavior, CommandRef, EditorMessage, SettingE
 use crate::view::{button_chips, label_row, setting_label, slot_display, small};
 use crate::{App, ButtonTarget, Message, style};
 
-/// The active settings sub-page, rendered *instead of* the current category page — `None` when no
+/// The active settings sub-page, rendered *instead of* the current category page - `None` when no
 /// settings page is open (the caller then renders the normal category). The general settings-page
 /// paradigm: a focused full-width form reached from a gear menu, left via Back.
 pub(in crate::view) fn settings_screen(app: &App) -> Option<Element<'static, Message>> {
@@ -38,9 +38,9 @@ pub(in crate::view) fn settings_screen(app: &App) -> Option<Element<'static, Mes
     }
 }
 
-/// The per-command settings form: activator (kind + its own parameter — Long/Double time or the
+/// The per-command settings form: activator (kind + its own parameter - Long/Double time or the
 /// Regular's interruptible flag), then toggle / turbo / haptics. Applicability-gated (turbo hidden on
-/// Release, haptic strength only when the pulse is on) — decision B, invalid-unrepresentable.
+/// Release, haptic strength only when the pulse is on) - decision B, invalid-unrepresentable.
 fn command_settings(app: &App, cref: &CommandRef) -> Element<'static, Message> {
     let back = button(text("‹ Back"))
         .style(style::option_button)
@@ -50,7 +50,7 @@ fn command_settings(app: &App, cref: &CommandRef) -> Element<'static, Message> {
     let title = container(label_row(label, dot)).width(Fill).align_x(Center);
     let header = row![back, title].spacing(16.0).align_y(Center);
 
-    // The command can vanish (removed from another surface) while this page is open — keep Back live.
+    // The command can vanish (removed from another surface) while this page is open - keep Back live.
     let Some(cmd) = crate::editor::command_at(app, cref) else {
         return column![header, small("This command no longer exists.")].spacing(20.0).into();
     };
@@ -201,7 +201,7 @@ fn slider_row(
     .into()
 }
 
-/// Display label for a haptic edge (UI-owned — `config` stays presentation-free).
+/// Display label for a haptic edge (UI-owned - `config` stays presentation-free).
 fn haptic_edge_label(e: &HapticEdge) -> &'static str {
     match e {
         HapticEdge::Off => "Off",
@@ -222,7 +222,7 @@ fn haptic_strength_label(s: &HapticStrength) -> &'static str {
 
 // --- per-behaviour settings page ------------------------------------------------------------
 
-/// The per-behaviour settings page: header (Back + input · behaviour) over the behaviour's blocks.
+/// The per-behaviour settings page: header (Back + input * behaviour) over the behaviour's blocks.
 fn behavior_settings(app: &App, input: &InputSource) -> Element<'static, Message> {
     let back = button(text("‹ Back"))
         .style(style::option_button)

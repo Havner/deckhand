@@ -1,4 +1,4 @@
-//! The button (gater/chord) picker modal — a **controller-shaped** chooser that returns one raw
+//! The button (gater/chord) picker modal - a **controller-shaped** chooser that returns one raw
 //! controller [`Button`](vocab_hid::Button). Its consumers are `Activation.gaters` and
 //! `Chord.buttons` (both `Vec<vocab_hid::Button>`), so this is a single-select: click one to
 //! append it. Every hardware bit is offered, laid out ~like the Action picker's Gamepad tab (each
@@ -12,7 +12,7 @@ use vocab_hid::Button;
 
 use crate::{Message, style};
 
-/// Tile geometry — a touch wider than the Gamepad tab's (50) so the word labels fit.
+/// Tile geometry - a touch wider than the Gamepad tab's (50) so the word labels fit.
 const W: f32 = 60.0;
 const H: f32 = 40.0;
 
@@ -26,7 +26,7 @@ fn btn(label: &'static str, b: Button) -> Element<'static, Message> {
         .into()
 }
 
-/// A tile with a custom (coloured) style — the A/B/X/Y face buttons keep their Xbox glyph colours.
+/// A tile with a custom (coloured) style - the A/B/X/Y face buttons keep their Xbox glyph colours.
 fn btn_styled(label: &'static str, b: Button, sty: fn(&Theme, button::Status) -> button::Style) -> Element<'static, Message> {
     button(text(label).size(12.0).center())
         .width(W)
@@ -36,7 +36,7 @@ fn btn_styled(label: &'static str, b: Button, sty: fn(&Theme, button::Status) ->
         .into()
 }
 
-/// up / left+right / down — a dpad or face diamond (middle gap = one tile wide).
+/// up / left+right / down - a dpad or face diamond (middle gap = one tile wide).
 fn diamond(
     up: Element<'static, Message>,
     left: Element<'static, Message>,
@@ -51,7 +51,7 @@ fn cluster(label: &'static str, content: impl Into<Element<'static, Message>>) -
     column![text(label).size(12.0), content.into()].spacing(8.0).align_x(Center).into()
 }
 
-/// The whole button-picker card, controller-shaped and centred left↔right.
+/// The whole button-picker card, controller-shaped and centred left<->right.
 pub(super) fn card() -> Element<'static, Message> {
     use vocab_hid::Button::*;
     let gap = || Space::new().width(40.0);
@@ -80,7 +80,7 @@ pub(super) fn card() -> Element<'static, Message> {
         column![face, row![btn("R Pad", RPadPress), btn("RS", RStickPress)].spacing(6.0)].spacing(10.0).align_x(Center),
     );
 
-    // Centre: the four system buttons in their 2×2 cluster (View/Menu over Steam/Quick).
+    // Centre: the four system buttons in their 2x2 cluster (View/Menu over Steam/Quick).
     let center = cluster(
         "System",
         column![
@@ -96,7 +96,7 @@ pub(super) fn card() -> Element<'static, Message> {
         .spacing(8.0)
         .align_y(Center);
 
-    // The capacitive touch bits — the odd ones out, kept in their own labelled row at the bottom.
+    // The capacitive touch bits - the odd ones out, kept in their own labelled row at the bottom.
     // Grip touch (Triton-only) sits with them; like every other tile here it's offered regardless of
     // shape (the picker builds device-independent gater/chord sets).
     let touch = cluster(

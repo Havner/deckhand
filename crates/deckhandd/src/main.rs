@@ -1,10 +1,10 @@
-//! `deckhandd` — the deckhand control daemon (PLAN §4.4).
+//! `deckhandd` - the deckhand control daemon (PLAN 4.4).
 //!
 //! One binary, two uses: a **standalone runner** (pass everything on the CLI, Ctrl-C to quit) and
 //! a **controllable daemon** (a client drives it over the control socket). It always opens the
 //! socket; the CLI just *seeds* the engine, then clients mutate it live.
 //!
-//! Seeding is pass-through — only options actually given are applied — with one convenience:
+//! Seeding is pass-through - only options actually given are applied - with one convenience:
 //! `--start` defaults a missing `-i`/`-o` to `auto`/`local` so the engine has a source/sink.
 //! Profiles are never defaulted, so `--start` with no `-m` logs a `NotReady` and keeps serving.
 
@@ -28,13 +28,13 @@ use daemon::{Daemon, format_diags, to_wire_event};
 #[derive(Parser)]
 #[command(name = "deckhandd", version, about)]
 struct Args {
-    /// List available devices and quit (the one non-persistent option — no socket is served).
+    /// List available devices and quit (the one non-persistent option - no socket is served).
     #[arg(short = 'l', long)]
     list_devices: bool,
-    /// Main profile (RON) → applied to the Main role.
+    /// Main profile (RON) -> applied to the Main role.
     #[arg(short, long, value_name = "RON")]
     main: Option<PathBuf>,
-    /// Fallback profile (RON) → applied to the Fallback role.
+    /// Fallback profile (RON) -> applied to the Fallback role.
     #[arg(short, long, value_name = "RON")]
     fallback: Option<PathBuf>,
     /// Chords (RON): the top-level switch/command chords.
@@ -45,7 +45,7 @@ struct Args {
     devcfg: Option<PathBuf>,
     /// Input source: auto | dongle | wired | bt | <device-id> | host:port.
     ///
-    /// A <device-id> is `kind:transport:interface:serial` — e.g. `gordon:dongle:1:` (see
+    /// A <device-id> is `kind:transport:interface:serial` - e.g. `gordon:dongle:1:` (see
     /// `deckhandctl list-devices`).
     #[arg(short, long, value_name = "SPEC")]
     input: Option<String>,
@@ -76,13 +76,13 @@ struct Args {
 pub enum PreventSleep {
     /// Try powermanagement, then gnome, then login1 (skips screensaver). Screen still blanks.
     Auto,
-    /// org.freedesktop.ScreenSaver — inhibits idle, so also stops screen blanking.
+    /// org.freedesktop.ScreenSaver - inhibits idle, so also stops screen blanking.
     Screensaver,
-    /// org.freedesktop.PowerManagement.Inhibit — suspend only (KDE/XFCE/MATE).
+    /// org.freedesktop.PowerManagement.Inhibit - suspend only (KDE/XFCE/MATE).
     Powermanagement,
-    /// org.gnome.SessionManager (flags=4) — suspend only (GNOME).
+    /// org.gnome.SessionManager (flags=4) - suspend only (GNOME).
     Gnome,
-    /// org.freedesktop.login1 block sleep — suspend only, system bus, any systemd host.
+    /// org.freedesktop.login1 block sleep - suspend only, system bus, any systemd host.
     Login1,
 }
 
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let mut logger =
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(args.log_level()));
-    // Under systemd the journal already timestamps every line — drop env_logger's own to avoid
+    // Under systemd the journal already timestamps every line - drop env_logger's own to avoid
     // duplicating it.
     if args.systemd {
         logger.format_timestamp(None);
@@ -114,12 +114,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let _inhibitor = args.prevent_sleep.and_then(inhibit::SleepInhibitor::acquire);
     #[cfg(not(target_os = "linux"))]
     if args.prevent_sleep.is_some() {
-        log::warn!("--prevent-sleep is only supported on Linux — ignored");
+        log::warn!("--prevent-sleep is only supported on Linux - ignored");
     }
 
     let mut daemon = Daemon::new();
 
-    // --- --list-devices: the one non-persistent option — enumerate, print (same format as
+    // --- --list-devices: the one non-persistent option - enumerate, print (same format as
     // `deckhandctl list-devices`), and quit before any seeding or socket is served. -------------
     if args.list_devices {
         return match daemon.devices() {
@@ -131,7 +131,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
     }
 
-    // --- CLI seeding: pass-through — apply only what was given (PLAN §4.4). ------------------
+    // --- CLI seeding: pass-through - apply only what was given (PLAN 4.4). ------------------
     if let Some(p) = &args.main {
         daemon.apply(Role::Main, load_program(p)?);
         log::info!("main profile: {}", p.display());
@@ -181,7 +181,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 /// Adopt the listening control socket systemd passed via `LISTEN_FDS` (socket activation), plus its
 /// real bound path (from `getsockname`, for logging + the shutdown wake). The fd is validated + set
 /// close-on-exec by [`sd_notify::listen_fds`]; we require **exactly one**. The daemon never binds or
-/// removes this socket — systemd owns its lifecycle. Linux only.
+/// removes this socket - systemd owns its lifecycle. Linux only.
 #[cfg(target_os = "linux")]
 fn adopt_systemd_socket() -> Result<(Server, SocketTarget), Box<dyn Error>> {
     use std::os::fd::FromRawFd;
@@ -220,7 +220,7 @@ type SocketTarget = PathBuf;
 #[cfg(windows)]
 type SocketTarget = String;
 
-/// Resolve the `--socket` override: `None` (unset) → the env/default ([`ipc::default_socket_path`],
+/// Resolve the `--socket` override: `None` (unset) -> the env/default ([`ipc::default_socket_path`],
 /// honoring `$DECKHAND_SOCKET`); otherwise the given path / pipe name.
 #[cfg(unix)]
 fn resolve_socket(over: Option<&str>) -> SocketTarget {
@@ -233,12 +233,12 @@ fn resolve_socket(over: Option<&str>) -> SocketTarget {
 
 /// Run the accept/serve loop on an already-bound (or systemd-adopted) `server` until Shutdown or
 /// Ctrl-C/SIGTERM. `target` is the socket's path/name (for logging + the Ctrl-C wake); `systemd`
-/// selects the socket-activation lifecycle — signal `sd-notify` readiness, and leave the socket
+/// selects the socket-activation lifecycle - signal `sd-notify` readiness, and leave the socket
 /// file for systemd to reap (no [`cleanup_socket`]).
 ///
 /// Each accepted connection is served on its **own thread** over a shared `Arc<Mutex<Daemon>>`
-/// (PLAN §4.4): a request briefly locks the engine, so multiple clients — a UI holding a persistent
-/// command connection, an event-stream subscriber, and an occasional `deckhandctl` — are served
+/// (PLAN 4.4): a request briefly locks the engine, so multiple clients - a UI holding a persistent
+/// command connection, an event-stream subscriber, and an occasional `deckhandctl` - are served
 /// concurrently and a long-lived connection never wedges the others. Engine access stays serialized
 /// by the mutex (handling is fast; the mapping loop runs on its own threads regardless).
 fn serve(
@@ -288,14 +288,14 @@ fn serve(
     // Accept loop ended (Shutdown or Ctrl-C/SIGTERM). Detached per-connection threads exit with the
     // process; we release hardware here so lizard/pad are restored on a clean exit.
     if systemd {
-        // The socket is systemd's — leave the file in place; just tell systemd we're going down.
+        // The socket is systemd's - leave the file in place; just tell systemd we're going down.
         #[cfg(target_os = "linux")]
         let _ = sd_notify::notify(&[sd_notify::NotifyState::Stopping]);
     } else {
-        // We created the socket file — remove it.
+        // We created the socket file - remove it.
         cleanup_socket(&target);
     }
-    log::info!("shutting down — releasing controller and unplugging virtual pad");
+    log::info!("shutting down - releasing controller and unplugging virtual pad");
     if let Err(e) = daemon.lock().expect("daemon mutex poisoned").shutdown() {
         log::warn!("shutdown: {e}");
     }
@@ -371,7 +371,7 @@ fn cleanup_socket(target: &Path) {
 fn cleanup_socket(_target: &str) {}
 
 /// Stream engine events to a subscribed client (D7) until the engine goes away (all senders dropped
-/// → `recv` returns `None`) or the client disconnects (a send fails). Called from the connection's
+/// -> `recv` returns `None`) or the client disconnects (a send fails). Called from the connection's
 /// own serve thread, which it takes over for the stream's lifetime.
 fn monitor(mut conn: Conn, stream: EventStream) {
     while let Some(ev) = stream.recv() {
@@ -390,7 +390,7 @@ fn bind_socket(path: &Path) -> Result<Server, Box<dyn Error>> {
         Ok(s) => Ok(s),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
             // Bind failed because the socket file exists. If a daemon is actually listening, this
-            // is a genuine second instance; otherwise the file is stale — remove it and rebind.
+            // is a genuine second instance; otherwise the file is stale - remove it and rebind.
             if Client::connect_path(path).is_ok() {
                 return Err(
                     format!("another deckhandd is already running on {}", path.display()).into()

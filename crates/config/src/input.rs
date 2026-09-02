@@ -1,6 +1,6 @@
-//! Logical input vocabulary + per-device shapes (PLAN §3, Round A).
+//! Logical input vocabulary + per-device shapes (PLAN 3, Round A).
 //!
-//! [`InputSource`] is the hardware-independent identity a binding attaches to — the
+//! [`InputSource`] is the hardware-independent identity a binding attaches to - the
 //! device-agnostic **superset** across Gordon + Neptune (and future controllers). A given
 //! device provides a subset, described by its [`Shape`]. Profiles reference these logical
 //! inputs and stay device-independent; the engine resolves each device's raw report onto
@@ -27,10 +27,10 @@ pub enum InputSource {
     RightGrip2,       // R5 (Neptune)
     LeftGripTouch,    // capacitive left handle (Triton)
     RightGripTouch,   // capacitive right handle (Triton)
-    View,             // Back / Deck ⧉ / Gordon '<'
-    Menu,             // Start / Deck ☰ / Gordon '>'
+    View,             // Back / Deck [copy] / Gordon '<'
+    Menu,             // Start / Deck [menu] / Gordon '>'
     Steam,            // Guide
-    QuickAccess,      // Deck '⋯' (Neptune)
+    QuickAccess,      // Deck '...' (Neptune)
     // --- triggers ---
     LeftTrigger,
     LeftTriggerFull,  // L2 full-pull hardware bit
@@ -39,7 +39,7 @@ pub enum InputSource {
     // --- sticks ---
     LeftStick,
     LeftStickClick,   // L3
-    LeftStickTouch,   // Neptune — sticks are capacitive (Gordon's stick isn't touch-sensitive)
+    LeftStickTouch,   // Neptune - sticks are capacitive (Gordon's stick isn't touch-sensitive)
     RightStick,
     RightStickClick,  // R3, Neptune (no right stick on Gordon)
     RightStickTouch,  // Neptune
@@ -54,7 +54,7 @@ pub enum InputSource {
     Gyro,
 }
 
-/// The behavioural kind of a control — determines which behaviors/bindings are valid for
+/// The behavioural kind of a control - determines which behaviors/bindings are valid for
 /// it (a `Pad` can be `AsMouse`/`Joystick`/`DirectionalPad`, a `Button` is just commands).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SourceKind {
@@ -73,7 +73,7 @@ pub enum SourceKind {
     Gyro,
 }
 
-/// Which controller half a control sits on — used to pick the haptic actuator (Round C:
+/// Which controller half a control sits on - used to pick the haptic actuator (Round C:
 /// left inputs buzz the left pad, right the right).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Side {
@@ -102,15 +102,15 @@ impl InputSource {
     }
 
     /// The controller half this input sits on (haptic actuator selection, Round C).
-    /// Central buttons: `View`/`Steam` → Left, `Menu`/`QuickAccess` → Right. `Gyro` has no
-    /// natural side (no haptic-firing bindings) — defaulted to Left.
+    /// Central buttons: `View`/`Steam` -> Left, `Menu`/`QuickAccess` -> Right. `Gyro` has no
+    /// natural side (no haptic-firing bindings) - defaulted to Left.
     pub fn side(&self) -> Side {
         use InputSource::*;
         match self {
             FaceButtons | RightPad | RightStick | RightTrigger | RightBumper | RightTriggerFull
             | RightGrip | RightGrip2 | RightGripTouch | RightStickClick | RightStickTouch
             | RightPadClick | RightPadTouch | Menu | QuickAccess => Side::Right,
-            // DPad, all Left*, View, Steam, Gyro → Left.
+            // DPad, all Left*, View, Steam, Gyro -> Left.
             DPad | LeftPad | LeftStick | LeftTrigger | Gyro | LeftBumper | LeftTriggerFull
             | LeftGrip | LeftGrip2 | LeftGripTouch | View | Steam | LeftStickClick
             | LeftStickTouch | LeftPadClick | LeftPadTouch => {
@@ -157,7 +157,7 @@ impl InputSource {
 
 /// A device's input-layout / capability descriptor (Round A). Lets the UI author
 /// **offline** (grey out absent inputs) and the engine ignore bindings for inputs a device
-/// lacks. This is reference data — a profile ([`crate`]'s `ConfigDoc`) stays
+/// lacks. This is reference data - a profile ([`crate`]'s `ConfigDoc`) stays
 /// device-independent and never embeds a `Shape`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Shape {

@@ -1,4 +1,4 @@
-//! The profile-editor screens — the pages reachable once a profile is loaded for editing.
+//! The profile-editor screens - the pages reachable once a profile is loaded for editing.
 //!
 //! The **Profile** page ([`profile_screen`]) and the per-input pages ([`input_screen`]) are wired:
 //! they render from, and mutate, the loaded profile's [`ConfigDoc`](config::ConfigDoc). Input pages
@@ -26,7 +26,7 @@ pub(super) use settings::settings_screen;
 /// the right-hand controls line up down the page. Shared with the settings form (`settings.rs`).
 const CMD_SLOT: f32 = 200.0;
 
-/// Profile screen — the top of the profile editor: the profile name, then the action sets with
+/// Profile screen - the top of the profile editor: the profile name, then the action sets with
 /// their layers nested beneath, each bar's gear opening a context menu (rename/remove, and add-layer
 /// on a set). All edits go through [`EditorMessage`] and autosave.
 pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
@@ -66,13 +66,13 @@ pub(super) fn profile_screen(app: &App) -> Element<'_, Message> {
     column![section_header("Profile"), name, profile_rumble(app), list].spacing(20.0).into()
 }
 
-/// The profile-level rumble feel (`ConfigDoc.rumble`: strength + the strength→drive curve), shown as
+/// The profile-level rumble feel (`ConfigDoc.rumble`: strength + the strength->drive curve), shown as
 /// a section on the Profile page. Frequency is a global (device-local), not a per-profile setting.
 /// Standalone widgets + curve control, deliberately NOT the reusable per-behaviour settings blocks.
 fn profile_rumble(app: &App) -> Element<'static, Message> {
     let r = app.editing.as_ref().map(|e| e.doc.rumble.clone()).unwrap_or_default();
 
-    // Strength is a percent that may exceed 100 (u8 → 255) to boost under-driven games.
+    // Strength is a percent that may exceed 100 (u8 -> 255) to boost under-driven games.
     let strength = row![
         setting_label("Strength"),
         slider(0..=255u8, r.strength, |v| Message::Editor(EditorMessage::SetRumbleStrength(v))).step(1u8),
@@ -123,7 +123,7 @@ pub(super) fn action_set_selector(app: &App) -> Element<'static, Message> {
         Some(ed) => {
             let list = crate::editor::edit_target_list(&ed.doc);
             let pos = list.iter().position(|t| *t == ed.target).unwrap_or(0);
-            // Top = the action set name (muted when a layer is the active target — it's just
+            // Top = the action set name (muted when a layer is the active target - it's just
             // context); bottom = the layer name, or a blank line to hold the height.
             let top = {
                 let t = text(ed.target.set.clone()).size(13.0);
@@ -174,7 +174,7 @@ pub(super) fn input_screen(app: &App, category: Category) -> Element<'static, Me
     col.into()
 }
 
-/// The Rumble section's own Curve control (kind picker + exponent slider) — a standalone copy of the
+/// The Rumble section's own Curve control (kind picker + exponent slider) - a standalone copy of the
 /// settings-page shape, NOT the reusable `curve` block, so the behaviour-settings blocks stay
 /// untouched. Its own `RumbleCurveKind`, so the two evolve independently (accepted duplication).
 fn rumble_curve(curve: &Curve) -> Element<'static, Message> {
@@ -209,7 +209,7 @@ fn rumble_curve(curve: &Curve) -> Element<'static, Message> {
     col.into()
 }
 
-/// The rumble page's own curve-kind pick-list value (standalone — not the settings blocks' `CurveKind`).
+/// The rumble page's own curve-kind pick-list value (standalone - not the settings blocks' `CurveKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RumbleCurveKind {
     Linear,
@@ -267,7 +267,7 @@ fn primary_view(binds: Binds, input: &InputSource, on_layer: bool) -> Element<'s
     }
 }
 
-/// A source with a behaviour selector — a rich analog source (Pad/Stick/Trigger/Gyro) or a 4-button
+/// A source with a behaviour selector - a rich analog source (Pad/Stick/Trigger/Gyro) or a 4-button
 /// cluster (Face Buttons / D-Pad): the selector, then the virtual-button command bars its chosen
 /// behaviour exposes (none for the mouse behaviours; the four members for a Button Pad).
 fn rich_view(binds: Binds, input: &InputSource, kind: SourceKind, on_layer: bool) -> Element<'static, Message> {
@@ -329,7 +329,7 @@ fn slot_view(binds: Binds, input: &InputSource, slot: CommandSlot, on_layer: boo
     let entry = binds.and_then(|b| b.get(input));
 
     // On a layer, a top-level Button's "empty" state splits into Inherited (no entry) / Disabled
-    // (explicit `None`) — each a special bar (see `layer_button_bar`); a real Button binding falls
+    // (explicit `None`) - each a special bar (see `layer_button_bar`); a real Button binding falls
     // through to the normal command layout below.
     if on_layer && slot == CommandSlot::Button {
         match entry {
@@ -354,7 +354,7 @@ fn slot_view(binds: Binds, input: &InputSource, slot: CommandSlot, on_layer: boo
 }
 
 /// A layer top-level Button in its inherited (`<inherited>`, muted label) or disabled (`<disabled>`,
-/// normal label) state. The action button is always clickable — clicking adds a command (→ a real
+/// normal label) state. The action button is always clickable - clicking adds a command (-> a real
 /// binding). The gear opens the inherited/disabled menu (Disable, or Remove the `None`).
 fn layer_button_bar(input: &InputSource, label: &'static str, disabled: bool) -> Element<'static, Message> {
     let target = ActionTarget::AddCommand { input: input.clone(), slot: CommandSlot::Button };
@@ -363,7 +363,7 @@ fn layer_button_bar(input: &InputSource, label: &'static str, disabled: bool) ->
         .width(CMD_SLOT)
         .style(style::combo_button)
         .on_press(Message::Editor(EditorMessage::OpenActionPicker(target)));
-    // Only the left label dims (and only for inherited — the passthrough state).
+    // Only the left label dims (and only for inherited - the passthrough state).
     let name = if disabled { text(label) } else { text(label).style(style::muted_text) };
     let gear = gear_menu(Message::Editor(EditorMessage::OpenLayerButtonMenu(input.clone())));
     card(row![name, Space::new().width(Fill), btn, gear].spacing(12.0).align_y(Center))
@@ -422,14 +422,14 @@ fn command_block(
     let bar = card(label.push(Space::new().width(Fill)).push(action_btn).push(gear_menu(menu)));
 
     let mut col = column![indent(level, bar)].spacing(8.0);
-    // Subcommands (actions[1..]) — always double-indented, with a remove button instead of a gear.
+    // Subcommands (actions[1..]) - always double-indented, with a remove button instead of a gear.
     for (ai, action) in cmd.actions.iter().enumerate().skip(1) {
         col = col.push(indent(2.0, subcommand_bar(&cref, ai, action)));
     }
     col.into()
 }
 
-/// A subcommand bar: "Sub command", its (re-pickable) action, and a remove button — no gear/menu.
+/// A subcommand bar: "Sub command", its (re-pickable) action, and a remove button - no gear/menu.
 fn subcommand_bar(cref: &CommandRef, action_idx: usize, action: &Action) -> Element<'static, Message> {
     let action_btn =
         action_button(Some(action), ActionTarget::Replace { cmd: cref.clone(), action: action_idx });
@@ -451,7 +451,7 @@ fn action_button(action: Option<&Action>, target: ActionTarget) -> Element<'stat
         .into()
 }
 
-/// The blue "(…)" suffix shown after a command's label for any non-Regular activator.
+/// The blue "(...)" suffix shown after a command's label for any non-Regular activator.
 fn activator_suffix(a: &config::Activator) -> Option<String> {
     use config::Activator::*;
     match a {
@@ -469,7 +469,7 @@ fn gear_menu(msg: Message) -> Element<'static, Message> {
 }
 
 /// The behaviour-row gear: opens the per-behaviour settings page when the behaviour has settings,
-/// else an inert (greyed) gear. Only for the behaviour row — a plain Button's gear is a command menu.
+/// else an inert (greyed) gear. Only for the behaviour row - a plain Button's gear is a command menu.
 fn behavior_gear(input: &InputSource, current: Behavior) -> Element<'static, Message> {
     if current.has_settings() {
         gear_menu(Message::Editor(EditorMessage::OpenBehaviorSettings(input.clone())))

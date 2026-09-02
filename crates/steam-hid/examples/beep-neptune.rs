@@ -1,21 +1,21 @@
-//! `beep-neptune` — audible beeps/tones on the Steam Deck via `0xEA` `SET_HAPTIC2`
+//! `beep-neptune` - audible beeps/tones on the Steam Deck via `0xEA` `SET_HAPTIC2`
 //! (`MsgTriggerHaptic`), the Deck-specific counterpart to `beep` (Gordon's `0x8f` pulse).
 //!
 //! **Why a separate example.** On the Deck, `beep`'s `0x8f` route sounds *worse* than on Gordon: the
-//! Deck's actuators are **resonant LRAs (~1.5–2 kHz)**, so a hand-timed square wave collapses toward
-//! resonance and rings down — only ~5–6 frequencies come through. `0x8f` there is us **manually
+//! Deck's actuators are **resonant LRAs (~1.5-2 kHz)**, so a hand-timed square wave collapses toward
+//! resonance and rings down - only ~5-6 frequencies come through. `0x8f` there is us **manually
 //! toggling** an actuator with no firmware help.
 //!
 //! `0xEA` is a completely different, **firmware-synthesized** engine (Valve's `MsgTriggerHaptic`, SDL
-//! `controller_structs.h`). Its `cmd` selector (`haptic_type_t`) carries — besides the click types we
-//! already ship — a **`Tone`** (a real `freq` + `dur_ms`) and a **`LogSweep`** (a chirp
-//! `lss_start_freq`→`lss_end_freq` over `dur_ms`), scaled by a `dbgain`.
+//! `controller_structs.h`). Its `cmd` selector (`haptic_type_t`) carries - besides the click types we
+//! already ship - a **`Tone`** (a real `freq` + `dur_ms`) and a **`LogSweep`** (a chirp
+//! `lss_start_freq`->`lss_end_freq` over `dur_ms`), scaled by a `dbgain`.
 //! **HW-verified on the Deck (this example):** `Tone` gives clean, *tracking* pitch across the whole
-//! ~200–2200 Hz band (no `0x8f` resonance collapse); `LogSweep` chirps beautifully; `dbgain` is the
-//! working volume lever (`0` is too quiet — the tone modes fire at ~`8` dB). **`ui_intensity` does
-//! nothing to a Tone** (levered by `dbgain` instead — that's why there's no `intensity` mode here,
-//! unlike the click-only `haptic --ea`). (`cmd = Noise` also fires but is just a rumble — barely more
-//! than `Click`/`Insane`, not a sound, and only `dbgain` moves it — so it's dropped.)
+//! ~200-2200 Hz band (no `0x8f` resonance collapse); `LogSweep` chirps beautifully; `dbgain` is the
+//! working volume lever (`0` is too quiet - the tone modes fire at ~`8` dB). **`ui_intensity` does
+//! nothing to a Tone** (levered by `dbgain` instead - that's why there's no `intensity` mode here,
+//! unlike the click-only `haptic --ea`). (`cmd = Noise` also fires but is just a rumble - barely more
+//! than `Click`/`Insane`, not a sound, and only `dbgain` moves it - so it's dropped.)
 //!
 //! It drives three `0xEA` entry points on [`steam_hid::Device`]: `haptic_cmd` (the click types
 //! Tick/Click), `haptic_tone` (`freq` + `dur_ms`), and `haptic_logsweep` (`lss_start`/`lss_end`).
@@ -26,17 +26,17 @@
 //!   `cargo run -p steam-hid --example beep-neptune -- [MODE]`
 //! Shared modes (same in `beep`; the first three are the practical feedback uses):
 //!   kernel            replay the kernel's mode-switch notes, via Tone (default)
-//!   pattern           candidate feedback patterns (pitch × count × length × gap)
+//!   pattern           candidate feedback patterns (pitch x count x length x gap)
 //!   feedback          candidate single feedback beeps (short/distinct)
 //!   note <hz> [ms]    one Tone (default 1500 Hz, 200 ms)
-//!   sweep             frequency sweep — pitch tracks the number (unlike 0x8f)
+//!   sweep             frequency sweep - pitch tracks the number (unlike 0x8f)
 //!   fine              fine sweep 500..3000 Hz
 //!   gain              volume via dBgain (the working amplitude lever)
-//!   melody            a short tune (C-E-G-C) — proof of pitch
+//!   melody            a short tune (C-E-G-C) - proof of pitch
 //!   vader             the Imperial March
 //! `0xEA`-only modes (firmware synth):
-//!   chirp             LogSweep glides (rise / fall) — the nicest feedback cue
-//!   lfo               LFO-modulated tone (tremolo/texture) — UNTESTED on the Deck
+//!   chirp             LogSweep glides (rise / fall) - the nicest feedback cue
+//!   lfo               LFO-modulated tone (tremolo/texture) - UNTESTED on the Deck
 //!   dur               Tone length sweep (0xEA has a real dur_ms; 0x8f has no length field)
 //!   clicks            the reference-proven Tick/Click haptic (the baseline 0xEA path)
 //! `--wired`/`--bt` pick the transport. Ctrl-C to stop a sweep early.
@@ -54,14 +54,14 @@ const SWEEP_FREQS: [u16; 9] = [400, 600, 800, 1000, 1250, 1500, 1800, 2200, 3000
 /// dB-gain sweep points shared with `beep`'s `gain`.
 const GAINS: [i8; 9] = [-16, -12, -8, -4, 0, 4, 8, 12, 16];
 
-/// Play a plain (unmodulated) Deck Tone via `0xEA` — `haptic_tone` with the LFO off. The `lfo` mode
+/// Play a plain (unmodulated) Deck Tone via `0xEA` - `haptic_tone` with the LFO off. The `lfo` mode
 /// drives the `lfo_freq`/`lfo_depth` fields directly instead.
 fn tone(dev: &mut Device, side: HapticSide, freq: u16, dur_ms: i16, gain: i8) -> Result<()> {
     dev.haptic_tone(side, freq, dur_ms, gain, 0, 0)
 }
 
 /// Re-assert lizard-off before firing (the Deck reverts to lizard ~10 s after lizard-off, which would
-/// fire mid-run). Best-effort — a transient write hiccup shouldn't abort the probe.
+/// fire mid-run). Best-effort - a transient write hiccup shouldn't abort the probe.
 fn keep_lizard_off(dev: &mut Device) {
     if let Err(e) = dev.set_lizard_mode(false) {
         eprintln!("warning: re-assert lizard-off failed: {e}");
@@ -88,7 +88,7 @@ fn main() -> Result<()> {
 
     let mut manager = steam_hid::Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&mut manager)? else {
-        println!("No matching controller found — connected/on?");
+        println!("No matching controller found - connected/on?");
         return Ok(());
     };
     println!("selected {desc}");
@@ -101,15 +101,15 @@ fn main() -> Result<()> {
         // === shared modes (mirror beep, same order/names) ===
 
         // The Linux kernel's mode-switch notes (1502 Hz "on", 1000 Hz "off"), here via Tone instead of
-        // `0x8f` — a direct A/B against `beep`'s `kernel` mode on the same pitches.
+        // `0x8f` - a direct A/B against `beep`'s `kernel` mode on the same pitches.
         None | Some("kernel") => {
-            println!("kernel mode-switch notes via Tone: [1502Hz 'on']  …  [1000Hz 'off']");
+            println!("kernel mode-switch notes via Tone: [1502Hz 'on']  ...  [1000Hz 'off']");
             tone(&mut device, BOTH, 1502, 30, 8)?;
             sleep(Duration::from_millis(700));
             tone(&mut device, BOTH, 1000, 30, 8)?;
             sleep(Duration::from_millis(400));
         }
-        // Candidate feedback PATTERNS built from tones (pitch × count × length × gap). The real
+        // Candidate feedback PATTERNS built from tones (pitch x count x length x gap). The real
         // question isn't "can I hear a pitch" but "can I tell these apart"; judge mutual
         // distinguishability. Same set as `beep`'s `pattern` (the labels are a strawman mapping).
         Some("pattern") => {
@@ -122,7 +122,7 @@ fn main() -> Result<()> {
                 ("low->high rising     (enter?)",        &[(600, 60), (1500, 60)], 40),
                 ("high->low falling    (exit?)",         &[(1500, 60), (600, 60)], 40),
             ];
-            println!("candidate feedback patterns (~1s apart) — judge whether they're distinguishable:");
+            println!("candidate feedback patterns (~1s apart) - judge whether they're distinguishable:");
             for (label, steps, gap) in patterns {
                 if !running.alive() {
                     break;
@@ -139,7 +139,7 @@ fn main() -> Result<()> {
                 ("B mid  beep  (1500Hz, 25ms)", 1500, 25),
                 ("C high beep  (2200Hz, 20ms)", 2200, 20),
             ];
-            println!("feedback-beep candidates (~0.8s apart) — note which reads best as a 'click':");
+            println!("feedback-beep candidates (~0.8s apart) - note which reads best as a 'click':");
             for (label, hz, ms) in candidates {
                 if !running.alive() {
                     break;
@@ -158,7 +158,7 @@ fn main() -> Result<()> {
             tone(&mut device, BOTH, hz, ms, 8)?;
             sleep(Duration::from_millis(ms as u64 + 300));
         }
-        // Frequency sweep — the headline result: pitch TRACKS the number across the whole band, no
+        // Frequency sweep - the headline result: pitch TRACKS the number across the whole band, no
         // `0x8f` resonance collapse (HW-verified usable up to ~2200 Hz).
         Some("sweep") => {
             println!("Tone freq sweep (~150ms each). Pitch tracks the frequency (unlike 0x8f):");
@@ -172,7 +172,7 @@ fn main() -> Result<()> {
                 sleep(Duration::from_millis(800));
             }
         }
-        // Fine sweep across the LRA resonance band — the analog of `beep`'s `fine`, through the
+        // Fine sweep across the LRA resonance band - the analog of `beep`'s `fine`, through the
         // firmware synth instead of `0x8f`.
         Some("fine") => {
             println!("Tone fine sweep 500..=3000 Hz, 100 Hz steps (~120ms each):");
@@ -186,7 +186,7 @@ fn main() -> Result<()> {
                 sleep(Duration::from_millis(650));
             }
         }
-        // Volume via dBgain on a fixed Tone — the working amplitude lever (i8 dB; ui_intensity is
+        // Volume via dBgain on a fixed Tone - the working amplitude lever (i8 dB; ui_intensity is
         // inert for Tone). Mirrors `beep`'s `gain`.
         Some("gain") => {
             const HZ: u16 = 1500;
@@ -201,20 +201,20 @@ fn main() -> Result<()> {
                 sleep(Duration::from_millis(800));
             }
         }
-        // A short tune via Tone — proof of pitch (four distinct rising notes, not four buzzes).
+        // A short tune via Tone - proof of pitch (four distinct rising notes, not four buzzes).
         Some("melody") => {
-            println!("melody via Tone (C5 E5 G5 C6)…");
+            println!("melody via Tone (C5 E5 G5 C6)...");
             play_tune(&mut device, &running, common::MELODY, 60)?;
         }
-        // The Imperial March — a longer recognizable tune (shared note table with beep).
+        // The Imperial March - a longer recognizable tune (shared note table with beep).
         Some("vader") => {
-            println!("the Imperial March, via Tone…");
+            println!("the Imperial March, via Tone...");
             play_tune(&mut device, &running, common::VADER, 60)?;
         }
 
         // === 0xEA-only modes (firmware synth) ===
 
-        // LogSweep glides — a rising then a falling sweep (candidate enter/exit cues), plus a couple
+        // LogSweep glides - a rising then a falling sweep (candidate enter/exit cues), plus a couple
         // of narrow-band ones. The nicest-feeling `0xEA` feedback (HW-verified).
         Some("chirp") => {
             let chirps: [(&str, u16, u16, i16); 12] = [
@@ -243,10 +243,10 @@ fn main() -> Result<()> {
                 sleep(Duration::from_millis(900));
             }
         }
-        // LFO-modulated tone — `0xEA` carries `lfo_freq`/`lfo_depth` alongside the tone (Triton splits
+        // LFO-modulated tone - `0xEA` carries `lfo_freq`/`lfo_depth` alongside the tone (Triton splits
         // this out as its own `0x83 LfoTone` report). A low-freq oscillator on top of a fixed carrier
         // should read as tremolo/texture (a "throbbing" beep) vs the flat `sweep` tone. UNTESTED on the
-        // Deck — the noise probe found these inert *for Noise*, never on a Tone. Fixed 1500 Hz carrier;
+        // Deck - the noise probe found these inert *for Noise*, never on a Tone. Fixed 1500 Hz carrier;
         // part 1 sweeps depth at a fixed rate, part 2 sweeps rate at a fixed depth.
         Some("lfo") => {
             const HZ: u16 = 1500;
@@ -262,7 +262,7 @@ fn main() -> Result<()> {
                 device.haptic_tone(BOTH, HZ, MS, 8, 8, depth)?;
                 sleep(Duration::from_millis(700));
             }
-            println!(" part 2: rate sweep @ lfo_depth=200 (lfo_freq is a u16 — the character keeps");
+            println!(" part 2: rate sweep @ lfo_depth=200 (lfo_freq is a u16 - the character keeps");
             println!("         changing well above 64, so sweep the whole range)");
             for rate in [2u16, 4, 8, 16, 32, 64, 256, 1024, 4096, 16384, 32768, 65535] {
                 if !running.alive() {
@@ -274,8 +274,8 @@ fn main() -> Result<()> {
                 sleep(Duration::from_millis(700));
             }
         }
-        // Tone length sweep — `0xEA` has a real `dur_ms` field (0x8f has no length field at all; there
-        // length is count×period). Confirm playback time tracks the number.
+        // Tone length sweep - `0xEA` has a real `dur_ms` field (0x8f has no length field at all; there
+        // length is countxperiod). Confirm playback time tracks the number.
         Some("dur") => {
             const HZ: u16 = 1500;
             println!("dur_ms sweep on a {HZ}Hz Tone (0xEA has a real length field):");
@@ -289,10 +289,10 @@ fn main() -> Result<()> {
                 sleep(Duration::from_millis(ms as u64 + 700));
             }
         }
-        // The reference-proven click types (`Tick`/`Click`) — the baseline `0xEA` path any reference
-        // actually sends, and what `Device::haptic_cmd` ships. Tick vs Click × a few ui_intensities.
+        // The reference-proven click types (`Tick`/`Click`) - the baseline `0xEA` path any reference
+        // actually sends, and what `Device::haptic_cmd` ships. Tick vs Click x a few ui_intensities.
         Some("clicks") => {
-            println!("0xEA click baseline (proven Tick/Click) — the reference-sent path:");
+            println!("0xEA click baseline (proven Tick/Click) - the reference-sent path:");
             for (tname, ty) in [("Tick ", HapticType::Tick), ("Click", HapticType::Click)] {
                 for (iname, int) in [
                     ("System", HapticIntensity::System),
@@ -311,7 +311,7 @@ fn main() -> Result<()> {
         }
         Some(other) => {
             println!(
-                "unknown mode {other:?} — use: kernel | pattern | feedback | note <hz> [ms] | \
+                "unknown mode {other:?} - use: kernel | pattern | feedback | note <hz> [ms] | \
                  sweep | fine | gain | melody | vader | chirp | lfo | dur | clicks"
             );
         }

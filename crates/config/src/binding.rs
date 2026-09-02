@@ -1,10 +1,10 @@
-//! The per-source binding — what an action set / layer attaches to an [`InputSource`]
-//! (PLAN §3, rounds A–C tied together).
+//! The per-source binding - what an action set / layer attaches to an [`InputSource`]
+//! (PLAN 3, rounds A-C tied together).
 //!
 //! One [`SourceBinding`] enum captures every binding shape: a standalone button's commands,
 //! a button-group's four members, and each rich behavior (its settings + the commands on
 //! its synthesized virtual buttons). Which variant is valid for a source depends on the
-//! source's [`SourceKind`] — checked by [`SourceBinding::is_valid_for`] (and validation).
+//! source's [`SourceKind`] - checked by [`SourceBinding::is_valid_for`] (and validation).
 
 use serde::{Deserialize, Serialize};
 
@@ -37,14 +37,14 @@ pub enum SourceBinding {
         #[serde(default)]
         right: Vec<Command>,
     },
-    /// Pad/Stick → gamepad stick, plus an outer-ring virtual button.
+    /// Pad/Stick -> gamepad stick, plus an outer-ring virtual button.
     Joystick {
         #[serde(default)]
         settings: JoystickSettings,
         #[serde(default)]
         outer_ring: Vec<Command>,
     },
-    /// Pad/Stick → four direction + outer-ring virtual buttons.
+    /// Pad/Stick -> four direction + outer-ring virtual buttons.
     DirectionalPad {
         #[serde(default)]
         settings: DirectionalPadSettings,
@@ -59,33 +59,33 @@ pub enum SourceBinding {
         #[serde(default)]
         outer_ring: Vec<Command>,
     },
-    /// Pad → cursor/scroll (no virtual buttons).
+    /// Pad -> cursor/scroll (no virtual buttons).
     AsMouse {
         #[serde(default)]
         settings: AsMouseSettings,
     },
-    /// Stick → cursor/scroll (no virtual buttons).
+    /// Stick -> cursor/scroll (no virtual buttons).
     JoystickMouse {
         #[serde(default)]
         settings: JoystickMouseSettings,
     },
-    /// Gyro → cursor/scroll (no virtual buttons).
+    /// Gyro -> cursor/scroll (no virtual buttons).
     GyroToMouse {
         #[serde(default)]
         settings: GyroToMouseSettings,
     },
-    /// Trigger → gamepad trigger, plus a soft-pull virtual button.
+    /// Trigger -> gamepad trigger, plus a soft-pull virtual button.
     Trigger {
         #[serde(default)]
         settings: TriggerSettings,
         #[serde(default)]
         soft_pull: Vec<Command>,
     },
-    /// Explicitly **unbound** — the input does nothing. Valid on any source; used mainly in a
+    /// Explicitly **unbound** - the input does nothing. Valid on any source; used mainly in a
     /// layer to *nullify* a base binding that would otherwise fall through (e.g. suppress a pad's
     /// mouse while a mode-shift layer is held). In a base action set it is the same as omitting
     /// the input. (To drop only a behavior's axis while keeping its virtual buttons, use the
-    /// output target `None` instead — see [`TriggerOutput`](crate::TriggerOutput) etc.)
+    /// output target `None` instead - see [`TriggerOutput`](crate::TriggerOutput) etc.)
     None,
 }
 

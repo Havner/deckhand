@@ -1,6 +1,6 @@
 //! Linux backend: three uinput virtual devices (keyboard / mouse / gamepad) via
 //! `evdev`. The gamepad emulates an Xbox 360 pad (`input_id` 045e:028e + xpad code
-//! set) and advertises `FF_RUMBLE` so we can receive game rumble (PLAN §2.1).
+//! set) and advertises `FF_RUMBLE` so we can receive game rumble (PLAN 2.1).
 
 use std::collections::HashMap;
 use std::io;
@@ -20,7 +20,7 @@ const FF_MAX_EFFECTS: u32 = 16;
 
 /// A stored force-feedback effect: its rumble magnitudes plus the replay timing we
 /// must honor ourselves (the uinput-userspace FF model makes us stop playback when
-/// `length` elapses — the kernel doesn't do it for us).
+/// `length` elapses - the kernel doesn't do it for us).
 struct FfEffect {
     rumble: Rumble,
     length_ms: u32, // 0 = play until an explicit stop
@@ -29,7 +29,7 @@ struct FfEffect {
 
 /// The output sink: owns the virtual devices and realizes [`OutputEvent`]s.
 ///
-/// Sync — call [`Sink::emit`] from the engine's mapping loop. [`Sink::poll_rumble`]
+/// Sync - call [`Sink::emit`] from the engine's mapping loop. [`Sink::poll_rumble`]
 /// drains rumble uploaded by a consumer of the virtual gamepad. Dropping the `Sink`
 /// destroys the uinput devices.
 pub struct Sink {
@@ -116,7 +116,7 @@ impl Sink {
                 }
                 OutputEvent::GamepadButton(b, down) => {
                     if self.dpad.set(b, *down) {
-                        // Dpad direction → fold into the hat (both axes; the kernel drops
+                        // Dpad direction -> fold into the hat (both axes; the kernel drops
                         // the unchanged one).
                         gp.push(*AbsoluteAxisEvent::new(
                             AbsoluteAxisCode::ABS_HAT0X,
@@ -127,7 +127,7 @@ impl Sink {
                             self.dpad.y(),
                         ));
                     } else if let Some(axis) = self.axis_buttons.set_button(b, *down) {
-                        // Full-trigger / stick-direction pseudo-button → drive its axis to the
+                        // Full-trigger / stick-direction pseudo-button -> drive its axis to the
                         // combined value (digital extreme while held, else the cached analog).
                         let vc = self.axis_buttons.value(&axis);
                         gp.push(*AbsoluteAxisEvent::new(abs_code(&axis), abs_value(&axis, vc)));
@@ -137,7 +137,7 @@ impl Sink {
                 }
                 OutputEvent::GamepadAxis(a, v) => {
                     // Cache the analog value and emit it combined with any held axis-button (which
-                    // overrides it) — so an analog stick and a stick-direction button coexist.
+                    // overrides it) - so an analog stick and a stick-direction button coexist.
                     self.axis_buttons.set_analog(a, *v);
                     let vc = self.axis_buttons.value(a);
                     gp.push(*AbsoluteAxisEvent::new(abs_code(a), abs_value(a, vc)))
@@ -159,10 +159,10 @@ impl Sink {
 
     /// Drain any force-feedback traffic from the virtual gamepad and return the
     /// currently-commanded rumble (zero if nothing is playing). Non-blocking. Route
-    /// the result onward to real-controller haptics (PLAN §2.1 / §6).
+    /// the result onward to real-controller haptics (PLAN 2.1 / 6).
     pub fn poll_rumble(&mut self) -> crate::Result<Rumble> {
         // The gamepad fd is non-blocking (set in `build_gamepad`), so with no FF traffic
-        // this returns `WouldBlock` — treat that as "nothing this cycle".
+        // this returns `WouldBlock` - treat that as "nothing this cycle".
         let events: Vec<InputEvent> = match self.gamepad.fetch_events() {
             Ok(iter) => iter.collect(),
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Vec::new(),
@@ -171,7 +171,7 @@ impl Sink {
         for event in events {
             match event.destructure() {
                 // Upload an effect. New effects (id `-1`) get a pooled id; updates (a game
-                // changing an effect in place — e.g. dropping rumble to 0) keep their id.
+                // changing an effect in place - e.g. dropping rumble to 0) keep their id.
                 // `FFUploadEvent` owns its fd, so it doesn't borrow `self.gamepad`.
                 EventSummary::UInput(ev, UInputCode::UI_FF_UPLOAD, _) => {
                     let mut up = self.gamepad.process_ff_upload(ev)?;
@@ -198,7 +198,7 @@ impl Sink {
                         );
                     }
                 }
-                // An effect is erased — reclaim its id.
+                // An effect is erased - reclaim its id.
                 EventSummary::UInput(ev, UInputCode::UI_FF_ERASE, _) => {
                     let id = self.gamepad.process_ff_erase(ev)?.effect_id() as i16;
                     self.ff_effects.remove(&id);
@@ -208,8 +208,8 @@ impl Sink {
                     }
                     self.ff_free_ids.push(id);
                 }
-                // Play (value = repeat count ≥ 1) / stop (0) of an effect id. On play we
-                // honor the effect's replay `length` by scheduling an auto-stop — in the
+                // Play (value = repeat count >= 1) / stop (0) of an effect id. On play we
+                // honor the effect's replay `length` by scheduling an auto-stop - in the
                 // uinput-userspace FF model nothing stops it for us. `length == 0` means
                 // play until an explicit stop. (Single-slot: last-played effect wins.)
                 EventSummary::ForceFeedback(_, effect, value) => {
@@ -284,7 +284,7 @@ fn build_gamepad() -> io::Result<VirtualDevice> {
     let mut buttons = AttributeSet::<KeyCode>::new();
     for b in GamepadButton::ALL {
         // Dpad directions fold into the hat, and the axis pseudo-buttons into the stick/trigger
-        // axes — neither is advertised as a `BTN_*` key.
+        // axes - neither is advertised as a `BTN_*` key.
         if !b.is_dpad() && !b.is_axis_button() {
             buttons.insert(gamepad_code(b));
         }
@@ -293,7 +293,7 @@ fn build_gamepad() -> io::Result<VirtualDevice> {
     ff.insert(FFEffectCode::FF_RUMBLE);
 
     // Xbox 360 identity: bus USB, Microsoft vendor, X360 product. SDL keys its built-in
-    // mapping off this + the xpad code set below → games see a standard Xbox pad.
+    // mapping off this + the xpad code set below -> games see a standard Xbox pad.
     let mut builder = VirtualDevice::builder()?
         .name("Microsoft X-Box 360 pad")
         .input_id(InputId::new(BusType::BUS_USB, 0x045e, 0x028e, 0x0114))
@@ -314,7 +314,7 @@ fn build_gamepad() -> io::Result<VirtualDevice> {
 }
 
 /// Put a device's fd in non-blocking mode (evdev's sync `VirtualDevice` reads block
-/// otherwise — only its tokio path sets `O_NONBLOCK`).
+/// otherwise - only its tokio path sets `O_NONBLOCK`).
 fn set_nonblocking(device: &VirtualDevice) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     let fd = device.as_raw_fd();
@@ -328,7 +328,7 @@ fn set_nonblocking(device: &VirtualDevice) -> io::Result<()> {
     Ok(())
 }
 
-// --- vocabulary → evdev code mapping ---
+// --- vocabulary -> evdev code mapping ---
 
 fn key_code(k: &Key) -> KeyCode {
     match k {
@@ -473,12 +473,12 @@ fn mouse_code(b: &MouseButton) -> KeyCode {
         | MouseButton::ScrollDown
         | MouseButton::ScrollLeft
         | MouseButton::ScrollRight => {
-            unreachable!("scroll pseudo-buttons are realized as wheel ticks — see scroll_delta")
+            unreachable!("scroll pseudo-buttons are realized as wheel ticks - see scroll_delta")
         }
     }
 }
 
-/// The wheel direction for a scroll pseudo-button: `(horizontal, ±1 notch)`; `None` for real
+/// The wheel direction for a scroll pseudo-button: `(horizontal, +/-1 notch)`; `None` for real
 /// buttons. Signs: up/right = `+1` (`REL_WHEEL`/`REL_HWHEEL` convention).
 fn scroll_delta(b: &MouseButton) -> Option<(bool, i32)> {
     match b {
@@ -492,7 +492,7 @@ fn scroll_delta(b: &MouseButton) -> Option<(bool, i32)> {
 
 /// Emit `notches` discrete wheel notches as BOTH the hi-res value (120 per notch) and the legacy
 /// notch. A device that advertises `REL_WHEEL_HI_RES` (ours does, for smooth scroll) MUST send the
-/// hi-res event — libinput uses it and **ignores a lone legacy `REL_WHEEL`**, so discrete scroll is
+/// hi-res event - libinput uses it and **ignores a lone legacy `REL_WHEEL`**, so discrete scroll is
 /// silent under Wayland without this. (Legacy stays for non-hi-res X consumers.)
 fn push_wheel(mouse: &mut Vec<InputEvent>, horizontal: bool, notches: i32) {
     if notches == 0 {
@@ -524,7 +524,7 @@ fn accumulate_notch(accum: &mut i32, delta: i32) -> Option<i32> {
     }
 }
 
-// A=SOUTH, B=EAST, X=NORTH, Y=WEST — matches xpad/X360 (SDL maps these to A/B/X/Y).
+// A=SOUTH, B=EAST, X=NORTH, Y=WEST - matches xpad/X360 (SDL maps these to A/B/X/Y).
 fn gamepad_code(b: &GamepadButton) -> KeyCode {
     match b {
         GamepadButton::A => KeyCode::BTN_SOUTH,
@@ -542,10 +542,10 @@ fn gamepad_code(b: &GamepadButton) -> KeyCode {
         | GamepadButton::DpadDown
         | GamepadButton::DpadLeft
         | GamepadButton::DpadRight => {
-            unreachable!("dpad directions fold into the hat — see Dpad / emit")
+            unreachable!("dpad directions fold into the hat - see Dpad / emit")
         }
         b if b.is_axis_button() => {
-            unreachable!("axis pseudo-buttons fold into stick/trigger axes — see AxisButtons / emit")
+            unreachable!("axis pseudo-buttons fold into stick/trigger axes - see AxisButtons / emit")
         }
         _ => unreachable!("gamepad_code covers every non-hat, non-axis button"),
     }
@@ -573,7 +573,7 @@ fn abs_info(a: &GamepadAxis) -> AbsInfo {
     }
 }
 
-// Normalized f32 → device units: sticks from -1..1, triggers from 0..1.
+// Normalized f32 -> device units: sticks from -1..1, triggers from 0..1.
 fn abs_value(a: &GamepadAxis, v: f32) -> i32 {
     match a {
         GamepadAxis::LeftStickX
@@ -593,7 +593,7 @@ mod tests {
         let mut acc = 0;
         assert_eq!(accumulate_notch(&mut acc, 80), None); // below a detent
         assert_eq!(acc, 80);
-        assert_eq!(accumulate_notch(&mut acc, 50), Some(1)); // 130 → one notch, 10 remainder
+        assert_eq!(accumulate_notch(&mut acc, 50), Some(1)); // 130 -> one notch, 10 remainder
         assert_eq!(acc, 10);
         // A big fast scroll crosses several notches at once, sign preserved.
         let mut acc = 0;

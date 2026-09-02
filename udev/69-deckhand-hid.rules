@@ -1,4 +1,4 @@
-# Grant user access to Steam controller HID interfaces (PLAN §1.6).
+# Grant user access to Steam controller HID interfaces (PLAN 1.6).
 #
 # On Linux the in-kernel `hid-steam` driver claims these devices; this rule tags
 # them with `uaccess` so the logged-in user can open the hidraw nodes without
@@ -17,7 +17,7 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="28de", MODE="0660", TAG+="uaccess"
 
 # Bluetooth: modern BlueZ creates the HID device through /dev/uhid, so it lands
 # under /devices/virtual/misc/uhid/... with NO id/vendor attribute anywhere in
-# the parent chain — ATTRS{idVendor}/ATTRS{id/vendor} can't match it. Match the
+# the parent chain - ATTRS{idVendor}/ATTRS{id/vendor} can't match it. Match the
 # parent HID device's kernel name instead ("0005:<VID>:<PID>.<n>", bus 0005 =
 # Bluetooth, VID/PID uppercase hex).
 KERNEL=="hidraw*", KERNELS=="0005:28DE:*", MODE="0660", TAG+="uaccess"

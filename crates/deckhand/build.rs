@@ -1,10 +1,10 @@
 //! Windows-only build step: embed a multi-size application icon into the `.exe` (shown in the
 //! taskbar, title bar, and Explorer).
 //!
-//! The icon is derived at build time from `assets/deckhand.png` — the same 512×512 art the Linux
-//! install ships — so that PNG stays the single source of truth. We box-downsample it to the standard
+//! The icon is derived at build time from `assets/deckhand.png` - the same 512x512 art the Linux
+//! install ships - so that PNG stays the single source of truth. We box-downsample it to the standard
 //! Windows icon sizes, assemble them into a `.ico`, and hand that to `winresource` to compile + link.
-//! A no-op on non-Windows hosts (where the icon deps aren't even pulled in — see `Cargo.toml`).
+//! A no-op on non-Windows hosts (where the icon deps aren't even pulled in - see `Cargo.toml`).
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/deckhand.png");
@@ -22,7 +22,7 @@ fn embed_icon() {
     let (rgba, w, h) = decode_png(include_bytes!("assets/deckhand.png"));
 
     let mut dir = ico::IconDir::new(ico::ResourceType::Icon);
-    // ICO entries top out at 256²; the source (512²) box-downsamples to each of these by a clean
+    // ICO entries top out at 256^2; the source (512^2) box-downsamples to each of these by a clean
     // integer factor, so every entry is a crisp average rather than a resampler's guess.
     for size in [256u32, 128, 64, 32, 16] {
         if w % size != 0 || h % size != 0 {

@@ -1,6 +1,6 @@
-//! Engine events (PLAN §4.3) — the out-of-band signals the engine surfaces: device lifecycle,
+//! Engine events (PLAN 4.3) - the out-of-band signals the engine surfaces: device lifecycle,
 //! battery, binding, and run-state changes. Produced by the reader/mapping threads and the handle,
-//! delivered to subscribers via an [`EventSink`] broadcast → [`EventStream`] receivers (D7). The
+//! delivered to subscribers via an [`EventSink`] broadcast -> [`EventStream`] receivers (D7). The
 //! wire mirror the daemon serializes onto its socket is `ipc::Event`.
 
 use std::sync::{Arc, Mutex};
@@ -19,22 +19,22 @@ pub enum EngineEvent {
     /// The bound controller's presence changed: `true` = connected, `false` = disconnected. On the
     /// dongle this is the slot powering on/off while the transport stays alive; on wired/BT the
     /// controller *is* the transport, so it's `true` for the whole session and `false` only when the
-    /// transport goes (→ `WaitingForDevice`). Carries the absolute value (seed-then-subscribe safe).
+    /// transport goes (-> `WaitingForDevice`). Carries the absolute value (seed-then-subscribe safe).
     ControllerConnected(bool),
     /// The bound controller's battery charge changed, in percent.
     BatteryChanged { percent: u8 },
-    /// The binding was torn down: the engine stopped and no device is bound any more (→ `Idle`).
-    /// Brackets [`BindingAcquired`](Self::BindingAcquired) — together they track the bound-device
+    /// The binding was torn down: the engine stopped and no device is bound any more (-> `Idle`).
+    /// Brackets [`BindingAcquired`](Self::BindingAcquired) - together they track the bound-device
     /// lifetime so subscribers stay consistent with `status().bound`. A transport outage does **not**
     /// emit this (the device stays pinned); that surfaces as `State(WaitingForDevice)`.
     BindingRemoved,
     /// A device was acquired as the bound input at `start()` (D5/D6). Not re-emitted on reacquire
-    /// after a transport outage — that surfaces as `State(Running)`.
+    /// after a transport outage - that surfaces as `State(Running)`.
     BindingAcquired(DeviceId),
     /// The engine run-state changed.
     State(Status),
-    /// The **live** role switched (the chord flipped main↔fallback, or the initial role at start).
-    /// Carries the absolute new role — the parallel of [`State`](Self::State) for the profile mode.
+    /// The **live** role switched (the chord flipped main<->fallback, or the initial role at start).
+    /// Carries the absolute new role - the parallel of [`State`](Self::State) for the profile mode.
     /// Distinct from [`ProfileSet`](Self::ProfileSet), which reports a program loaded *into* a slot;
     /// this reports which slot is now *active*.
     ActiveRole(Role),
@@ -54,17 +54,17 @@ pub enum EngineEvent {
     /// can mirror it without a round-trip. Absolute value.
     DeviceConfigSet(DeviceConfig),
 
-    // --- Live layer-stack view (mapper-side) — the ONLY events NOT reflected in `StatusInfo`. ---
+    // --- Live layer-stack view (mapper-side) - the ONLY events NOT reflected in `StatusInfo`. ---
     // Every event above mirrors a `StatusInfo`/`StatusSnapshot` field, so a client can seed on connect
     // then ride events. These three deliberately do NOT: they are a transient debug/awareness view of
     // the effective layer stack, surfaced through `monitor` only, not seeded on connect. All three are
-    // absolute-valued — each carries the FULL new set (the runtime diffs and emits only on a change).
-    /// The active **action set** changed — its name.
+    // absolute-valued - each carries the FULL new set (the runtime diffs and emits only on a change).
+    /// The active **action set** changed - its name.
     ActiveSet(String),
-    /// The set of **held layers** (from `HoldLayer`) changed — the full new set of names, in
+    /// The set of **held layers** (from `HoldLayer`) changed - the full new set of names, in
     /// declared-order (id) order. Empty = no held layers.
     HeldLayers(Vec<String>),
-    /// The set of **persistent layers** (from `AddLayer`/`RemoveLayer`) changed — the full new set of
+    /// The set of **persistent layers** (from `AddLayer`/`RemoveLayer`) changed - the full new set of
     /// names. Empty = none.
     PersistentLayers(Vec<String>),
 }
@@ -81,7 +81,7 @@ pub(crate) struct EventSink {
 impl EventSink {
     /// Emit an event: log it, then broadcast to all live subscribers (pruning any that dropped).
     pub(crate) fn emit(&self, ev: EngineEvent) {
-        // Debug, not info: events fire per connect/role-switch/etc. and get noisy — `status`/`monitor`
+        // Debug, not info: events fire per connect/role-switch/etc. and get noisy - `status`/`monitor`
         // are the normal-usage surface for this.
         log::debug!("event: {ev:?}");
         self.subs.lock().unwrap().retain(|tx| tx.send(ev.clone()).is_ok());

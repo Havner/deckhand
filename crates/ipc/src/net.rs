@@ -1,5 +1,5 @@
-//! The local-socket transport (PLAN §4.4): a thin [`Client`] and [`Server`] over `interprocess`
-//! local sockets — Unix domain sockets on Unix, named pipes on Windows. The *only* platform-
+//! The local-socket transport (PLAN 4.4): a thin [`Client`] and [`Server`] over `interprocess`
+//! local sockets - Unix domain sockets on Unix, named pipes on Windows. The *only* platform-
 //! specific bit is the socket **name**; everything above it (framing, messages) is shared.
 
 use std::io;
@@ -18,7 +18,7 @@ use crate::{Event, Request, Response};
 
 /// Default control-socket path on Unix. `$DECKHAND_SOCKET` overrides it outright (handy for tests
 /// / non-default layouts); otherwise `$XDG_RUNTIME_DIR/deckhand.sock` (fallback `/tmp` when the
-/// runtime dir is unset — e.g. outside a login session). Shared by the daemon (bind) and clients
+/// runtime dir is unset - e.g. outside a login session). Shared by the daemon (bind) and clients
 /// (connect) so they always agree.
 #[cfg(unix)]
 pub fn default_socket_path() -> PathBuf {
@@ -31,7 +31,7 @@ pub fn default_socket_path() -> PathBuf {
         .join("deckhand.sock")
 }
 
-/// Default control-pipe name on Windows (namespaced → `\\.\pipe\deckhand.sock`).
+/// Default control-pipe name on Windows (namespaced -> `\\.\pipe\deckhand.sock`).
 #[cfg(windows)]
 pub const DEFAULT_PIPE_NAME: &str = "deckhand.sock";
 
@@ -83,7 +83,7 @@ pub struct Server {
 
 impl Server {
     /// Bind a control socket at an explicit filesystem path (Unix). The caller owns the
-    /// stale-socket / single-instance policy (PLAN §4.4 — that dance lives in the daemon).
+    /// stale-socket / single-instance policy (PLAN 4.4 - that dance lives in the daemon).
     #[cfg(unix)]
     pub fn bind_path(path: &Path) -> io::Result<Self> {
         let name = path.to_fs_name::<GenericFilePath>()?;
@@ -97,17 +97,17 @@ impl Server {
         Ok(Server { listener: ListenerOptions::new().name(name).create_sync()? })
     }
 
-    /// Adopt an **already-bound, listening** `UnixListener` — the systemd socket-activation path
+    /// Adopt an **already-bound, listening** `UnixListener` - the systemd socket-activation path
     /// (`LISTEN_FDS`): systemd binds the socket, the daemon lifts the passed fd into a
     /// `UnixListener` and hands it here. Unlike [`bind_path`](Server::bind_path) this never touches
-    /// the filesystem, so it does no stale-socket dance and — because the interprocess listener
-    /// carries **no reclaim name** — never unlinks the socket file on drop (systemd owns its
-    /// lifecycle). The `LISTEN_FDS`/`fd → UnixListener` step (the only `unsafe`) stays in the
+    /// the filesystem, so it does no stale-socket dance and - because the interprocess listener
+    /// carries **no reclaim name** - never unlinks the socket file on drop (systemd owns its
+    /// lifecycle). The `LISTEN_FDS`/`fd -> UnixListener` step (the only `unsafe`) stays in the
     /// daemon, keeping this boundary safe.
     #[cfg(unix)]
     pub fn from_unix_listener(listener: std::os::unix::net::UnixListener) -> Self {
-        // std UnixListener → interprocess uds Listener (default reclaim = none, so Drop won't
-        // unlink) → the generic local_socket::Listener that `Server` holds.
+        // std UnixListener -> interprocess uds Listener (default reclaim = none, so Drop won't
+        // unlink) -> the generic local_socket::Listener that `Server` holds.
         let uds: interprocess::os::unix::uds_local_socket::Listener = listener.into();
         Server { listener: Listener::from(uds) }
     }

@@ -1,16 +1,16 @@
-//! The `Engine` control API — one owned handle over the runtime (PLAN §4.1, §4.2 S10).
+//! The `Engine` control API - one owned handle over the runtime (PLAN 4.1, 4.2 S10).
 //!
 //! Deliberately narrow and transport-agnostic: the same calls work embedded (direct) or, later,
-//! behind a socket/daemon. **No profile concept** — just program(s) + device config. `new()` is idle
+//! behind a socket/daemon. **No profile concept** - just program(s) + device config. `new()` is idle
 //! and acquires **no** hardware (HW errors surface at `start()`); `start()`/`stop()` acquire and
 //! release the device + sink while **config is retained** across the pair; `shutdown()` consumes
 //! the handle.
 //!
 //! **Mutability:** `apply`/`set_chords`/`set_device_config` are live hot-swaps while running (and
-//! stage while idle) — device settings apply reader-side (machine-local, off the network uplink);
-//! `set_input`/`set_output` are **staged-only** — they take effect at the next `start()` and are
+//! stage while idle) - device settings apply reader-side (machine-local, off the network uplink);
+//! `set_input`/`set_output` are **staged-only** - they take effect at the next `start()` and are
 //! fixed within a start/stop pair. The network variants of input/output are stubs for now
-//! (Local-only built; the seam is kept — PLAN §4.1/§6).
+//! (Local-only built; the seam is kept - PLAN 4.1/6).
 
 use config::{Chords, DeviceConfig};
 use steam_hid::{Device, DeviceId, DeviceInfo, Manager, Report, Transport};
@@ -26,7 +26,7 @@ use crate::runtime::{Control, Runtime};
 use crate::{Error, Result};
 
 /// Where input comes from: a local controller, or a bound network endpoint that receives a remote
-/// controller's frames (the server role — PLAN §6).
+/// controller's frames (the server role - PLAN 6).
 #[derive(Debug, Clone)]
 pub enum Input {
     Local(DeviceSelect),
@@ -42,12 +42,12 @@ pub enum DeviceSelect {
     /// Restrict to a transport (wired vs dongle).
     Transport(Transport),
     /// A specific device, pinned by its stable [`DeviceId`] (resolved to a fresh path at each
-    /// `start()`, so it survives the OS path changing across replug — PLAN §4.3).
+    /// `start()`, so it survives the OS path changing across replug - PLAN 4.3).
     Explicit(DeviceId),
 }
 
 /// Where output goes: the local virtual devices, or a network endpoint we forward the controller's
-/// frames to (the client/forwarder role — PLAN §6).
+/// frames to (the client/forwarder role - PLAN 6).
 #[derive(Debug, Clone)]
 pub enum Output {
     Local,
@@ -60,7 +60,7 @@ pub enum Output {
 // `Display` and `FromStr` round-trip: `Display` emits exactly what `FromStr` accepts, so a
 // staged selection can be reported (e.g. over the control socket) and passed straight back to
 // `set_input`/`set_output`. `Transport`/`DeviceId` already round-trip; this extends the same
-// contract up to the whole `Input`/`Output`, ready for the `Network` variants (PLAN §6).
+// contract up to the whole `Input`/`Output`, ready for the `Network` variants (PLAN 6).
 
 impl fmt::Display for DeviceSelect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -146,12 +146,12 @@ pub enum Status {
     Idle,
     /// Running the mapping loop with a bound device.
     Running,
-    /// Running, but the bound device's transport went away — waiting to reacquire it. The
-    /// transition is wired in D5 (PLAN §4.3); the variant is defined here (D4).
+    /// Running, but the bound device's transport went away - waiting to reacquire it. The
+    /// transition is wired in D5 (PLAN 4.3); the variant is defined here (D4).
     WaitingForDevice,
 }
 
-/// A point-in-time snapshot of the engine: run state, the staged input/output (**typed** — each
+/// A point-in-time snapshot of the engine: run state, the staged input/output (**typed** - each
 /// round-trips through its `Display`/`FromStr`), and the loaded program names. This is the engine's
 /// side of the status contract; the transport-agnostic wire mirror is `ipc::StatusSnapshot` (the
 /// daemon maps one to the other, stringifying `input`/`output`). Read atomically via
@@ -163,17 +163,17 @@ pub struct StatusInfo {
     pub output: Output,
     /// The staged input source (always set; defaults to `auto`).
     pub input: Input,
-    /// The **bound** device — the id the reader resolved at `start()` and (across an outage) keeps
-    /// reacquiring — or `None` when idle. Unlike `input` (the *staged* selection, which may be a
+    /// The **bound** device - the id the reader resolved at `start()` and (across an outage) keeps
+    /// reacquiring - or `None` when idle. Unlike `input` (the *staged* selection, which may be a
     /// policy like `auto`/`dongle`), this is the concrete device actually in use, so a UI that
     /// connects to an already-running daemon learns what's bound. Stays set through
     /// `WaitingForDevice` (the device it's waiting to reacquire); cleared on `stop()`.
     pub bound: Option<DeviceId>,
     /// Whether the bound controller is currently present (`Some(true)`/`Some(false)`), or `None` when
     /// there's no local reader (idle, or the network server role). Distinct from `state`: on the
-    /// dongle the controller can power off (→ `Some(false)`) while the loop stays `Running`.
+    /// dongle the controller can power off (-> `Some(false)`) while the loop stays `Running`.
     pub controller: Option<bool>,
-    /// The bound controller's last-known battery charge (percent), or `None` when unknown — no
+    /// The bound controller's last-known battery charge (percent), or `None` when unknown - no
     /// battery frame has arrived yet, the controller is wired (no battery), or there's no local
     /// reader (the network server role). Wireless-only; subsequent changes arrive as `Battery` events.
     pub battery: Option<u8>,
@@ -185,7 +185,7 @@ pub struct StatusInfo {
     pub main: Option<String>,
     /// Name of the loaded **Fallback** program, or `None`.
     pub fallback: Option<String>,
-    /// The **live** role — which of main/fallback is currently active — or `None` when there's no
+    /// The **live** role - which of main/fallback is currently active - or `None` when there's no
     /// local mapper (idle, or the network client role, where the role lives on the remote server).
     /// This tracks live chord switches.
     pub active: Option<Role>,
@@ -206,7 +206,7 @@ pub struct Engine {
     device_config: DeviceConfig,
     runtime: Option<Runtime>,
     /// The concrete device the running loop is bound to (the reader's pinned id), or `None` when
-    /// idle. Captured at `start()` and cleared at `stop()` — see [`StatusInfo::bound`]. Held here
+    /// idle. Captured at `start()` and cleared at `stop()` - see [`StatusInfo::bound`]. Held here
     /// because the id itself lives across the thread boundary in the reader; the handle keeps a copy
     /// so `status()` can report it without a round-trip.
     bound: Option<DeviceId>,
@@ -221,7 +221,7 @@ impl Default for Engine {
 }
 
 impl Engine {
-    /// A fresh idle engine. Acquires no hardware — construction always succeeds.
+    /// A fresh idle engine. Acquires no hardware - construction always succeeds.
     pub fn new() -> Engine {
         Engine {
             manager: None,
@@ -262,13 +262,13 @@ impl Engine {
     // --- live-or-staged config ---------------------------------------------------------
 
     /// Apply a program to a role, or **clear** it (`program: None` reverts the role to `None`, so the
-    /// other role resolves live via [`program_for`](crate::runtime) — clearing `main` reactivates
+    /// other role resolves live via [`program_for`](crate::runtime) - clearing `main` reactivates
     /// `fallback`). Retained (survives stop/start); hot-swapped live if running.
     pub fn apply(&mut self, program: Option<Program>, role: Role) {
         let mode = if self.runtime.is_some() { "live hot-swap" } else { "staged" };
         let name = program.as_ref().map(|p| p.meta.name.clone());
         match &name {
-            Some(n) => log::info!("apply: program '{n}' → {role:?} ({mode})"),
+            Some(n) => log::info!("apply: program '{n}' -> {role:?} ({mode})"),
             None => log::info!("apply: clear {role:?} ({mode})"),
         }
         match role {
@@ -287,7 +287,7 @@ impl Engine {
     /// Set the device config (LED/idle, master rumble, frequency). Retained (survives stop/start);
     /// hot-swapped **live** to the reader if running, like [`set_chords`](Self::set_chords). Device
     /// settings are machine-local and reader-side, so the push goes on the runtime's own device-config
-    /// channel, never the network uplink — in the server role (no local reader) the live push is a
+    /// channel, never the network uplink - in the server role (no local reader) the live push is a
     /// no-op and it's simply retained for the next local start.
     pub fn set_device_config(&mut self, device_config: DeviceConfig) {
         let mode = if self.runtime.is_some() { "live" } else { "staged" };
@@ -314,7 +314,7 @@ impl Engine {
     // --- lifecycle ---------------------------------------------------------------------
 
     /// Acquire hardware and start the mapping loop, in the role chosen by the staged input/output
-    /// (PLAN §6): `Local`/`Local` maps here; `output=Network` forwards this device's frames to a
+    /// (PLAN 6): `Local`/`Local` maps here; `output=Network` forwards this device's frames to a
     /// server; `input=Network` maps a remote client's frames to the local sink. A no-op if already
     /// running.
     pub fn start(&mut self) -> Result<()> {
@@ -332,7 +332,7 @@ impl Engine {
     }
 
     /// `Local`/`Local`: open the device + create the sink and map here (the original behaviour).
-    /// No main is required — the mapper runs the empty placeholder program until one is applied.
+    /// No main is required - the mapper runs the empty placeholder program until one is applied.
     fn start_local(&mut self) -> Result<()> {
         let device = self.open_device()?;
         let info = device.info();
@@ -356,14 +356,14 @@ impl Engine {
     }
 
     /// `output=Network` (client): open the device and forward its frames to the server at `addr`.
-    /// **No main program is required** — the server maps, with its own config or the config we push
-    /// here on connect (config is ordinary `Apply`/`SetChords`, PLAN §6.1).
+    /// **No main program is required** - the server maps, with its own config or the config we push
+    /// here on connect (config is ordinary `Apply`/`SetChords`, PLAN 6.1).
     fn start_client(&mut self, addr: SocketAddr) -> Result<()> {
         let device = self.open_device()?;
         let info = device.info();
         let pinned_id = info.id();
         self.bound = Some(pinned_id.clone());
-        log::info!("starting (client): {:?} via {:?} → {addr}", info.kind, info.transport);
+        log::info!("starting (client): {:?} via {:?} -> {addr}", info.kind, info.transport);
         self.runtime = Some(Runtime::start_client(
             addr,
             device,
@@ -378,7 +378,7 @@ impl Engine {
     }
 
     /// `input=Network` (server): bind `addr` and map a remote client's frames to the local sink.
-    /// No main is required — the mapper runs the empty placeholder until a profile is set (its own,
+    /// No main is required - the mapper runs the empty placeholder until a profile is set (its own,
     /// or one the client pushes over the wire).
     fn start_server(&mut self, addr: SocketAddr) -> Result<()> {
         let sink = Sink::new()?;
@@ -391,9 +391,9 @@ impl Engine {
             self.chords.clone(),
             self.events.clone(),
         )?);
-        // No local device → no `bound` and no `BindingAcquired`. No `State(Running)` either: with no
+        // No local device -> no `bound` and no `BindingAcquired`. No `State(Running)` either: with no
         // client yet the mapper immediately emits `WaitingForDevice`, then `Running` when a client
-        // connects — so emitting `Running` here would just be a spurious flicker.
+        // connects - so emitting `Running` here would just be a spurious flicker.
         Ok(())
     }
 
@@ -404,7 +404,7 @@ impl Engine {
     }
 
     /// Ship the currently-staged programs + chords to a running (network) runtime as ordinary
-    /// control messages — the forwarder uses this to seed the server on connect. Device settings are
+    /// control messages - the forwarder uses this to seed the server on connect. Device settings are
     /// reader-side (never sent). Chords are pushed **only when set**, so a thin client (chords `None`)
     /// leaves the server's own chords untouched.
     fn push_staged_config(&self) {
@@ -424,11 +424,11 @@ impl Engine {
         }
     }
 
-    /// Halt the loop and release hardware (device → lizard restored, virtual pad unplugged).
+    /// Halt the loop and release hardware (device -> lizard restored, virtual pad unplugged).
     /// Config is retained; `start()` resumes. A no-op if idle.
     pub fn stop(&mut self) -> Result<()> {
         if let Some(mut rt) = self.runtime.take() {
-            log::info!("stopping: releasing device (→ lizard) and virtual pad");
+            log::info!("stopping: releasing device (-> lizard) and virtual pad");
             rt.stop()?;
             self.bound = None;
             self.events.emit(EngineEvent::BindingRemoved);
@@ -468,7 +468,7 @@ impl Engine {
         }
     }
 
-    /// Enumerate the attached controllers (any time — no HW is retained).
+    /// Enumerate the attached controllers (any time - no HW is retained).
     pub fn devices(&mut self) -> Result<Vec<DeviceInfo>> {
         self.ensure_manager()?;
         Ok(self.manager.as_mut().unwrap().enumerate()?)
@@ -501,7 +501,7 @@ impl Engine {
 
         if let DeviceSelect::Explicit(id) = select {
             // Resolve the pinned DeviceId against the *current* enumeration (the OS path may
-            // have changed since it was chosen — PLAN §4.3), then open it directly (a specific
+            // have changed since it was chosen - PLAN 4.3), then open it directly (a specific
             // device is idle until moved, so no frame gate).
             let infos = manager.enumerate()?;
             let info = infos
@@ -523,17 +523,17 @@ impl Engine {
             [info] => Ok(manager.open(info)?),
             many => {
                 // Walk candidates in enumerate order (same order as `deckhandctl list-devices`) and
-                // take the first usable one — but *how* usable is judged differs by transport:
+                // take the first usable one - but *how* usable is judged differs by transport:
                 //
                 // - **Dongle:** the receiver exposes phantom slots 1..4 whether or not a controller
                 //   is paired/on, so we must **poll** each to find the live one. USB streams input
                 //   by default (pre-config), so a powered-on slot answers the poll; a dead slot
-                //   doesn't and is skipped. `start()` is synchronous — keep the poll short so a
+                //   doesn't and is skipped. `start()` is synchronous - keep the poll short so a
                 //   powered-off dongle doesn't freeze a sync caller (the UI).
                 // - **Non-dongle (wired/bt):** enumerated only when actually present, and it does
                 //   **not** stream until the reader configures it (`set_lizard_mode`/`set_gyro`), so
                 //   a pre-config poll would see nothing (this is why BT was skipped under Auto). Open
-                //   it directly and take it — like the single-candidate case.
+                //   it directly and take it - like the single-candidate case.
                 for info in many {
                     let mut device = manager.open(info)?;
                     if info.transport != Transport::UsbDongle {
@@ -556,7 +556,7 @@ impl Engine {
 mod tests {
     use super::*;
 
-    /// The sample profile (`examples/test_profile.ron`) must parse and compile — keeps it valid
+    /// The sample profile (`examples/test_profile.ron`) must parse and compile - keeps it valid
     /// as the config model evolves (exercises a layer, a HoldLayer action, gyro invert, and every
     /// behavior kind).
     #[test]

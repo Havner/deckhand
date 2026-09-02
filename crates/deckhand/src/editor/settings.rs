@@ -1,4 +1,4 @@
-//! The behaviour-settings **edit path** — the state-side twin of [`crate::view::editor`]'s settings
+//! The behaviour-settings **edit path** - the state-side twin of [`crate::view::editor`]'s settings
 //! form. The view builds the per-behaviour settings page and emits one [`SettingEdit`]; this applies
 //! that edit to whichever field the current binding carries, via small `&mut` accessors over
 //! [`SourceBinding`] shared across every behaviour that has that field. The per-type outputs
@@ -14,7 +14,7 @@ use super::SettingEdit;
 
 /// Apply one behaviour-settings field edit to a binding. A no-op when the binding's behaviour lacks
 /// that field (the page only ever offers a behaviour's real fields, so that never happens in
-/// practice — but it keeps the mapping total and safe).
+/// practice - but it keeps the mapping total and safe).
 pub(super) fn apply_setting(binding: &mut SourceBinding, edit: SettingEdit) {
     use SettingEdit as E;
     use SourceBinding as B;

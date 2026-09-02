@@ -1,21 +1,21 @@
-//! `vocab-hid` — the hardware-independent **input vocabulary**: the unified set of controller
+//! `vocab-hid` - the hardware-independent **input vocabulary**: the unified set of controller
 //! button bits, shared by `config` (which names them in chords/gaters) and `steam-hid` (which
 //! produces them from the per-device wire bitfields). The input counterpart of `vocab-out`
 //! (outputs): `vocab-out` pairs with `virt-out`, `vocab-hid` pairs with `steam-hid`.
 //!
 //! Deliberately **dependency-free** (just the enum + optional serde) so `config` can name hardware
-//! buttons without pulling in `steam-hid` (and its `hidapi`/HID platform code). The bit ↔ enum
-//! mapping (`Button` ↔ `steam-hid::Buttons`) lives in `steam-hid`, next to the bitflags.
+//! buttons without pulling in `steam-hid` (and its `hidapi`/HID platform code). The bit <-> enum
+//! mapping (`Button` <-> `steam-hid::Buttons`) lives in `steam-hid`, next to the bitflags.
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// A single unified controller button — one variant per hardware button bit, across all supported
+/// A single unified controller button - one variant per hardware button bit, across all supported
 /// devices (a button a given device lacks is simply never pressed). Shape-independent superset.
 ///
 /// `LB/RB/LT/RT` are the same short abbreviations `steam-hid`'s `Buttons` bitflags use (hence the
 /// `upper_case_acronyms` allow); the grips use `LGrip`/`LGrip2`. Display labels are the consumer's
-/// concern (the UI owns them) — this stays presentation-free, like `vocab-out`.
+/// concern (the UI owns them) - this stays presentation-free, like `vocab-out`.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -53,7 +53,7 @@ pub enum Button {
 }
 
 impl Button {
-    /// Every button, in bit order — for iterating diffs / UI listings.
+    /// Every button, in bit order - for iterating diffs / UI listings.
     pub const ALL: [Button; 30] = [
         Button::A,
         Button::B,

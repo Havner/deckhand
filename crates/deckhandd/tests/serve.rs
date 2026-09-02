@@ -1,5 +1,5 @@
 //! End-to-end: spawn the real `deckhandd` binary on a temp control socket and drive it with the
-//! `ipc` client. No hardware needed — exercises the socket serving, request/reply
+//! `ipc` client. No hardware needed - exercises the socket serving, request/reply
 //! dispatch, spec validation, and clean shutdown (Unix).
 
 #![cfg(unix)]
@@ -39,7 +39,7 @@ fn daemon_serves_control_requests() {
     assert!(matches!(client.call(&Request::SetInput("dongle".into())).unwrap(), Response::Ok));
     assert!(matches!(client.call(&Request::SetInput("bogus".into())).unwrap(), Response::Error(_)));
 
-    // ListDevices returns Devices (contents depend on attached HW) — or an Error if HID init is
+    // ListDevices returns Devices (contents depend on attached HW) - or an Error if HID init is
     // unavailable in this environment; either proves the request/reply path works.
     assert!(matches!(
         client.call(&Request::ListDevices).unwrap(),
@@ -52,7 +52,7 @@ fn daemon_serves_control_requests() {
         other => panic!("status: {other:?}"),
     }
 
-    // Shutdown → Ok; the daemon then exits and removes its socket.
+    // Shutdown -> Ok; the daemon then exits and removes its socket.
     assert!(matches!(client.call(&Request::Shutdown).unwrap(), Response::Ok));
     drop(client);
 
@@ -61,8 +61,8 @@ fn daemon_serves_control_requests() {
     assert!(!sock.exists(), "socket file was not cleaned up");
 }
 
-/// Regression (PLAN §4.4, thread-per-connection): a client that connects and keeps its connection
-/// **open and idle** — as the daemon-mode UI does with its persistent command connection — must not
+/// Regression (PLAN 4.4, thread-per-connection): a client that connects and keeps its connection
+/// **open and idle** - as the daemon-mode UI does with its persistent command connection - must not
 /// wedge the accept loop. A second client has to be served promptly while the first still holds on.
 #[test]
 fn concurrent_clients_are_served() {

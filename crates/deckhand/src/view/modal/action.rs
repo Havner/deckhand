@@ -1,9 +1,9 @@
-//! The output-Action picker modal — a tabbed chooser that returns one [`config::Action`].
+//! The output-Action picker modal - a tabbed chooser that returns one [`config::Action`].
 //!
 //! Tabs mirror the categories a binding's action can target: Gamepad (`GamepadButton`), Mouse
 //! (`MouseButton`), Keyboard / Numpad (`Key`, split like Steam), and Action Sets (the engine
 //! mode actions, each parameterised by a set/layer picked from the loaded profile). Clicking a tile
-//! or selecting a combobox value confirms immediately (Steam-style) — there is no OK button. Steam's
+//! or selecting a combobox value confirms immediately (Steam-style) - there is no OK button. Steam's
 //! SYSTEM/CAMERA tabs are dropped (no vocab); `Action::None` is intentionally not offered (a future
 //! gear "Unbind" falls the input back to `<unbound>` instead).
 
@@ -25,10 +25,10 @@ const KW: f32 = 42.0;
 
 /// The key-cell height unit (px); the numpad's tall keys span two cells plus the inter-row gap.
 const KH: f32 = 30.0;
-/// The row spacing shared by the keyboard/numpad grids — a tall key must swallow one to line up.
+/// The row spacing shared by the keyboard/numpad grids - a tall key must swallow one to line up.
 const KEY_GAP: f32 = 4.0;
 
-/// Fixed card footprint — sized to the largest tab (gamepad) so switching tabs doesn't resize the
+/// Fixed card footprint - sized to the largest tab (gamepad) so switching tabs doesn't resize the
 /// modal. Deliberately a little roomier than any one tab needs; taller content (numpad extras)
 /// scrolls within it.
 const CARD_W: f32 = 840.0;
@@ -45,7 +45,7 @@ pub(super) fn card(app: &App, tab: ActionTab) -> Element<'static, Message> {
         ActionTab::ActionSets => action_sets(app),
     };
     // `width(Fill)` makes the body span the card so `align_x(Center)` centres the tab bar and the
-    // content left↔right (they're otherwise shrink-width and would hug the left edge).
+    // content left<->right (they're otherwise shrink-width and would hug the left edge).
     let body = column![tab_bar(tab), content].spacing(20.0).align_x(Center).width(Fill);
     container(scrollable(body).width(Fill).height(Fill))
         .padding(20.0)
@@ -85,7 +85,7 @@ fn gbtn(label: &'static str, gb: GamepadButton) -> Element<'static, Message> {
         .into()
 }
 
-/// An active gamepad-button tile with a custom (coloured) style — the A/B/X/Y face buttons keep
+/// An active gamepad-button tile with a custom (coloured) style - the A/B/X/Y face buttons keep
 /// their Xbox glyph colours rather than the uniform option style.
 fn gbtn_styled(
     label: &'static str,
@@ -100,7 +100,7 @@ fn gbtn_styled(
         .into()
 }
 
-/// up / left+center+right / down, stacked — a stick cluster.
+/// up / left+center+right / down, stacked - a stick cluster.
 fn cross(
     up: Element<'static, Message>,
     left: Element<'static, Message>,
@@ -114,7 +114,7 @@ fn cross(
         .into()
 }
 
-/// up / left+right / down — a dpad or face diamond.
+/// up / left+right / down - a dpad or face diamond.
 fn diamond(
     up: Element<'static, Message>,
     left: Element<'static, Message>,
@@ -214,7 +214,7 @@ fn key(k: Key, w: f32) -> Element<'static, Message> {
     key_sized(k, w, KH)
 }
 
-/// A key tile at an explicit width *and* height — used by the numpad's two-cell-tall `+`/Enter.
+/// A key tile at an explicit width *and* height - used by the numpad's two-cell-tall `+`/Enter.
 fn key_sized(k: Key, w: f32, h: f32) -> Element<'static, Message> {
     let label = key_label(&k);
     button(text(label).size(11.0).center())
@@ -248,7 +248,7 @@ fn key_width(k: &Key) -> f32 {
     }
 }
 
-/// Main keyboard rows (function → number → QWERTY → home → shift → bottom).
+/// Main keyboard rows (function -> number -> QWERTY -> home -> shift -> bottom).
 const KB_ROWS: &[&[Key]] = {
     use Key::*;
     &[
@@ -272,10 +272,10 @@ const NP_KEYPAD: &[Key] = {
     ]
 };
 
-// The "Other keys" groups — one static row each, below the keyboard-like nav + keypad top.
+// The "Other keys" groups - one static row each, below the keyboard-like nav + keypad top.
 const NP_SPECIAL: &[Key] =
     { use Key::*; &[Compose, K102nd, Print, SysRq, ScrollLock, Pause] };
-// Browser Back/Forward sit with audio — outliers either way, and it balances the row lengths.
+// Browser Back/Forward sit with audio - outliers either way, and it balances the row lengths.
 const NP_AUDIO: &[Key] = { use Key::*; &[Mute, VolumeDown, VolumeUp, MicMute, Back, Forward] };
 const NP_MEDIA: &[Key] =
     { use Key::*; &[PlayPause, Play, StopCd, PreviousSong, NextSong, Rewind, FastForward] };
@@ -364,7 +364,7 @@ fn numpad() -> Element<'static, Message> {
     .spacing(4.0)
     .align_x(Center);
     // Safety net (decision F): a vocab key that isn't in any group above still gets a spot, so it
-    // can never become unbindable. Normally empty → renders nothing.
+    // can never become unbindable. Normally empty -> renders nothing.
     let unplaced = unplaced_keys();
     if !unplaced.is_empty() {
         groups = groups.push(group_row(&unplaced));
@@ -373,8 +373,8 @@ fn numpad() -> Element<'static, Message> {
     column![top, text("Other keys").size(14.0), groups].spacing(16.0).align_x(Center).into()
 }
 
-/// One "Other keys" group as a row of wider tiles (their labels are long — "Play/Pause",
-/// "Browser Back", …).
+/// One "Other keys" group as a row of wider tiles (their labels are long - "Play/Pause",
+/// "Browser Back", ...).
 fn group_row(keys: &[Key]) -> Element<'static, Message> {
     let mut r = row![].spacing(4.0);
     for k in keys {
@@ -383,7 +383,7 @@ fn group_row(keys: &[Key]) -> Element<'static, Message> {
     r.into()
 }
 
-/// Every `Key` not placed in the keyboard rows or any numpad-page cluster/group — the safety-net set
+/// Every `Key` not placed in the keyboard rows or any numpad-page cluster/group - the safety-net set
 /// (decision F). Empty in normal operation; a newly-added vocab key lands here until it's grouped.
 fn unplaced_keys() -> Vec<Key> {
     let mut placed = HashSet::new();
@@ -400,7 +400,7 @@ fn unplaced_keys() -> Vec<Key> {
 
 fn action_sets(app: &App) -> Element<'static, Message> {
     // Sets: all of them; layers: only those of the set the input pages currently edit
-    // (`EditTarget.set`) — layer refs resolve within a single action set (compile.rs: per-set).
+    // (`EditTarget.set`) - layer refs resolve within a single action set (compile.rs: per-set).
     let sets: Vec<String> = app
         .editing
         .as_ref()
@@ -453,7 +453,7 @@ fn layer_pick(
         .into()
 }
 
-/// A short display label for a bound action — used by the input pages' command bars to show what a
+/// A short display label for a bound action - used by the input pages' command bars to show what a
 /// command fires (mode actions include the target set/layer name).
 pub(in crate::view) fn action_label(action: &Action) -> String {
     match action {
@@ -483,7 +483,7 @@ fn mouse_label(b: &MouseButton) -> &'static str {
     }
 }
 
-/// A display label for a gamepad button — fully descriptive (the project keeps controller naming
+/// A display label for a gamepad button - fully descriptive (the project keeps controller naming
 /// consistent; no `LB`/`L3`-style shorthand).
 fn gamepad_label(g: &GamepadButton) -> &'static str {
     match g {
@@ -515,7 +515,7 @@ fn gamepad_label(g: &GamepadButton) -> &'static str {
     }
 }
 
-/// A display label for a key (UI-owned — vocab stays presentation-free).
+/// A display label for a key (UI-owned - vocab stays presentation-free).
 fn key_label(k: &Key) -> &'static str {
     use Key::*;
     match k {

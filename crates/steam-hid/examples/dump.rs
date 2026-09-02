@@ -1,11 +1,11 @@
-//! `dump` — open the target controller in full raw mode and print every frame.
+//! `dump` - open the target controller in full raw mode and print every frame.
 //!
 //! Disables lizard (raw pads) and enables gyro, then polls and prints each frame
-//! (state / connect / battery) — the broad "show me everything" diagnostic, vs
+//! (state / connect / battery) - the broad "show me everything" diagnostic, vs
 //! `read` which logs only changes. `--wired`/`--dongle` pick the transport.
 //! Run: `cargo run -p steam-hid --example dump -- [--wired|--dongle]`.
 //! (On Linux the in-kernel `hid-steam` driver claims the device; raw access needs
-//! the udev rule in `crates/steam-hid/udev/` — PLAN §1.6.)
+//! the udev rule in `crates/steam-hid/udev/` - PLAN 1.6.)
 
 mod common;
 
@@ -16,10 +16,10 @@ use steam_hid::{Manager, Report};
 fn main() -> steam_hid::Result<()> {
     let mut manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&mut manager)? else {
-        println!("No matching controller found — connected/on?");
+        println!("No matching controller found - connected/on?");
         return Ok(());
     };
-    println!("selected {desc}. Enabling raw mode…");
+    println!("selected {desc}. Enabling raw mode...");
 
     if let Err(e) = device.set_lizard_mode(false) {
         eprintln!("warning: could not disable lizard mode: {e}");
@@ -28,7 +28,7 @@ fn main() -> steam_hid::Result<()> {
         eprintln!("warning: could not enable gyro: {e}");
     }
 
-    println!("Reading (Ctrl-C to stop)…");
+    println!("Reading (Ctrl-C to stop)...");
     let running = common::install_ctrlc();
     // Neptune/Triton revert to lizard mode a few seconds after lizard-off (Triton ~3 s), so
     // re-assert periodically or raw input turns back into mouse/keyboard emulation mid-session.
@@ -40,12 +40,12 @@ fn main() -> steam_hid::Result<()> {
             last_lizard = Instant::now();
         }
         match device.poll(Duration::from_millis(1000))? {
-            None => {} // timeout — nothing this interval
+            None => {} // timeout - nothing this interval
             Some(report) => match report {
                 Report::State(s) => println!(
                     // Fixed-width fields (widths = each value's max: seq u32 = 10, accel/gyro
                     // i16 = 6; the {:.2}/{:+.2} floats are already 4/5 for normalized ranges) so
-                    // columns don't flow — only the trailing `buttons` is variable.
+                    // columns don't flow - only the trailing `buttons` is variable.
                     "seq={:<10} L2={:.2} R2={:.2} \
                      lstick=({:+.2},{:+.2}) rstick=({:+.2},{:+.2}) \
                      lpad=({:+.2},{:+.2}) rpad=({:+.2},{:+.2}) lpad_p={:.2} rpad_p={:.2} \

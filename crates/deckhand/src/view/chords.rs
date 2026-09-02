@@ -1,4 +1,4 @@
-//! Chords screen — a live editor over the UI-owned [`Chords`](config::Chords). Every edit persists
+//! Chords screen - a live editor over the UI-owned [`Chords`](config::Chords). Every edit persists
 //! to `chords.ron` and ships to the daemon (`App::apply_chords`); this always renders `app.chords`
 //! (the source of truth), never the daemon's status snapshot.
 
@@ -21,7 +21,7 @@ pub(super) fn chords_screen(app: &App) -> Element<'_, Message> {
 }
 
 /// One chord bar: the trigger buttons (chips + picker), the action-kind combobox and its detail
-/// (switch mode / command line), and a ✕ to remove the whole chord.
+/// (switch mode / command line), and a x to remove the whole chord.
 fn chord_bar(i: usize, chord: &Chord) -> Element<'static, Message> {
     let trigger = button_chips(
         &chord.buttons,

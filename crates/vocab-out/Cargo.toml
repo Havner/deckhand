@@ -8,7 +8,7 @@ publish.workspace = true
 
 [features]
 default = []
-# Opt-in (de)serialization for the vocabulary enums — enabled by `config` (RON), off for
+# Opt-in (de)serialization for the vocabulary enums - enabled by `config` (RON), off for
 # `virt-out` so the output HAL doesn't pull serde.
 serde = ["dep:serde"]
 

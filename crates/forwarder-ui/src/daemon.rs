@@ -1,15 +1,15 @@
-//! A thin blocking client over `ipc` plus the resilient connect loop — a trimmed copy of the main
+//! A thin blocking client over `ipc` plus the resilient connect loop - a trimmed copy of the main
 //! UI's `daemon.rs`, with the forwarder's **fixed** connect policy baked in (no toggles):
 //!
-//! - **Launch the daemon** if it isn't running (always — the forwarder's whole job is to run a
+//! - **Launch the daemon** if it isn't running (always - the forwarder's whole job is to run a
 //!   client on the Deck), spawned with bare `--prevent-sleep` (= `auto`) so the Deck doesn't
 //!   auto-suspend while forwarding. `auto` is suspend-only, so the Deck screen still blanks on its
-//!   own timer (intentional — saves battery; touch wakes it) — it does NOT hold the screen on. (The
+//!   own timer (intentional - saves battery; touch wakes it) - it does NOT hold the screen on. (The
 //!   flag is Linux-only; accepted-and-ignored elsewhere.)
 //! - **No** profile / chords loading.
 //! - **Push the device config** (master rumble etc.) on every connect.
-//! - **Restore the last input** (only) — the output is set from the text field at Start, never here.
-//! - **Never auto-start** the engine — the user always presses Start.
+//! - **Restore the last input** (only) - the output is set from the text field at Start, never here.
+//! - **Never auto-start** the engine - the user always presses Start.
 //!
 //! Same two-piece shape as the main UI: [`Client`] is a reconnecting command connection; the event
 //! subscription runs on its own connection via [`run_event_loop`].
@@ -24,7 +24,7 @@ use ipc::{Client as IpcClient, Event, Request, Response, StatusSnapshot};
 
 use crate::settings::Settings;
 
-/// Open a fresh connection to the daemon (default socket/pipe — the forwarder never overrides it).
+/// Open a fresh connection to the daemon (default socket/pipe - the forwarder never overrides it).
 #[cfg(unix)]
 fn open(socket: Option<&str>) -> io::Result<IpcClient> {
     let path = socket
@@ -84,7 +84,7 @@ impl Client {
         expect_ok(self.call(Request::SetInput(spec))?)
     }
 
-    /// Stage the output sink (`host:port` — the forwarder's network target).
+    /// Stage the output sink (`host:port` - the forwarder's network target).
     pub(crate) fn set_output(&mut self, spec: String) -> io::Result<()> {
         expect_ok(self.call(Request::SetOutput(spec))?)
     }
@@ -107,7 +107,7 @@ impl Client {
         expect_ok(self.call(Request::Stop)?)
     }
 
-    /// Ask the daemon to exit (graceful teardown — restores lizard mode). Best-effort.
+    /// Ask the daemon to exit (graceful teardown - restores lizard mode). Best-effort.
     pub(crate) fn shutdown(&mut self) -> io::Result<()> {
         expect_ok(self.call(Request::Shutdown)?)
     }
@@ -144,7 +144,7 @@ pub(crate) fn shutdown_managed(managed: &Handle) {
     };
     let Some(mut child) = child else { return };
     if matches!(child.try_wait(), Ok(Some(_))) {
-        return; // already gone (external kill) — nothing to stop
+        return; // already gone (external kill) - nothing to stop
     }
     let _ = Client::new(None).shutdown();
     // Bounded wait so a wedged daemon can't hang UI exit; SIGKILL only as a last resort (it skips
@@ -163,13 +163,13 @@ pub(crate) fn shutdown_managed(managed: &Handle) {
 /// non-fatal errors from the connect/setup sequence.
 #[derive(Debug, Clone)]
 pub(crate) enum DaemonUpdate {
-    /// The event connection was (re)established — seed a fresh status / device list.
+    /// The event connection was (re)established - seed a fresh status / device list.
     Connected,
     /// The event connection dropped (daemon stopped / restarting).
     Disconnected,
     /// A daemon event.
     Event(Event),
-    /// A non-fatal problem during a connect attempt (daemon launch failed, a setup call refused, …).
+    /// A non-fatal problem during a connect attempt (daemon launch failed, a setup call refused, ...).
     Error(String),
 }
 
@@ -178,7 +178,7 @@ const RETRY: Duration = Duration::from_millis(1000);
 /// The resilient connect loop. Runs on a dedicated thread and reconnects forever with a short
 /// backoff; returns when `on` returns `false` (the consumer is shutting down).
 ///
-/// Every attempt performs the forwarder's fixed on-connect sequence — see [`run_on_connect`]. The
+/// Every attempt performs the forwarder's fixed on-connect sequence - see [`run_on_connect`]. The
 /// only setting it consults is the last input (re-read fresh from disk each attempt).
 pub(crate) fn run_event_loop(
     socket: Option<String>,
@@ -217,9 +217,9 @@ pub(crate) fn run_event_loop(
                     return;
                 }
             }
-            // subscribe failed (raced the daemon going away) — fall through and retry.
+            // subscribe failed (raced the daemon going away) - fall through and retry.
         } else {
-            // Not reachable → the forwarder always launches its own daemon.
+            // Not reachable -> the forwarder always launches its own daemon.
             spawn_daemon(socket.as_deref(), &managed, &mut on);
         }
 
@@ -230,10 +230,10 @@ pub(crate) fn run_event_loop(
 /// The forwarder's fixed on-connect sequence, on a fresh command connection. Best-effort: each
 /// failure is reported and the rest still runs.
 ///
-/// 1. Push the device config (fresh from `devcfg.ron` — the master rumble etc.).
+/// 1. Push the device config (fresh from `devcfg.ron` - the master rumble etc.).
 /// 2. Re-stage the last input (only; the output is set from the text field at Start).
 ///
-/// No profile/chords load and no auto-start — those are the forwarder's non-negotiable policy.
+/// No profile/chords load and no auto-start - those are the forwarder's non-negotiable policy.
 fn run_on_connect(socket: Option<&str>, s: &Settings, on: &mut dyn FnMut(DaemonUpdate) -> bool) {
     let mut cmd = Client::new(socket.map(str::to_owned));
     report(on, cmd.set_device_config(crate::device::load()));
@@ -251,14 +251,14 @@ fn spawn_daemon(socket: Option<&str>, managed: &Handle, on: &mut dyn FnMut(Daemo
     let exe = daemon_bin();
     let mut cmd = std::process::Command::new(&exe);
     // The Deck acting as a network forwarder grabs the controller, so the compositor sees no local
-    // input and would auto-suspend mid-session — hold a suspend inhibitor for the daemon's lifetime.
+    // input and would auto-suspend mid-session - hold a suspend inhibitor for the daemon's lifetime.
     // Bare = `auto` (suspend-only; screen still blanks by design). The flag is Linux-only in effect
     // (accepted-and-ignored off-Linux), so it's passed unconditionally.
     cmd.arg("--prevent-sleep");
     if let Some(s) = socket {
         cmd.arg("--socket").arg(s);
     }
-    // GUI-subsystem app with no console (see main.rs) — run the console-subsystem daemon headless so
+    // GUI-subsystem app with no console (see main.rs) - run the console-subsystem daemon headless so
     // it doesn't pop a console window.
     #[cfg(windows)]
     {

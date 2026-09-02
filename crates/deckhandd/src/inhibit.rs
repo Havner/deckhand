@@ -6,17 +6,17 @@
 //! idle/sleep inhibitor on the D-Bus for the daemon's lifetime. Which one depends on `MODE`
 //! (`PreventSleep`), because there is no single interface every environment implements:
 //!
-//! - **`screensaver`** — `org.freedesktop.ScreenSaver` (session bus). Inhibits *idle*, so it stops
+//! - **`screensaver`** - `org.freedesktop.ScreenSaver` (session bus). Inhibits *idle*, so it stops
 //!   auto-suspend **and** screen blanking. Broadly implemented (KDE and others). Cookie-based.
-//! - **`powermanagement`** — `org.freedesktop.PowerManagement.Inhibit` (session bus). Inhibits
-//!   *suspend only* — the screen still blanks. KDE/XFCE/MATE. Cookie-based. **Not on GNOME.**
-//! - **`gnome`** — `org.gnome.SessionManager.Inhibit` with `flags=4` (session bus). Suspend only,
+//! - **`powermanagement`** - `org.freedesktop.PowerManagement.Inhibit` (session bus). Inhibits
+//!   *suspend only* - the screen still blanks. KDE/XFCE/MATE. Cookie-based. **Not on GNOME.**
+//! - **`gnome`** - `org.gnome.SessionManager.Inhibit` with `flags=4` (session bus). Suspend only,
 //!   screen still blanks. GNOME's equivalent of `powermanagement`. Cookie-based.
-//! - **`login1`** — `org.freedesktop.login1.Manager.Inhibit("sleep", …, "block")` (**system** bus).
+//! - **`login1`** - `org.freedesktop.login1.Manager.Inhibit("sleep", ..., "block")` (**system** bus).
 //!   Suspend only, screen still blanks; the lock is held by an open fd, released when it closes.
 //!   Works on any systemd host (incl. no-DE), but a *block* sleep lock may need polkit auth on
 //!   locked-down policies (e.g. SteamOS), and it also blocks *manual* suspend.
-//! - **`auto`** (default) — try `powermanagement`, then `gnome`, then `login1`; first that answers
+//! - **`auto`** (default) - try `powermanagement`, then `gnome`, then `login1`; first that answers
 //!   wins. Skips `screensaver` so the screen stays free to blank.
 //!
 //! All modes are **unprivileged** where available (system bus for `login1`) and **best-effort**: if
@@ -32,7 +32,7 @@ use crate::PreventSleep;
 const APP: &str = "deckhand";
 const REASON: &str = "forwarding controller input";
 /// `org.gnome.SessionManager` inhibit flag bit 4 = "inhibit suspending the session or computer"
-/// (bit 8 would be idle/blank — deliberately not set, so the screen still blanks).
+/// (bit 8 would be idle/blank - deliberately not set, so the screen still blanks).
 const GNOME_INHIBIT_SUSPEND: u32 = 4;
 
 #[zbus::proxy(
@@ -101,7 +101,7 @@ impl SleepInhibitor {
                     .or_else(|| {
                         log::warn!(
                             "prevent-sleep: auto found no working backend \
-                             (tried powermanagement, gnome, login1) — sleep NOT inhibited"
+                             (tried powermanagement, gnome, login1) - sleep NOT inhibited"
                         );
                         None
                     })
@@ -117,7 +117,7 @@ impl SleepInhibitor {
 
     fn warn_if_none(name: &str, held: Option<SleepInhibitor>) -> Option<SleepInhibitor> {
         if held.is_none() {
-            log::warn!("prevent-sleep: {name} backend unavailable — sleep NOT inhibited");
+            log::warn!("prevent-sleep: {name} backend unavailable - sleep NOT inhibited");
         }
         held
     }
@@ -216,7 +216,7 @@ impl Drop for SleepInhibitor {
     }
 }
 
-/// Connect to the session bus, logging (debug) and returning `None` on failure — e.g. a headless
+/// Connect to the session bus, logging (debug) and returning `None` on failure - e.g. a headless
 /// login with no session bus.
 fn session_bus() -> Option<Connection> {
     Connection::session()

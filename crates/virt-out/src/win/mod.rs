@@ -1,9 +1,9 @@
 //! Windows backend: keyboard/mouse via `SendInput`, and a virtual gamepad via a
-//! compile-time-selected **controller backend** ([`vigem`] — a virtual Xbox 360 pad through
+//! compile-time-selected **controller backend** ([`vigem`] - a virtual Xbox 360 pad through
 //! the ViGEmBus driver / the `vigem-client` crate; later `viiper`; or [`none`] when neither
 //! feature is enabled). The gamepad advertises a standard Xbox 360 identity so games see a
 //! normal pad, and game rumble flows back over the backend's notification channel
-//! (PLAN §2.1 FF back-channel).
+//! (PLAN 2.1 FF back-channel).
 //!
 //! Mirrors the Linux backend's [`Sink`] API exactly (`new` / `emit` / `poll_rumble`) so the
 //! engine and the `bridge` example stay platform-agnostic. Only the gamepad path is
@@ -19,7 +19,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
     MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT,
     MapVirtualKeyW, SendInput, VIRTUAL_KEY,
-    // Media / volume / browser keys — a VK but no keyboard scancode (injected by virtual key).
+    // Media / volume / browser keys - a VK but no keyboard scancode (injected by virtual key).
     VK_BROWSER_BACK, VK_BROWSER_FORWARD, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE,
     VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP, VK_VOLUME_DOWN, VK_VOLUME_MUTE, VK_VOLUME_UP,
     VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9,
@@ -42,13 +42,13 @@ use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
 // --- controller backend selection (compile-time, mutually exclusive) ---
 //
 // Exactly one backend type is compiled in, aliased to `Backend`: `vigem` (ViGEmBus pad),
-// `viiper` (VIIPER USB/IP pad), or — with neither feature — the `none` stub, which drops
+// `viiper` (VIIPER USB/IP pad), or - with neither feature - the `none` stub, which drops
 // gamepad output with a warning while kb/mouse keep working. The two real backends are
 // mutually exclusive; enabling both is a build error rather than a silent pick.
 
 #[cfg(all(feature = "vigem", feature = "viiper"))]
 compile_error!(
-    "features `vigem` and `viiper` are mutually exclusive — enable at most one controller backend"
+    "features `vigem` and `viiper` are mutually exclusive - enable at most one controller backend"
 );
 
 #[cfg(feature = "vigem")]
@@ -69,7 +69,7 @@ mod none;
 use none::NoController as Backend;
 
 /// A virtual-controller backend, selected at compile time by feature. The keyboard/mouse
-/// path in [`Sink`] is backend-independent — only gamepad output routes through here.
+/// path in [`Sink`] is backend-independent - only gamepad output routes through here.
 /// Gamepad state is accumulated by `set_button`/`set_axis` and pushed to the OS by `flush`
 /// (once per `emit`, only if something changed). When no backend feature is enabled,
 /// [`none::NoController`] implements this by dropping everything with a warn-once.
@@ -83,12 +83,12 @@ pub(crate) trait ControllerBackend: Sized {
     fn set_axis(&mut self, a: &GamepadAxis, v: f32);
     /// Submit the pending report to the OS iff anything changed since the last flush.
     fn flush(&mut self) -> crate::Result<()>;
-    /// The controller's current rumble (game → pad), zero if nothing is playing.
+    /// The controller's current rumble (game -> pad), zero if nothing is playing.
     fn poll_rumble(&mut self) -> crate::Result<Rumble>;
 }
 
-/// The output sink: realizes [`OutputEvent`]s — keyboard/mouse via `SendInput`, gamepad via
-/// the compile-time [`ControllerBackend`]. Sync — call [`Sink::emit`] from the engine's
+/// The output sink: realizes [`OutputEvent`]s - keyboard/mouse via `SendInput`, gamepad via
+/// the compile-time [`ControllerBackend`]. Sync - call [`Sink::emit`] from the engine's
 /// mapping loop; [`Sink::poll_rumble`] returns the pad's current rumble. Dropping the `Sink`
 /// drops the backend (unplugging the virtual pad, if any).
 pub struct Sink {
@@ -165,14 +165,14 @@ impl Sink {
             let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
             if sent as usize != inputs.len() {
                 // Synthetic input is best-effort: the OS refuses injection (UIPI) while a
-                // higher-integrity or *switching* input desktop owns the foreground — e.g.
+                // higher-integrity or *switching* input desktop owns the foreground - e.g.
                 // a fullscreen/elevated game exiting, or a UAC/secure-desktop prompt. That
                 // shows up as ERROR_ACCESS_DENIED (or, per the SendInput docs, no error set
                 // at all for UIPI). It's transient and environmental, not a fault we can act
                 // on, so drop the frame and carry on rather than tearing down the mapper.
                 // Any other failure is unexpected (likely a malformed INPUT = our bug) and
-                // stays fatal. (A persistent denial — deckhand not elevated vs. an elevated
-                // game — is left for the engine/UI to detect and advise on; PLAN §2.1.)
+                // stays fatal. (A persistent denial - deckhand not elevated vs. an elevated
+                // game - is left for the engine/UI to detect and advise on; PLAN 2.1.)
                 let err = std::io::Error::last_os_error();
                 const ERROR_ACCESS_DENIED: i32 = 5;
                 const ERROR_SUCCESS: i32 = 0;
@@ -188,13 +188,13 @@ impl Sink {
 
     /// Return the virtual pad's current rumble (zero if nothing is playing, or if no
     /// controller backend is compiled in). Non-blocking. Route the result onward to
-    /// real-controller haptics (PLAN §2.1 / §6).
+    /// real-controller haptics (PLAN 2.1 / 6).
     pub fn poll_rumble(&mut self) -> crate::Result<Rumble> {
         self.controller.poll_rumble()
     }
 }
 
-// --- keyboard/mouse → SendInput ---
+// --- keyboard/mouse -> SendInput ---
 
 fn mouse_move_input(dx: i32, dy: i32) -> INPUT {
     mouse_input(dx, dy, 0, MOUSEEVENTF_MOVE)
@@ -214,7 +214,7 @@ fn mouse_button_input(b: &MouseButton, down: bool) -> INPUT {
         (MouseButton::Forward, false) => (MOUSEEVENTF_XUP, XBUTTON2),
         (MouseButton::ScrollUp | MouseButton::ScrollDown | MouseButton::ScrollLeft
         | MouseButton::ScrollRight, _) => {
-            unreachable!("scroll pseudo-buttons are realized as wheel ticks — see scroll_of")
+            unreachable!("scroll pseudo-buttons are realized as wheel ticks - see scroll_of")
         }
     };
     mouse_input(0, 0, data, flags)
@@ -231,7 +231,7 @@ fn scroll_of(b: &MouseButton) -> Option<(i32, bool)> {
     }
 }
 
-/// Wheel `INPUT`. `mouseData` is a signed notch count × `WHEEL_DELTA`, passed as the
+/// Wheel `INPUT`. `mouseData` is a signed notch count x `WHEEL_DELTA`, passed as the
 /// two's-complement `u32` the API expects.
 fn wheel_input(ticks: i32, horizontal: bool) -> INPUT {
     let flags = if horizontal {
@@ -243,7 +243,7 @@ fn wheel_input(ticks: i32, horizontal: bool) -> INPUT {
 }
 
 /// Hi-res wheel `INPUT`: `units` are already in `WHEEL_DELTA` scale (120 = one notch), so they go
-/// straight into `mouseData` — sub-`WHEEL_DELTA` values scroll smoothly in apps that support it.
+/// straight into `mouseData` - sub-`WHEEL_DELTA` values scroll smoothly in apps that support it.
 fn wheel_hires_input(units: i32, horizontal: bool) -> INPUT {
     let flags = if horizontal {
         MOUSEEVENTF_HWHEEL
@@ -279,7 +279,7 @@ const WHEEL_DELTA: i32 = vocab_out::SCROLL_HI_RES_PER_DETENT;
 /// scancodes, not virtual keys): the scancode comes from the VK via `MapVirtualKeyW`, and
 /// extended keys (arrows, right ctrl/alt, meta, nav, numpad slash/enter) get the extended-key
 /// flag so the E0 prefix is set. The media / volume / browser keys are instead injected by
-/// **virtual key** (`is_vk_only`): they *do* have scancodes, but only the **E0-extended** ones —
+/// **virtual key** (`is_vk_only`): they *do* have scancodes, but only the **E0-extended** ones -
 /// injecting that scancode without the E0 prefix collides with an ordinary letter (volume-up's
 /// scancode `0x30` is `B`, volume-down's `0x2E` is `C`), so we bypass the scancode path entirely
 /// and let the shell consume the consumer-control VK. Returns `None` only for keys with no VK at
@@ -297,7 +297,7 @@ fn key_input(k: &Key, down: bool) -> Option<INPUT> {
         }
         (VIRTUAL_KEY(0), scan, f) // wVk ignored when KEYEVENTF_SCANCODE is set
     } else {
-        // Media / volume / browser (or a key Windows gives no scancode) → inject by virtual key
+        // Media / volume / browser (or a key Windows gives no scancode) -> inject by virtual key
         // directly. Plain VK injection (no extended flag) is the proven path for consumer-control
         // VKs; if one doesn't register on some setup, adding `KEYEVENTF_EXTENDEDKEY` here is the
         // first thing to try.
@@ -329,8 +329,8 @@ fn is_extended(k: &Key) -> bool {
 
 /// Keys that must be injected by **virtual key**, never by scancode. The consumer-control keys
 /// (volume, media transport, browser navigation) have only E0-extended scancodes, so the plain
-/// scancode `MapVirtualKeyW` returns would land on an ordinary letter (volume-up `0x30` → `B`,
-/// volume-down `0x2E` → `C`). Injecting the VK lets the shell dispatch the real consumer action.
+/// scancode `MapVirtualKeyW` returns would land on an ordinary letter (volume-up `0x30` -> `B`,
+/// volume-down `0x2E` -> `C`). Injecting the VK lets the shell dispatch the real consumer action.
 fn is_vk_only(k: &Key) -> bool {
     matches!(
         k,
@@ -348,7 +348,7 @@ fn is_vk_only(k: &Key) -> bool {
 
 /// True for keys this backend can't realize: Windows has no virtual key for them at all
 /// (`Compose`, brightness / keyboard-illumination, `MicMute`, and the media-transport keys with
-/// no distinct VK — `Play`/`Rewind`/`FastForward`).
+/// no distinct VK - `Play`/`Rewind`/`FastForward`).
 /// Defined as "`key_vk` has no mapping", so it can never drift from the actual `None` cases.
 /// `key_input` drops these; `emit` logs a warning so a mis-bound key isn't silently swallowed.
 fn is_unsupported(k: &Key) -> bool {
@@ -454,7 +454,7 @@ fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
         Key::KpAsterisk => VK_MULTIPLY,
         Key::KpMinus => VK_SUBTRACT,
         Key::KpPlus => VK_ADD,
-        Key::KpEnter => VK_RETURN, // numpad enter → Return (extended flag set)
+        Key::KpEnter => VK_RETURN, // numpad enter -> Return (extended flag set)
         Key::Kp7 => VK_NUMPAD7,
         Key::Kp8 => VK_NUMPAD8,
         Key::Kp9 => VK_NUMPAD9,
@@ -466,7 +466,7 @@ fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
         Key::Kp3 => VK_NUMPAD3,
         Key::Kp0 => VK_NUMPAD0,
         Key::KpDot => VK_DECIMAL,
-        // Media / volume / browser: `key_input` injects these by virtual key (`is_vk_only`) — their
+        // Media / volume / browser: `key_input` injects these by virtual key (`is_vk_only`) - their
         // only scancodes are E0-extended and would otherwise collide with letter scancodes.
         Key::Mute => VK_VOLUME_MUTE,
         Key::VolumeDown => VK_VOLUME_DOWN,
@@ -477,7 +477,7 @@ fn key_vk(k: &Key) -> Option<VIRTUAL_KEY> {
         Key::StopCd => VK_MEDIA_STOP,
         Key::Back => VK_BROWSER_BACK,
         Key::Forward => VK_BROWSER_FORWARD,
-        // No Windows VK at all (or no exact match) → not injected. `Play`/`Rewind`/`FastForward`
+        // No Windows VK at all (or no exact match) -> not injected. `Play`/`Rewind`/`FastForward`
         // and `MicMute` have no distinct VK; brightness / keyboard illumination aren't virtual
         // keys on Windows.
         Key::Compose

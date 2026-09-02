@@ -1,21 +1,21 @@
-//! Output-side reconciliation + relative accumulation (PLAN §4 / §4.2 S4).
+//! Output-side reconciliation + relative accumulation (PLAN 4 / 4.2 S4).
 //!
-//! The mapper computes, each tick, the **desired output state** — the levels that should be
-//! held *now* ([`DesiredLevels`]) — and the relative nudges (mouse/scroll). Reconciliation
+//! The mapper computes, each tick, the **desired output state** - the levels that should be
+//! held *now* ([`DesiredLevels`]) - and the relative nudges (mouse/scroll). Reconciliation
 //! emits only the **difference** vs the last-applied levels ([`AppliedLevels`]): so a held
 //! output stays held with zero events, a released one emits exactly one up, and a layer
 //! change can't strand a stuck output (the desired set is recomputed fresh each tick).
 //!
-//! Relative outputs are the exception ([`RelAccum`]) — they're deltas, not levels, so they
+//! Relative outputs are the exception ([`RelAccum`]) - they're deltas, not levels, so they
 //! **accumulate** a sub-pixel remainder and emit only the integer part, carrying the fraction
-//! forward (PLAN §4; a real feel improvement validated in the Phase B bridge).
+//! forward (PLAN 4; a real feel improvement validated in the Phase B bridge).
 use std::collections::{BTreeMap, BTreeSet};
 
 use virt_out::OutputEvent;
 use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 /// The desired output **levels** for one tick (what should be held now). Keys/buttons are
-/// membership; axes carry a position. Scroll pseudo-buttons ride this path too — they enter the
+/// membership; axes carry a position. Scroll pseudo-buttons ride this path too - they enter the
 /// mouse-button set like any button, and the backend realizes each **press** (the reconcile's
 /// rising edge) as one wheel tick, no-opping the release (so a hold = one notch, a `Turbo` = one
 /// notch per pulse; there is no meaningful held scroll state to reconcile).
@@ -69,7 +69,7 @@ pub(crate) struct AppliedLevels {
 }
 
 impl AppliedLevels {
-    /// Emit the diff (releases before presses, sorted → deterministic) and adopt `desired`.
+    /// Emit the diff (releases before presses, sorted -> deterministic) and adopt `desired`.
     pub fn reconcile(&mut self, desired: &DesiredLevels, out: &mut Vec<OutputEvent>) {
         diff_set(&self.keys, &desired.keys, out, |k, down| OutputEvent::Key(k.clone(), down));
         diff_set(&self.mouse_buttons, &desired.mouse_buttons, out, |b, down| {
@@ -99,7 +99,7 @@ impl AppliedLevels {
     }
 }
 
-/// Emit releases (applied − desired) then presses (desired − applied). `BTreeSet::difference`
+/// Emit releases (applied - desired) then presses (desired - applied). `BTreeSet::difference`
 /// yields sorted order, so the event stream is deterministic (golden-testable).
 fn diff_set<T: Ord + Clone>(
     applied: &BTreeSet<T>,
@@ -116,8 +116,8 @@ fn diff_set<T: Ord + Clone>(
 }
 
 /// Relative-output accumulator (mouse move + continuous scroll). Emits the integer part and
-/// **carries the fraction forward** so slow/fine motion isn't truncated away (PLAN §4). NOT
-/// anti-drift — it faithfully integrates; bias correction is the behavior's job.
+/// **carries the fraction forward** so slow/fine motion isn't truncated away (PLAN 4). NOT
+/// anti-drift - it faithfully integrates; bias correction is the behavior's job.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct RelAccum {
     mouse_x: f32,
@@ -182,12 +182,12 @@ mod tests {
         applied.reconcile(&d, &mut out);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
-        // Hold A → no events.
+        // Hold A -> no events.
         out.clear();
         applied.reconcile(&d, &mut out);
         assert!(out.is_empty());
 
-        // Release (empty desired) → one up.
+        // Release (empty desired) -> one up.
         out.clear();
         applied.reconcile(&DesiredLevels::default(), &mut out);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
@@ -219,12 +219,12 @@ mod tests {
         applied.reconcile(&d, &mut out);
         assert_eq!(out, vec![OutputEvent::GamepadAxis(GamepadAxis::LeftStickX, 0.5)]);
 
-        // Drop the axis from desired → returns to neutral once.
+        // Drop the axis from desired -> returns to neutral once.
         out.clear();
         applied.reconcile(&DesiredLevels::default(), &mut out);
         assert_eq!(out, vec![OutputEvent::GamepadAxis(GamepadAxis::LeftStickX, 0.0)]);
 
-        // Stays neutral → no further events.
+        // Stays neutral -> no further events.
         out.clear();
         applied.reconcile(&DesiredLevels::default(), &mut out);
         assert!(out.is_empty());
@@ -240,12 +240,12 @@ mod tests {
         acc.flush(&mut out);
         assert!(out.is_empty());
 
-        // +0.6 = 1.2 → emit 1, keep 0.2.
+        // +0.6 = 1.2 -> emit 1, keep 0.2.
         acc.add_mouse(0.6, 0.0);
         acc.flush(&mut out);
         assert_eq!(out, vec![OutputEvent::MouseMove { dx: 1, dy: 0 }]);
 
-        // +0.6 = 0.8 → still nothing.
+        // +0.6 = 0.8 -> still nothing.
         out.clear();
         acc.add_mouse(0.6, 0.0);
         acc.flush(&mut out);

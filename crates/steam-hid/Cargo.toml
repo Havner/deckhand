@@ -8,13 +8,13 @@ publish.workspace = true
 
 [features]
 default = []
-# Opt-in (de)serialization for ControllerState/Report/etc. — used by trace recording
-# and the future network path (PLAN §1.5). Off by default so consumers don't pay for it.
+# Opt-in (de)serialization for ControllerState/Report/etc. - used by trace recording
+# and the future network path (PLAN 1.5). Off by default so consumers don't pay for it.
 serde = ["dep:serde", "bitflags/serde", "vocab-hid/serde"]
 
 [dependencies]
 # The shared input vocabulary (unified controller button bits). steam-hid produces `Button`s from
-# the wire bitfields; `config` names them in chords/gaters — neither depends on the other.
+# the wire bitfields; `config` names them in chords/gaters - neither depends on the other.
 vocab-hid = { path = "../vocab-hid" }
 hidapi.workspace = true
 bitflags.workspace = true
@@ -24,7 +24,7 @@ serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Examples install a Ctrl-C handler so their read loops exit cleanly and run Drop
-# (restore lizard mode) — essential on Windows, where Ctrl-C otherwise aborts the
+# (restore lizard mode) - essential on Windows, where Ctrl-C otherwise aborts the
 # process without running destructors, leaving the controller stuck in lizard-off.
 ctrlc.workspace = true
-# TUI example deps land here when the `tui` example is added (PLAN §1.8).
+# TUI example deps land here when the `tui` example is added (PLAN 1.8).

@@ -1,6 +1,6 @@
 //! System-tray icon + menu.
 //!
-//! Linux uses **ksni** — a pure-Rust StatusNotifierItem over D-Bus (zbus), **no gtk**. (tray-icon's
+//! Linux uses **ksni** - a pure-Rust StatusNotifierItem over D-Bus (zbus), **no gtk**. (tray-icon's
 //! Linux backend pulls gtk3/libappindicator, which shares process-global display state with
 //! iced/wgpu; ksni sidesteps that and drops the gtk system deps entirely.) ksni runs its own D-Bus
 //! service thread; menu clicks arrive through a process-global channel the app drains from a
@@ -12,7 +12,7 @@
 //! same process-global channel the Linux backend uses. The app talks *to* that thread (label update,
 //! shutdown) with `PostThreadMessageW` control messages the loop handles inline.
 //!
-//! macOS still gets the stub — its tray must live on the main thread (tray-icon's Cocoa backend), a
+//! macOS still gets the stub - its tray must live on the main thread (tray-icon's Cocoa backend), a
 //! follow-up.
 
 use std::sync::OnceLock;
@@ -65,7 +65,7 @@ mod imp {
         fn title(&self) -> String {
             "deckhand".into()
         }
-        /// Primary activation (left-click on the icon — on most SNI hosts a double-click, since a
+        /// Primary activation (left-click on the icon - on most SNI hosts a double-click, since a
         /// single click opens the menu): toggle the window like the Show/Hide item.
         fn activate(&mut self, _x: i32, _y: i32) {
             let _ = channel().0.send(MenuAction::ToggleWindow);
@@ -96,7 +96,7 @@ mod imp {
     }
 
     /// A live system tray. Holds the ksni service handle; [`Tray::disable`] removes the icon (the
-    /// handle only holds a weak ref, so dropping it would *not* stop the service — shutdown must be
+    /// handle only holds a weak ref, so dropping it would *not* stop the service - shutdown must be
     /// explicit).
     pub(crate) struct Tray {
         handle: Handle<DeckhandTray>,
@@ -160,13 +160,13 @@ mod imp {
 
     /// Control messages we post to the tray thread's message loop. `WM_APP`-based so they never
     /// collide with the shell/menu window messages tray-icon's hidden window dispatches. `WM_TRAY_LABEL`
-    /// carries the window's hidden-state in `wParam` (!=0 ⇒ hidden ⇒ show "Show").
+    /// carries the window's hidden-state in `wParam` (!=0 => hidden => show "Show").
     const WM_TRAY_LABEL: u32 = WM_APP + 1;
     const WM_TRAY_QUIT: u32 = WM_APP + 2;
 
     /// Process-once init: install the menu + icon event handlers, and opt the process into the system
     /// menu theme. tray-icon/muda store the handlers in a `OnceCell`, so only the first
-    /// `set_event_handler` wins (later calls — including re-enabling the tray — are silently ignored)
+    /// `set_event_handler` wins (later calls - including re-enabling the tray - are silently ignored)
     /// and clearing them is impossible. That's fine: our closures capture nothing but the
     /// process-global [`channel`], so a single permanent install correctly serves every tray the app
     /// creates over its lifetime, and teardown just drops the icon (no handler to remove).
@@ -194,13 +194,13 @@ mod imp {
 
     /// Make tray-icon's **context menu** follow the Windows dark/light setting. That menu is a native
     /// `TrackPopupMenu` popup, which muda's `MenuTheme` does NOT reach (it themes only menu *bars*), so
-    /// its colors come from the process's preferred app mode — light by default. We flip that with the
+    /// its colors come from the process's preferred app mode - light by default. We flip that with the
     /// undocumented uxtheme exports `SetPreferredAppMode` (ordinal 135) + `FlushMenuThemes` (136), the
     /// standard recipe for dark Win32 menus on Windows 10 1903+/11. `AllowDark` = follow the system
     /// (dark only when the user's theme is dark). All best-effort: on older Windows the ordinals are
     /// absent and the menu simply stays light.
     fn follow_system_menu_theme() {
-        /// `PreferredAppMode::AllowDark` — honor the system dark/light setting.
+        /// `PreferredAppMode::AllowDark` - honor the system dark/light setting.
         const ALLOW_DARK: i32 = 1;
         unsafe {
             let Ok(uxtheme) = LoadLibraryW(w!("uxtheme.dll")) else {
@@ -246,7 +246,7 @@ mod imp {
     /// `TrayIcon` drops on the way out, removing the icon from the tray.
     fn run(hidden: bool, ready: mpsc::Sender<Result<u32, String>>) {
         init_once();
-        // `_tray` is the RAII guard: it must stay bound for the loop's lifetime — dropping it removes
+        // `_tray` is the RAII guard: it must stay bound for the loop's lifetime - dropping it removes
         // the icon from the tray.
         let (_tray, toggle) = match build(hidden) {
             Ok(pair) => pair,
@@ -270,7 +270,7 @@ mod imp {
             if ret.0 <= 0 {
                 break;
             }
-            // Thread messages (posted via PostThreadMessageW) have a null hwnd — our control channel.
+            // Thread messages (posted via PostThreadMessageW) have a null hwnd - our control channel.
             if msg.hwnd.0.is_null() {
                 match msg.message {
                     WM_TRAY_LABEL => {
@@ -286,7 +286,7 @@ mod imp {
                 DispatchMessageW(&msg);
             }
         }
-        // `_tray` drops here → icon removed. Handlers stay installed (see `HANDLERS`); with no icon
+        // `_tray` drops here -> icon removed. Handlers stay installed (see `HANDLERS`); with no icon
         // alive they simply never fire.
     }
 

@@ -1,8 +1,8 @@
-//! The control-plane messages (PLAN §4.4). A client sends a [`Request`]; the daemon replies with
+//! The control-plane messages (PLAN 4.4). A client sends a [`Request`]; the daemon replies with
 //! a [`Response`]. After a [`Request::Subscribe`], the daemon instead streams [`Event`]s on that
 //! connection. All are serialized with `postcard` (see [`crate::codec`]).
 //!
-//! These are the wire vocabulary — deliberately *not* the engine's own types (the crate never
+//! These are the wire vocabulary - deliberately *not* the engine's own types (the crate never
 //! depends on `engine`). Selection specs travel as strings the daemon parses (the same grammar as
 //! its `-i`/`-o` CLI); config travels as [`config::ConfigDoc`] (the daemon compiles it).
 
@@ -19,8 +19,8 @@ pub enum ProfileRole {
 /// A request from a client to the daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
-    /// Apply a profile to a role, or **clear** it (`config: None` → the role reverts to `None`, so
-    /// the other role takes over live — clearing `main` reactivates `fallback`). The daemon
+    /// Apply a profile to a role, or **clear** it (`config: None` -> the role reverts to `None`, so
+    /// the other role takes over live - clearing `main` reactivates `fallback`). The daemon
     /// **compiles** a shipped `ConfigDoc`; on failure it replies [`Response::Diagnostics`] (not
     /// applied), on success [`Response::Ok`]. Boxed to keep the enum small.
     Apply { role: ProfileRole, config: Option<Box<ConfigDoc>> },
@@ -28,16 +28,16 @@ pub enum Request {
     SetChords(Option<Chords>),
     /// Replace the device config (LED/idle, master rumble, frequency).
     SetDeviceConfig(DeviceConfig),
-    /// Stage the input source — spec string `dongle|wired|<device-id>|host:port` (the daemon
+    /// Stage the input source - spec string `dongle|wired|<device-id>|host:port` (the daemon
     /// parses it, same grammar as `-i`). Applied at the next `Start`.
     SetInput(String),
-    /// Stage the output sink — spec string `local|host:port`. Applied at the next `Start`.
+    /// Stage the output sink - spec string `local|host:port`. Applied at the next `Start`.
     SetOutput(String),
     /// Acquire hardware and run the mapping loop.
     Start,
     /// Halt the loop and release hardware; config is retained.
     Stop,
-    /// Full teardown — the daemon exits.
+    /// Full teardown - the daemon exits.
     Shutdown,
     /// List the currently-enumerated devices.
     ListDevices,
@@ -53,14 +53,14 @@ pub enum Request {
 pub enum Response {
     /// The request succeeded with no payload.
     Ok,
-    /// The request failed (a human-readable reason — bad spec, not ready, I/O, …).
+    /// The request failed (a human-readable reason - bad spec, not ready, I/O, ...).
     Error(String),
     /// Compile diagnostics for an [`Request::Apply`] that was **rejected** (errors present, not
-    /// applied); each string is severity-prefixed (`error: …` / `warning: …`).
+    /// applied); each string is severity-prefixed (`error: ...` / `warning: ...`).
     Diagnostics(Vec<String>),
     /// The enumerated devices as their stable **`DeviceId` strings** (reply to
-    /// [`Request::ListDevices`]) — each is both the display label (`gordon:dongle:1:` is
-    /// self-describing) and the token to pass back as `SetInput`/select-device (PLAN §4.3).
+    /// [`Request::ListDevices`]) - each is both the display label (`gordon:dongle:1:` is
+    /// self-describing) and the token to pass back as `SetInput`/select-device (PLAN 4.3).
     Devices(Vec<String>),
     /// Engine status (reply to [`Request::Status`]).
     Status(StatusSnapshot),
@@ -77,7 +77,7 @@ pub enum RunState {
 /// The bound device on the wire: its stable id string plus the [`Shape`] the daemon derives from
 /// the device's kind, so a UI can render device-specific inputs without re-parsing the id (the
 /// engine's typed `DeviceId`/`DeviceKind` don't cross the wire). `id` and `shape` always travel
-/// together — both come from the one device, so neither is optional; the "nothing bound" case is the
+/// together - both come from the one device, so neither is optional; the "nothing bound" case is the
 /// `Option<BoundDevice>` around this struct, never a missing field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundDevice {
@@ -93,13 +93,13 @@ pub struct BoundDevice {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusSnapshot {
     pub state: RunState,
-    /// The staged output spec — always set (defaults to `local`).
+    /// The staged output spec - always set (defaults to `local`).
     pub output: String,
-    /// The staged input spec — always set (defaults to `auto`). Round-trips: pass it back verbatim
+    /// The staged input spec - always set (defaults to `auto`). Round-trips: pass it back verbatim
     /// as `SetInput` to reselect the same source.
     pub input: String,
-    /// The **bound** device id — the concrete device the running loop resolved and is using (or
-    /// reacquiring while `WaitingForDevice`) — or `None` when idle. Distinct from `input`, which is
+    /// The **bound** device id - the concrete device the running loop resolved and is using (or
+    /// reacquiring while `WaitingForDevice`) - or `None` when idle. Distinct from `input`, which is
     /// the staged *selection* (possibly a policy like `auto`); this is what's actually in use, so a
     /// client connecting to a running daemon learns the current device (and its [`Shape`]).
     pub bound: Option<BoundDevice>,
@@ -126,43 +126,43 @@ pub struct StatusSnapshot {
     pub chords: Option<Chords>,
 }
 
-/// An asynchronous event pushed to a subscribed connection (PLAN §4.3, D7). A future native
-/// device-hotplug push (udev / `WM_DEVICECHANGE`) could add `DeviceAdded`/`Removed` — dropped as
-/// YAGNI (on-demand `list-devices` + a UI refresh cover topology; see §4.3).
+/// An asynchronous event pushed to a subscribed connection (PLAN 4.3, D7). A future native
+/// device-hotplug push (udev / `WM_DEVICECHANGE`) could add `DeviceAdded`/`Removed` - dropped as
+/// YAGNI (on-demand `list-devices` + a UI refresh cover topology; see 4.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
     /// The bound controller's presence changed (`true` = connected). Absolute value.
     ControllerConnected(bool),
     /// The bound controller's battery charge changed (wireless only). Absolute value.
     Battery { percent: u8 },
-    /// The binding was torn down (engine stopped, nothing bound; → `Idle`). Brackets
+    /// The binding was torn down (engine stopped, nothing bound; -> `Idle`). Brackets
     /// `BindingAcquired`; a transport outage does not emit this (surfaces as `WaitingForDevice`).
     BindingRemoved,
     /// A device was acquired as the bound input at start (id + [`Shape`]). Not re-emitted on reacquire.
     BindingAcquired(BoundDevice),
     /// The run state changed.
     State(RunState),
-    /// The live role switched (chord flip, or the initial role at start). Absolute value — the
+    /// The live role switched (chord flip, or the initial role at start). Absolute value - the
     /// profile-mode parallel of [`State`](Self::State).
     ActiveRole(ProfileRole),
     /// The staged input selection changed (spec string; takes effect at the next start).
     InputStaged(String),
     /// The staged output selection changed (spec string; takes effect at the next start).
     OutputStaged(String),
-    /// A program was applied to a role — the role plus the program's name (`None` if cleared).
+    /// A program was applied to a role - the role plus the program's name (`None` if cleared).
     ProfileSet { role: ProfileRole, name: Option<String> },
-    /// The chords were set — the whole set, `None` = none (mirrors [`StatusSnapshot::chords`]).
+    /// The chords were set - the whole set, `None` = none (mirrors [`StatusSnapshot::chords`]).
     ChordsSet(Option<Chords>),
-    /// The device config was set — the whole new config (mirrors [`StatusSnapshot::device_config`]).
+    /// The device config was set - the whole new config (mirrors [`StatusSnapshot::device_config`]).
     DeviceConfigSet(DeviceConfig),
 
-    // --- Live layer-stack view — the ONLY events NOT mirrored in `StatusSnapshot`. A transient
+    // --- Live layer-stack view - the ONLY events NOT mirrored in `StatusSnapshot`. A transient
     // debug/awareness view of the effective layer stack, read through `monitor`; not seeded on
     // connect. Absolute-valued (each carries the full new set; the engine emits only on a change). ---
-    /// The active action set changed — its name.
+    /// The active action set changed - its name.
     ActiveSet(String),
-    /// The held-layer set (`HoldLayer`) changed — the full new set of names (empty = none).
+    /// The held-layer set (`HoldLayer`) changed - the full new set of names (empty = none).
     HeldLayers(Vec<String>),
-    /// The persistent-layer set (`AddLayer`/`RemoveLayer`) changed — the full new set of names.
+    /// The persistent-layer set (`AddLayer`/`RemoveLayer`) changed - the full new set of names.
     PersistentLayers(Vec<String>),
 }

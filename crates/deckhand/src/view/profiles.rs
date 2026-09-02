@@ -1,4 +1,4 @@
-//! Profiles screen — profile *management*: pick a profile (from the directory or off-disk), then
+//! Profiles screen - profile *management*: pick a profile (from the directory or off-disk), then
 //! send it to / clear a daemon role, or load it for editing / unload it.
 
 use std::path::Path;
@@ -26,7 +26,7 @@ pub(super) fn profiles_screen(app: &App) -> Element<'_, Message> {
     let disk = button(text("Select from disk")).style(button::secondary).on_press(Message::ProfileBrowse);
     let row1 = row![refresh, combo, disk].spacing(8.0).align_y(Center);
 
-    // The full resolved path of the current selection — the unambiguous "this is what the buttons
+    // The full resolved path of the current selection - the unambiguous "this is what the buttons
     // below act on" line (a placeholder when nothing is selected). Kept at the normal text color;
     // the small size alone reads as secondary (the muted role was near-invisible).
     let caption: Element<'_, Message> = match app.selected_profile_path() {
@@ -35,9 +35,9 @@ pub(super) fn profiles_screen(app: &App) -> Element<'_, Message> {
     };
     let selector = column![row1, caption].spacing(4.0);
 
-    // A 2×4 grid of equal-width action buttons. `on` gates the button (no `on_press` → greyed).
+    // A 2x4 grid of equal-width action buttons. `on` gates the button (no `on_press` -> greyed).
     // A short fixed gap between the left pair (role assign/clear) and the right pair (duplicate/
-    // create · edit/unload) visually groups the two halves without a full empty column.
+    // create * edit/unload) visually groups the two halves without a full empty column.
     let cell = |label, style: fn(&Theme, button::Status) -> button::Style, msg, on: bool| {
         let b = button(text(label).center()).width(Fill).style(style);
         if on { b.on_press(msg) } else { b }
@@ -52,7 +52,7 @@ pub(super) fn profiles_screen(app: &App) -> Element<'_, Message> {
         .as_ref()
         .map(|s| (s.main.clone(), s.fallback.clone()))
         .unwrap_or((None, None));
-    // Top row: act on the **selected on-disk** profile (need a selection) · Duplicate it · Edit it.
+    // Top row: act on the **selected on-disk** profile (need a selection) * Duplicate it * Edit it.
     let grid_top = row![
         cell("Set file as Main", button::success, Message::SendProfile(ProfileRole::Main), has_sel),
         cell("Set file as Fallback", button::primary, Message::SendProfile(ProfileRole::Fallback), has_sel),
@@ -61,7 +61,7 @@ pub(super) fn profiles_screen(app: &App) -> Element<'_, Message> {
         cell("Edit profile", button::warning, Message::EditProfile, has_sel),
     ]
     .spacing(8.0);
-    // Bottom row: clear a role (only when that role has a profile) · Create new (always) · unload
+    // Bottom row: clear a role (only when that role has a profile) * Create new (always) * unload
     // the loaded profile.
     let grid_bot = row![
         cell("Clear Main", button::secondary, Message::ClearProfile(ProfileRole::Main), main.is_some()),
@@ -72,9 +72,9 @@ pub(super) fn profiles_screen(app: &App) -> Element<'_, Message> {
     ]
     .spacing(8.0);
 
-    // The role assignments, mirrored here so you have context while managing/editing — e.g. what
-    // "Set as …" would replace. Mirrors the bottom bar; `—` when empty/disconnected. A green ▶ marks
-    // the **live** role (from `status.active`; literal — may sit on an empty role), in a fixed-width
+    // The role assignments, mirrored here so you have context while managing/editing - e.g. what
+    // "Set as ..." would replace. Mirrors the bottom bar; `-` when empty/disconnected. A green ▶ marks
+    // the **live** role (from `status.active`; literal - may sit on an empty role), in a fixed-width
     // leading slot so both lines align; absent entirely when the engine is stopped (`active: None`).
     let active = app.status.as_ref().and_then(|s| s.active);
     let applied_row = |label: String, is_active: bool| -> Element<'_, Message> {
@@ -102,7 +102,7 @@ pub(super) fn profiles_screen(app: &App) -> Element<'_, Message> {
         group_header("Additional information"),
         // The arrow is inline in flowing body text, so it can't take the symbol-font pin `icon()`
         // gives the standalone marker (one font per text widget). Use the non-emoji pointer `►`
-        // (U+25BA) rather than the marker's `▶` (U+25B6) so it stays monochrome on Windows too —
+        // (U+25BA) rather than the marker's `▶` (U+25B6) so it stays monochrome on Windows too -
         // cosmic-text's fallback would otherwise resolve `▶` through the colour emoji font.
         body(
             "The active profile (Main or Fallback) can be switched with chords (see the \

@@ -2,7 +2,7 @@
 //! address, a master-rumble slider, and a bottom status bar.
 //!
 //! Everything is one window (no tray, no sidebar, no pages). The bottom bar is a trimmed version of
-//! the main UI's — just daemon status, state, device, and error (no profiles/chords).
+//! the main UI's - just daemon status, state, device, and error (no profiles/chords).
 
 use iced::widget::{
     Space, button, checkbox, column, container, pick_list, row, scrollable, slider, text,
@@ -19,7 +19,7 @@ use crate::{
 
 /// The whole window: content pane on top, status bar at the bottom.
 pub(crate) fn view(app: &App) -> Element<'_, Message> {
-    // The content scrolls if the 2× UI scale leaves it taller than the window's logical height.
+    // The content scrolls if the 2x UI scale leaves it taller than the window's logical height.
     column![
         scrollable(container(content(app)).padding(16.0).width(Fill))
             .width(Fill)
@@ -39,7 +39,7 @@ fn content(app: &App) -> Element<'_, Message> {
 
 // --- controls row ---------------------------------------------------------------------------
 
-/// Refresh · Input picker · Output text field · Start/Stop — the forwarder's version of the main
+/// Refresh * Input picker * Output text field * Start/Stop - the forwarder's version of the main
 /// UI's daemon bar (input has no `<network>` entry; output is a free `ip:port` text field).
 fn controls(app: &App) -> Element<'_, Message> {
     let state = app.status.as_ref().map(|s| s.state);
@@ -49,7 +49,7 @@ fn controls(app: &App) -> Element<'_, Message> {
 
     let refresh = button(text("⟳")).on_press(Message::Refresh);
 
-    // Input presets + the daemon's live device ids (no `<network>` — a forwarder reads a local pad).
+    // Input presets + the daemon's live device ids (no `<network>` - a forwarder reads a local pad).
     let mut inputs: Vec<String> = INPUT_PRESETS.iter().map(|s| s.to_string()).collect();
     inputs.extend(app.devices.iter().cloned());
     let selected_input = app.status.as_ref().map(|s| s.input.clone());
@@ -59,7 +59,7 @@ fn controls(app: &App) -> Element<'_, Message> {
         .menu_style(style::combo_menu)
         .width(160.0);
 
-    // Output is a free text field (edited live, applied only at Start) — not driven by the daemon.
+    // Output is a free text field (edited live, applied only at Start) - not driven by the daemon.
     let output = text_input("ip:port", &app.output_text)
         .on_input(Message::OutputChanged)
         .width(Fill);
@@ -89,7 +89,7 @@ fn controls(app: &App) -> Element<'_, Message> {
 
 // --- keypad ---------------------------------------------------------------------------------
 
-/// The on-screen numeric keypad. A 3×4 phone grid (`1-9`, then `. 0 :`) with a tall backspace beside
+/// The on-screen numeric keypad. A 3x4 phone grid (`1-9`, then `. 0 :`) with a tall backspace beside
 /// it. Every key edits the output field in place, regardless of focus.
 fn keypad() -> Element<'static, Message> {
     const ROWS: [[char; 3]; 4] = [
@@ -130,14 +130,14 @@ fn key(c: char) -> Element<'static, Message> {
 
 // --- rumble ---------------------------------------------------------------------------------
 
-/// The rumble settings for the **bound** device — the same levers the main UI's Device page shows
+/// The rumble settings for the **bound** device - the same levers the main UI's Device page shows
 /// (Gordon = pulse duty + frequency; Neptune/Triton = per-motor speed + gain), but only for whatever
 /// controller is bound, with no device-name header and **nothing at all before a device is bound**
-/// (there is no global master rumble — each device's levers scale its own strength).
+/// (there is no global master rumble - each device's levers scale its own strength).
 fn rumble(app: &App) -> Element<'_, Message> {
     let d = &app.device_config;
     let Some(shape) = app.status.as_ref().and_then(|s| s.bound.as_ref()).map(|b| &b.shape) else {
-        // Nothing bound → no rumble UI (an empty element).
+        // Nothing bound -> no rumble UI (an empty element).
         return column![].into();
     };
     let rows = match shape {
@@ -157,7 +157,7 @@ fn rumble(app: &App) -> Element<'_, Message> {
     rows.spacing(16.0).into()
 }
 
-/// The Gordon rumble-frequency row (30–150 Hz pulse-train rate).
+/// The Gordon rumble-frequency row (30-150 Hz pulse-train rate).
 fn frequency_row(hz: u16) -> Element<'static, Message> {
     row![
         setting_label("Frequency"),
@@ -169,7 +169,7 @@ fn frequency_row(hz: u16) -> Element<'static, Message> {
     .into()
 }
 
-/// A **speed/rate** lever row (percent). The checkbox toggles fixed↔scaled: fixed shows one slider,
+/// A **speed/rate** lever row (percent). The checkbox toggles fixed<->scaled: fixed shows one slider,
 /// scaled shows a min + max pair. `id` routes every edit to the right lever.
 fn speed_lever_row<'a>(
     label: &'static str,
@@ -205,7 +205,7 @@ fn gain_lever_row<'a>(
     lever: &Lever<i8>,
     id: RumbleLeverId,
 ) -> Element<'a, Message> {
-    // `slider`'s wrapper requires `From<u8>`, which `i8` lacks — drive the dB sliders as `i16` (the
+    // `slider`'s wrapper requires `From<u8>`, which `i8` lacks - drive the dB sliders as `i16` (the
     // message already carries `i16`); the readouts use the underlying `i8`.
     let range = GAIN_MIN_DB as i16..=GAIN_MAX_DB as i16;
     let controls: Element<'a, Message> = match *lever {

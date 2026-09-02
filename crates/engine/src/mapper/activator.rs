@@ -1,11 +1,11 @@
-//! Activator state — the retained per-command latches + node timing the activator state
-//! machine runs on (PLAN §4 step 5, §4.2 S7).
+//! Activator state - the retained per-command latches + node timing the activator state
+//! machine runs on (PLAN 4 step 5, 4.2 S7).
 //!
-//! The table is keyed by **source → winning binding**: a source's activator state is reset the
+//! The table is keyed by **source -> winning binding**: a source's activator state is reset the
 //! moment its winning binding changes (a layer swap), so a long-press started under one binding
-//! can't bleed into another (PLAN §4). Within a source, one [`SlotState`] tracks each
-//! button-like node the binding exposes — the button itself, or a behavior's virtual buttons
-//! (soft-pull, outer-ring, dpad directions, button-pad members) — indexed by a fixed slot order
+//! can't bleed into another (PLAN 4). Within a source, one [`SlotState`] tracks each
+//! button-like node the binding exposes - the button itself, or a behavior's virtual buttons
+//! (soft-pull, outer-ring, dpad directions, button-pad members) - indexed by a fixed slot order
 //! the behavior code owns.
 
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ use config::InputSource;
 use super::Tick;
 use crate::program::LayerId;
 
-/// Which binding won for a source — part of the activator identity, so a change resets state.
+/// Which binding won for a source - part of the activator identity, so a change resets state.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) enum BindingKey {
     #[default]
@@ -42,7 +42,7 @@ impl Activators {
     }
 }
 
-/// A source's activator state — one [`SlotState`] per button-like node, grown lazily by index.
+/// A source's activator state - one [`SlotState`] per button-like node, grown lazily by index.
 #[derive(Default)]
 pub(super) struct SourceActivators {
     key: BindingKey,
@@ -64,9 +64,9 @@ impl SourceActivators {
 pub(super) struct SlotState {
     /// This node's held-state last tick, for digital edge detection (`cur & !prev`).
     pub(super) prev_held: bool,
-    /// When the current press began (`None` while released) — the `Long` timer base.
+    /// When the current press began (`None` while released) - the `Long` timer base.
     pub(super) press_start: Option<Tick>,
-    /// The **previous** press's start, retained across release — `Double`'s press-to-press window
+    /// The **previous** press's start, retained across release - `Double`'s press-to-press window
     /// base (a double = second press within `window_ms` of the *first press*, not its release).
     pub(super) last_press: Option<Tick>,
     commands: Vec<CmdState>,
@@ -85,12 +85,12 @@ impl SlotState {
 /// Per-command latch state carried across ticks.
 #[derive(Default, Clone)]
 pub(super) struct CmdState {
-    /// A tap-style output window — one-shot `Start`/`Release` taps, and the interruptible-`Regular`
-    /// tap once it commits — held until this stamp.
+    /// A tap-style output window - one-shot `Start`/`Release` taps, and the interruptible-`Regular`
+    /// tap once it commits - held until this stamp.
     pub(super) tap_until: Option<Tick>,
     /// `Double`: the current press qualified as the second-within-window and is held.
     pub(super) double_active: bool,
-    /// `Double`: the previous press completed a double, so it can't also open the next one — doubles
+    /// `Double`: the previous press completed a double, so it can't also open the next one - doubles
     /// form in separate cycles (a triple click = one double + one single, not two overlapping ones).
     pub(super) double_completed: bool,
     /// Interruptible-`Regular` deferral state, and its interaction's first-press time.
@@ -101,9 +101,9 @@ pub(super) struct CmdState {
     pub(super) raw_prev: bool,
     /// `turbo`: when the current pulse train started (`None` while inactive).
     pub(super) turbo_start: Option<Tick>,
-    /// The command's previous-tick output level — the edge source shared by command-haptic pulses
+    /// The command's previous-tick output level - the edge source shared by command-haptic pulses
     /// and by the persistent layer/set ops (which fire once, on the rising edge, not every held tick
-    /// — so a `Regular` tap's `TAP_MS` tail doesn't re-apply them).
+    /// - so a `Regular` tap's `TAP_MS` tail doesn't re-apply them).
     pub(super) prev_out: bool,
 }
 
@@ -116,7 +116,7 @@ pub(super) enum Deferred {
     /// (any leftover tap is still honoured via `tap_until`).
     #[default]
     Idle,
-    /// Pressed, not yet resolved — could still be interrupted, or commit to a hold or a tap.
+    /// Pressed, not yet resolved - could still be interrupted, or commit to a hold or a tap.
     Pending,
     /// Committed to a real press-and-hold (safe while still held); outputs until release.
     Holding,

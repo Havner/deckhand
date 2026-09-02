@@ -1,8 +1,8 @@
-//! Events: the streaming, change-driven view over the frame stream (PLAN §1.5).
+//! Events: the streaming, change-driven view over the frame stream (PLAN 1.5).
 //!
 //! [`Event`]s are a convenience for change-log consumers (the `dump` example, a
-//! future UI binding-capture). The engine does **not** use this path — it reads
-//! snapshots and does its own exact button-edge detection (PLAN §1.5, §4).
+//! future UI binding-capture). The engine does **not** use this path - it reads
+//! snapshots and does its own exact button-edge detection (PLAN 1.5, 4).
 
 use std::collections::VecDeque;
 
@@ -15,10 +15,10 @@ use serde::{Deserialize, Serialize};
 
 /// Deadband applied to analog axes before an [`Event::AxisChanged`] is emitted,
 /// so a change-log doesn't spew at the full stream rate on sensor noise. This is
-/// cosmetic and analog-only — it never touches the snapshot path (PLAN §1.5).
+/// cosmetic and analog-only - it never touches the snapshot path (PLAN 1.5).
 const AXIS_DEADBAND: f32 = 0.005;
 
-/// A change-driven event derived from the frame stream (PLAN §1.5).
+/// A change-driven event derived from the frame stream (PLAN 1.5).
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Event {
@@ -32,7 +32,7 @@ pub enum Event {
 }
 
 impl ControllerState {
-    /// Stateless diff: events for the transition from `prev` to `self` (PLAN §1.5).
+    /// Stateless diff: events for the transition from `prev` to `self` (PLAN 1.5).
     ///
     /// Digital buttons are exact bit flips; analog axes apply [`AXIS_DEADBAND`].
     pub fn diff(&self, prev: &Self) -> impl Iterator<Item = Event> {
@@ -64,7 +64,7 @@ impl ControllerState {
     }
 }
 
-/// Streaming iterator of [`Event`]s over a [`Device`] (PLAN §1.5).
+/// Streaming iterator of [`Event`]s over a [`Device`] (PLAN 1.5).
 ///
 /// Holds an internal previous snapshot and yields diffs for input frames plus
 /// passthrough for lifecycle frames. Ends (returns `None`) on a read error.

@@ -1,8 +1,8 @@
-//! `getters` — exercise the read-only GET round-trips, showing **what was requested vs what came
+//! `getters` - exercise the read-only GET round-trips, showing **what was requested vs what came
 //! back**: serials (`GET_STRING_ATTRIBUTE`), read-only attributes (`GET_ATTRIBUTES_VALUES`), and a
 //! few settings (`GET_SETTINGS_VALUES`). Safe reads only, no writes.
 //!
-//! Attributes and settings are both `const` ids (per the protocol.rs const-vs-enum rule — inbound /
+//! Attributes and settings are both `const` ids (per the protocol.rs const-vs-enum rule - inbound /
 //! dispatched-on tags are consts, not enums), so they're labelled by name against a local `(name, id)`
 //! table. HW-verified on Gordon (dongle). The dongle's feature endpoint is flaky under back-to-back
 //! I/O, so the getters re-send + settle + validate each reply (see `Device::get_roundtrip`).
@@ -14,7 +14,7 @@ mod common;
 
 use steam_hid::{ControllerStringAttributes, Manager, Result};
 
-/// Read-only attribute tags — `(name, id)` from `protocol::attribute` (a private const module, so
+/// Read-only attribute tags - `(name, id)` from `protocol::attribute` (a private const module, so
 /// spelled out). `GET_ATTRIBUTES_VALUES` returns the full set; this names each tag that comes back.
 const ATTRIBUTES: [(&str, u8); 12] = [
     ("UniqueId", 0),
@@ -31,7 +31,7 @@ const ATTRIBUTES: [(&str, u8); 12] = [
     ("ConnectionIntervalInUs", 11),
 ];
 
-/// Settings to request — `(name, id)` from `protocol::setting` (a private const module, so spelled
+/// Settings to request - `(name, id)` from `protocol::setting` (a private const module, so spelled
 /// out): 45 LED_USER_BRIGHTNESS, 48 IMU_MODE, 50 SLEEP_INACTIVITY_TIMEOUT, 71 STEAM_WATCHDOG_ENABLE.
 const WANT_SETTINGS: [(&str, u8); 4] = [
     ("LedUserBrightness", 45),
@@ -43,7 +43,7 @@ const WANT_SETTINGS: [(&str, u8); 4] = [
 fn main() -> Result<()> {
     let mut manager = Manager::new()?;
     let Some((desc, mut device)) = common::select_device(&mut manager)? else {
-        println!("No matching controller found — connected/on?");
+        println!("No matching controller found - connected/on?");
         return Ok(());
     };
     println!("selected {desc}");
@@ -56,7 +56,7 @@ fn main() -> Result<()> {
         }
     }
 
-    println!("\n== attributes  (GET_ATTRIBUTES_VALUES 0x83 — full set) ==");
+    println!("\n== attributes  (GET_ATTRIBUTES_VALUES 0x83 - full set) ==");
     match device.get_attributes() {
         Ok(attrs) => {
             for (tag, value) in attrs {

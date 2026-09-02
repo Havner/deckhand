@@ -1,22 +1,22 @@
-//! `example_profiles` — build real `ConfigDoc`s (a **game** profile and a **desktop** profile)
+//! `example_profiles` - build real `ConfigDoc`s (a **game** profile and a **desktop** profile)
 //! plus a `DeviceConfig`, and write them to RON. A worked example of the whole config model and
 //! the source of the profiles `deckhand-run` drives for manual testing.
 //!
 //! - `desktop_profile` is a keyboard/mouse mapping for the fallback (desktop) role.
-//! - `cp2077_profile` mirrors `crates/virt-out/examples/bridge.rs` (Gordon → virtual Xbox pad +
-//!   kbd/mouse + gyro-mouse): a mode-shift **layer** (left stick → right stick while the right
+//! - `cp2077_profile` mirrors `crates/virt-out/examples/bridge.rs` (Gordon -> virtual Xbox pad +
+//!   kbd/mouse + gyro-mouse): a mode-shift **layer** (left stick -> right stick while the right
 //!   pad is clicked), gyro gated by the left full-pull (vertical inverted, as in the bridge).
 //! - `device_config` carries the per-device rumble shaping; `chords` carries the
 //!   **Steam/QuickAccess + grip** profile-switch chords.
 //!
 //! Run `cargo run -p config --example example_profiles [out_dir]` to write the profiles into
-//! `<out_dir>/profiles/` and `devcfg.ron` into `<out_dir>` — the same layout the UI uses under
+//! `<out_dir>/profiles/` and `devcfg.ron` into `<out_dir>` - the same layout the UI uses under
 //! `$XDG_CONFIG_HOME/deckhand`, so `out_dir` can be your deckhand config dir (defaults to the temp
 //! dir). The test builds each and checks it validates and round-trips.
 //!
 //! Deliberately **verbose**: every binding is spelled out in full so any single one can be
 //! retuned without touching a shared builder. Only the leaf action constructors (`pad`/`key`/
-//! `mouse`) are kept — they embed no settings, so editing one binding never affects another.
+//! `mouse`) are kept - they embed no settings, so editing one binding never affects another.
 
 use std::collections::BTreeMap;
 
@@ -78,7 +78,7 @@ pub fn desktop_profile() -> ConfigDoc {
 
     // ----- BUTTONS -----
 
-    // Face diamond → navigation keys (up = Y, down = A, left = X, right = B).
+    // Face diamond -> navigation keys (up = Y, down = A, left = X, right = B).
     base.insert(
         InputSource::FaceButtons,
         SourceBinding::ButtonPad {
@@ -105,7 +105,7 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
-    // D-Pad → arrows.
+    // D-Pad -> arrows.
     base.insert(
         InputSource::DPad,
         SourceBinding::ButtonPad {
@@ -132,7 +132,7 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
-    // Left bumper → Backspace.
+    // Left bumper -> Backspace.
     base.insert(
         InputSource::LeftBumper,
         SourceBinding::Button {
@@ -143,7 +143,7 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right bumper → Space.
+    // Right bumper -> Space.
     base.insert(
         InputSource::RightBumper,
         SourceBinding::Button {
@@ -155,7 +155,7 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
-    // Left grip → Shift.
+    // Left grip -> Shift.
     base.insert(
         InputSource::LeftGrip,
         SourceBinding::Button {
@@ -166,7 +166,7 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Left grip → Ctrl.
+    // Left grip -> Ctrl.
     base.insert(
         InputSource::LeftGrip2,
         SourceBinding::Button {
@@ -177,7 +177,7 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right grip → Ctrl+C combo.
+    // Right grip -> Ctrl+C combo.
     base.insert(
         InputSource::RightGrip,
         SourceBinding::Button {
@@ -188,7 +188,7 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right grip2 → Ctrl+V combo.
+    // Right grip2 -> Ctrl+V combo.
     base.insert(
         InputSource::RightGrip2,
         SourceBinding::Button {
@@ -200,7 +200,7 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
-    // View → Alt.
+    // View -> Alt.
     base.insert(
         InputSource::View,
         SourceBinding::Button {
@@ -211,7 +211,7 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Menu → Tab.
+    // Menu -> Tab.
     base.insert(
         InputSource::Menu,
         SourceBinding::Button {
@@ -222,7 +222,7 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Steam button → system_keys layer.
+    // Steam button -> system_keys layer.
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
@@ -233,7 +233,7 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Quick access button → none (toggle profile).
+    // Quick access button -> none (toggle profile).
     base.insert(
         InputSource::QuickAccess,
         SourceBinding::None,
@@ -241,8 +241,8 @@ pub fn desktop_profile() -> ConfigDoc {
 
     // ----- TRIGGERS -----
 
-    // Right trigger soft-pull → left mouse click (haptic tick on press and release). Output `None`
-    // so the trigger drives no gamepad axis on the desktop — just the soft-pull click.
+    // Right trigger soft-pull -> left mouse click (haptic tick on press and release). Output `None`
+    // so the trigger drives no gamepad axis on the desktop - just the soft-pull click.
     base.insert(
         InputSource::RightTrigger,
         SourceBinding::Trigger {
@@ -264,13 +264,13 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right trigger full-pull → none.
+    // Right trigger full-pull -> none.
     base.insert(
         InputSource::RightTriggerFull,
         SourceBinding::None,
     );
 
-    // Left trigger soft-pull → right mouse click (same, right button).
+    // Left trigger soft-pull -> right mouse click (same, right button).
     base.insert(
         InputSource::LeftTrigger,
         SourceBinding::Trigger {
@@ -292,7 +292,7 @@ pub fn desktop_profile() -> ConfigDoc {
             }],
         },
     );
-    // Left trigger full-pull → none.
+    // Left trigger full-pull -> none.
     base.insert(
         InputSource::LeftTriggerFull,
         SourceBinding::None,
@@ -300,7 +300,7 @@ pub fn desktop_profile() -> ConfigDoc {
 
     // ----- JOYSTICKS -----
 
-    // Left stick → mouse smooth scroll.
+    // Left stick -> mouse smooth scroll.
     base.insert(
         InputSource::LeftStick,
         SourceBinding::JoystickMouse {
@@ -313,7 +313,7 @@ pub fn desktop_profile() -> ConfigDoc {
             },
         },
     );
-    // Left-stick click → middle mouse button.
+    // Left-stick click -> middle mouse button.
     base.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {
@@ -325,7 +325,7 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
-    // Right stick → mouse cursor.
+    // Right stick -> mouse cursor.
     base.insert(
         InputSource::RightStick,
         SourceBinding::JoystickMouse {
@@ -338,7 +338,7 @@ pub fn desktop_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-stick click → Super/Meta.
+    // Right-stick click -> Super/Meta.
     base.insert(
         InputSource::RightStickClick,
         SourceBinding::Button {
@@ -352,7 +352,7 @@ pub fn desktop_profile() -> ConfigDoc {
 
     // ----- TRACKPADS -----
 
-    // Left pad → smooth scroll wheel.
+    // Left pad -> smooth scroll wheel.
     base.insert(
         InputSource::LeftPad,
         SourceBinding::AsMouse {
@@ -368,7 +368,7 @@ pub fn desktop_profile() -> ConfigDoc {
             },
         },
     );
-    // Left-pad click → middle mouse button.
+    // Left-pad click -> middle mouse button.
     base.insert(
         InputSource::LeftPadClick,
         SourceBinding::Button {
@@ -380,7 +380,7 @@ pub fn desktop_profile() -> ConfigDoc {
         },
     );
 
-    // Right pad → mouse cursor.
+    // Right pad -> mouse cursor.
     base.insert(
         InputSource::RightPad,
         SourceBinding::AsMouse {
@@ -397,7 +397,7 @@ pub fn desktop_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-pad click → gyro layer.
+    // Right-pad click -> gyro layer.
     base.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
@@ -414,7 +414,7 @@ pub fn desktop_profile() -> ConfigDoc {
 
     // ----- GYRO -----
 
-    // Gyro → none.
+    // Gyro -> none.
     base.insert(
         InputSource::Gyro,
         SourceBinding::None,
@@ -473,7 +473,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
 
     // ----- BUTTONS -----
 
-    // Face diamond → navigation keys (up = Y, down = A, left = X, right = B).
+    // Face diamond -> navigation keys (up = Y, down = A, left = X, right = B).
     base.insert(
         InputSource::FaceButtons,
         SourceBinding::ButtonPad {
@@ -500,13 +500,13 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
         },
     );
 
-    // D-Pad → none.
+    // D-Pad -> none.
     base.insert(
         InputSource::DPad,
         SourceBinding::None,
     );
 
-    // Left bumper → Backspace.
+    // Left bumper -> Backspace.
     base.insert(
         InputSource::LeftBumper,
         SourceBinding::Button {
@@ -517,7 +517,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right bumper → Space.
+    // Right bumper -> Space.
     base.insert(
         InputSource::RightBumper,
         SourceBinding::Button {
@@ -579,7 +579,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
         },
     );
 
-    // View → Alt.
+    // View -> Alt.
     base.insert(
         InputSource::View,
         SourceBinding::Button {
@@ -590,7 +590,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             }],
         },
     );
-    // Menu → Tab.
+    // Menu -> Tab.
     base.insert(
         InputSource::Menu,
         SourceBinding::Button {
@@ -601,7 +601,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             }],
         },
     );
-    // Steam button → system_keys layer.
+    // Steam button -> system_keys layer.
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
@@ -612,7 +612,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             }],
         },
     );
-    // Quick access button → none (toggle profile).
+    // Quick access button -> none (toggle profile).
     base.insert(
         InputSource::QuickAccess,
         SourceBinding::None,
@@ -620,8 +620,8 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
 
     // ----- TRIGGERS -----
 
-    // Right trigger soft-pull → left mouse click (haptic tick on press and release). Output `None`
-    // so the trigger drives no gamepad axis on the desktop — just the soft-pull click.
+    // Right trigger soft-pull -> left mouse click (haptic tick on press and release). Output `None`
+    // so the trigger drives no gamepad axis on the desktop - just the soft-pull click.
     base.insert(
         InputSource::RightTrigger,
         SourceBinding::Trigger {
@@ -643,13 +643,13 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right trigger full-pull → none.
+    // Right trigger full-pull -> none.
     base.insert(
         InputSource::RightTriggerFull,
         SourceBinding::None,
     );
 
-    // Left trigger soft-pull → right mouse click (same, right button).
+    // Left trigger soft-pull -> right mouse click (same, right button).
     base.insert(
         InputSource::LeftTrigger,
         SourceBinding::Trigger {
@@ -671,7 +671,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             }],
         },
     );
-    // Left trigger full-pull → none.
+    // Left trigger full-pull -> none.
     base.insert(
         InputSource::LeftTriggerFull,
         SourceBinding::None,
@@ -679,7 +679,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
 
     // ----- JOYSTICKS -----
 
-    // Left stick → 4-way directional pad → arrow keys.
+    // Left stick -> 4-way directional pad -> arrow keys.
     base.insert(
         InputSource::LeftStick,
         SourceBinding::DirectionalPad {
@@ -711,7 +711,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             outer_ring: vec![],
         },
     );
-    // Left-stick click → Super/Meta.
+    // Left-stick click -> Super/Meta.
     base.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {
@@ -723,7 +723,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
         },
     );
 
-    // Right stick → mouse cursor.
+    // Right stick -> mouse cursor.
     base.insert(
         InputSource::RightStick,
         SourceBinding::JoystickMouse {
@@ -736,7 +736,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-stick click → none.
+    // Right-stick click -> none.
     base.insert(
         InputSource::RightStickClick,
         SourceBinding::None,
@@ -744,7 +744,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
 
     // ----- TRACKPADS -----
 
-    // Left pad → smooth scroll wheel.
+    // Left pad -> smooth scroll wheel.
     base.insert(
         InputSource::LeftPad,
         SourceBinding::AsMouse {
@@ -760,7 +760,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             },
         },
     );
-    // Left-pad click → middle mouse button.
+    // Left-pad click -> middle mouse button.
     base.insert(
         InputSource::LeftPadClick,
         SourceBinding::Button {
@@ -814,7 +814,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
     //     },
     // );
 
-    // Right pad → mouse cursor.
+    // Right pad -> mouse cursor.
     base.insert(
         InputSource::RightPad,
         SourceBinding::AsMouse {
@@ -831,7 +831,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-pad click holds the alt_mouse layer (left stick → mouse instead of arrows).
+    // Right-pad click holds the alt_mouse layer (left stick -> mouse instead of arrows).
     base.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
@@ -845,7 +845,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
 
     // ----- GYRO -----
 
-    // Gyro → none.
+    // Gyro -> none.
     base.insert(
         InputSource::Gyro,
         SourceBinding::None,
@@ -853,7 +853,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
 
     // ----- LAYERS -----
 
-    // Hold layer: while the right pad is clicked, the left stick drives the mouse (deflection→
+    // Hold layer: while the right pad is clicked, the left stick drives the mouse (deflection->
     // rate) instead of the arrow-key dpad, and the right pad is nullified so holding it doesn't
     // also jitter the cursor.
     let alt_mouse = Layer {
@@ -935,7 +935,7 @@ pub fn xbox_profile() -> ConfigDoc {
 
     // ----- BUTTONS -----
 
-    // Face buttons (ButtonPad; diamond positions) → gamepad A/B/X/Y, 1:1.
+    // Face buttons (ButtonPad; diamond positions) -> gamepad A/B/X/Y, 1:1.
     base.insert(
         InputSource::FaceButtons,
         SourceBinding::ButtonPad {
@@ -962,7 +962,7 @@ pub fn xbox_profile() -> ConfigDoc {
         },
     );
 
-    // D-Pad → gamepad dpad.
+    // D-Pad -> gamepad dpad.
     base.insert(
         InputSource::DPad,
         SourceBinding::ButtonPad {
@@ -989,7 +989,7 @@ pub fn xbox_profile() -> ConfigDoc {
         },
     );
 
-    // Left bumper → gamepad left bumper.
+    // Left bumper -> gamepad left bumper.
     base.insert(
         InputSource::LeftBumper,
         SourceBinding::Button {
@@ -1000,7 +1000,7 @@ pub fn xbox_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right bumper → gamepad right bumper.
+    // Right bumper -> gamepad right bumper.
     base.insert(
         InputSource::RightBumper,
         SourceBinding::Button {
@@ -1012,7 +1012,7 @@ pub fn xbox_profile() -> ConfigDoc {
         },
     );
 
-    // Left grip → left stick click.
+    // Left grip -> left stick click.
     base.insert(
         InputSource::LeftGrip,
         SourceBinding::Button {
@@ -1023,7 +1023,7 @@ pub fn xbox_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right grip → right stick click.
+    // Right grip -> right stick click.
     base.insert(
         InputSource::RightGrip,
         SourceBinding::Button {
@@ -1034,7 +1034,7 @@ pub fn xbox_profile() -> ConfigDoc {
             }],
         },
     );
-    // Left grip 2 → left stick click.
+    // Left grip 2 -> left stick click.
     base.insert(
         InputSource::LeftGrip2,
         SourceBinding::Button {
@@ -1045,7 +1045,7 @@ pub fn xbox_profile() -> ConfigDoc {
             }],
         },
     );
-    // Right grip 2 → right stick click.
+    // Right grip 2 -> right stick click.
     base.insert(
         InputSource::RightGrip2,
         SourceBinding::Button {
@@ -1057,7 +1057,7 @@ pub fn xbox_profile() -> ConfigDoc {
         },
     );
 
-    // View (left small top button) → gamepad Back.
+    // View (left small top button) -> gamepad Back.
     base.insert(
         InputSource::View,
         SourceBinding::Button {
@@ -1068,7 +1068,7 @@ pub fn xbox_profile() -> ConfigDoc {
             }],
         },
     );
-    // Menu (right small top button) → gamepad Start.
+    // Menu (right small top button) -> gamepad Start.
     base.insert(
         InputSource::Menu,
         SourceBinding::Button {
@@ -1079,7 +1079,7 @@ pub fn xbox_profile() -> ConfigDoc {
             }],
         },
     );
-    // Steam button → system_keys layer.
+    // Steam button -> system_keys layer.
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
@@ -1090,7 +1090,7 @@ pub fn xbox_profile() -> ConfigDoc {
             }],
         },
     );
-    // Quick access button → none (toggle profile).
+    // Quick access button -> none (toggle profile).
     base.insert(
         InputSource::QuickAccess,
         SourceBinding::None,
@@ -1098,7 +1098,7 @@ pub fn xbox_profile() -> ConfigDoc {
 
     // ----- TRIGGERS -----
 
-    // Right trigger → gamepad right trigger axis (no soft-pull button).
+    // Right trigger -> gamepad right trigger axis (no soft-pull button).
     base.insert(
         InputSource::RightTrigger,
         SourceBinding::Trigger {
@@ -1113,7 +1113,7 @@ pub fn xbox_profile() -> ConfigDoc {
         InputSource::RightTriggerFull,
         SourceBinding::None,
     );
-    // Left trigger → gamepad left trigger axis (no soft-pull button).
+    // Left trigger -> gamepad left trigger axis (no soft-pull button).
     base.insert(
         InputSource::LeftTrigger,
         SourceBinding::Trigger {
@@ -1131,7 +1131,7 @@ pub fn xbox_profile() -> ConfigDoc {
 
     // ----- JOYSTICKS -----
 
-    // Left stick → left gamepad stick.
+    // Left stick -> left gamepad stick.
     base.insert(
         InputSource::LeftStick,
         SourceBinding::Joystick {
@@ -1142,7 +1142,7 @@ pub fn xbox_profile() -> ConfigDoc {
             outer_ring: vec![],
         },
     );
-    // Left-stick click → left stick click.
+    // Left-stick click -> left stick click.
     base.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {
@@ -1154,7 +1154,7 @@ pub fn xbox_profile() -> ConfigDoc {
         },
     );
 
-    // Right stick → right gamepad stick.
+    // Right stick -> right gamepad stick.
     base.insert(
         InputSource::RightStick,
         SourceBinding::Joystick {
@@ -1165,7 +1165,7 @@ pub fn xbox_profile() -> ConfigDoc {
             outer_ring: vec![],
         },
     );
-    // Right-stick click → right stick click.
+    // Right-stick click -> right stick click.
     base.insert(
         InputSource::RightStickClick,
         SourceBinding::Button {
@@ -1179,23 +1179,23 @@ pub fn xbox_profile() -> ConfigDoc {
 
     // ----- TRACKPADS -----
 
-    // Right pad → none.
+    // Right pad -> none.
     base.insert(
         InputSource::RightPad,
         SourceBinding::None,
     );
-    // Right-pad click → none.
+    // Right-pad click -> none.
     base.insert(
         InputSource::RightPadClick,
         SourceBinding::None,
     );
 
-    // Left pad → none.
+    // Left pad -> none.
     base.insert(
         InputSource::LeftPad,
         SourceBinding::None,
     );
-    // Left-pad click → none.
+    // Left-pad click -> none.
     base.insert(
         InputSource::LeftPadClick,
         SourceBinding::None,
@@ -1203,7 +1203,7 @@ pub fn xbox_profile() -> ConfigDoc {
 
     // ----- GYRO -----
 
-    // Gyro → none
+    // Gyro -> none
     base.insert(
         InputSource::Gyro,
         SourceBinding::None,
@@ -1231,7 +1231,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
     let mut profile = xbox_profile();
     profile.name = "Xbox+Mouse".into();
 
-    // Right grip 2 click adds the mode-shift layer (left stick → right stick).
+    // Right grip 2 click adds the mode-shift layer (left stick -> right stick).
     profile.action_sets[0].bindings.insert(
         InputSource::RightGrip2,
         SourceBinding::Button {
@@ -1250,7 +1250,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
         },
     );
 
-    // Right stick → mouse cursor.
+    // Right stick -> mouse cursor.
     profile.action_sets[0].bindings.insert(
         InputSource::RightStick,
         SourceBinding::JoystickMouse {
@@ -1265,7 +1265,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
     );
     // Right-stick click stays right stick click.
 
-    // Right pad → mouse cursor.
+    // Right pad -> mouse cursor.
     profile.action_sets[0].bindings.insert(
         InputSource::RightPad,
         SourceBinding::AsMouse {
@@ -1282,7 +1282,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-pad click holds the mode-shift layer (left stick → right stick).
+    // Right-pad click holds the mode-shift layer (left stick -> right stick).
     profile.action_sets[0].bindings.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
@@ -1356,7 +1356,7 @@ pub fn xbox_mouse_gyro_profile() -> ConfigDoc {
     let mut profile = xbox_mouse_profile();
     profile.name = "Xbox+Mouse/Gyro".into();
 
-    // Gyro → mouse (vertical inverted, as in the bridge), gated by the left full-pull.
+    // Gyro -> mouse (vertical inverted, as in the bridge), gated by the left full-pull.
     profile.action_sets[0].bindings.insert(
         InputSource::Gyro,
         SourceBinding::GyroToMouse {
@@ -1389,7 +1389,7 @@ pub fn cp2077_profile() -> ConfigDoc {
     let mut profile = xbox_mouse_gyro_profile();
     profile.name = "Cyberpunk 2077".into();
 
-    // Left-stick click → key L.
+    // Left-stick click -> key L.
     profile.action_sets[0].bindings.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {
@@ -1446,7 +1446,7 @@ pub fn system_shock_profile() -> ConfigDoc {
     let mut profile = xbox_mouse_gyro_profile();
     profile.name = "System Shock".into();
 
-    // Left-stick click → key L.
+    // Left-stick click -> key L.
     profile.action_sets[0].bindings.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {

@@ -10,5 +10,5 @@ publish.workspace = true
 serde.workspace = true
 postcard.workspace = true
 interprocess.workspace = true
-# Messages carry the on-disk config model (client ships ConfigDoc, daemon compiles — PLAN §4.4).
+# Messages carry the on-disk config model (client ships ConfigDoc, daemon compiles - PLAN 4.4).
 config = { path = "../config" }

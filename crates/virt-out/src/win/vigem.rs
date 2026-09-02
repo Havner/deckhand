@@ -1,7 +1,7 @@
 //! ViGEm controller backend: a virtual Xbox 360 pad through the ViGEmBus driver (the
 //! `vigem-client` crate). Gated behind the `vigem` feature (on by default). Advertises the
 //! standard X360 identity so games see a normal Xbox pad, and receives game rumble back over
-//! ViGEm's notification channel (PLAN §2.1 FF back-channel).
+//! ViGEm's notification channel (PLAN 2.1 FF back-channel).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -34,7 +34,7 @@ pub(crate) struct VigemController {
     dpad: Dpad,
     // Full-trigger / stick-direction pseudo-buttons, folded into the stick/trigger axes.
     axis_buttons: AxisButtons,
-    // Set by set_button/set_axis; cleared on flush — avoids resubmitting an unchanged report.
+    // Set by set_button/set_axis; cleared on flush - avoids resubmitting an unchanged report.
     dirty: bool,
     // Rumble back-channel: a notification thread stores the latest motor speeds here.
     rumble: Arc<RumbleState>,
@@ -43,7 +43,7 @@ pub(crate) struct VigemController {
 
 impl VigemController {
     /// Write a (combined) axis value into the report, translating the shared evdev-signed vocab to
-    /// XInput (sticks are +up → negate Y; triggers `0..1`). Shared by `set_axis` and the axis
+    /// XInput (sticks are +up -> negate Y; triggers `0..1`). Shared by `set_axis` and the axis
     /// pseudo-buttons (`AxisButtons`), so both go through the identical conversion.
     fn write_axis(&mut self, a: &GamepadAxis, v: f32) {
         match a {
@@ -92,9 +92,9 @@ impl ControllerBackend for VigemController {
 
     fn set_button(&mut self, b: &GamepadButton, down: bool) {
         if self.dpad.set(b, down) {
-            // dpad → hat bits, folded in at flush
+            // dpad -> hat bits, folded in at flush
         } else if let Some(axis) = self.axis_buttons.set_button(b, down) {
-            // Full-trigger / stick-direction pseudo-button → drive its axis to the combined value.
+            // Full-trigger / stick-direction pseudo-button -> drive its axis to the combined value.
             let vc = self.axis_buttons.value(&axis);
             self.write_axis(&axis, vc);
         } else {
@@ -125,7 +125,7 @@ impl ControllerBackend for VigemController {
     }
 
     fn poll_rumble(&mut self) -> crate::Result<Rumble> {
-        // ViGEm delivers each motor as the high byte of the XInput u16; widen by ×257 so 0xFF
+        // ViGEm delivers each motor as the high byte of the XInput u16; widen by x257 so 0xFF
         // maps to 0xFFFF (full scale) rather than 0xFF00.
         let widen = |v: u8| (v as u16) * 257;
         Ok(Rumble {
@@ -147,7 +147,7 @@ impl Drop for VigemController {
     }
 }
 
-// --- gamepad vocabulary → XInput mapping ---
+// --- gamepad vocabulary -> XInput mapping ---
 
 /// The four dpad-hat bits within the XInput button word.
 const DPAD_MASK: u16 = XButtons::UP | XButtons::DOWN | XButtons::LEFT | XButtons::RIGHT;
@@ -169,10 +169,10 @@ fn set_button_bit(buttons: &mut XButtons, b: &GamepadButton, down: bool) {
         | GamepadButton::DpadDown
         | GamepadButton::DpadLeft
         | GamepadButton::DpadRight => {
-            unreachable!("dpad directions fold into the hat — see Dpad / set_button")
+            unreachable!("dpad directions fold into the hat - see Dpad / set_button")
         }
         b if b.is_axis_button() => {
-            unreachable!("axis pseudo-buttons fold into the stick/trigger axes — see AxisButtons")
+            unreachable!("axis pseudo-buttons fold into the stick/trigger axes - see AxisButtons")
         }
         _ => unreachable!("set_button_bit covers every non-hat, non-axis button"),
     };
@@ -183,7 +183,7 @@ fn set_button_bit(buttons: &mut XButtons, b: &GamepadButton, down: bool) {
     }
 }
 
-/// Dpad hat state (`+1`/`-1` per axis) → XInput dpad bits. `DpadX +1 = right`,
+/// Dpad hat state (`+1`/`-1` per axis) -> XInput dpad bits. `DpadX +1 = right`,
 /// `DpadY +1 = down` (matches the vocabulary / evdev hat convention).
 fn dpad_bits((x, y): (i32, i32)) -> u16 {
     let mut bits = 0;
@@ -200,12 +200,12 @@ fn dpad_bits((x, y): (i32, i32)) -> u16 {
     bits
 }
 
-/// Normalized stick `-1.0..=1.0` → XInput `i16`.
+/// Normalized stick `-1.0..=1.0` -> XInput `i16`.
 fn stick(v: f32) -> i16 {
     (v.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
 }
 
-/// Normalized trigger `0.0..=1.0` → XInput `u8`.
+/// Normalized trigger `0.0..=1.0` -> XInput `u8`.
 fn trigger(v: f32) -> u8 {
     (v.clamp(0.0, 1.0) * u8::MAX as f32) as u8
 }

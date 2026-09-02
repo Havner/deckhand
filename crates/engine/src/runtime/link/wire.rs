@@ -1,14 +1,14 @@
-//! The §6 network wire vocabulary + codec (PLAN §6.1/§6.2 slice 2). Pure data + (de)serialization
-//! — **no sockets** here (the bridge threads that use these land in slice 3), so it is fully
+//! The 6 network wire vocabulary + codec (PLAN 6.1/6.2 slice 2). Pure data + (de)serialization -
+//! **no sockets** here (the bridge threads that use these land in slice 3), so it is fully
 //! unit-testable over in-memory buffers.
 //!
-//! Two transports, split by idempotency (PLAN §6.1):
-//! - **UDP** (unreliable, latest-wins): controller snapshots client→server ([`FramePacket`]) and the
-//!   rumble/click back-channel server→client ([`Downlink`]). Datagrams are message-bounded, so these
-//!   are bare postcard blobs — no length prefix ([`encode`]/[`decode`]).
-//! - **TCP** (reliable, ordered): the config uplink + device lifecycle events client→server
+//! Two transports, split by idempotency (PLAN 6.1):
+//! - **UDP** (unreliable, latest-wins): controller snapshots client->server ([`FramePacket`]) and the
+//!   rumble/click back-channel server->client ([`Downlink`]). Datagrams are message-bounded, so these
+//!   are bare postcard blobs - no length prefix ([`encode`]/[`decode`]).
+//! - **TCP** (reliable, ordered): the config uplink + device lifecycle events client->server
 //!   ([`Uplink`]). A byte stream needs framing, so these are length-prefixed ([`write_frame`]/
-//!   [`read_frame`], mirroring `ipc`'s codec — engine sits below the daemon so it doesn't pull the
+//!   [`read_frame`], mirroring `ipc`'s codec - engine sits below the daemon so it doesn't pull the
 //!   `ipc` crate).
 
 // The wire vocab + codec are consumed by the network bridge threads in slice 3; until then only the
@@ -27,44 +27,44 @@ use crate::program::{Program, Role};
 
 use super::super::{Click, RumbleCmd};
 
-/// Client→server over **UDP**: a raw controller snapshot. Latest-wins — `state.seq` (a `u32` from
+/// Client->server over **UDP**: a raw controller snapshot. Latest-wins - `state.seq` (a `u32` from
 /// the device) drops stale/out-of-order datagrams. The sink-side Mapper turns it into outputs
-/// (report-side transmission — snapshots are idempotent and self-heal on loss; PLAN §6).
+/// (report-side transmission - snapshots are idempotent and self-heal on loss; PLAN 6).
 pub(super) type FramePacket = ControllerState;
 
-/// Client→server over **TCP** (reliable, ordered): the config uplink + device lifecycle. The client
-/// owns config and compiles `ConfigDoc→Program` before the wire (decision B), so the server never
-/// compiles. `Report::State` never travels here — snapshots go over UDP as [`FramePacket`].
-/// The wire protocol version — bumped on any incompatible change to the message vocab. The client
+/// Client->server over **TCP** (reliable, ordered): the config uplink + device lifecycle. The client
+/// owns config and compiles `ConfigDoc->Program` before the wire (decision B), so the server never
+/// compiles. `Report::State` never travels here - snapshots go over UDP as [`FramePacket`].
+/// The wire protocol version - bumped on any incompatible change to the message vocab. The client
 /// sends it first ([`Uplink::Hello`]); the server closes the connection on a mismatch.
 pub(super) const PROTOCOL_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) enum Uplink {
-    /// The handshake — always the first frame. The server validates `version` and drops the
+    /// The handshake - always the first frame. The server validates `version` and drops the
     /// connection on a mismatch. Carries no config (config is ordinary `Apply`/`SetChords`).
     Hello { version: u16 },
     /// A keep-alive so the client detects a dead server over the otherwise-idle TCP link (`State`
     /// frames ride UDP). The server no-ops it.
     Ping,
-    /// Apply a compiled program to a role (main↔fallback), or clear it (`program: None`), like the
+    /// Apply a compiled program to a role (main<->fallback), or clear it (`program: None`), like the
     /// local `Control::Apply`.
     Apply { program: Option<Program>, role: Role },
     /// Replace the chords (`None` clears them). Device settings are reader-side and never cross the
     /// wire, so there's no device-config uplink.
     SetChords(Option<Chords>),
-    /// A device lifecycle event — `Connected` / `Disconnected` / `Battery` (never `State`). Merged
+    /// A device lifecycle event - `Connected` / `Disconnected` / `Battery` (never `State`). Merged
     /// into the server's frame stream so the mapper (release-on-`Disconnected`) and the synthesized
     /// event surface see it.
     Event(Report),
 }
 
-/// Server→client over **UDP** (rare loss tolerable): the rumble/click back-channel.
+/// Server->client over **UDP** (rare loss tolerable): the rumble/click back-channel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) enum Downlink {
-    /// Sustained rumble level — latest-wins, so a dropped datagram self-heals on the next update.
+    /// Sustained rumble level - latest-wins, so a dropped datagram self-heals on the next update.
     Rumble(RumbleCmd),
-    /// One-shot command-haptic click — fire-and-forget; a rare miss is imperceptible.
+    /// One-shot command-haptic click - fire-and-forget; a rare miss is imperceptible.
     Click(Click),
 }
 
@@ -200,7 +200,7 @@ mod tests {
         for m in &msgs {
             assert_eq!(read_frame::<Uplink>(&mut r).unwrap().as_ref(), Some(m));
         }
-        // Clean EOF at the final frame boundary → None (peer closed).
+        // Clean EOF at the final frame boundary -> None (peer closed).
         assert_eq!(read_frame::<Uplink>(&mut r).unwrap(), None);
     }
 

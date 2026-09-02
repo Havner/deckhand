@@ -1,4 +1,4 @@
-//! Settings screen — a **UI** section (theme, tray, profiles directory) and a **Daemon** section
+//! Settings screen - a **UI** section (theme, tray, profiles directory) and a **Daemon** section
 //! (the on-connect behaviour + the two profile paths, each greyed when its toggle is off).
 
 use iced::widget::{Space, button, checkbox, column, pick_list, row, text, text_input};

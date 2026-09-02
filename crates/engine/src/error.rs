@@ -1,4 +1,4 @@
-//! Engine error type (PLAN §4). Covers compile failures, hardware/IO from the HALs, and
+//! Engine error type (PLAN 4). Covers compile failures, hardware/IO from the HALs, and
 //! control-API misuse. Kept small and `thiserror`-based; grows as the steps land.
 
 use config::Diagnostic;
@@ -9,8 +9,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Anything the engine can fail with.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// A [`config::ConfigDoc`] failed to compile — carries the collected diagnostics
-    /// (PLAN §4.2 S2; `compile()` bails on any `Error`-severity diagnostic).
+    /// A [`config::ConfigDoc`] failed to compile - carries the collected diagnostics
+    /// (PLAN 4.2 S2; `compile()` bails on any `Error`-severity diagnostic).
     #[error("config did not compile: {} diagnostic(s)", .0.len())]
     Compile(Vec<Diagnostic>),
 
@@ -27,7 +27,7 @@ pub enum Error {
     #[error("engine not ready: {0}")]
     NotReady(&'static str),
 
-    /// A §6 network transport failure — binding the server or dialing the client (socket/IO).
+    /// A 6 network transport failure - binding the server or dialing the client (socket/IO).
     #[error("network: {0}")]
     Network(#[from] std::io::Error),
 }

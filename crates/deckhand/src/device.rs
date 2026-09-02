@@ -19,7 +19,7 @@ fn device_path() -> PathBuf {
 }
 
 /// Load from [`device_path`]; returns the default (never an error) when the file is missing or
-/// unparseable — a stale device file shouldn't stop the UI launching (mirrors [`AppSettings::load`]).
+/// unparseable - a stale device file shouldn't stop the UI launching (mirrors [`AppSettings::load`]).
 ///
 /// [`AppSettings::load`]: crate::settings::AppSettings::load
 pub(crate) fn load() -> DeviceConfig {

@@ -1,8 +1,8 @@
-//! One-Euro filter — adaptive low-pass smoothing for the noisy relative behaviors (PLAN §4
+//! One-Euro filter - adaptive low-pass smoothing for the noisy relative behaviors (PLAN 4
 //! decision D). Its running state is kept per source in the [`Mapper`](super::Mapper) and applied
 //! to the behavior's *velocity/rate* signal (frame-rate-independent).
 //!
-//! Casiez et al.: a low-pass whose cutoff **rises with the signal's speed** — heavy smoothing at
+//! Casiez et al.: a low-pass whose cutoff **rises with the signal's speed** - heavy smoothing at
 //! rest (kills jitter) but little lag when moving fast. `min_cutoff` is the resting cutoff (Hz;
 //! lower = smoother and laggier at rest), `beta` how fast the cutoff opens with speed (higher =
 //! less lag when moving). Only `AsMouse` (pad delta) and `GyroToMouse` (noisy IMU) carry one.
@@ -11,7 +11,7 @@ use std::f32::consts::PI;
 
 use config::OneEuroFilter;
 
-/// Derivative cutoff (Hz) — the standard fixed value for the One-Euro filter.
+/// Derivative cutoff (Hz) - the standard fixed value for the One-Euro filter.
 const DERIV_CUTOFF: f32 = 1.0;
 
 /// One axis of running filter state. Parameters (`min_cutoff`/`beta`) come from the config each
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn smooths_a_noisy_signal_toward_its_mean() {
-        // A signal jittering ±2 around 10 should filter to stay close to 10 after the first
+        // A signal jittering +/-2 around 10 should filter to stay close to 10 after the first
         // (seed) sample, with min_cutoff low enough to smooth heavily.
         let cfg = OneEuroFilter { min_cutoff: 1.0, beta: 0.0 };
         let mut f = OneEuro2::default();

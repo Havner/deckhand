@@ -1,21 +1,21 @@
-//! `deckhand` — the tray/configurator UI, and the project's user-facing binary.
+//! `deckhand` - the tray/configurator UI, and the project's user-facing binary.
 //!
 //! A four-region window (top daemon bar / left sidebar / scrollable content / bottom status bar)
 //! driven by the real daemon over `ipc`, built on iced (Elm architecture). The widget layer lives
 //! in [`view`]; everything toolkit-independent is split into internal modules so the widget code
 //! stays about widgets:
 //!
-//! - [`settings`] — the application's own settings (separate from the daemon), RON-persisted.
-//! - [`daemon`] — a thin blocking command client + resilient event-subscribe loop over `ipc`.
-//! - [`nav`] — the left-sidebar navigation model.
+//! - [`settings`] - the application's own settings (separate from the daemon), RON-persisted.
+//! - [`daemon`] - a thin blocking command client + resilient event-subscribe loop over `ipc`.
+//! - [`nav`] - the left-sidebar navigation model.
 //!
-//! Scaffolded from the `ui-test-iced` bake-off prototype (PLAN §5.2); the profile-edit screens are
+//! Scaffolded from the `ui-test-iced` bake-off prototype (PLAN 5.2); the profile-edit screens are
 //! still stubs pending the real config-editing UI.
 
 // Windows: build as a GUI app (subsystem `windows`) so launching never spawns a console window. This
-// is a tray/GUI binary — it has no CLI output worth a console (errors surface in the status bar);
+// is a tray/GUI binary - it has no CLI output worth a console (errors surface in the status bar);
 // the daemon/ctl tools stay console apps. Costs stdout/stderr, so there's no console logging even in
-// debug — acceptable for the UI.
+// debug - acceptable for the UI.
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod chords;
@@ -52,14 +52,14 @@ pub(crate) const OUTPUT_PRESETS: &[&str] = &["local"];
 /// Value `led_brightness` snaps to when its checkbox is first enabled (mid-range).
 pub(crate) const DEFAULT_LED_BRIGHTNESS: u8 = 50;
 
-/// Value `idle_timeout` snaps to when its checkbox is first enabled — 5 minutes (the shortest
+/// Value `idle_timeout` snaps to when its checkbox is first enabled - 5 minutes (the shortest
 /// offered option). In **seconds**, matching [`DeviceConfig::idle_timeout`].
 pub(crate) const DEFAULT_IDLE_TIMEOUT: u16 = 300;
 
 /// The idle-timeout options offered in the Device combobox, in **minutes**.
 pub(crate) const IDLE_TIMEOUT_MINUTES: &[u16] = &[5, 10, 15];
 
-/// Rumble **gain** lever bounds, dB — the slider range and the edit clamp (Neptune/Triton).
+/// Rumble **gain** lever bounds, dB - the slider range and the edit clamp (Neptune/Triton).
 pub(crate) const GAIN_MIN_DB: i8 = -8;
 pub(crate) const GAIN_MAX_DB: i8 = 16;
 
@@ -150,7 +150,7 @@ pub(crate) enum ButtonTarget {
     Chord(usize),
 }
 
-/// A chord's action kind — the pick-list value for the chord's action-type combobox (the
+/// A chord's action kind - the pick-list value for the chord's action-type combobox (the
 /// concrete [`config::ChordAction`] carries params; this tags just the variant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChordActionKind {
@@ -187,10 +187,10 @@ pub(crate) fn decode_png_rgba(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
 }
 
 /// The window icon (title bar + running taskbar entry), decoded from the bundled `deckhand.png`. This
-/// is the winit **window** icon — distinct from the `.exe`'s embedded resource (which Explorer and the
+/// is the winit **window** icon - distinct from the `.exe`'s embedded resource (which Explorer and the
 /// pinned/shortcut entry use): while the app runs, the title bar and taskbar show the *window* icon,
 /// so without this they fall back to a generic one. Cross-platform (ignored on Wayland, which icons
-/// windows via the `.desktop` entry). Best-effort — `None` yields the default icon.
+/// windows via the `.desktop` entry). Best-effort - `None` yields the default icon.
 fn window_icon() -> Option<iced::window::Icon> {
     static PNG: &[u8] = include_bytes!("../assets/deckhand.png");
     let (rgba, w, h) = decode_png_rgba(PNG)?;
@@ -199,7 +199,7 @@ fn window_icon() -> Option<iced::window::Icon> {
 
 /// Whether the platform's window-hide (winit `set_visible(false)`, via [`window::Mode::Hidden`])
 /// actually hides the window rather than no-opping. True on Windows, macOS, and X11; false on
-/// **Wayland**, whose winit backend ignores visibility toggles — there we destroy/recreate the surface
+/// **Wayland**, whose winit backend ignores visibility toggles - there we destroy/recreate the surface
 /// instead (see [`App::set_hidden`]). Detected by the presence of a Wayland display: when
 /// `WAYLAND_DISPLAY` is set winit defaults to its Wayland backend. A false "Wayland" verdict only
 /// downgrades to the (correct, slower) close/reopen path, so this conservative check is safe.
@@ -221,7 +221,7 @@ fn main() -> iced::Result {
 
     // A `daemon` (not `application`): it survives with zero windows. That's required for the Wayland
     // hide-to-tray path, which must CLOSE the window (winit can't toggle visibility there; see
-    // `set_hidden`) and reopen it to show — and it also lets us boot straight into the tray with no
+    // `set_hidden`) and reopen it to show - and it also lets us boot straight into the tray with no
     // window at all. Boot opens the initial window unless we're starting hidden into the tray.
     let boot = {
         let daemon = daemon.clone();
@@ -246,10 +246,10 @@ pub(crate) struct App {
     /// The UI's own settings (Settings screen), persisted separately from the daemon.
     settings: AppSettings,
     /// The UI's central macro-state: a profile loaded **for editing**, or not. The whole app has
-    /// exactly two modes — **no profile loaded** (`None`: the profile-editor sidebar tabs are
+    /// exactly two modes - **no profile loaded** (`None`: the profile-editor sidebar tabs are
     /// disabled; only profile *management*, Device, Settings, and the daemon controls work) and
     /// **a profile loaded** (`Some`: the editor tabs are active and the title bar shows the path).
-    /// Editing is entirely local to the UI — it is separate from whatever profiles are applied to
+    /// Editing is entirely local to the UI - it is separate from whatever profiles are applied to
     /// the daemon's roles.
     editing: Option<editor::Editing>,
     /// The `.ron` file names in the active profiles directory, for the Profiles combobox. Refreshed
@@ -258,10 +258,10 @@ pub(crate) struct App {
     /// The Profiles combobox selection: a bare filename from `profile_files`, or a full path chosen
     /// via the disk picker (`None` until the user picks). Resolved by [`App::selected_profile_path`].
     selected_profile: Option<String>,
-    /// The UI-owned chords — the Chords screen's source of truth. Loaded from `chords.ron` at boot
+    /// The UI-owned chords - the Chords screen's source of truth. Loaded from `chords.ron` at boot
     /// and kept in lock-step with that file and the daemon (see [`chords`] and [`Self::apply_chords`]).
     chords: Chords,
-    /// The UI-owned device config — the Device screen's source of truth. Loaded from `devcfg.ron`
+    /// The UI-owned device config - the Device screen's source of truth. Loaded from `devcfg.ron`
     /// at boot and kept in lock-step with that file and the daemon (see [`device`] and
     /// [`Self::apply_device_config`]).
     device_config: DeviceConfig,
@@ -292,16 +292,16 @@ pub(crate) struct App {
     /// The network input/output modal, when open.
     popup: Option<Popup>,
     /// Whether a native file dialog is currently open. The pickers are async (they must be, or the
-    /// event loop hangs — see the picker helpers), so without this guard a user could spawn a stack
+    /// event loop hangs - see the picker helpers), so without this guard a user could spawn a stack
     /// of dialogs. We parent each dialog to our window (modal on GNOME/most portals), but that alone
     /// leaves a race between the click and the dialog appearing and isn't guaranteed on every
-    /// compositor — so we also refuse to open a second dialog while one is pending, and disable the
+    /// compositor - so we also refuse to open a second dialog while one is pending, and disable the
     /// browse/duplicate/create controls in the view meanwhile.
     dialog_open: bool,
 }
 
-/// Which per-device rumble lever a device-screen edit targets (device × speed/gain). The speed
-/// levers carry `u8` percent, the gain levers `i8` dB — the handler routes each to the right field.
+/// Which per-device rumble lever a device-screen edit targets (device x speed/gain). The speed
+/// levers carry `u8` percent, the gain levers `i8` dB - the handler routes each to the right field.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RumbleLeverId {
     GordonDuty,
@@ -332,13 +332,13 @@ pub(crate) enum Message {
     /// Top-bar daemon controls.
     Start,
     Stop,
-    /// Re-enumerate devices + refresh status (no USB hotplug — this is the manual trigger).
+    /// Re-enumerate devices + refresh status (no USB hotplug - this is the manual trigger).
     Refresh,
     /// Input/output selection (spec string).
     InputSelected(String),
     OutputSelected(String),
     /// Results of daemon calls run off the render thread (on iced's executor). Errors are
-    /// stringified — `io::Error` isn't `Clone`, and `Message` must be.
+    /// stringified - `io::Error` isn't `Clone`, and `Message` must be.
     StatusFetched(Result<StatusSnapshot, String>),
     DevicesFetched(Result<Vec<String>, String>),
     CmdDone(Result<(), String>),
@@ -385,7 +385,7 @@ pub(crate) enum Message {
     /// editor's lifetime; everything *inside* the editor is a [`Message::Editor`].
     EditProfile,
     StopEditing,
-    /// An editor-scoped message — profile edits, the action-set/layer selector, … (see
+    /// An editor-scoped message - profile edits, the action-set/layer selector, ... (see
     /// [`editor::EditorMessage`]). Routed to [`editor::update`], the single doc-mutation site.
     Editor(editor::EditorMessage),
     /// Device-screen edits. Each mutates the UI-owned `device_config`, then persists it and ships it to
@@ -395,7 +395,7 @@ pub(crate) enum Message {
     DeviceIdleEnabled(bool),
     DeviceIdleTimeout(u16),
     DeviceRumbleHz(u16),
-    /// Per-device rumble lever edit (Gordon duty / Neptune·Triton speed + gain). See [`RumbleLeverId`]/
+    /// Per-device rumble lever edit (Gordon duty / Neptune*Triton speed + gain). See [`RumbleLeverId`]/
     /// [`RumbleLeverEdit`]; routed to the lever helpers, then persisted + pushed like the others.
     DeviceRumbleLever(RumbleLeverId, RumbleLeverEdit),
     /// Tray settings.
@@ -440,7 +440,7 @@ impl App {
     fn new(daemon: Handle) -> Self {
         let settings = AppSettings::load();
         let want_hidden = settings.use_tray && settings.start_hidden;
-        // Start the tray if enabled. We only *actually* start hidden if it came up — otherwise
+        // Start the tray if enabled. We only *actually* start hidden if it came up - otherwise
         // there'd be no way to restore the window.
         let (tray, error) = if settings.use_tray {
             match tray::Tray::enable(want_hidden) {
@@ -480,13 +480,13 @@ impl App {
         self.status.as_ref().map(|s| s.state)
     }
 
-    /// Whether the engine is started (not idle) — the condition for restarting it on an input/output
+    /// Whether the engine is started (not idle) - the condition for restarting it on an input/output
     /// change.
     fn engine_started(&self) -> bool {
         matches!(self.run_state(), Some(RunState::Running | RunState::WaitingForDevice))
     }
 
-    /// Stage a new input spec: remember it as the last input, and apply it — restarting the engine
+    /// Stage a new input spec: remember it as the last input, and apply it - restarting the engine
     /// if it's already running (staged input only takes effect at start).
     fn apply_input(&mut self, spec: String) -> Task<Message> {
         self.settings.last_input = spec.clone();
@@ -518,7 +518,7 @@ impl App {
     }
 
     /// Persist the UI-owned chords to `chords.ron` and ship them to the daemon. Called after every
-    /// Chords-screen edit — the file, the in-memory copy, and the daemon stay in lock-step (the
+    /// Chords-screen edit - the file, the in-memory copy, and the daemon stay in lock-step (the
     /// daemon's echoed `ChordsSet` re-lands the identical value in [`Self::apply_event`]).
     fn apply_chords(&mut self) -> Task<Message> {
         if let Err(e) = chords::save(&self.chords) {
@@ -529,7 +529,7 @@ impl App {
     }
 
     /// Persist the UI-owned device_config to `device_config.ron` and ship them to the daemon. Called after every
-    /// Device-screen edit — the file, the in-memory copy, and the daemon stay in lock-step (the
+    /// Device-screen edit - the file, the in-memory copy, and the daemon stay in lock-step (the
     /// daemon's echoed `DeviceConfigSet` re-lands the identical value in [`Self::apply_event`], a
     /// harmless no-op).
     fn apply_device_config(&mut self) -> Task<Message> {
@@ -602,7 +602,7 @@ impl App {
 
     /// Open the main window, routing its id back as [`Message::WindowOpened`]. `exit_on_close_request`
     /// is off so the WM close button reaches our [`Message::CloseRequested`] handler (which decides
-    /// close-to-tray vs quit) instead of iced auto-closing the window — in daemon mode an auto-close
+    /// close-to-tray vs quit) instead of iced auto-closing the window - in daemon mode an auto-close
     /// would just leave the app running with no window and no way to have intercepted it.
     fn open_window(&self) -> Task<Message> {
         let size = Size::new(self.settings.window_width as f32, self.settings.window_height as f32);
@@ -612,14 +612,14 @@ impl App {
             exit_on_close_request: false,
             size,
             // Restore maximized state. `size` remains the pre-maximize (floating) size, which winit
-            // keeps as the restore target — so un-maximizing lands back on it.
+            // keeps as the restore target - so un-maximizing lands back on it.
             maximized: self.settings.window_maximized,
             icon: window_icon(),
             ..window::Settings::default()
         };
         // Tie the window to our installed `.desktop` file (basename `deckhand`) via the app id
         // (Wayland app_id / X11 WM_CLASS). Without it the compositor can't map the surface to the
-        // desktop entry, so it shows no name/icon — e.g. GNOME's "<app> Is Not Responding" dialog
+        // desktop entry, so it shows no name/icon - e.g. GNOME's "<app> Is Not Responding" dialog
         // renders an empty `""`. Linux-only: `application_id` exists only on the Linux settings.
         #[cfg(target_os = "linux")]
         {
@@ -630,11 +630,11 @@ impl App {
 
     /// Hide or show the window, and retitle the tray's Show/Hide item.
     ///
-    /// Two strategies, picked by [`native_window_hide`]. Where winit's `set_visible` works — **Windows,
-    /// macOS, X11** — we keep the window (and its live GPU surface) and just toggle its
+    /// Two strategies, picked by [`native_window_hide`]. Where winit's `set_visible` works - **Windows,
+    /// macOS, X11** - we keep the window (and its live GPU surface) and just toggle its
     /// [`Mode`](window::Mode) between `Hidden` and `Windowed`, so `self.window` stays `Some` while
     /// hidden and showing is instant. On **Wayland** winit can't toggle visibility, so there we
-    /// **close** the window on hide (unmapping the surface — `self.window` goes `None`) and open a
+    /// **close** the window on hide (unmapping the surface - `self.window` goes `None`) and open a
     /// fresh one on show. A wrong guess only ever falls back to the slower close/reopen, never breaks.
     fn set_hidden(&mut self, hidden: bool) -> Task<Message> {
         self.hidden = hidden;
@@ -655,7 +655,7 @@ impl App {
                 self.window = None;
                 window::close(id)
             }
-            // Show with no live window: (re)create it — the Wayland show path, and the first show
+            // Show with no live window: (re)create it - the Wayland show path, and the first show
             // after a hidden boot on every platform.
             (false, None) => self.open_window(),
             // Already in the requested state (hidden with no window / shown with a live window).
@@ -668,7 +668,7 @@ impl App {
             // --- arms that dispatch async daemon work (off the render thread) ---
             // On (re)connect, seed once with a full snapshot + device list; after that the event
             // stream carries every state change (events are absolute-valued and cover all status
-            // fields), so `apply_event` mutates the cached status in place — we never refetch.
+            // fields), so `apply_event` mutates the cached status in place - we never refetch.
             Message::Daemon(DaemonUpdate::Connected) => {
                 self.connected = true;
                 self.error = None;
@@ -764,7 +764,7 @@ impl App {
                 };
                 self.popup = None;
                 match target {
-                    // A gater is part of the edited profile → route through the editor's edit path.
+                    // A gater is part of the edited profile -> route through the editor's edit path.
                     Some(ButtonTarget::Gater(input)) => {
                         return editor::update(
                             self,
@@ -825,7 +825,7 @@ impl App {
             Message::ChordSetCommandLine(i, line) => {
                 if let Some(ch) = self.chords.chords.get_mut(i) {
                     // Split on the literal space (keeping empties) so command+args round-trip the
-                    // field's exact text — no whitespace normalisation to fight the cursor mid-type.
+                    // field's exact text - no whitespace normalisation to fight the cursor mid-type.
                     let mut parts = line.split(' ').map(String::from);
                     let command = parts.next().unwrap_or_default();
                     let args: Vec<String> = parts.collect();
@@ -890,7 +890,7 @@ impl App {
                     }
                 } else if let Some(t) = self.tray.take() {
                     t.disable();
-                    // Without a tray we can't restore a hidden window — show it.
+                    // Without a tray we can't restore a hidden window - show it.
                     if self.hidden {
                         return self.set_hidden(false);
                     }
@@ -972,7 +972,7 @@ impl App {
                 self.dialog_open = true;
                 let dir = profiles::dir(&self.settings);
                 // The fs copy is trivial; do it in the task once the dialog resolves so cancellation
-                // (dialog → None) short-circuits to a no-op without touching state.
+                // (dialog -> None) short-circuits to a no-op without touching state.
                 return self.dialog(move |d| {
                     let dialog = save_ron(d, &dir, "duplicated.ron");
                     Box::pin(async move {
@@ -1136,8 +1136,8 @@ impl App {
     }
 
     /// The [`Shape`] whose inputs the editor should show, or `None` to show the full superset (the
-    /// "All" case). Resolves the `show_inputs` setting: `All` → `None`; `Gordon`/`Neptune` → that
-    /// shape; `Auto` → the bound device's shape, or `None` (fall back to All) when nothing is bound.
+    /// "All" case). Resolves the `show_inputs` setting: `All` -> `None`; `Gordon`/`Neptune` -> that
+    /// shape; `Auto` -> the bound device's shape, or `None` (fall back to All) when nothing is bound.
     fn input_shape(&self) -> Option<Shape> {
         match self.settings.show_inputs {
             settings::ShowInputs::All => None,
@@ -1218,9 +1218,9 @@ impl App {
     }
 
     /// Dispatch a native file dialog off the render thread, parented (modal/transient-for) to our
-    /// window when we have one — `build` receives a fresh `AsyncFileDialog` (already `set_parent`-ed
+    /// window when we have one - `build` receives a fresh `AsyncFileDialog` (already `set_parent`-ed
     /// when possible) and returns its pick future. Parenting needs the live window handle, which iced
-    /// only exposes on the main thread via [`window::run`]; we build the future there (cheap — no
+    /// only exposes on the main thread via [`window::run`]; we build the future there (cheap - no
     /// portal call yet) and then await it on the executor with [`Task::then`], so the loop never
     /// blocks. Callers set [`Self::dialog_open`] and map the result to a message themselves.
     fn dialog<T: Send + 'static>(
@@ -1230,7 +1230,7 @@ impl App {
         match self.window {
             Some(id) => window::run(id, move |w| build(rfd::AsyncFileDialog::new().set_parent(w)))
                 .then(|fut| Task::perform(fut, |x| x)),
-            // No window (hidden in tray) → nothing to parent to; run unparented.
+            // No window (hidden in tray) -> nothing to parent to; run unparented.
             None => Task::perform(build(rfd::AsyncFileDialog::new()), |x| x),
         }
     }
@@ -1247,7 +1247,7 @@ impl App {
             }
         }
         // A device-config change (our own echoed push, or another client's `SetDeviceConfig`) syncs the
-        // UI-owned copy and the file regardless of seed state — the Device screen reads
+        // UI-owned copy and the file regardless of seed state - the Device screen reads
         // `self.device_config`, and the three (file / UI / daemon) stay in lock-step.
         if let Event::DeviceConfigSet(d) = &ev {
             self.device_config = d.clone();
@@ -1293,7 +1293,7 @@ impl App {
 }
 
 /// The data handed to the daemon-events subscription: the socket override plus the managed-daemon
-/// handle. Its [`Hash`] covers only the socket — that is the subscription's identity, so the handle
+/// handle. Its [`Hash`] covers only the socket - that is the subscription's identity, so the handle
 /// (cloned fresh every render) never restarts the loop. The builder is a plain `fn` pointer that
 /// can't capture, so the handle has to travel in the data.
 #[derive(Clone)]
@@ -1355,14 +1355,14 @@ fn tray_events(_: &()) -> BoxStream<'static, Message> {
     .boxed()
 }
 
-/// A boxed, `Send` dialog future — the shape [`App::dialog`] drives on iced's executor.
+/// A boxed, `Send` dialog future - the shape [`App::dialog`] drives on iced's executor.
 type DialogFut<T> = std::pin::Pin<Box<dyn Future<Output = T> + Send>>;
 
 // The pickers are ASYNC on purpose. rfd's blocking dialogs `pollster::block_on` the XDG-portal
 // call on the *calling* thread; called from `update()` that thread is iced's event loop, so the
 // window stops answering the compositor's ping and GNOME declares it "Not Responding" (killing it
 // force-quits the app). The async variants run the portal work on rfd's own thread and hand back a
-// Send future, which we drive via `Task::perform` — the loop keeps pumping. Each takes a `dlg` that
+// Send future, which we drive via `Task::perform` - the loop keeps pumping. Each takes a `dlg` that
 // [`App::dialog`] has already parented to our window (so the dialog is modal/transient-for the app),
 // applies its filters, and returns the pick future for the caller's result `Message`.
 

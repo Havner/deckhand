@@ -1,4 +1,4 @@
-//! Modals — the one home for everything that layers over the base window as a dismissable overlay.
+//! Modals - the one home for everything that layers over the base window as a dismissable overlay.
 //!
 //! Owns the modal **shell** ([`overlay`]/`shell`), the [`Popup`] state enum, and every popup's
 //! card: the network I/O dialog, the Profile-page context menu, the name-entry dialog, and the two
@@ -46,7 +46,7 @@ pub(crate) enum Popup {
     ButtonPicker { target: crate::ButtonTarget },
 }
 
-/// The tabs of the Action picker — one output/mode category each (mirrors the sidebar categories a
+/// The tabs of the Action picker - one output/mode category each (mirrors the sidebar categories a
 /// binding's action can target). Steam's SYSTEM/CAMERA are dropped (no vocab).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActionTab {
@@ -70,7 +70,7 @@ pub(super) fn overlay<'a>(app: &'a App, base: Element<'a, Message>) -> Element<'
     }
 }
 
-/// Layer `content` over `base`: a dimmed, input-blocking backdrop (click it → `on_dismiss`) with
+/// Layer `content` over `base`: a dimmed, input-blocking backdrop (click it -> `on_dismiss`) with
 /// `content` centered on top. Content-agnostic.
 fn shell<'a>(
     base: Element<'a, Message>,
@@ -109,7 +109,7 @@ fn menu_item<'a>(label: &'a str, msg: Option<Message>) -> Element<'a, Message> {
 }
 
 /// The shared text-entry dialog shell: a title, a single-line field (`id` for focus, Enter
-/// confirms), and a Cancel / OK row — OK and Enter both inert while `confirm` is `None`. Both the
+/// confirms), and a Cancel / OK row - OK and Enter both inert while `confirm` is `None`. Both the
 /// network-spec and name-entry dialogs are this shape; only their title/placeholder/id/message and
 /// validity rule differ.
 fn text_entry_card<'a>(
@@ -160,7 +160,7 @@ fn menu_card<'a>(app: &'a App, target: &'a EditTarget) -> Element<'a, Message> {
     let is_set = target.layer.is_none();
     let title = target.layer.as_deref().unwrap_or(target.set.as_str());
 
-    // Remove at the top (disabled for the last remaining set — at least one must exist).
+    // Remove at the top (disabled for the last remaining set - at least one must exist).
     let remove_msg = if is_set {
         app.editing
             .as_ref()
@@ -179,7 +179,7 @@ fn menu_card<'a>(app: &'a App, target: &'a EditTarget) -> Element<'a, Message> {
 }
 
 /// The add-set / add-layer / rename name dialog. OK/Enter are inert unless the name is valid
-/// (non-empty and unique in scope — see [`crate::editor::name_entry_ok`]).
+/// (non-empty and unique in scope - see [`crate::editor::name_entry_ok`]).
 fn name_entry_card<'a>(
     app: &'a App,
     kind: &'a NameEntryKind,
@@ -216,7 +216,7 @@ fn command_menu_card<'a>(app: &'a App, cmd: &'a CommandRef) -> Element<'a, Messa
     .width(Fill);
 
     let mut col = column![super::label_row(label, dot)].spacing(8.0);
-    // Disable (sets an explicit `None`) sits at the top — layer + top-level Button only; a sole
+    // Disable (sets an explicit `None`) sits at the top - layer + top-level Button only; a sole
     // command bar *is* the top-level bar, so it belongs here (multi-command puts it on the slot menu).
     if crate::editor::on_layer(app) && cmd.slot == CommandSlot::Button && sole {
         col = col.push(disable_item(&cmd.input));
@@ -271,7 +271,7 @@ fn slot_menu_card<'a>(app: &'a App, slot: CommandSlot, input: &'a InputSource) -
 }
 
 /// The inherited/disabled gear menu for a layer's top-level Button: **Disable** when it's currently
-/// inherited (no entry), else **Remove** (drops the explicit `None` → back to inherited).
+/// inherited (no entry), else **Remove** (drops the explicit `None` -> back to inherited).
 fn layer_button_menu_card<'a>(app: &'a App, input: &'a InputSource) -> Element<'a, Message> {
     let (label, _) = super::slot_display(input, CommandSlot::Button);
     let disabled =
@@ -291,7 +291,7 @@ fn layer_button_menu_card<'a>(app: &'a App, input: &'a InputSource) -> Element<'
         .into()
 }
 
-/// The shared "Disable" menu row → sets an explicit `SourceBinding::None` (via `SetBehavior`).
+/// The shared "Disable" menu row -> sets an explicit `SourceBinding::None` (via `SetBehavior`).
 fn disable_item(input: &InputSource) -> Element<'static, Message> {
     menu_item(
         "Disable",

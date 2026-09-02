@@ -30,7 +30,7 @@ pub(crate) fn ensure_dir(s: &AppSettings) -> std::io::Result<()> {
 }
 
 /// The `.ron` file names (not full paths) in the active profiles directory, sorted. Silent on a
-/// missing/unreadable directory (returns empty) — the Profiles combobox just shows nothing.
+/// missing/unreadable directory (returns empty) - the Profiles combobox just shows nothing.
 pub(crate) fn list(s: &AppSettings) -> Vec<String> {
     let mut names = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir(s)) {

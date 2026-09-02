@@ -16,12 +16,12 @@ ron.workspace = true
 clap.workspace = true
 log.workspace = true
 env_logger.workspace = true
-# `termination` also traps SIGTERM/SIGHUP → clean `systemctl stop` (PLAN §4.4).
+# `termination` also traps SIGTERM/SIGHUP -> clean `systemctl stop` (PLAN 4.4).
 ctrlc = { workspace = true, features = ["termination"] }
 
 # `--prevent-sleep`: hold a freedesktop ScreenSaver idle-inhibitor on the session D-Bus while
 # forwarding (the compositor sees no local input, so it would blank/suspend). Unprivileged,
-# DE-provided, headless (a bus call — no X/Wayland). Linux only.
+# DE-provided, headless (a bus call - no X/Wayland). Linux only.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
 # `--systemd`: adopt the socket-activation fd (`LISTEN_FDS`) and signal readiness (`sd-notify

@@ -1,5 +1,5 @@
 //! Null controller backend: used when no virtual-gamepad feature is enabled (neither `vigem`
-//! nor, later, `viiper`). Keyboard/mouse still work fully; only gamepad output is dropped —
+//! nor, later, `viiper`). Keyboard/mouse still work fully; only gamepad output is dropped -
 //! with a single warning the first time any controller event arrives, so a controller-bound
 //! profile isn't silently doing nothing while the log stays quiet under the ~250 Hz axis stream.
 
@@ -18,7 +18,7 @@ impl NoController {
         if !self.warned {
             log::warn!(
                 "virt-out(win): gamepad output requested but no controller backend is compiled \
-                 in — rebuild with the `vigem` feature; dropping all controller output"
+                 in - rebuild with the `vigem` feature; dropping all controller output"
             );
             self.warned = true;
         }

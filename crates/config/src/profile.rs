@@ -1,8 +1,8 @@
-//! The profile document — Tier A (PLAN §3, rounds A–E).
+//! The profile document - Tier A (PLAN 3, rounds A-E).
 //!
 //! A [`ConfigDoc`] is **one profile** (one per file). It holds action sets (full-controller
 //! modes, one active at a time), each with layers (stackable overlays) and per-source
-//! bindings, plus the per-profile rumble feel. It is **device-independent** — no `Shape`.
+//! bindings, plus the per-profile rumble feel. It is **device-independent** - no `Shape`.
 
 use std::collections::BTreeMap;
 
@@ -16,7 +16,7 @@ use crate::settings::Curve;
 /// layers start inactive and are applied by `HoldLayer`/`AddLayer`/`RemoveLayer` actions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfigDoc {
-    /// On-disk format version (versioning/migration deferred to stable — PLAN §3).
+    /// On-disk format version (versioning/migration deferred to stable - PLAN 3).
     #[serde(default)]
     pub version: u32,
     #[serde(default)]
@@ -38,7 +38,7 @@ pub struct ActionSet {
     pub layers: Vec<Layer>,
 }
 
-/// A partial overlay on top of the active action set — stackable, applied/removed by
+/// A partial overlay on top of the active action set - stackable, applied/removed by
 /// actions. Only the inputs it names are overridden; the rest fall through.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layer {
@@ -47,17 +47,17 @@ pub struct Layer {
     pub bindings: BTreeMap<InputSource, SourceBinding>,
 }
 
-/// Per-profile rumble feel (the back-channel: game rumble → Gordon trackpad haptics). The
+/// Per-profile rumble feel (the back-channel: game rumble -> Gordon trackpad haptics). The
 /// profile tunes the texture; the per-device rumble levers (`DeviceConfig`) shape it (Round E).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RumbleSettings {
     /// Strength, percent (before the device master %). **May exceed 100 to boost** (a `u8`, so up
-    /// to 255): many games under-drive their FF — some cap at ~25% of range — so a value like ~200
+    /// to 255): many games under-drive their FF - some cap at ~25% of range - so a value like ~200
     /// lifts such a game back toward the controller's saturation. The engine clamps the final drive
     /// at the actuator's max, so an over-large value simply saturates rather than overflowing.
     pub strength: u8,
-    /// Strength → drive response curve (the non-linear Xbox-strength map is a future tweak).
+    /// Strength -> drive response curve (the non-linear Xbox-strength map is a future tweak).
     pub curve: Curve,
 }
 

@@ -1,4 +1,4 @@
-//! The UI application's own settings — persisted separately from the daemon's config, in RON.
+//! The UI application's own settings - persisted separately from the daemon's config, in RON.
 //!
 //! These drive the Settings screen (start-the-daemon / load-a-profile-on-start toggles + the two
 //! profile paths) and, eventually, the launch behaviour. Currently only read/written; the UI does
@@ -47,7 +47,7 @@ impl ShowInputs {
 pub(crate) struct AppSettings {
     // Field order mirrors the Settings screen (UI section first, then Daemon), so the serialized
     // file reads top-to-bottom the same as the UI.
-    /// The UI theme, stored by **name** (e.g. `Dark`, `Dracula`) — one of iced's built-in themes,
+    /// The UI theme, stored by **name** (e.g. `Dark`, `Dracula`) - one of iced's built-in themes,
     /// falling back to the default when the name is empty/unknown.
     pub(crate) theme: String,
     /// Which controller's inputs the profile editor shows (Auto follows the bound device).
@@ -57,7 +57,7 @@ pub(crate) struct AppSettings {
     /// Close-to-tray: a window close request hides the window instead of quitting (needs `use_tray`).
     pub(crate) close_to_tray: bool,
     /// Start with the window hidden in the tray (needs `use_tray`; takes effect next launch). Not a
-    /// minimize — the window is created hidden, not minimized to the taskbar.
+    /// minimize - the window is created hidden, not minimized to the taskbar.
     pub(crate) start_hidden: bool,
     /// Use a custom profiles directory instead of the default (`<config>/deckhand/profiles`).
     pub(crate) use_custom_profile_dir: bool,
@@ -124,7 +124,7 @@ impl Default for AppSettings {
 
 impl AppSettings {
     /// Load from [`settings_path`]; returns the default (never an error) when the file is missing
-    /// or unparseable — a config test shouldn't fail to launch over a stale settings file.
+    /// or unparseable - a config test shouldn't fail to launch over a stale settings file.
     pub(crate) fn load() -> Self {
         crate::persist::load_or_default(&settings_path())
     }
@@ -135,7 +135,7 @@ impl AppSettings {
     }
 }
 
-/// Where the UI settings live: `$XDG_CONFIG_HOME/deckhand/settings.ron` (fallback `~/.config/…`) on
+/// Where the UI settings live: `$XDG_CONFIG_HOME/deckhand/settings.ron` (fallback `~/.config/...`) on
 /// unix, `%APPDATA%\deckhand\settings.ron` on Windows.
 fn settings_path() -> PathBuf {
     let dir = config_dir().join("deckhand");

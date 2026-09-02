@@ -1,4 +1,4 @@
-//! Actions — what a command/subcommand fires (PLAN §3, Round D).
+//! Actions - what a command/subcommand fires (PLAN 3, Round D).
 
 use serde::{Deserialize, Serialize};
 use vocab_out::{GamepadButton, Key, MouseButton};
@@ -14,17 +14,17 @@ pub struct ActionSetRef(pub String);
 #[serde(transparent)]
 pub struct LayerRef(pub String);
 
-/// What a command — or one of its subcommands — fires (Round D).
+/// What a command - or one of its subcommands - fires (Round D).
 ///
 /// **Output** actions realize on the OS via `virt-out` (they name [`vocab`] targets);
 /// **mode** actions (`ChangeActionSet` / `*Layer`) are handled by the engine. Discrete
-/// scroll is a `MouseButton` pseudo-button (backend → wheel tick) and the dpad directions
-/// are `GamepadButton`s (backend → hat). Continuous outputs (mouse move, gamepad axes) come
+/// scroll is a `MouseButton` pseudo-button (backend -> wheel tick) and the dpad directions
+/// are `GamepadButton`s (backend -> hat). Continuous outputs (mouse move, gamepad axes) come
 /// from *behaviors*, never an action. A timed-sequence `Macro` is deferred (distinct from
 /// the simultaneous subcommand combo).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
-    /// No-op — explicitly unbound / blocks a fall-through to a lower layer or the set.
+    /// No-op - explicitly unbound / blocks a fall-through to a lower layer or the set.
     None,
     Key(Key),
     MouseButton(MouseButton),
