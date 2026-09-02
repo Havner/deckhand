@@ -1235,18 +1235,11 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
     profile.action_sets[0].bindings.insert(
         InputSource::RightGrip2,
         SourceBinding::Button {
-            commands: vec![
-                Command {
-                    activator: Activator::Regular { interruptible: true },
-                    actions: vec![Action::AddLayer(LayerRef("aim_stick_right".into()))],
-                    settings: Default::default(),
-                },
-                Command {
-                    activator: Activator::Long { hold_ms: 200 },
-                    actions: vec![Action::HoldLayer(LayerRef("aim_stick_right".into()))],
-                    settings: Default::default(),
-                },
-            ],
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![Action::HoldLayer(LayerRef("aim_stick_right".into()))],
+                settings: Default::default(),
+            }],
         },
     );
 
@@ -1327,7 +1320,13 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
                     commands: vec![Command {
                         activator: Activator::Regular { interruptible: true },
                         actions: vec![Action::RemoveLayer(LayerRef("aim_stick_right".into()))],
-                        settings: Default::default(),
+                        settings: CommandSettings {
+                            haptics: Haptics {
+                                on: HapticEdge::OnPress,
+                                strength: HapticStrength::High,
+                            },
+                            ..Default::default()
+                        },
                     }],
                 },
             ),
@@ -1344,8 +1343,26 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
         ]),
     };
 
+    let mut system_keys_layer = system_keys_layer();
+    system_keys_layer.bindings.insert(
+        InputSource::RightGrip2,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![Action::AddLayer(LayerRef("aim_stick_right".into()))],
+                settings: CommandSettings {
+                    haptics: Haptics {
+                        on: HapticEdge::OnPress,
+                        strength: HapticStrength::High,
+                    },
+                    ..Default::default()
+                },
+            }],
+        },
+    );
+
     profile.action_sets[0].layers =
-        vec![system_keys_layer(), aim_stick_left, aim_stick_right];
+        vec![system_keys_layer, aim_stick_left, aim_stick_right];
 
     profile
 }

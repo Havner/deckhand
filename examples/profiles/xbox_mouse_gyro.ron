@@ -264,22 +264,6 @@
                                 interruptible: true,
                             ),
                             actions: [
-                                AddLayer("aim_stick_right"),
-                            ],
-                            settings: (
-                                toggle: false,
-                                turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
-                                ),
-                            ),
-                        ),
-                        (
-                            activator: Long(
-                                hold_ms: 200,
-                            ),
-                            actions: [
                                 HoldLayer("aim_stick_right"),
                             ],
                             settings: (
@@ -638,6 +622,26 @@
                                 ),
                             ],
                         ),
+                        RightGrip2: Button(
+                            commands: [
+                                (
+                                    activator: Regular(
+                                        interruptible: true,
+                                    ),
+                                    actions: [
+                                        AddLayer("aim_stick_right"),
+                                    ],
+                                    settings: (
+                                        toggle: false,
+                                        turbo: None,
+                                        haptics: (
+                                            on: OnPress,
+                                            strength: High,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                        ),
                     },
                 ),
                 (
@@ -690,8 +694,8 @@
                                         toggle: false,
                                         turbo: None,
                                         haptics: (
-                                            on: Off,
-                                            strength: Medium,
+                                            on: OnPress,
+                                            strength: High,
                                         ),
                                     ),
                                 ),
