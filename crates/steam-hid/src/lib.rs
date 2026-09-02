@@ -23,6 +23,7 @@ mod buttons;
 mod device;
 mod error;
 mod event;
+mod info;
 mod protocol;
 mod state;
 mod value;
@@ -33,7 +34,9 @@ pub use protocol::{
     HapticIntensity, HapticPosition, HapticSide, HapticStyle, HapticType, NeptuneButtons,
     TritonButtons,
 };
-pub use device::{Device, DeviceId, DeviceInfo, DeviceKind, HapticPulse, Manager, Transport};
+pub use backend::Manager;
+pub use device::{Device, HapticPulse};
+pub use info::{DeviceId, DeviceInfo, DeviceKind, Transport};
 pub use error::{Error, Result};
 pub use event::{Event, Events};
 pub use state::{Battery, ControllerState, Report};
