@@ -57,7 +57,7 @@ impl VigemController {
 
     /// Connect to ViGEmBus, plug in a virtual Xbox 360 pad, and start the rumble notification
     /// thread. Fails if the ViGEmBus driver isn't installed/running.
-    fn new() -> crate::Result<Self> {
+    pub(crate) fn new() -> crate::Result<Self> {
         let client = Client::connect()?;
         let mut target = XTarget::new(client, TargetId::XBOX360_WIRED);
         target.plugin()?;
@@ -88,7 +88,7 @@ impl VigemController {
     }
 
     /// Update the pending gamepad report for a button (dpad directions fold into the hat).
-    fn set_button(&mut self, b: &GamepadButton, down: bool) {
+    pub(crate) fn set_button(&mut self, b: &GamepadButton, down: bool) {
         if self.dpad.set(b, down) {
             // dpad -> hat bits, folded in at flush
         } else if let Some(axis) = self.axis_buttons.set_button(b, down) {
@@ -102,7 +102,7 @@ impl VigemController {
     }
 
     /// Update the pending gamepad report for an axis (`-1.0..=1.0` sticks, `0.0..=1.0` triggers).
-    fn set_axis(&mut self, a: &GamepadAxis, v: f32) {
+    pub(crate) fn set_axis(&mut self, a: &GamepadAxis, v: f32) {
         // Cache the analog value and write it combined with any held axis-button (which overrides).
         self.axis_buttons.set_analog(a, v);
         let vc = self.axis_buttons.value(a);
@@ -111,7 +111,7 @@ impl VigemController {
     }
 
     /// Submit the pending report to the OS iff anything changed since the last flush.
-    fn flush(&mut self) -> crate::Result<()> {
+    pub(crate) fn flush(&mut self) -> crate::Result<()> {
         if !self.dirty {
             return Ok(());
         }
@@ -124,7 +124,7 @@ impl VigemController {
         Ok(())
     }
 
-    fn poll_rumble(&mut self) -> crate::Result<Rumble> {
+    pub(crate) fn poll_rumble(&mut self) -> crate::Result<Rumble> {
         // ViGEm delivers each motor as the high byte of the XInput u16; widen by x257 so 0xFF
         // maps to 0xFFFF (full scale) rather than 0xFF00.
         let widen = |v: u8| (v as u16) * 257;

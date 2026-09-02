@@ -4,6 +4,9 @@
 //! the virtual pad (PLAN 2.1 FF back-channel) - and the per-backend [`Dpad`]/[`AxisButtons`] helpers
 //! that fold the dpad/trigger/stick pseudo-buttons into the pad's hat and axes.
 
+// Only the hat/axis-pseudo-button helpers (`Dpad`/`AxisButtons`) use these; a kb/mouse-only
+// Windows build (no `vigem`/`viiper`) compiles neither, so gate the import with the same cfg.
+#[cfg(any(target_os = "linux", all(target_os = "windows", any(feature = "vigem", feature = "viiper"))))]
 use vocab_out::{GamepadAxis, GamepadButton};
 
 /// A rumble command received *from* a consumer of our virtual gamepad (game -> pad),

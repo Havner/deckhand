@@ -37,7 +37,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 use crate::gamepad::Rumble;
-use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent};
+use vocab_out::{Key, MouseButton, OutputEvent};
 
 // --- controller backend selection (compile-time, mutually exclusive) ---
 //

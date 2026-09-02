@@ -83,7 +83,7 @@ impl ViiperController {
     /// start receiving rumble. Fails if the server isn't reachable/authenticated; note the
     /// device only appears to the OS if the `usbip-win2` driver is installed and the server's
     /// auto-attach is enabled.
-    fn new() -> crate::Result<Self> {
+    pub(crate) fn new() -> crate::Result<Self> {
         let addr = resolve_addr();
         let client = match resolve_password() {
             Some(pw) => ViiperClient::new_with_password(addr, pw),
@@ -137,7 +137,7 @@ impl ViiperController {
         })
     }
 
-    fn set_button(&mut self, b: &GamepadButton, down: bool) {
+    pub(crate) fn set_button(&mut self, b: &GamepadButton, down: bool) {
         if self.dpad.set(b, down) {
             // dpad -> hat bits, folded in at flush
         } else if let Some(axis) = self.axis_buttons.set_button(b, down) {
@@ -150,7 +150,7 @@ impl ViiperController {
         self.dirty = true;
     }
 
-    fn set_axis(&mut self, a: &GamepadAxis, v: f32) {
+    pub(crate) fn set_axis(&mut self, a: &GamepadAxis, v: f32) {
         // Cache the analog value and write it combined with any held axis-button (which overrides).
         self.axis_buttons.set_analog(a, v);
         let vc = self.axis_buttons.value(a);
@@ -158,7 +158,7 @@ impl ViiperController {
         self.dirty = true;
     }
 
-    fn flush(&mut self) -> crate::Result<()> {
+    pub(crate) fn flush(&mut self) -> crate::Result<()> {
         if !self.dirty {
             return Ok(());
         }
@@ -172,7 +172,7 @@ impl ViiperController {
         Ok(())
     }
 
-    fn poll_rumble(&mut self) -> crate::Result<Rumble> {
+    pub(crate) fn poll_rumble(&mut self) -> crate::Result<Rumble> {
         // VIIPER delivers each motor as a u8; widen by x257 so 0xFF maps to 0xFFFF (full scale).
         let widen = |v: u8| (v as u16) * 257;
         Ok(Rumble {

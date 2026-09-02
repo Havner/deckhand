@@ -23,26 +23,26 @@ impl NoController {
         }
     }
 
-    fn new() -> crate::Result<Self> {
+    pub(crate) fn new() -> crate::Result<Self> {
         log::info!(
             "virt-out(win): controller backend = none (no `vigem` feature; gamepad output dropped)"
         );
         Ok(Self { warned: false })
     }
 
-    fn set_button(&mut self, _b: &GamepadButton, _down: bool) {
+    pub(crate) fn set_button(&mut self, _b: &GamepadButton, _down: bool) {
         self.warn_once();
     }
 
-    fn set_axis(&mut self, _a: &GamepadAxis, _v: f32) {
+    pub(crate) fn set_axis(&mut self, _a: &GamepadAxis, _v: f32) {
         self.warn_once();
     }
 
-    fn flush(&mut self) -> crate::Result<()> {
+    pub(crate) fn flush(&mut self) -> crate::Result<()> {
         Ok(())
     }
 
-    fn poll_rumble(&mut self) -> crate::Result<Rumble> {
+    pub(crate) fn poll_rumble(&mut self) -> crate::Result<Rumble> {
         Ok(Rumble::default())
     }
 }
