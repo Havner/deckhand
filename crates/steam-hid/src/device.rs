@@ -11,8 +11,8 @@ use crate::protocol::{
     self, ControllerStringAttributes, GyroMode, HapticIntensity, HapticPosition, HapticSide,
     HapticStyle, HapticType, MsgId, TrackpadDPadMode, TritonOutReport, Wire, setting,
 };
-use crate::state::{self, Battery, ControllerState, Report};
-use crate::value::Timestamp;
+use crate::report::{self, Battery, Report};
+use vocab_hid::{ControllerState, Timestamp};
 
 /// Internal read timeout for the "blocking" `read_*`; looped so it can later be
 /// made cancellable for cooperative shutdown (PLAN 1.6).
@@ -58,7 +58,7 @@ struct BleState {
     /// Next segment number expected (resets to 0 on a completed/!ordered packet).
     expected_seg: usize,
     /// Accumulated snapshot - BLE chunks decode straight into it (only-changed chunks arrive per
-    /// packet), so there is no decoded-report intermediate (see `state::apply_gordon_ble`).
+    /// packet), so there is no decoded-report intermediate (see `report::apply_gordon_ble`).
     acc: ControllerState,
     /// Synthesized sequence counter, bumped per input snapshot.
     seq: u32,
@@ -158,18 +158,18 @@ impl Device {
             return self.next_frame_ble(timeout_ms);
         }
         // The default path: **USB Gordon (wired + dongle) and Neptune** - one physical read is one
-        // 64-byte `0x01`-framed report (`[0x01, 0x00, <event>, ...]`), decoded by `state::parse`.
+        // 64-byte `0x01`-framed report (`[0x01, 0x00, <event>, ...]`), decoded by `report::parse`.
         let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;
         if n == 0 {
             return Ok(None);
         }
-        let report = state::parse(&self.buf, self.now())?;
+        let report = report::parse(&self.buf, self.now())?;
         self.update_cache(&report);
         Ok(Some(report))
     }
 
     /// Triton read path: one physical read == one report, dispatched by the **report id in byte 0**
-    /// (not the `0x01`-framed event byte Gordon/Neptune use - see `state::parse_triton`). Works for
+    /// (not the `0x01`-framed event byte Gordon/Neptune use - see `report::parse_triton`). Works for
     /// every Triton transport: the puck and wire stream state as `0x42`, **Bluetooth streams `0x45`**
     /// (both the same "NoQuat" body). On Linux/Windows the OS HID-over-GATT stack reassembles BLE and
     /// prepends the report id, so BT reports arrive here exactly like USB (no segmentation, unlike
@@ -181,7 +181,7 @@ impl Device {
             if n == 0 {
                 return Ok(None);
             }
-            let Some(report) = state::parse_triton(&self.buf[..n], self.now()) else {
+            let Some(report) = report::parse_triton(&self.buf[..n], self.now()) else {
                 continue; // undecoded report - keep reading
             };
             self.update_cache(&report);
@@ -237,7 +237,7 @@ impl Device {
             ble_state.expected_seg = 0;
             let len = (segnum + 1) * ble::SEGMENT_PAYLOAD;
             let assembled = ble_state.assembled;
-            if state::apply_gordon_ble(&mut ble_state.acc, &assembled[..len]) {
+            if report::apply_gordon_ble(&mut ble_state.acc, &assembled[..len]) {
                 ble_state.seq = ble_state.seq.wrapping_add(1);
                 ble_state.acc.seq = ble_state.seq;
                 ble_state.acc.timestamp = Timestamp(start.elapsed());

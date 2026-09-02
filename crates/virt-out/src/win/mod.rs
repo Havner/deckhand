@@ -36,8 +36,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_SCROLL, VK_SNAPSHOT, VK_SPACE, VK_SUBTRACT, VK_TAB, VK_UP,
 };
 
-use crate::event::{OutputEvent, Rumble};
-use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
+use crate::gamepad::Rumble;
+use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent};
 
 // --- controller backend selection (compile-time, mutually exclusive) ---
 //

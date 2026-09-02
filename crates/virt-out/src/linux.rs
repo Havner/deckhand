@@ -13,8 +13,8 @@ use evdev::{
     RelativeAxisEvent, UInputCode, UinputAbsSetup,
 };
 
-use crate::event::{AxisButtons, Dpad, OutputEvent, Rumble};
-use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
+use crate::gamepad::{AxisButtons, Dpad, Rumble};
+use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent};
 
 const FF_MAX_EFFECTS: u32 = 16;
 

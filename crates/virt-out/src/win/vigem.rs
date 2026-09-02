@@ -9,7 +9,7 @@ use std::thread::JoinHandle;
 
 use vigem_client::{Client, TargetId, XButtons, XGamepad, XTarget};
 
-use crate::event::{AxisButtons, Dpad, Rumble};
+use crate::gamepad::{AxisButtons, Dpad, Rumble};
 use vocab_out::{GamepadAxis, GamepadButton};
 
 /// Latest rumble from the virtual pad, written by the ViGEm notification thread and read by

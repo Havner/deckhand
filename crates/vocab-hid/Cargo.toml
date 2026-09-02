@@ -9,7 +9,9 @@ publish.workspace = true
 [features]
 default = []
 # Opt-in (de)serialization - enabled by `config` (RON) and `steam-hid` (wire), off otherwise.
-serde = ["dep:serde"]
+serde = ["dep:serde", "bitflags/serde"]
 
 [dependencies]
+# The unified button set (`Buttons`) is a bitflags type; the only non-serde dep this crate needs.
+bitflags = { workspace = true }
 serde = { workspace = true, optional = true }

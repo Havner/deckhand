@@ -1,20 +1,18 @@
-//! Wire decoding: raw HID bytes -> the unified, normalized snapshot (PLAN 1.5).
-//!
-//! One physical read yields exactly one frame of *some* type, so this module decodes
-//! straight from the wire packet ([`crate::protocol`]) into a [`Report`] in a single
-//! step: an input frame becomes [`Report::State`] (a normalized [`ControllerState`]),
-//! a lifecycle frame becomes [`Report::Connected`]/[`Report::Disconnected`]/
-//! [`Report::Battery`]. There is no separate decoded-report intermediate - the wire
-//! struct converts directly here.
+//! Wire decoding: raw HID bytes -> a [`Report`] (PLAN 1.5). One physical read yields exactly one
+//! frame of *some* type, so this module decodes straight from the wire packet ([`crate::protocol`])
+//! into a `Report`: an input frame becomes [`Report::State`] (a normalized
+//! [`ControllerState`], the shared snapshot from `vocab-hid`), a lifecycle frame becomes
+//! [`Report::Connected`]/[`Report::Disconnected`]/[`Report::Battery`]. There is no decoded-report
+//! intermediate - the wire struct converts directly here. Also folds each device's raw button
+//! bitfield into the unified [`Buttons`] (the `map_*` fns, next to their `from_*`).
 
-use crate::buttons::{Axis, Buttons, map_gordon, map_neptune, map_triton};
 use crate::error::{Error, Result};
 use crate::protocol::{
     ControllerStatus, GordonButtons, GordonState, NeptuneButtons, NeptuneState, REPORT_LEN,
     TritonBatteryStatus, TritonButtons, TritonStateNoQuat, TritonWirelessStatus, Wire, WireQuat,
     WireVec2, WireVec3, WirelessEvent, ble, event_type, triton, wireless,
 };
-use crate::value::{Quati, Timestamp, TrackPad, Vec2, Vec2i, Vec3i};
+use vocab_hid::{Buttons, ControllerState, Quati, TrackPad, Timestamp, Vec2, Vec2i, Vec3i};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -40,57 +38,6 @@ pub struct Battery {
     pub voltage_mv: u16,
     /// Battery charge, in percent (0..=100).
     pub charge_percent: u8,
-}
-
-/// A unified, normalized controller snapshot (PLAN 1.5).
-///
-/// Analog inputs are normalized to `f32`; IMU (accel/gyro/orientation) passes
-/// through as raw `i16` with documented scale factors. Battery is *not* here -
-/// it is a device-level [`Report::Battery`] signal.
-///
-/// **IMU frame (HW-verified, PLAN 1.9):** right-handed, `X=right, Y=forward
-/// (toward the nose), Z=up (out of the face)`.
-/// - `accel` - specific force; reads `+1g` along whichever axis points up
-///   (`ACCEL_RES_PER_G = 16384`). Passed through raw (already right-handed).
-/// - `gyro` - angular velocity, `x`=pitch, `y`=roll, `z`=yaw rate
-///   (`GYRO_RES_PER_DPS = 16`), right-hand rule: pitch-up / yaw-left / roll-right
-///   are positive. (Gordon's raw `y` is negated during conversion to make the
-///   triple right-handed - see [`gordon_gyro`].)
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct ControllerState {
-    pub seq: u32,
-    pub timestamp: Timestamp,
-    pub buttons: Buttons,
-    pub left_trigger: f32,
-    pub right_trigger: f32,
-    pub left_stick: Vec2,
-    pub right_stick: Vec2,
-    pub left_pad: TrackPad,
-    pub right_pad: TrackPad,
-    pub accel: Vec3i,
-    pub gyro: Vec3i,
-    pub orientation: Quati,
-}
-
-impl ControllerState {
-    /// Read a normalized analog channel (used by `diff`, PLAN 1.5).
-    pub fn axis(&self, axis: Axis) -> f32 {
-        match axis {
-            Axis::LeftStickX => self.left_stick.x,
-            Axis::LeftStickY => self.left_stick.y,
-            Axis::RightStickX => self.right_stick.x,
-            Axis::RightStickY => self.right_stick.y,
-            Axis::LeftPadX => self.left_pad.pos.x,
-            Axis::LeftPadY => self.left_pad.pos.y,
-            Axis::RightPadX => self.right_pad.pos.x,
-            Axis::RightPadY => self.right_pad.pos.y,
-            Axis::LeftTrigger => self.left_trigger,
-            Axis::RightTrigger => self.right_trigger,
-            Axis::LeftPadPressure => self.left_pad.pressure,
-            Axis::RightPadPressure => self.right_pad.pressure,
-        }
-    }
 }
 
 // --- USB Gordon / Neptune dispatch (the `0x01`-framed report) ---
@@ -133,6 +80,46 @@ pub(crate) fn parse(buf: &[u8], timestamp: Timestamp) -> Result<Report> {
     }
 }
 
+// --- Gordon (USB + BLE share this fold) ---
+
+/// Fold Gordon's per-device button bits into the unified [`Buttons`] superset.
+///
+/// Serves **both** USB and Bluetooth Gordon (they share [`GordonButtons`]). A plain 1:1 fold: the USB
+/// left-click multiplex is already resolved in [`from_gordon`], and BLE has none, so no touch-gating
+/// happens here.
+fn map_gordon(g: &GordonButtons) -> Buttons {
+    let mut out = Buttons::empty();
+    let mut set = |cond: bool, flag: Buttons| {
+        if cond {
+            out |= flag;
+        }
+    };
+    set(g.contains(GordonButtons::A), Buttons::A);
+    set(g.contains(GordonButtons::B), Buttons::B);
+    set(g.contains(GordonButtons::X), Buttons::X);
+    set(g.contains(GordonButtons::Y), Buttons::Y);
+    set(g.contains(GordonButtons::DPAD_UP), Buttons::DPAD_UP);
+    set(g.contains(GordonButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
+    set(g.contains(GordonButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
+    set(g.contains(GordonButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
+    set(g.contains(GordonButtons::LB), Buttons::LB);
+    set(g.contains(GordonButtons::RB), Buttons::RB);
+    set(g.contains(GordonButtons::LT), Buttons::LT);
+    set(g.contains(GordonButtons::RT), Buttons::RT);
+    set(g.contains(GordonButtons::LGRIP), Buttons::LGRIP);
+    set(g.contains(GordonButtons::RGRIP), Buttons::RGRIP);
+    set(g.contains(GordonButtons::VIEW), Buttons::VIEW);
+    set(g.contains(GordonButtons::MENU), Buttons::MENU);
+    set(g.contains(GordonButtons::STEAM), Buttons::STEAM);
+    // Pad/stick clicks arrive already de-multiplexed (USB in `from_gordon`; BLE has no multiplex).
+    set(g.contains(GordonButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    set(g.contains(GordonButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
+    set(g.contains(GordonButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
+    set(g.contains(GordonButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
+    set(g.contains(GordonButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
+    out
+}
+
 /// Decode a Gordon **USB** input frame into a unified snapshot (PLAN 1.4 offsets).
 ///
 /// The USB wire multiplexes the left pad and analog stick two ways; both are fully resolved here so
@@ -162,7 +149,7 @@ fn from_gordon(p: GordonState, timestamp: Timestamp) -> ControllerState {
     if raw.contains(GordonButtons::LPAD_PRESS) && !left_engaged {
         raw.remove(GordonButtons::LPAD_PRESS); // was a stick click, not a pad click
     }
-    let left_raw: Vec2i = left.into();
+    let left_raw: Vec2i = to_vec2i(left);
     let (left_pad_pos, left_stick) = if left_touched {
         (left_raw, Vec2i::default())
     } else {
@@ -170,7 +157,7 @@ fn from_gordon(p: GordonState, timestamp: Timestamp) -> ControllerState {
     };
     // Touch *button*: steady while the pad is engaged (matches kernel `BTN_THUMB`).
     raw.set(GordonButtons::LPAD_TOUCH, left_engaged);
-    let right_pad: Vec2i = right_pad.into();
+    let right_pad: Vec2i = to_vec2i(right_pad);
     ControllerState {
         seq,
         timestamp,
@@ -189,10 +176,52 @@ fn from_gordon(p: GordonState, timestamp: Timestamp) -> ControllerState {
             pressure: 0.0,
             touched: raw.contains(GordonButtons::RPAD_TOUCH),
         },
-        accel: accel.into(),
-        gyro: gordon_gyro(&gyro.into()),
-        orientation: orientation.into(),
+        accel: to_vec3i(accel),
+        gyro: gordon_gyro(&to_vec3i(gyro)),
+        orientation: to_quati(orientation),
     }
+}
+
+// --- Neptune (Steam Deck) ---
+
+/// Fold Neptune's per-device button bits into the unified [`Buttons`] superset (1:1 - the Deck has
+/// dedicated press/touch bits and its raw layout already matches the unified naming).
+fn map_neptune(n: &NeptuneButtons) -> Buttons {
+    let mut out = Buttons::empty();
+    let mut set = |cond: bool, flag: Buttons| {
+        if cond {
+            out |= flag;
+        }
+    };
+    set(n.contains(NeptuneButtons::A), Buttons::A);
+    set(n.contains(NeptuneButtons::B), Buttons::B);
+    set(n.contains(NeptuneButtons::X), Buttons::X);
+    set(n.contains(NeptuneButtons::Y), Buttons::Y);
+    set(n.contains(NeptuneButtons::DPAD_UP), Buttons::DPAD_UP);
+    set(n.contains(NeptuneButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
+    set(n.contains(NeptuneButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
+    set(n.contains(NeptuneButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
+    set(n.contains(NeptuneButtons::LB), Buttons::LB);
+    set(n.contains(NeptuneButtons::RB), Buttons::RB);
+    set(n.contains(NeptuneButtons::LT), Buttons::LT);
+    set(n.contains(NeptuneButtons::RT), Buttons::RT);
+    set(n.contains(NeptuneButtons::LGRIP), Buttons::LGRIP);
+    set(n.contains(NeptuneButtons::RGRIP), Buttons::RGRIP);
+    set(n.contains(NeptuneButtons::LGRIP2), Buttons::LGRIP2);
+    set(n.contains(NeptuneButtons::RGRIP2), Buttons::RGRIP2);
+    set(n.contains(NeptuneButtons::VIEW), Buttons::VIEW);
+    set(n.contains(NeptuneButtons::MENU), Buttons::MENU);
+    set(n.contains(NeptuneButtons::STEAM), Buttons::STEAM);
+    set(n.contains(NeptuneButtons::QUICK_ACCESS), Buttons::QUICK_ACCESS);
+    set(n.contains(NeptuneButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    set(n.contains(NeptuneButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
+    set(n.contains(NeptuneButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
+    set(n.contains(NeptuneButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
+    set(n.contains(NeptuneButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
+    set(n.contains(NeptuneButtons::RSTICK_PRESS), Buttons::RSTICK_PRESS);
+    set(n.contains(NeptuneButtons::LSTICK_TOUCH), Buttons::LSTICK_TOUCH);
+    set(n.contains(NeptuneButtons::RSTICK_TOUCH), Buttons::RSTICK_TOUCH);
+    out
 }
 
 /// Decode a Neptune (Steam Deck) input frame into a unified snapshot.
@@ -219,21 +248,21 @@ fn from_neptune(p: NeptuneState, timestamp: Timestamp) -> ControllerState {
         buttons: map_neptune(&buttons),
         left_trigger: norm_i16(left_trigger),
         right_trigger: norm_i16(right_trigger),
-        left_stick: norm_stick(&left_stick.into()),
-        right_stick: norm_stick(&right_stick.into()),
+        left_stick: norm_stick(&to_vec2i(left_stick)),
+        right_stick: norm_stick(&to_vec2i(right_stick)),
         left_pad: TrackPad {
-            pos: norm_stick(&left_pad.into()),
+            pos: norm_stick(&to_vec2i(left_pad)),
             pressure: norm_i16(left_pad_pressure),
             touched: buttons.contains(NeptuneButtons::LPAD_TOUCH),
         },
         right_pad: TrackPad {
-            pos: norm_stick(&right_pad.into()),
+            pos: norm_stick(&to_vec2i(right_pad)),
             pressure: norm_i16(right_pad_pressure),
             touched: buttons.contains(NeptuneButtons::RPAD_TOUCH),
         },
-        accel: accel.into(),
-        gyro: gyro.into(),
-        orientation: orientation.into(),
+        accel: to_vec3i(accel),
+        gyro: to_vec3i(gyro),
+        orientation: to_quati(orientation),
     }
 }
 
@@ -273,6 +302,50 @@ pub(crate) fn parse_triton(buf: &[u8], timestamp: Timestamp) -> Option<Report> {
     }
 }
 
+// --- Triton (new Steam Controller) ---
+
+/// Fold Triton's per-device button bits into the unified [`Buttons`] superset (1:1). The two
+/// capacitive **grip-touch** sensors fold into the `L/RGRIP_TOUCH` bits (a Triton-only input).
+fn map_triton(t: &TritonButtons) -> Buttons {
+    let mut out = Buttons::empty();
+    let mut set = |cond: bool, flag: Buttons| {
+        if cond {
+            out |= flag;
+        }
+    };
+    set(t.contains(TritonButtons::A), Buttons::A);
+    set(t.contains(TritonButtons::B), Buttons::B);
+    set(t.contains(TritonButtons::X), Buttons::X);
+    set(t.contains(TritonButtons::Y), Buttons::Y);
+    set(t.contains(TritonButtons::DPAD_UP), Buttons::DPAD_UP);
+    set(t.contains(TritonButtons::DPAD_DOWN), Buttons::DPAD_DOWN);
+    set(t.contains(TritonButtons::DPAD_LEFT), Buttons::DPAD_LEFT);
+    set(t.contains(TritonButtons::DPAD_RIGHT), Buttons::DPAD_RIGHT);
+    set(t.contains(TritonButtons::LB), Buttons::LB);
+    set(t.contains(TritonButtons::RB), Buttons::RB);
+    set(t.contains(TritonButtons::LT), Buttons::LT);
+    set(t.contains(TritonButtons::RT), Buttons::RT);
+    set(t.contains(TritonButtons::LGRIP), Buttons::LGRIP);
+    set(t.contains(TritonButtons::RGRIP), Buttons::RGRIP);
+    set(t.contains(TritonButtons::LGRIP2), Buttons::LGRIP2);
+    set(t.contains(TritonButtons::RGRIP2), Buttons::RGRIP2);
+    set(t.contains(TritonButtons::LGRIP_TOUCH), Buttons::LGRIP_TOUCH);
+    set(t.contains(TritonButtons::RGRIP_TOUCH), Buttons::RGRIP_TOUCH);
+    set(t.contains(TritonButtons::VIEW), Buttons::VIEW);
+    set(t.contains(TritonButtons::MENU), Buttons::MENU);
+    set(t.contains(TritonButtons::STEAM), Buttons::STEAM);
+    set(t.contains(TritonButtons::QUICK_ACCESS), Buttons::QUICK_ACCESS);
+    set(t.contains(TritonButtons::LPAD_PRESS), Buttons::LPAD_PRESS);
+    set(t.contains(TritonButtons::RPAD_PRESS), Buttons::RPAD_PRESS);
+    set(t.contains(TritonButtons::LPAD_TOUCH), Buttons::LPAD_TOUCH);
+    set(t.contains(TritonButtons::RPAD_TOUCH), Buttons::RPAD_TOUCH);
+    set(t.contains(TritonButtons::LSTICK_PRESS), Buttons::LSTICK_PRESS);
+    set(t.contains(TritonButtons::RSTICK_PRESS), Buttons::RSTICK_PRESS);
+    set(t.contains(TritonButtons::LSTICK_TOUCH), Buttons::LSTICK_TOUCH);
+    set(t.contains(TritonButtons::RSTICK_TOUCH), Buttons::RSTICK_TOUCH);
+    out
+}
+
 /// Decode the Triton report `0x42`/`0x45` "NoQuat" body into a unified snapshot.
 ///
 /// Like the Deck: separate stick/pad fields (no Gordon multiplex), direct press/touch bits, a 1:1
@@ -297,20 +370,20 @@ fn from_triton(p: TritonStateNoQuat, timestamp: Timestamp) -> ControllerState {
         buttons: map_triton(&buttons),
         left_trigger: norm_i16(left_trigger),
         right_trigger: norm_i16(right_trigger),
-        left_stick: norm_stick(&left_stick.into()),
-        right_stick: norm_stick(&right_stick.into()),
+        left_stick: norm_stick(&to_vec2i(left_stick)),
+        right_stick: norm_stick(&to_vec2i(right_stick)),
         left_pad: TrackPad {
-            pos: norm_stick(&left_pad.into()),
+            pos: norm_stick(&to_vec2i(left_pad)),
             pressure: norm_i16(left_pad_pressure),
             touched: buttons.contains(TritonButtons::LPAD_TOUCH),
         },
         right_pad: TrackPad {
-            pos: norm_stick(&right_pad.into()),
+            pos: norm_stick(&to_vec2i(right_pad)),
             pressure: norm_i16(right_pad_pressure),
             touched: buttons.contains(TritonButtons::RPAD_TOUCH),
         },
-        accel: accel.into(),
-        gyro: gyro.into(),
+        accel: to_vec3i(accel),
+        gyro: to_vec3i(gyro),
         orientation: Quati::default(),
     }
 }
@@ -360,22 +433,22 @@ pub(crate) fn apply_gordon_ble(acc: &mut ControllerState, payload: &[u8]) -> boo
     }
     // `take(n)` guarantees `payload[o..]` has >= n bytes, so each chunk cast below is infallible.
     if mask & chunk::LSTICK != 0 && let Some(o) = take(4) {
-        acc.left_stick = norm_stick(&WireVec2::from_bytes(&payload[o..]).unwrap().into());
+        acc.left_stick = norm_stick(&to_vec2i(WireVec2::from_bytes(&payload[o..]).unwrap()));
     }
     if mask & chunk::LPAD != 0 && let Some(o) = take(4) {
-        acc.left_pad.pos = norm_stick(&WireVec2::from_bytes(&payload[o..]).unwrap().into());
+        acc.left_pad.pos = norm_stick(&to_vec2i(WireVec2::from_bytes(&payload[o..]).unwrap()));
     }
     if mask & chunk::RPAD != 0 && let Some(o) = take(4) {
-        acc.right_pad.pos = norm_stick(&WireVec2::from_bytes(&payload[o..]).unwrap().into());
+        acc.right_pad.pos = norm_stick(&to_vec2i(WireVec2::from_bytes(&payload[o..]).unwrap()));
     }
     if mask & chunk::ACCEL != 0 && let Some(o) = take(6) {
-        acc.accel = WireVec3::from_bytes(&payload[o..]).unwrap().into();
+        acc.accel = to_vec3i(WireVec3::from_bytes(&payload[o..]).unwrap());
     }
     if mask & chunk::GYRO != 0 && let Some(o) = take(6) {
-        acc.gyro = gordon_gyro(&WireVec3::from_bytes(&payload[o..]).unwrap().into());
+        acc.gyro = gordon_gyro(&to_vec3i(WireVec3::from_bytes(&payload[o..]).unwrap()));
     }
     if mask & chunk::QUAT != 0 && let Some(o) = take(8) {
-        acc.orientation = WireQuat::from_bytes(&payload[o..]).unwrap().into();
+        acc.orientation = to_quati(WireQuat::from_bytes(&payload[o..]).unwrap());
     }
     // Touch buttons live in both `buttons` and the per-pad `touched`; sync the pads from the folded
     // buttons (Gordon pads report no pressure, so `.pos`/`.touched` are the only live pad fields).
@@ -384,7 +457,7 @@ pub(crate) fn apply_gordon_ble(acc: &mut ControllerState, payload: &[u8]) -> boo
     true
 }
 
-// --- normalization helpers (divisors provisional, verify on HW - PLAN 1.5/1.9) ---
+// --- helpers: gyro frame, normalization, wire -> value converters ---
 
 /// Normalize Gordon's raw gyro into the unified right-handed IMU frame.
 ///
@@ -413,6 +486,18 @@ fn norm_axis(v: i16) -> f32 {
 }
 fn norm_stick(v: &Vec2i) -> Vec2 {
     Vec2 { x: norm_axis(v.x), y: norm_axis(v.y) }
+}
+
+// The value types live in `vocab-hid`; a `From` impl here would be an orphan (both `From` and the
+// target type are foreign), so these are plain free-fn field copies.
+fn to_vec2i(w: WireVec2) -> Vec2i {
+    Vec2i { x: w.x, y: w.y }
+}
+fn to_vec3i(w: WireVec3) -> Vec3i {
+    Vec3i { x: w.x, y: w.y, z: w.z }
+}
+fn to_quati(w: WireQuat) -> Quati {
+    Quati { x: w.x, y: w.y, z: w.z, w: w.w }
 }
 
 #[cfg(test)]

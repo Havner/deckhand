@@ -6,9 +6,10 @@
 
 use std::collections::VecDeque;
 
-use crate::buttons::{Axis, Button, button_flag};
+use vocab_hid::{Axis, Button, ControllerState, button_flag};
+
 use crate::device::Device;
-use crate::state::{Battery, ControllerState, Report};
+use crate::report::{Battery, Report};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -31,37 +32,36 @@ pub enum Event {
     Battery(Battery),
 }
 
-impl ControllerState {
-    /// Stateless diff: events for the transition from `prev` to `self` (PLAN 1.5).
-    ///
-    /// Digital buttons are exact bit flips; analog axes apply [`AXIS_DEADBAND`].
-    pub fn diff(&self, prev: &Self) -> impl Iterator<Item = Event> {
-        let mut out = Vec::new();
+/// Stateless diff: events for the transition from `prev` to `cur` (PLAN 1.5). A free fn (not a
+/// method) because [`ControllerState`] lives in `vocab-hid`; this change-log view is `steam-hid`'s.
+///
+/// Digital buttons are exact bit flips; analog axes apply [`AXIS_DEADBAND`].
+pub fn diff(cur: &ControllerState, prev: &ControllerState) -> impl Iterator<Item = Event> {
+    let mut out = Vec::new();
 
-        let (cur_b, prev_b) = (self.buttons.bits(), prev.buttons.bits());
-        if cur_b != prev_b {
-            for btn in Button::ALL {
-                let bit = button_flag(&btn).bits();
-                let now = cur_b & bit != 0;
-                let was = prev_b & bit != 0;
-                if now && !was {
-                    out.push(Event::ButtonPressed(btn));
-                } else if !now && was {
-                    out.push(Event::ButtonReleased(btn));
-                }
+    let (cur_b, prev_b) = (cur.buttons.bits(), prev.buttons.bits());
+    if cur_b != prev_b {
+        for btn in Button::ALL {
+            let bit = button_flag(&btn).bits();
+            let now = cur_b & bit != 0;
+            let was = prev_b & bit != 0;
+            if now && !was {
+                out.push(Event::ButtonPressed(btn));
+            } else if !now && was {
+                out.push(Event::ButtonReleased(btn));
             }
         }
-
-        for axis in Axis::ALL {
-            let now = self.axis(axis.clone());
-            let was = prev.axis(axis.clone());
-            if (now - was).abs() >= AXIS_DEADBAND {
-                out.push(Event::AxisChanged(axis, now));
-            }
-        }
-
-        out.into_iter()
     }
+
+    for axis in Axis::ALL {
+        let now = cur.axis(axis.clone());
+        let was = prev.axis(axis.clone());
+        if (now - was).abs() >= AXIS_DEADBAND {
+            out.push(Event::AxisChanged(axis, now));
+        }
+    }
+
+    out.into_iter()
 }
 
 /// Streaming iterator of [`Event`]s over a [`Device`] (PLAN 1.5).
@@ -95,7 +95,7 @@ impl Iterator for Events<'_> {
             match self.device.read() {
                 Ok(Report::State(cur)) => {
                     if let Some(prev) = &self.prev {
-                        self.pending.extend(cur.diff(prev));
+                        self.pending.extend(diff(&cur, prev));
                     }
                     self.prev = Some(cur);
                     // Loop again to drain pending (or read the next frame).

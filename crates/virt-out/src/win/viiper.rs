@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use viiper_client::devices::xbox360::{OUTPUT_SIZE, Xbox360Input};
 use viiper_client::{DeviceCreateRequest, DeviceStream, ViiperClient};
 
-use crate::event::{AxisButtons, Dpad, Rumble};
+use crate::gamepad::{AxisButtons, Dpad, Rumble};
 use vocab_out::{GamepadAxis, GamepadButton};
 
 /// Default VIIPER API address (the `--api.addr` port, not the USB/IP `:3241` port).

@@ -3,7 +3,7 @@
 //! with a single warning the first time any controller event arrives, so a controller-bound
 //! profile isn't silently doing nothing while the log stays quiet under the ~250 Hz axis stream.
 
-use crate::event::Rumble;
+use crate::gamepad::Rumble;
 use vocab_out::{GamepadAxis, GamepadButton};
 
 /// A controller backend that realizes nothing. `warned` gates the one-time drop warning.

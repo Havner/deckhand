@@ -1,6 +1,6 @@
-//! Public-API tests for the stateless `ControllerState::diff` (PLAN 1.5).
+//! Public-API tests for the stateless `steam_hid::diff` (PLAN 1.5).
 
-use steam_hid::{Axis, Button, Buttons, ControllerState, Event};
+use steam_hid::{Axis, Button, Buttons, ControllerState, Event, diff};
 
 #[test]
 fn diff_detects_button_press_and_release() {
@@ -8,11 +8,11 @@ fn diff_detects_button_press_and_release() {
     let mut pressed = released.clone();
     pressed.buttons = Buttons::A | Buttons::B;
 
-    let events: Vec<Event> = pressed.diff(&released).collect();
+    let events: Vec<Event> = diff(&pressed, &released).collect();
     assert!(events.contains(&Event::ButtonPressed(Button::A)));
     assert!(events.contains(&Event::ButtonPressed(Button::B)));
 
-    let events: Vec<Event> = released.diff(&pressed).collect();
+    let events: Vec<Event> = diff(&released, &pressed).collect();
     assert!(events.contains(&Event::ButtonReleased(Button::A)));
     assert!(events.contains(&Event::ButtonReleased(Button::B)));
 }
@@ -23,7 +23,7 @@ fn diff_axis_respects_deadband() {
 
     let mut big = base.clone();
     big.left_trigger = 0.5;
-    let events: Vec<Event> = big.diff(&base).collect();
+    let events: Vec<Event> = diff(&big, &base).collect();
     assert!(
         events
             .iter()
@@ -32,6 +32,6 @@ fn diff_axis_respects_deadband() {
 
     let mut tiny = base.clone();
     tiny.left_trigger = 0.002; // below the deadband (AXIS_DEADBAND = 0.005 in event.rs)
-    let events: Vec<Event> = tiny.diff(&base).collect();
+    let events: Vec<Event> = diff(&tiny, &base).collect();
     assert!(!events.iter().any(|e| matches!(e, Event::AxisChanged(..))));
 }

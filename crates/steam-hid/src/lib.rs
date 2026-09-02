@@ -15,29 +15,31 @@
 //!   [`Report::State`] (a unified [`ControllerState`]) or a lifecycle signal,
 //!   never a bare state. The wire packet decodes straight to it (in `state`).
 //! - Snapshots come from [`Device::read`]/[`Device::poll`]; [`Device::events`] is
-//!   a change-driven view over the same stream; [`ControllerState::diff`] is the
+//!   a change-driven view over the same stream; [`diff`] is the
 //!   stateless primitive underneath it.
 
 mod backend;
-mod buttons;
 mod device;
 mod error;
 mod event;
 mod info;
 mod protocol;
-mod state;
-mod value;
+mod report;
 
-pub use buttons::{Axis, Button, Buttons, button_flag};
+// The input vocabulary (`Buttons`/`ControllerState`/value types/IMU scales) now lives in `vocab-hid`
+// so the mapper can consume it without a HAL dep; `steam-hid` produces it. Re-exported so this
+// crate's own consumers keep using `steam_hid::ControllerState`, `::Buttons`, etc.
+pub use vocab_hid::{
+    ACCEL_RES_PER_G, Axis, Button, Buttons, ControllerState, GYRO_RES_PER_DPS, Quati, Timestamp,
+    TrackPad, Vec2, Vec2i, Vec3i, button_flag,
+};
 pub use protocol::{
-    ACCEL_RES_PER_G, ControllerStringAttributes, GYRO_RES_PER_DPS, GordonButtons, GyroMode,
-    HapticIntensity, HapticPosition, HapticSide, HapticStyle, HapticType, NeptuneButtons,
-    TritonButtons,
+    ControllerStringAttributes, GordonButtons, GyroMode, HapticIntensity, HapticPosition,
+    HapticSide, HapticStyle, HapticType, NeptuneButtons, TritonButtons,
 };
 pub use backend::Manager;
 pub use device::{Device, HapticPulse};
 pub use info::{DeviceId, DeviceInfo, DeviceKind, Transport};
 pub use error::{Error, Result};
-pub use event::{Event, Events};
-pub use state::{Battery, ControllerState, Report};
-pub use value::{Quati, Timestamp, TrackPad, Vec2, Vec2i, Vec3i};
+pub use event::{Event, Events, diff};
+pub use report::{Battery, Report};
