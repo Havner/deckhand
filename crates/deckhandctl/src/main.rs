@@ -24,7 +24,7 @@ Commands (run in sequence; put --socket/-h/-V first):
   main <file.ron>       load + apply a Main profile (empty string clears it: reverts to Fallback)
   fallback <file.ron>   load + apply a Fallback profile (empty string clears it)
   chords <file.ron>     load + apply the top-level switch/command chords
-  devcfg <file.ron>     load + apply the device config (LED/idle, master rumble, frequency)
+  devcfg <file.ron>     load + apply the device config (LED/idle, per-device rumble)
   start                 acquire hardware and start the mapping loop
   stop                  stop the mapping loop (release hardware, keep config)
   shutdown              shut the daemon down (must be last)

@@ -40,7 +40,7 @@ struct Args {
     /// Chords (RON): the top-level switch/command chords.
     #[arg(short = 'c', long, value_name = "RON")]
     chords: Option<PathBuf>,
-    /// Device config (RON): LED/idle, master rumble, frequency.
+    /// Device config (RON): LED/idle, per-device rumble.
     #[arg(short = 'd', long, value_name = "RON")]
     devcfg: Option<PathBuf>,
     /// Input source: auto | dongle | wired | bt | <device-id> | host:port.
