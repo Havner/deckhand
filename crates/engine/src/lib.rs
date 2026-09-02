@@ -25,9 +25,6 @@ mod compile;
 mod error;
 mod event;
 mod handle;
-mod logical;
-mod mapper;
-mod program;
 mod runtime;
 
 pub use compile::compile;
@@ -35,9 +32,6 @@ pub use error::{Error, Result};
 pub use event::{EngineEvent, EventStream};
 pub use handle::{DeviceSelect, Engine, Input, Output, Status, StatusInfo};
 pub use steam_hid::{DeviceId, DeviceInfo, DeviceKind, Transport};
-pub use logical::{Dir, LogicalFrame};
-pub use mapper::{HapticReq, Mapper, Tick};
-pub use program::{
-    CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId, Program,
-    ProgramMeta, Role, SetId, SourceMap,
-};
+// The mapper's compiled `Program` and the `Role` a profile fills are part of the engine's public
+// API (the daemon works with them); the rest of the mapper is engine-internal.
+pub use mapper::{Program, Role};

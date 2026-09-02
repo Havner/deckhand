@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use config::Chords;
 use steam_hid::{ControllerState, Report};
 
-use crate::program::{Program, Role};
+use mapper::{Program, Role};
 
 use super::super::{Click, RumbleCmd};
 
@@ -123,7 +123,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::program::{
+    use mapper::{
         CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId,
         ProgramMeta, SetId, SourceMap,
     };

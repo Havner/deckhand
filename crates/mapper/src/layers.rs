@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use config::{HapticEdge, InputSource};
 
-use super::HapticReq;
+use crate::mapper::HapticReq;
 use crate::logical::{Dir, LogicalFrame};
 use crate::program::{LayerId, SetId};
 

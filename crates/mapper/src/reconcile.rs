@@ -11,7 +11,7 @@
 //! forward (PLAN 4; a real feel improvement validated in the Phase B bridge).
 use std::collections::{BTreeMap, BTreeSet};
 
-use virt_out::OutputEvent;
+use vocab_out::OutputEvent;
 use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 /// The desired output **levels** for one tick (what should be held now). Keys/buttons are

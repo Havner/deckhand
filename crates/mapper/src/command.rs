@@ -50,7 +50,7 @@ use super::activator::{CmdState, Deferred, SlotState};
 use super::behavior::Sinks;
 use super::layers::{HeldLayer, HoldHaptic, LayerOps, NodeHeld};
 use super::reconcile::DesiredLevels;
-use super::{HapticReq, Tick};
+use crate::mapper::{HapticReq, Tick};
 use crate::program::{CompiledAction, CompiledCommand};
 
 /// How long a tap-style output holds from its trigger edge, in ms - one-shot `Start`/`Release`
@@ -258,7 +258,7 @@ fn haptic_req(cmd: &CompiledCommand, side: &Side) -> HapticReq {
 /// The shape of a command's effect, which decides where its haptic click fires. The three are
 /// mutually exclusive and classified in this priority order (`Level` is the catch-all):
 /// - `PersistentOpSet` - the command does *only* `ChangeActionSet`/`AddLayer`/`RemoveLayer`. Its
-///   click is deferred to [`reconcile_layer_ops`](super::Mapper::reconcile_layer_ops) and fired iff
+///   click is deferred to [`reconcile_layer_ops`](crate::mapper::Mapper::reconcile_layer_ops) and fired iff
 ///   the op actually changes state (past dedup, `set_change`-wins, and no-op applies), because a
 ///   dropped op produces no effect and must produce no click. A persistent op has no release edge.
 /// - `Hold` - the command does *only* `HoldLayer`. Its click is deferred onto the held layer and

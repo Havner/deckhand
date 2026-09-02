@@ -18,7 +18,7 @@
 //! both crates were unified onto Valve's names.)
 
 use config::InputSource;
-use steam_hid::{Button, Buttons, ControllerState, TrackPad, Vec2, Vec3i};
+use vocab_hid::{Button, Buttons, ControllerState, TrackPad, Vec2, Vec3i};
 
 /// A direction within a directional source (button group, dpad, joystick ring). Reused by
 /// the `ButtonPad`/`DirectionalPad` behaviors (S6).
@@ -52,7 +52,7 @@ impl LogicalFrame {
     pub fn masked(&self, consumed: &[Button]) -> LogicalFrame {
         let mut state = self.state.clone();
         for b in consumed {
-            state.buttons.remove(steam_hid::button_flag(b));
+            state.buttons.remove(vocab_hid::button_flag(b));
         }
         LogicalFrame::new(state)
     }
@@ -67,7 +67,7 @@ impl LogicalFrame {
     /// directly (any bit - including face buttons / dpad directions), so they use this rather than
     /// the [`InputSource`]-keyed [`button`](Self::button).
     pub fn button_held(&self, b: &Button) -> bool {
-        self.state.buttons.contains(steam_hid::button_flag(b))
+        self.state.buttons.contains(vocab_hid::button_flag(b))
     }
 
     /// Digital level of one member of a **button group** (`FaceButtons`/`DPad`). `false` for

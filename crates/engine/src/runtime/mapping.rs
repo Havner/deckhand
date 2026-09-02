@@ -18,9 +18,10 @@ use virt_out::{OutputEvent, Rumble, Sink};
 use crate::chords::{ChordStates, ExecReq};
 use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
-use crate::logical::LogicalFrame;
-use crate::program::{LayerId, Program, Role, empty_program};
-use crate::{HapticReq, Mapper, Result, Tick};
+use mapper::LogicalFrame;
+use mapper::{LayerId, Program, Role, empty_program};
+use crate::Result;
+use mapper::{HapticReq, Mapper, Tick};
 
 use super::link::LinkServer;
 use super::{Click, Control, RumbleCmd};
@@ -356,7 +357,7 @@ fn emit_layer_view(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::program::{CompiledSet, ProgramMeta, SetId, SourceMap};
+    use mapper::{CompiledSet, ProgramMeta, SetId, SourceMap};
     use config::Curve;
 
     fn prog(name: &str) -> Program {
@@ -412,9 +413,9 @@ mod tests {
 
     #[test]
     fn layer_view_emits_named_events_on_change_only() {
-        use crate::logical::LogicalFrame;
-        use crate::program::{CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, LayerId};
-        use crate::{Mapper, Tick};
+        use mapper::LogicalFrame;
+        use mapper::{CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, LayerId};
+        use mapper::{Mapper, Tick};
         use config::{Activator, CommandSettings, InputSource};
 
         // set "game": base LB -> AddLayer(0); layer 0 is named "aim".

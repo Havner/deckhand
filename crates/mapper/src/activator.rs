@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use config::InputSource;
 
-use super::Tick;
+use crate::mapper::Tick;
 use crate::program::LayerId;
 
 /// Which binding won for a source - part of the activator identity, so a change resets state.

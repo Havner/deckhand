@@ -11,7 +11,7 @@ use config::{Chords, DeviceConfig};
 use steam_hid::DeviceId;
 
 use crate::handle::{Input, Output, Status};
-use crate::program::Role;
+use mapper::Role;
 
 /// An out-of-band signal from the engine.
 #[derive(Debug, Clone)]

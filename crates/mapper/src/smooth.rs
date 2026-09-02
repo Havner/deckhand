@@ -1,5 +1,5 @@
 //! One-Euro filter - adaptive low-pass smoothing for the noisy relative behaviors (PLAN 4
-//! decision D). Its running state is kept per source in the [`Mapper`](super::Mapper) and applied
+//! decision D). Its running state is kept per source in the [`Mapper`](crate::mapper::Mapper) and applied
 //! to the behavior's *velocity/rate* signal (frame-rate-independent).
 //!
 //! Casiez et al.: a low-pass whose cutoff **rises with the signal's speed** - heavy smoothing at

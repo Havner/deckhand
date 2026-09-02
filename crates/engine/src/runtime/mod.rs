@@ -30,7 +30,7 @@ use virt_out::Sink;
 
 use crate::Result;
 use crate::event::EventSink;
-use crate::program::{Program, Role};
+use mapper::{Program, Role};
 
 use link::{LinkClient, LinkServer, LocalLink};
 use mapping::run_mapper;

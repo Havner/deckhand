@@ -6,7 +6,7 @@
 //! deferred - this is the crude-but-good-enough estimate (like the crude local-space start).
 
 /// Gravity-direction estimate - an EMA of the raw accel vector, kept per gyro source in the
-/// [`Mapper`](super::Mapper). [`Self::update`] returns the current **up** unit vector (points up,
+/// [`Mapper`](crate::mapper::Mapper). [`Self::update`] returns the current **up** unit vector (points up,
 /// opposite gravity) - the axis player space projects yaw+roll onto.
 #[derive(Debug, Clone, Default)]
 pub(super) struct GravityEst {

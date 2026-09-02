@@ -1,0 +1,18 @@
+[package]
+name = "mapper"
+description = "The pure mapping core: evaluates a compiled Program over per-frame controller input (vocab-hid) into output events (vocab-out). Golden-testable, no HAL, no OS - an injected clock is its only notion of time."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Source and destination vocabularies (the only device-facing deps): vocab-hid = the input snapshot
+# it reads, vocab-out = the output events it emits. serde on so the compiled Program IR crosses the
+# 6 network wire.
+vocab-hid = { path = "../vocab-hid", features = ["serde"] }
+vocab-out = { path = "../vocab-out", features = ["serde"] }
+# The authoring model the IR is compiled from (settings/enums embedded in the Program).
+config = { path = "../config" }
+# (De)serialization of the Program IR + LogicalFrame.
+serde = { workspace = true }

@@ -28,10 +28,10 @@ use config::{
     GyroSpace, GyroToMouseSettings, InputSource, JoystickMouseSettings, JoystickSettings,
     MouseOutput, StickOutput, TriggerOutput, TriggerSettings,
 };
-use steam_hid::{GYRO_RES_PER_DPS, Vec2};
+use vocab_hid::{GYRO_RES_PER_DPS, Vec2};
 use vocab_out::GamepadAxis;
 
-use super::{HapticReq, Tick};
+use crate::mapper::{HapticReq, Tick};
 use super::activator::{SlotState, SourceActivators};
 use super::command::eval_commands;
 use super::gyro::GravityEst;
@@ -532,8 +532,8 @@ mod tests {
         Activator, CommandSettings, Deadzone, GyroToMouseSettings, Invert, JoystickMouseSettings,
         OuterRing, SoftPull,
     };
-    use steam_hid::{Buttons, ControllerState, TrackPad, Vec3i};
-    use virt_out::OutputEvent;
+    use vocab_hid::{Buttons, ControllerState, TrackPad, Vec3i};
+    use vocab_out::OutputEvent;
     use vocab_out::Key;
 
     fn regular(key: Key) -> Vec<CompiledCommand> {
@@ -839,7 +839,7 @@ mod tests {
             settings: JoystickSettings {
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
-                    gaters: vec![steam_hid::Button::LGrip],
+                    gaters: vec![vocab_hid::Button::LGrip],
                 },
                 ..Default::default()
             },

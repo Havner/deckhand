@@ -13,8 +13,8 @@
 use config::{ChordAction, Chord, SwitchMode};
 use steam_hid::Button;
 
-use crate::logical::LogicalFrame;
-use crate::program::Role;
+use mapper::LogicalFrame;
+use mapper::Role;
 
 /// Retained per-chord runtime state (toggle latch + engage edge).
 #[derive(Default)]

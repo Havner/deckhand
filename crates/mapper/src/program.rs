@@ -91,7 +91,7 @@ impl Program {
 /// the mapper's `default_set` indexing stays valid (an empty `sets` would panic at tick). Lazily
 /// built behind a `OnceLock` so it lives long enough to hand out `&'static`. (Future: give it
 /// sensible defaults + rename to `DEFAULT_PROFILE`.)
-pub(crate) fn empty_program() -> &'static Program {
+pub fn empty_program() -> &'static Program {
     static EMPTY: OnceLock<Program> = OnceLock::new();
     EMPTY.get_or_init(|| Program {
         meta: ProgramMeta { name: "EMPTY_PROFILE".into(), role: Role::Main },

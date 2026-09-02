@@ -19,7 +19,7 @@ use config::{
     Action, ActionSet, Command, ConfigDoc, Diagnostic, InputSource, Layer, Severity, SourceBinding,
 };
 
-use crate::program::{
+use mapper::{
     CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId, Program,
     ProgramMeta, Role, SetId, SourceMap,
 };
@@ -161,7 +161,7 @@ fn resolve_layer(names: &Names, name: &str) -> LayerId {
 mod tests {
     use super::*;
     use config::{Activator, LayerRef};
-    use vocab_out::{GamepadButton, Key};
+    use virt_out::{GamepadButton, Key};
 
     fn press(action: Action) -> Command {
         Command { activator: Activator::Regular { interruptible: false }, actions: vec![action], settings: Default::default() }

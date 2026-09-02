@@ -7,12 +7,13 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-# The mapping model we compile into the runtime Program (PLAN 4.1, decision A: the IR
-# and compile() live HERE, not in config - config stays pure authoring data).
+# The authoring model. compile() lives HERE (PLAN 4.1, decision A) and turns a ConfigDoc into a
+# `mapper::Program`; config stays pure authoring data.
 config = { path = "../config" }
-# Shared output vocabulary (Key / MouseButton / GamepadButton / GamepadAxis). serde on so the
-# compiled Program IR (which embeds these) can be sent over the 6 network wire.
-vocab-out = { path = "../vocab-out", features = ["serde"] }
+# The pure mapping core: the Mapper, the Program IR it evaluates, and the LogicalFrame it reads.
+# The engine compiles config into a `mapper::Program` and drives the Mapper over real devices +
+# the network. The mapper itself depends only on the vocab crates, never on this engine or a HAL.
+mapper = { path = "../mapper" }
 # Input HAL (devices, ControllerState) and output HAL (Sink, OutputEvent, Rumble). The
 # engine owns and drives both directly (PLAN 4). virt-out's controller (virtual-gamepad)
 # backend is compile-time selectable and off by default; forward the choice via the engine's

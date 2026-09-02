@@ -21,7 +21,7 @@ use std::time::Duration;
 use virt_out::Sink;
 
 use crate::event::{EngineEvent, EventSink, EventStream};
-use crate::program::{Program, Role};
+use mapper::{Program, Role};
 use crate::runtime::{Control, Runtime};
 use crate::{Error, Result};
 

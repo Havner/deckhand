@@ -1,39 +1,23 @@
-//! The pure mapping core (PLAN 4.1/4.2).
+//! The [`Mapper`]: the live runtime state and the per-tick mapping pass ([`Mapper::tick`]).
 //!
-//! [`Mapper`] holds the live runtime state and runs **one acyclic pass per tick**
-//! ([`Mapper::tick`]). It is deliberately pure: it takes an input frame plus an injected
-//! [`Tick`] clock and produces [`OutputEvent`]s (and, later, [`HapticReq`]s), touching no
-//! hardware and no wall clock - so recorded `(frame, Tick)` traces replay identically in
-//! golden tests. The manager shell (S9) drives it; the network sink drives the same core.
-//!
-//! **This is S5 - skeleton + binding resolution.** Retained state, the frozen-layer-state
-//! read, and winning-binding resolution (declared-order layer-stack walk, else base) are
-//! here. Only [`CompiledBinding::Button`] with a `Regular` activator is wired (held-while-held
-//! levels, via [`reconcile`]); behaviors (S6), the full activator set (S7), and layer/set
-//! actions (S8) fill in the remaining match arms and state. The per-tick pass will grow into
-//! `resolve`/`behavior`/`command` submodules as those steps land.
-
-mod activator;
-mod behavior;
-mod command;
-mod gyro;
-mod layers;
-mod reconcile;
-mod smooth;
+//! One acyclic pass per tick turns a [`LogicalFrame`](crate::LogicalFrame) plus an injected
+//! [`Tick`] clock into [`OutputEvent`]s (and [`HapticReq`]s), touching no hardware and no wall
+//! clock - so recorded `(frame, Tick)` traces replay identically in golden tests. The engine's
+//! manager loop drives it; the network sink drives the same core.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use config::{HapticEdge, HapticStrength, InputSource, Side};
-use virt_out::OutputEvent;
+use vocab_out::OutputEvent;
 
 use crate::logical::LogicalFrame;
 use crate::program::{CompiledBinding, CompiledSet, LayerId, Program, SetId};
 
-use activator::{Activators, BindingKey};
-use gyro::GravityEst;
-use layers::{ArmedNodes, HeldLayer, HoldHaptic, LayerOps, NodeKey};
-use reconcile::{AppliedLevels, DesiredLevels, RelAccum};
-use smooth::OneEuro2;
+use crate::activator::{Activators, BindingKey};
+use crate::gyro::GravityEst;
+use crate::layers::{ArmedNodes, HeldLayer, HoldHaptic, LayerOps, NodeKey};
+use crate::reconcile::{AppliedLevels, DesiredLevels, RelAccum};
+use crate::smooth::OneEuro2;
 
 /// A monotonic logical clock stamp, injected by the manager loop each tick (PLAN 4.1).
 ///
@@ -189,9 +173,9 @@ impl Mapper {
             .collect();
 
         let ctx =
-            behavior::Ctx { cur: frame, prev: self.prev.as_ref(), dt: self.dt(&tick), now: tick.clone() };
+            crate::behavior::Ctx { cur: frame, prev: self.prev.as_ref(), dt: self.dt(&tick), now: tick.clone() };
         let mut ops = LayerOps::default();
-        let mut sinks = behavior::Sinks { desired: &mut desired, ops: &mut ops, haptics };
+        let mut sinks = crate::behavior::Sinks { desired: &mut desired, ops: &mut ops, haptics };
         for (source, binding, key) in resolved {
             let slots = self.activators.for_binding(source, key);
             // Only the smoothed relative behaviors (pad/gyro -> mouse) carry a One-Euro filter.
@@ -203,7 +187,7 @@ impl Mapper {
             // Player-space gyro needs a gravity estimate; only gyro sources carry one.
             let gravity = matches!(binding, CompiledBinding::GyroToMouse { .. })
                 .then(|| self.gravity.entry(source.clone()).or_default());
-            behavior::eval_binding(
+            crate::behavior::eval_binding(
                 binding, source, &ctx, slots, &mut sinks, &mut self.rel, smoother, gravity,
             );
         }
@@ -221,7 +205,7 @@ impl Mapper {
     /// Reconciles the applied levels against an empty desired set, so it drops *all* held keys/
     /// buttons/axes regardless of what held them (toggles, latches, layers) - unlike feeding a
     /// neutral input frame, which wouldn't undo a toggle. Relative accumulators hold no output.
-    pub(super) fn release_all(&mut self, out: &mut Vec<OutputEvent>) {
+    pub fn release_all(&mut self, out: &mut Vec<OutputEvent>) {
         self.applied.reconcile(&DesiredLevels::default(), out);
     }
 
@@ -497,8 +481,8 @@ mod tests {
         }
     }
 
-    fn frame(buttons: steam_hid::Buttons) -> LogicalFrame {
-        LogicalFrame::new(steam_hid::ControllerState { buttons, ..Default::default() })
+    fn frame(buttons: vocab_hid::Buttons) -> LogicalFrame {
+        LogicalFrame::new(vocab_hid::ControllerState { buttons, ..Default::default() })
     }
 
     fn run(mapper: &mut Mapper, program: &Program, f: &LogicalFrame, t: u64) -> Vec<OutputEvent> {
@@ -527,15 +511,15 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Press L1 -> key down.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Hold -> no new events.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 1);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 1);
         assert!(out.is_empty());
 
         // Release -> key up.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 2);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 2);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
     }
 
@@ -549,7 +533,7 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Hold L1 -> key A is applied (down).
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Device gone -> release_all emits the release without any input change.
@@ -576,7 +560,7 @@ mod tests {
             },
         )]);
         let mut m = Mapper::new(&program);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::RB), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::RB), 0);
         // Sorted (BTreeSet) -> deterministic order; both go down.
         assert_eq!(
             out.iter().filter(|e| matches!(e, OutputEvent::Key(_, true))).count(),
@@ -595,7 +579,7 @@ mod tests {
             },
         )]);
         let mut m = Mapper::new(&program);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LGRIP), 0);
         assert_eq!(out, vec![OutputEvent::GamepadButton(GamepadButton::A, true)]);
     }
 
@@ -613,7 +597,7 @@ mod tests {
             },
         )]);
         let mut m = Mapper::new(&program);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0);
         assert!(out.is_empty());
     }
 
@@ -645,18 +629,18 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Hold L1 on base until the Long arms -> A down at t=300.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 300);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 300);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Swap to the layer (still holding L1). Winning binding changed -> fresh activator state:
         // A releases, and the layer's Long has NOT armed yet (press_start reset to now).
         m.force_layer(LayerId::new(0));
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 320);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 320);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
 
         // Only after another 250 ms of holding does the layer's Long fire -> B.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 600);
         assert_eq!(out, vec![OutputEvent::Key(Key::B, true)]);
     }
 
@@ -689,14 +673,14 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Base only -> A.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Activate the layer (a real AddLayer does this in S8's tests; here force it for the
         // resolution check): release first so applied levels are clean, then B should win.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 1);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 1);
         m.force_layer(LayerId::new(0));
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 2);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 2);
         assert_eq!(out, vec![OutputEvent::Key(Key::B, true)]);
     }
 
@@ -708,12 +692,12 @@ mod tests {
         let prog_b = program_with([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::B)))]);
         let mut m = Mapper::new(&prog_a);
 
-        let out = run(&mut m, &prog_a, &frame(steam_hid::Buttons::LB), 0);
+        let out = run(&mut m, &prog_a, &frame(vocab_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Switch to program B (still holding L1) and tick B: A up, B down in one reconcile.
         m.switch_program(&prog_b);
-        let out = run(&mut m, &prog_b, &frame(steam_hid::Buttons::LB), 4);
+        let out = run(&mut m, &prog_b, &frame(vocab_hid::Buttons::LB), 4);
         assert!(down(&out, Key::B) && out.contains(&OutputEvent::Key(Key::A, false)));
     }
 
@@ -732,14 +716,14 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Press L4 + L1 together: this tick the layer isn't active yet, so L1 does nothing.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP | steam_hid::Buttons::LB), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LGRIP | vocab_hid::Buttons::LB), 0);
         assert!(out.is_empty());
         // Next tick the layer is active -> L1 -> A.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP | steam_hid::Buttons::LB), 4);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LGRIP | vocab_hid::Buttons::LB), 4);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
         // Release L4 (the hold's node) but keep L1: the layer drops next tick, A releases.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 8);
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 12);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 8);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 12);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
     }
 
@@ -757,18 +741,18 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Press L1: layer arms, no output yet.
-        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0).is_empty());
+        assert!(run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0).is_empty());
         // Now L1 is shadowed by the layer -> X down, and it stays down while L1 is held (stable,
         // no flicker) - the HoldLayer command no longer fires but the hold latches to L1.
         assert_eq!(
-            run(&mut m, &program, &frame(steam_hid::Buttons::LB), 4),
+            run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 4),
             vec![OutputEvent::Key(Key::X, true)]
         );
-        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::LB), 8).is_empty()); // held, stable
-        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::LB), 12).is_empty());
+        assert!(run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 8).is_empty()); // held, stable
+        assert!(run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 12).is_empty());
         // Release L1 -> X releases, layer drops.
         assert_eq!(
-            run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 16),
+            run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 16),
             vec![OutputEvent::Key(Key::X, false)]
         );
     }
@@ -784,12 +768,12 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Base active: L1 -> A.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]);
 
         // Activate the None layer while still holding L1 -> A is released, nothing new.
         m.force_layer(LayerId::new(0));
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 4);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 4);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, false)]);
     }
 
@@ -802,7 +786,7 @@ mod tests {
         )]);
         let mut m = Mapper::new(&program);
         m.force_layer(LayerId::new(0));
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0);
         assert_eq!(out, vec![OutputEvent::Key(Key::A, true)]); // base A, not shadowed
     }
 
@@ -829,13 +813,13 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Arm both holds (press L4 + L5).
-        let held = steam_hid::Buttons::LGRIP | steam_hid::Buttons::LGRIP2;
+        let held = vocab_hid::Buttons::LGRIP | vocab_hid::Buttons::LGRIP2;
         let _ = run(&mut m, &program, &frame(held.clone()), 0);
         // Now press R1 + R4 too: layer 1 wins R1 (B), layer 0 supplies R4 (C), no A.
         let out = run(
             &mut m,
             &program,
-            &frame(held | steam_hid::Buttons::RB | steam_hid::Buttons::RGRIP),
+            &frame(held | vocab_hid::Buttons::RB | vocab_hid::Buttons::RGRIP),
             4,
         );
         assert!(down(&out, Key::B) && down(&out, Key::C));
@@ -855,19 +839,19 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // Tap L4 -> AddLayer. Layer persists after release.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP), 0);
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 100);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::LGRIP), 0);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 100);
         // L1 now -> A (layer active though L4 long released).
         assert_eq!(
-            run(&mut m, &program, &frame(steam_hid::Buttons::LB), 200),
+            run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 200),
             vec![OutputEvent::Key(Key::A, true)]
         );
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 300);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 300);
 
         // Tap R4 -> RemoveLayer. Now L1 is unbound (base has no L1) -> nothing.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 400);
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 500);
-        assert!(run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600).is_empty());
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::RGRIP), 400);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 500);
+        assert!(run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 600).is_empty());
     }
 
     #[test]
@@ -887,16 +871,16 @@ mod tests {
         let mut m = Mapper::new(&program);
 
         // In set0, add layer0, confirm L1 -> A.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP), 0);
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 100);
-        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::LB), 200), Key::A));
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 300);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::LGRIP), 0);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 100);
+        assert!(down(&run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 200), Key::A));
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 300);
 
         // Tap Menu -> ChangeActionSet(1): next tick we're on set1, layer stack cleared.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::MENU), 400);
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 500);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::MENU), 400);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 500);
         // L1 -> B now (set1), and the old layer0's A is gone.
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 600);
         assert!(down(&out, Key::B) && !down(&out, Key::A));
     }
 
@@ -923,8 +907,8 @@ mod tests {
             )],
         )]);
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
-        let rb = steam_hid::Buttons::RB;
+        let lb = vocab_hid::Buttons::LB;
+        let rb = vocab_hid::Buttons::RB;
         let mut t = 0u64;
 
         // Probe layer state: pulse R1 up->down and report whether X fired (R1 is bound only in the
@@ -932,11 +916,11 @@ mod tests {
         // dedup state, and Key(X) is not a persistent op.
         macro_rules! layer_active {
             () => {{
-                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t);
                 t += 4;
                 let out = run(&mut m, &program, &frame(rb.clone()), t);
                 t += 4;
-                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t);
                 t += 4;
                 down(&out, Key::X)
             }};
@@ -948,7 +932,7 @@ mod tests {
                     let _ = run(&mut m, &program, &frame(lb.clone()), t);
                     t += 4;
                 }
-                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t);
                 t += 4;
             }};
         }
@@ -1004,8 +988,8 @@ mod tests {
         // re-add was on the empty tap-tail ticks.
         let program = xbox_self_toggle_program();
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
-        let rb = steam_hid::Buttons::RB;
+        let lb = vocab_hid::Buttons::LB;
+        let rb = vocab_hid::Buttons::RB;
         let mut t = 0u64;
         // Tick `buttons` continuously every 4ms for `ms` (like the real reader loop - no time jumps).
         macro_rules! hold {
@@ -1021,17 +1005,17 @@ mod tests {
         }
         macro_rules! layer_active {
             () => {{
-                let _ = hold!(steam_hid::Buttons::empty(), 20);
+                let _ = hold!(vocab_hid::Buttons::empty(), 20);
                 let out = run(&mut m, &program, &frame(rb.clone()), t); // single rising-edge tick
                 t += 4;
-                let _ = hold!(steam_hid::Buttons::empty(), 80);
+                let _ = hold!(vocab_hid::Buttons::empty(), 80);
                 down(&out, Key::X)
             }};
         }
         macro_rules! short_press {
             () => {{
                 let _ = hold!(lb.clone(), 80); // ~80ms click, well under Long(450)
-                let _ = hold!(steam_hid::Buttons::empty(), 80);
+                let _ = hold!(vocab_hid::Buttons::empty(), 80);
             }};
         }
         assert!(!layer_active!(), "starts off");
@@ -1052,8 +1036,8 @@ mod tests {
         // and the held layer stays up for the whole hold.
         let program = xbox_self_toggle_program();
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
-        let rb = steam_hid::Buttons::RB;
+        let lb = vocab_hid::Buttons::LB;
+        let rb = vocab_hid::Buttons::RB;
         let mut t = 0u64;
         macro_rules! hold {
             ($buttons:expr, $ms:expr) => {{
@@ -1075,7 +1059,7 @@ mod tests {
         hold!(lb.clone(), 40); // release R1, keep holding L1
 
         // Release L1 -> HoldLayer drops the layer.
-        hold!(steam_hid::Buttons::empty(), 40);
+        hold!(vocab_hid::Buttons::empty(), 40);
         // Tap R1 again: no X => the hold was temporary, not a persistent add.
         let out = run(&mut m, &program, &frame(rb.clone()), t);
         assert!(!down(&out, Key::X), "layer dropped after releasing the long hold");
@@ -1106,7 +1090,7 @@ mod tests {
             ],
         )]);
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
+        let lb = vocab_hid::Buttons::LB;
         let mut t = 0u64;
         // Press L1 ~40 ms then release, ticking continuously.
         macro_rules! press_l1 {
@@ -1118,7 +1102,7 @@ mod tests {
                 }
                 let end = t + 80;
                 while t < end {
-                    let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                    let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t);
                     t += 4;
                 }
             }};
@@ -1128,18 +1112,18 @@ mod tests {
             ($btn:expr, $key:expr) => {{
                 let out = run(&mut m, &program, &frame($btn), t);
                 t += 4;
-                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t);
                 t += 4;
                 down(&out, $key)
             }};
         }
 
-        assert!(!active!(steam_hid::Buttons::RB, Key::A), "layer 0 off at start");
+        assert!(!active!(vocab_hid::Buttons::RB, Key::A), "layer 0 off at start");
         press_l1!();
-        assert!(active!(steam_hid::Buttons::RB, Key::A), "one press -> layer 0");
-        assert!(!active!(steam_hid::Buttons::RGRIP, Key::B), "layer 1 still off - the chained add is deduped");
+        assert!(active!(vocab_hid::Buttons::RB, Key::A), "one press -> layer 0");
+        assert!(!active!(vocab_hid::Buttons::RGRIP, Key::B), "layer 1 still off - the chained add is deduped");
         press_l1!();
-        assert!(active!(steam_hid::Buttons::RGRIP, Key::B), "second press -> layer 1");
+        assert!(active!(vocab_hid::Buttons::RGRIP, Key::B), "second press -> layer 1");
         let _ = t; // last macro bumps `t` without a further read
     }
 
@@ -1159,18 +1143,18 @@ mod tests {
         };
         let program = program_of(vec![set(1, Key::A), set(2, Key::B), set(0, Key::C)]);
         let mut m = Mapper::new(&program);
-        let menu = steam_hid::Buttons::MENU;
-        let lb = steam_hid::Buttons::LB;
+        let menu = vocab_hid::Buttons::MENU;
+        let lb = vocab_hid::Buttons::LB;
         let mut t = 0u64;
 
         // Probe the active set: pulse L1 and read which marker key fired.
         macro_rules! active_marker {
             () => {{
-                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t);
                 t += 4;
                 let out = run(&mut m, &program, &frame(lb.clone()), t);
                 t += 4;
-                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t);
                 t += 4;
                 out
             }};
@@ -1182,7 +1166,7 @@ mod tests {
                     let _ = run(&mut m, &program, &frame(menu.clone()), t);
                     t += 4;
                 }
-                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), t);
+                let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t);
                 t += 4;
             }};
         }
@@ -1222,8 +1206,8 @@ mod tests {
                 ],
             )])
         };
-        let lb = steam_hid::Buttons::LB;
-        let rb = steam_hid::Buttons::RB;
+        let lb = vocab_hid::Buttons::LB;
+        let rb = vocab_hid::Buttons::RB;
 
         // Which marker fires on an R1 pulse -> which layer is active. `release_at` < 300 taps, >= 300
         // holds. Fresh mapper each call. Returns (layer0_A, layer1_B).
@@ -1239,7 +1223,7 @@ mod tests {
             // (ticking every tick, not sampling - a re-fire in the tap tail would show up).
             let mut rt = release_at;
             while rt <= release_at + 100 {
-                let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), rt);
+                let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), rt);
                 rt += 4;
             }
             let out = run(&mut m, &program, &frame(rb.clone()), release_at + 200);
@@ -1280,20 +1264,20 @@ mod tests {
         )]);
         let mut m = Mapper::new(&program);
         // Spacing >TAP_MS between actions so the L4 `Start` tap window can't overlap the L1 press.
-        let empty = steam_hid::Buttons::empty();
+        let empty = vocab_hid::Buttons::empty();
 
         // Pre-add layer 1 (tap L4). Confirm it's active: R4 -> B.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LGRIP), 0);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::LGRIP), 0);
         let _ = run(&mut m, &program, &frame(empty.clone()), 100);
-        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 200), Key::B));
+        assert!(down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RGRIP), 200), Key::B));
         let _ = run(&mut m, &program, &frame(empty.clone()), 300);
 
         // Press L1 -> the one command adds layer 0 AND removes layer 1, both this press.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 400);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 400);
         let _ = run(&mut m, &program, &frame(empty.clone()), 500);
         // Layer 0 now active (R1 -> A); layer 1 gone (R4 -> nothing).
-        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 600), Key::A));
-        assert!(!down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 700), Key::B));
+        assert!(down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RB), 600), Key::A));
+        assert!(!down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RGRIP), 700), Key::B));
     }
 
     #[test]
@@ -1319,14 +1303,14 @@ mod tests {
             ],
         )]);
         let mut m = Mapper::new(&program);
-        let empty = steam_hid::Buttons::empty();
+        let empty = vocab_hid::Buttons::empty();
 
         // Press L1 once -> the single command adds layer 0 AND layer 1 this press.
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0);
         let _ = run(&mut m, &program, &frame(empty.clone()), 100);
         // Both layers now active: R1 -> A and R4 -> B.
-        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 200), Key::A));
-        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 300), Key::B));
+        assert!(down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RB), 200), Key::A));
+        assert!(down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RGRIP), 300), Key::B));
     }
 
     #[test]
@@ -1358,23 +1342,23 @@ mod tests {
             ],
         )]);
         let mut m = Mapper::new(&program);
-        let both = steam_hid::Buttons::LB | steam_hid::Buttons::LGRIP;
+        let both = vocab_hid::Buttons::LB | vocab_hid::Buttons::LGRIP;
 
-        let l0 = |m: &mut Mapper, t| down(&run(m, &program, &frame(steam_hid::Buttons::RB), t), Key::A);
-        let l1 = |m: &mut Mapper, t| down(&run(m, &program, &frame(steam_hid::Buttons::RGRIP), t), Key::B);
+        let l0 = |m: &mut Mapper, t| down(&run(m, &program, &frame(vocab_hid::Buttons::RB), t), Key::A);
+        let l1 = |m: &mut Mapper, t| down(&run(m, &program, &frame(vocab_hid::Buttons::RGRIP), t), Key::B);
 
         // Press BOTH together and hold a while -> each adds its own layer once (no cross-suppression).
         for t in (0..40).step_by(4) {
             let _ = run(&mut m, &program, &frame(both.clone()), t);
         }
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 40);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 40);
         assert!(l0(&mut m, 44) && l1(&mut m, 48), "both layers on after one shared press");
 
         // Press both again -> each removes its own layer once -> both off.
         for t in (52..92).step_by(4) {
             let _ = run(&mut m, &program, &frame(both.clone()), t);
         }
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 92);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 92);
         assert!(!l0(&mut m, 96) && !l1(&mut m, 100), "both layers off after the next shared press");
     }
 
@@ -1401,17 +1385,17 @@ mod tests {
             ],
         )]);
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
+        let lb = vocab_hid::Buttons::LB;
 
         // Hold well past both thresholds, then release.
         for t in (0..700).step_by(4) {
             let _ = run(&mut m, &program, &frame(lb.clone()), t);
         }
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 700);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 700);
 
         // Layer 0 (first long) applied; layer 1 (second long) suppressed - one change per press.
-        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 704), Key::A));
-        assert!(!down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 708), Key::B));
+        assert!(down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RB), 704), Key::A));
+        assert!(!down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RGRIP), 708), Key::B));
     }
 
     // --- Persistent-op dedup: layer ops mixed with action-set changes -------------------
@@ -1440,11 +1424,11 @@ mod tests {
                 vec![],
             ),
         ]);
-        let lb = steam_hid::Buttons::LB;
-        let rb = steam_hid::Buttons::RB;
-        let empty = steam_hid::Buttons::empty();
+        let lb = vocab_hid::Buttons::LB;
+        let rb = vocab_hid::Buttons::RB;
+        let empty = vocab_hid::Buttons::empty();
         // Tick `buttons` continuously (every 4 ms) over `[from, to)` - no time jumps, like the reader.
-        let run_span = |m: &mut Mapper, buttons: &steam_hid::Buttons, from: u64, to: u64| {
+        let run_span = |m: &mut Mapper, buttons: &vocab_hid::Buttons, from: u64, to: u64| {
             let mut t = from;
             while t < to {
                 let _ = run(m, &program, &frame(buttons.clone()), t);
@@ -1491,10 +1475,10 @@ mod tests {
             ),
         ]);
         let mut m = Mapper::new(&program);
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::LB), 0);
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 4);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 0);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 4);
         // In set 1 (RB -> C); the layer add was swept by the set change (A absent).
-        let out = run(&mut m, &program, &frame(steam_hid::Buttons::RB), 8);
+        let out = run(&mut m, &program, &frame(vocab_hid::Buttons::RB), 8);
         assert!(down(&out, Key::C) && !down(&out, Key::A), "set change wins; layer add dropped");
     }
 
@@ -1522,27 +1506,27 @@ mod tests {
             ),
         ]);
         let mut m = Mapper::new(&program);
-        let menu = steam_hid::Buttons::MENU;
+        let menu = vocab_hid::Buttons::MENU;
 
         // Hold Menu across the set change: switches to set 1, but layer 0 is NOT added while held.
         for t in (0..40).step_by(4) {
             let _ = run(&mut m, &program, &frame(menu.clone()), t);
         }
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 40);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 40);
         assert!(
-            down(&run(&mut m, &program, &frame(steam_hid::Buttons::RGRIP), 44), Key::C),
+            down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RGRIP), 44), Key::C),
             "switched to set 1"
         );
         assert!(
-            !down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 48), Key::A),
+            !down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RB), 48), Key::A),
             "layer 0 not added while Menu stayed held through the swap"
         );
 
         // Release and press Menu again (now in set 1) -> AddLayer(0) fires.
         let _ = run(&mut m, &program, &frame(menu.clone()), 100);
-        let _ = run(&mut m, &program, &frame(steam_hid::Buttons::empty()), 104);
+        let _ = run(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 104);
         assert!(
-            down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 108), Key::A),
+            down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RB), 108), Key::A),
             "second press adds layer 0 in set 1"
         );
     }
@@ -1566,7 +1550,7 @@ mod tests {
             ),
         ]);
         let mut m = Mapper::new(&program);
-        let menu = steam_hid::Buttons::MENU;
+        let menu = vocab_hid::Buttons::MENU;
         // Press edge fires the set change; next tick, still held, set1's Menu -> K bleeds through.
         let _ = run(&mut m, &program, &frame(menu.clone()), 0);
         let out = run(&mut m, &program, &frame(menu.clone()), 4);
@@ -1593,11 +1577,11 @@ mod tests {
             ),
         ]);
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
+        let lb = vocab_hid::Buttons::LB;
         // Hold L1 -> A.
         assert_eq!(run(&mut m, &program, &frame(lb.clone()), 0), vec![OutputEvent::Key(Key::A, true)]);
         // Add Menu -> the set change fires (swap queued for next tick); A still held this tick.
-        let _ = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::MENU), 4);
+        let _ = run(&mut m, &program, &frame(lb.clone() | vocab_hid::Buttons::MENU), 4);
         // Next tick we're in set1, where L1 is unbound -> A releases.
         let out = run(&mut m, &program, &frame(lb.clone()), 8);
         assert!(out.contains(&OutputEvent::Key(Key::A, false)), "held L1 goes silent - unbound in set1");
@@ -1632,14 +1616,14 @@ mod tests {
             ),
         ]);
         let mut m = Mapper::new(&program);
-        let menu = steam_hid::Buttons::MENU;
+        let menu = vocab_hid::Buttons::MENU;
         let mut t = 0u64;
         while t < 600 {
             let _ = run(&mut m, &program, &frame(menu.clone()), t);
             t += 4;
         }
-        assert!(down(&run(&mut m, &program, &frame(steam_hid::Buttons::LB), 600), Key::C), "in set1");
-        assert!(!down(&run(&mut m, &program, &frame(steam_hid::Buttons::RB), 608), Key::X), "no cross-set layer added");
+        assert!(down(&run(&mut m, &program, &frame(vocab_hid::Buttons::LB), 600), Key::C), "in set1");
+        assert!(!down(&run(&mut m, &program, &frame(vocab_hid::Buttons::RB), 608), Key::X), "no cross-set layer added");
     }
 
     #[test]
@@ -1666,10 +1650,10 @@ mod tests {
                 vec![layer("l0", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::A)))])],
             )]);
             let mut m = Mapper::new(&program);
-            let lb = steam_hid::Buttons::LB;
+            let lb = vocab_hid::Buttons::LB;
             let press = run_haptics(&mut m, &program, &frame(lb.clone()), 0).len();
             let _hold = run_haptics(&mut m, &program, &frame(lb.clone()), 4);
-            let release = run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), 8).len();
+            let release = run_haptics(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 8).len();
             assert_eq!(press, press_clicks, "{edge:?} press");
             assert_eq!(release, release_clicks, "{edge:?} release");
         }
@@ -1695,7 +1679,7 @@ mod tests {
             )],
         )]);
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
+        let lb = vocab_hid::Buttons::LB;
         let mut t = 0u64;
         // A full press+release, ticking continuously (no time jumps) so the self-shadow is exercised.
         macro_rules! press_release_clicks {
@@ -1704,7 +1688,7 @@ mod tests {
                 let end = t + 60;
                 while t < end { clicks += run_haptics(&mut m, &program, &frame(lb.clone()), t).len(); t += 4; }
                 let end = t + 60;
-                while t < end { clicks += run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t).len(); t += 4; }
+                while t < end { clicks += run_haptics(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t).len(); t += 4; }
                 clicks
             }};
         }
@@ -1738,7 +1722,7 @@ mod tests {
             )],
         )]);
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
+        let lb = vocab_hid::Buttons::LB;
         let mut t = 0u64;
         let mut clicks = 0;
         while t < 700 {
@@ -1795,7 +1779,7 @@ mod tests {
         // the click rides the layer's `held_layers` lifecycle, not the command's output level.
         let program = cp2077_rgrip2_program();
         let mut m = Mapper::new(&program);
-        let rg = steam_hid::Buttons::RGRIP2;
+        let rg = vocab_hid::Buttons::RGRIP2;
         let mut t = 0u64;
         let mut engage = 0;
         while t < 360 {
@@ -1804,7 +1788,7 @@ mod tests {
         }
         let mut release = 0;
         while t < 480 {
-            release += run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t).len();
+            release += run_haptics(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t).len();
             t += 4;
         }
         assert_eq!(engage, 1, "one click when the hold engages");
@@ -1819,15 +1803,15 @@ mod tests {
         // armed-gated - so there is no re-add and no second click.
         let program = cp2077_rgrip2_program();
         let mut m = Mapper::new(&program);
-        let rg = steam_hid::Buttons::RGRIP2;
-        let rb = steam_hid::Buttons::RB;
+        let rg = vocab_hid::Buttons::RGRIP2;
+        let rb = vocab_hid::Buttons::RB;
         let mut t = 0u64;
         let mut clicks = 0;
         // tap ~40 ms, then release ~40 ms - adds the sticky layer.
         let end = t + 40;
         while t < end { clicks += run_haptics(&mut m, &program, &frame(rg.clone()), t).len(); t += 4; }
         let end = t + 40;
-        while t < end { let _ = run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t); t += 4; }
+        while t < end { let _ = run_haptics(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t); t += 4; }
         // Hold ~0.3 s (past the 200 ms Long).
         let end = t + 300;
         while t < end { clicks += run_haptics(&mut m, &program, &frame(rg.clone()), t).len(); t += 4; }
@@ -1858,7 +1842,7 @@ mod tests {
         ]);
 
         let mut m = Mapper::new(&program);
-        let both = steam_hid::Buttons::LB | steam_hid::Buttons::RB;
+        let both = vocab_hid::Buttons::LB | vocab_hid::Buttons::RB;
         assert_eq!(
             run_haptics(&mut m, &program, &frame(both), 0).len(),
             0,
@@ -1867,7 +1851,7 @@ mod tests {
 
         let mut control = Mapper::new(&program);
         assert_eq!(
-            run_haptics(&mut control, &program, &frame(steam_hid::Buttons::RB), 0).len(),
+            run_haptics(&mut control, &program, &frame(vocab_hid::Buttons::RB), 0).len(),
             1,
             "the add alone lands -> it clicks (proving the suppression above is the set_change)"
         );
@@ -1896,18 +1880,18 @@ mod tests {
             ],
         )]);
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
+        let lb = vocab_hid::Buttons::LB;
         let mut t = 0u64;
         while t < 40 {
             let _ = run(&mut m, &program, &frame(lb.clone()), t);
             t += 4;
         }
         // layer0 is live (its RB marker fires) ...
-        let out = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::RB), t);
+        let out = run(&mut m, &program, &frame(lb.clone() | vocab_hid::Buttons::RB), t);
         t += 4;
         assert!(down(&out, Key::A), "layer0 is held while LB is down");
         // ... but layer1 never activated: LB's self-shadowed AddLayer(1) was deduped by the arm.
-        let out = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::RGRIP), t);
+        let out = run(&mut m, &program, &frame(lb.clone() | vocab_hid::Buttons::RGRIP), t);
         assert!(!down(&out, Key::X), "the shadowed AddLayer is deduped - layer1 never activates");
     }
 
@@ -1928,17 +1912,17 @@ mod tests {
             vec![layer("l0", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::X)))])],
         )]);
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
+        let lb = vocab_hid::Buttons::LB;
         let mut t = 0u64;
         while t < 40 {
             let _ = run(&mut m, &program, &frame(lb.clone()), t);
             t += 4;
         }
         // Fire RB's RemoveLayer(0) while still holding LB.
-        let _ = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::RB), t);
+        let _ = run(&mut m, &program, &frame(lb.clone() | vocab_hid::Buttons::RB), t);
         t += 4;
         // layer0 is untouched - its marker still fires.
-        let out = run(&mut m, &program, &frame(lb.clone() | steam_hid::Buttons::RGRIP), t);
+        let out = run(&mut m, &program, &frame(lb.clone() | vocab_hid::Buttons::RGRIP), t);
         assert!(down(&out, Key::X), "another button's RemoveLayer can't tear down a held layer");
     }
 
@@ -1969,7 +1953,7 @@ mod tests {
                 vec![layer("l0", [(InputSource::RightGrip, btn(CompiledAction::Key(Key::X)))])],
             )]);
             let mut m = Mapper::new(&program);
-            let lb = steam_hid::Buttons::LB;
+            let lb = vocab_hid::Buttons::LB;
             let mut t = 0u64;
             let mut engage = 0;
             while t < 40 {
@@ -1978,7 +1962,7 @@ mod tests {
             }
             let mut release = 0;
             while t < 80 {
-                release += run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t).len();
+                release += run_haptics(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t).len();
                 t += 4;
             }
             assert_eq!(engage, engage_want, "{edge:?} engage");
@@ -2008,7 +1992,7 @@ mod tests {
             (SourceMap::from_iter([(InputSource::LeftBumper, btn(CompiledAction::Key(Key::A)))]), vec![]),
         ]);
         let mut m = Mapper::new(&program);
-        let lb = steam_hid::Buttons::LB;
+        let lb = vocab_hid::Buttons::LB;
         let mut t = 0u64;
         let mut clicks = 0;
         while t < 60 {
@@ -2016,7 +2000,7 @@ mod tests {
             t += 4;
         }
         while t < 100 {
-            clicks += run_haptics(&mut m, &program, &frame(steam_hid::Buttons::empty()), t).len();
+            clicks += run_haptics(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t).len();
             t += 4;
         }
         assert_eq!(clicks, 1, "the set swap clicks exactly once");

@@ -1034,13 +1034,13 @@ dependencies = [
  "config",
  "crossbeam-channel",
  "log",
+ "mapper",
  "postcard",
  "ron",
  "serde",
  "steam-hid",
  "thiserror 2.0.20",
  "virt-out",
- "vocab-out",
 ]
 
 [[package]]
@@ -2141,6 +2141,16 @@ name = "lru"
 version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
+
+[[package]]
+name = "mapper"
+version = "0.1.0"
+dependencies = [
+ "config",
+ "serde",
+ "vocab-hid",
+ "vocab-out",
+]
 
 [[package]]
 name = "memchr"
