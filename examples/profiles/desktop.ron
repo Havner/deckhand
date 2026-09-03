@@ -21,9 +21,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -39,9 +39,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -57,9 +57,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -75,9 +75,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -95,9 +95,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -113,9 +113,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -131,9 +131,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -149,9 +149,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -169,9 +169,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -189,9 +189,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -209,9 +209,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -230,9 +230,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -250,9 +250,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -271,9 +271,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -291,9 +291,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -311,9 +311,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -331,9 +331,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -362,9 +362,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Both,
-                                    strength: Low,
+                                feedback: (
+                                    on_press: Some(Haptic(Weak)),
+                                    on_release: Some(Haptic(Weak)),
                                 ),
                             ),
                         ),
@@ -393,9 +393,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Both,
-                                    strength: Low,
+                                feedback: (
+                                    on_press: Some(Haptic(Weak)),
+                                    on_release: Some(Haptic(Weak)),
                                 ),
                             ),
                         ),
@@ -439,9 +439,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -484,9 +484,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -532,9 +532,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Off,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: None,
+                                    on_release: None,
                                 ),
                             ),
                         ),
@@ -580,9 +580,9 @@
                             settings: (
                                 toggle: false,
                                 turbo: None,
-                                haptics: (
-                                    on: Both,
-                                    strength: Medium,
+                                feedback: (
+                                    on_press: Some(Haptic(Medium)),
+                                    on_release: Some(Haptic(Medium)),
                                 ),
                             ),
                         ),
@@ -606,9 +606,9 @@
                                     settings: (
                                         toggle: false,
                                         turbo: None,
-                                        haptics: (
-                                            on: Off,
-                                            strength: Medium,
+                                        feedback: (
+                                            on_press: None,
+                                            on_release: None,
                                         ),
                                     ),
                                 ),
@@ -624,9 +624,9 @@
                                     settings: (
                                         toggle: false,
                                         turbo: None,
-                                        haptics: (
-                                            on: Off,
-                                            strength: Medium,
+                                        feedback: (
+                                            on_press: None,
+                                            on_release: None,
                                         ),
                                     ),
                                 ),
@@ -642,9 +642,9 @@
                                     settings: (
                                         toggle: false,
                                         turbo: None,
-                                        haptics: (
-                                            on: Off,
-                                            strength: Medium,
+                                        feedback: (
+                                            on_press: None,
+                                            on_release: None,
                                         ),
                                     ),
                                 ),
@@ -660,9 +660,9 @@
                                     settings: (
                                         toggle: false,
                                         turbo: None,
-                                        haptics: (
-                                            on: Off,
-                                            strength: Medium,
+                                        feedback: (
+                                            on_press: None,
+                                            on_release: None,
                                         ),
                                     ),
                                 ),
