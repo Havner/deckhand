@@ -55,8 +55,8 @@ pub struct CommandSettings {
     pub toggle: bool,
     /// Re-fire the combo while held (rapid-fire); `None` = off.
     pub turbo: Option<Turbo>,
-    /// Haptic pulse on the combo's action edges.
-    pub haptics: Haptics,
+    /// Tactile/audible feedback on the combo's action edges (PLAN 7).
+    pub feedback: Feedback,
 }
 
 /// Turbo / rapid-fire.
@@ -66,33 +66,67 @@ pub struct Turbo {
     pub interval_ms: u32,
 }
 
-/// Haptic feedback for a command (Round C). Fires on the **action's** edges (so `Long`
-/// pulses after its timeout, `Turbo` repeats it), on the [`side`](crate::InputSource::side)
-/// of the triggering input - a singular pulse at one of three strengths.
+/// Command feedback (PLAN 7): an independent [`Effect`] per action edge, played on the trackpad
+/// haptic actuator. Because a click and a tone would fight the same actuator, each edge is a single
+/// medium (PLAN 7.1). Fires on the **action's** edges (so `Long` fires after its timeout, `Turbo`
+/// repeats it); haptics play on the [`side`](crate::InputSource::side) of the triggering input, audio
+/// on both. Each edge is optional (its own UI checkbox); `None`/`None` = no feedback.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Haptics {
-    pub on: HapticEdge,
-    pub strength: HapticStrength,
+pub struct Feedback {
+    pub on_press: Option<Effect>,
+    pub on_release: Option<Effect>,
 }
 
-/// When a command's haptic fires.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum HapticEdge {
-    #[default]
-    Off,
-    OnPress,
-    OnRelease,
-    Both,
+/// One feedback effect: a medium plus its pattern. Doubles/triples are short patterns the reader's
+/// sequencer plays (PLAN 7.4); each note carries its own [`Click`]/[`Tone`], so a pattern can mix
+/// strengths/pitches (e.g. a rising two-beep, or a morse-like short-long). A [`Click`] has no length
+/// (an impulse); a [`Tone`] carries pitch x length, so only audio has short/long.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Effect {
+    Haptic(Click),
+    HapticDouble(Click, Click),
+    HapticTriple(Click, Click, Click),
+    Audio(Tone),
+    AudioDouble(Tone, Tone),
+    AudioTriple(Tone, Tone, Tone),
+    Chirp(Sweep),
 }
 
-/// Haptic pulse strength (mapped to the trackpad-pulse duty at runtime).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum HapticStrength {
-    Low,
+/// A haptic click's strength (each click in a pattern sets its own - hence not "the haptic's
+/// strength"). The reader maps it to the trackpad-pulse duty / gain per device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Click {
+    Weak,
     #[default]
     Medium,
-    High,
+    Strong,
+}
+
+/// An audio tone: pitch x length. The reader maps the pitch to a per-device frequency (the tone
+/// ceilings differ) and the length to a shared `SHORT_MS`/`LONG_MS` duration (PLAN 7.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Tone {
+    ShortLow,
+    #[default]
+    ShortMedium,
+    ShortHigh,
+    LongLow,
+    LongMedium,
+    LongHigh,
+}
+
+/// A trackpad-actuator sweep ("chirp") - a rising/falling glide, three shapes. No-op on Gordon (no
+/// sweep path). The reader maps each to concrete start/end/duration per device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Sweep {
+    #[default]
+    Up1,
+    Down1,
+    Up2,
+    Down2,
+    Up3,
+    Down3,
 }
 
 #[cfg(test)]
@@ -102,12 +136,15 @@ mod tests {
 
     #[test]
     fn ctrl_c_combo_round_trips_ron() {
-        // Ctrl (command) + C (subcommand), a long-press that pulses.
+        // Ctrl (command) + C (subcommand), a long-press with a double-click on press.
         let cmd = Command {
             activator: Activator::Long { hold_ms: 250 },
             actions: vec![Action::Key(Key::LeftCtrl), Action::Key(Key::C)],
             settings: CommandSettings {
-                haptics: Haptics { on: HapticEdge::OnPress, strength: HapticStrength::High },
+                feedback: Feedback {
+                    on_press: Some(Effect::HapticDouble(Click::Strong, Click::Weak)),
+                    on_release: None,
+                },
                 ..Default::default()
             },
         };
@@ -119,6 +156,7 @@ mod tests {
     fn defaults_are_all_off() {
         let d = CommandSettings::default();
         assert!(!d.toggle && d.turbo.is_none());
-        assert_eq!(d.haptics.on, HapticEdge::Off);
+        assert_eq!(d.feedback, Feedback::default());
+        assert!(d.feedback.on_press.is_none() && d.feedback.on_release.is_none());
     }
 }

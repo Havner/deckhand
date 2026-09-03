@@ -30,21 +30,22 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use steam_hid::Report;
 
-use super::{Click, Control, RumbleCmd};
+use mapper::FeedbackReq;
+use super::{Control, RumbleCmd};
 
 /// The mapper-side endpoints for one connected session (re-minted on each reattach). Opaque to the
 /// mapping loop - it only shuttles it from `reattach_rx` into [`LinkServer::reattach`].
 pub(crate) struct ServerSession {
     frame_rx: Receiver<Report>,
     rumble_tx: Sender<RumbleCmd>,
-    click_tx: Sender<Click>,
+    feedback_tx: Sender<FeedbackReq>,
 }
 
 /// The device-side endpoints for one connected session.
 struct ClientSession {
     frame_tx: Sender<Report>,
     rumble_rx: Receiver<RumbleCmd>,
-    click_rx: Receiver<Click>,
+    feedback_rx: Receiver<FeedbackReq>,
 }
 
 impl ClientSession {
@@ -54,8 +55,8 @@ impl ClientSession {
     fn dead() -> Self {
         let (frame_tx, _) = unbounded();
         let (_, rumble_rx) = unbounded();
-        let (_, click_rx) = unbounded();
-        ClientSession { frame_tx, rumble_rx, click_rx }
+        let (_, feedback_rx) = unbounded();
+        ClientSession { frame_tx, rumble_rx, feedback_rx }
     }
 }
 
@@ -63,10 +64,10 @@ impl ClientSession {
 fn session_pair() -> (ClientSession, ServerSession) {
     let (frame_tx, frame_rx) = unbounded();
     let (rumble_tx, rumble_rx) = unbounded();
-    let (click_tx, click_rx) = unbounded();
+    let (feedback_tx, feedback_rx) = unbounded();
     (
-        ClientSession { frame_tx, rumble_rx, click_rx },
-        ServerSession { frame_rx, rumble_tx, click_tx },
+        ClientSession { frame_tx, rumble_rx, feedback_rx },
+        ServerSession { frame_rx, rumble_tx, feedback_tx },
     )
 }
 
@@ -133,10 +134,10 @@ impl LinkClient {
             LinkClient::Network(c) => c.rumble_rx(),
         }
     }
-    pub(crate) fn click_rx(&self) -> &Receiver<Click> {
+    pub(crate) fn feedback_rx(&self) -> &Receiver<FeedbackReq> {
         match self {
-            LinkClient::Local(c) => &c.session.click_rx,
-            LinkClient::Network(c) => c.click_rx(),
+            LinkClient::Local(c) => &c.session.feedback_rx,
+            LinkClient::Network(c) => c.feedback_rx(),
         }
     }
 
@@ -208,10 +209,10 @@ impl LinkServer {
             LinkServer::Network(s) => s.net.rumble_tx(),
         }
     }
-    pub(crate) fn click_tx(&self) -> &Sender<Click> {
+    pub(crate) fn feedback_tx(&self) -> &Sender<FeedbackReq> {
         match self {
-            LinkServer::Local(s) => &s.session.click_tx,
-            LinkServer::Network(s) => s.net.click_tx(),
+            LinkServer::Local(s) => &s.session.feedback_tx,
+            LinkServer::Network(s) => s.net.feedback_tx(),
         }
     }
 

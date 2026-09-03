@@ -19,7 +19,7 @@ mod reconcile;
 mod smooth;
 
 pub use logical::{Dir, LogicalFrame};
-pub use mapper::{HapticReq, Mapper, Tick};
+pub use mapper::{FeedbackReq, Mapper, Tick};
 pub use program::{
     CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId, Program,
     ProgramMeta, Role, SetId, SourceMap, empty_program,

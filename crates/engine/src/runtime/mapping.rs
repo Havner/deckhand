@@ -21,10 +21,10 @@ use crate::handle::Status;
 use mapper::LogicalFrame;
 use mapper::{LayerId, Program, Role, empty_program};
 use crate::Result;
-use mapper::{HapticReq, Mapper, Tick};
+use mapper::{FeedbackReq, Mapper, Tick};
 
 use super::link::LinkServer;
-use super::{Click, Control, RumbleCmd};
+use super::{Control, RumbleCmd};
 
 /// The central mapping loop. Owns the `Sink` + `Mapper` + programs + device config; alternates a connected
 /// phase (map frames, poll rumble) with a waiting phase (transport gone -> release + keep pad plugged
@@ -49,7 +49,7 @@ pub(super) fn run_mapper(
     let mut chord_states = ChordStates::new(chord_list(&chords), role == Role::Fallback);
     let mut mapper = Mapper::new(program_for(&role, &main, &fallback));
     let mut out: Vec<OutputEvent> = Vec::new();
-    let mut haptics: Vec<HapticReq> = Vec::new();
+    let mut haptics: Vec<FeedbackReq> = Vec::new();
     let mut last_rumble = RumbleCmd::default();
     // Live layer-stack view (debug/awareness, monitor-only): the last-emitted snapshot, diffed each
     // tick. The set is diffed by *name* (so a role/program swap onto the same index still emits); the
@@ -87,10 +87,10 @@ pub(super) fn run_mapper(
                         let program = program_for(&role, &main, &fallback);
                         mapper.tick(&masked, now, program, &mut out, &mut haptics);
                         sink.emit(&out)?;
-                        // Command-haptic clicks this tick -> the reader, which maps the strength
-                        // level to the device (Gordon pulse duration / Deck gain).
-                        for h in haptics.drain(..) {
-                            let _ = link.click_tx().send(Click { side: h.side, strength: h.strength });
+                        // Command feedback this tick -> the reader, which maps the effect to the
+                        // device (currently demoted to a single click; PLAN 7.5 step 1).
+                        for req in haptics.drain(..) {
+                            let _ = link.feedback_tx().send(req);
                         }
                         // Live layer-stack view: emit the full set on any change (debug/awareness).
                         emit_layer_view(

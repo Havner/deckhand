@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 
 use config::{
-    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Axis, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, HapticEdge, HapticStrength, Haptics, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Axis, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, Click, Effect, Feedback, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings
 };
 use vocab_hid::Button;
 use vocab_out::{GamepadButton, Key, MouseButton};
@@ -255,9 +255,9 @@ pub fn desktop_profile() -> ConfigDoc {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![mouse(MouseButton::Left)],
                 settings: CommandSettings {
-                    haptics: Haptics {
-                        on: HapticEdge::Both,
-                        strength: HapticStrength::Low,
+                    feedback: Feedback {
+                        on_press: Some(Effect::Haptic(Click::Weak)),
+                        on_release: Some(Effect::Haptic(Click::Weak)),
                     },
                     ..Default::default()
                 },
@@ -283,9 +283,9 @@ pub fn desktop_profile() -> ConfigDoc {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![mouse(MouseButton::Right)],
                 settings: CommandSettings {
-                    haptics: Haptics {
-                        on: HapticEdge::Both,
-                        strength: HapticStrength::Low,
+                    feedback: Feedback {
+                        on_press: Some(Effect::Haptic(Click::Weak)),
+                        on_release: Some(Effect::Haptic(Click::Weak)),
                     },
                     ..Default::default()
                 },
@@ -405,7 +405,10 @@ pub fn desktop_profile() -> ConfigDoc {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![Action::HoldLayer(LayerRef("gyro".into()))],
                 settings: CommandSettings {
-                    haptics: Haptics { on: HapticEdge::Both, strength: HapticStrength::Medium },
+                    feedback: Feedback {
+                        on_press: Some(Effect::Haptic(Click::Medium)),
+                        on_release: Some(Effect::Haptic(Click::Medium)),
+                    },
                     ..Default::default()
                 },
             }],
@@ -544,9 +547,9 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                     activator: Activator::Long { hold_ms: 250 },
                     actions: vec![key(Key::LeftCtrl)],
                     settings: CommandSettings {
-                        haptics: Haptics {
-                            on: HapticEdge::OnPress,
-                            strength: HapticStrength::Medium,
+                        feedback: Feedback {
+                            on_press: Some(Effect::Haptic(Click::Medium)),
+                            on_release: None,
                         },
                         ..Default::default()
                     },
@@ -568,9 +571,9 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                     activator: Activator::Long { hold_ms: 250 },
                     actions: vec![key(Key::LeftShift)],
                     settings: CommandSettings {
-                        haptics: Haptics {
-                            on: HapticEdge::OnPress,
-                            strength: HapticStrength::Medium,
+                        feedback: Feedback {
+                            on_press: Some(Effect::Haptic(Click::Medium)),
+                            on_release: None,
                         },
                         ..Default::default()
                     },
@@ -634,9 +637,9 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![mouse(MouseButton::Left)],
                 settings: CommandSettings {
-                    haptics: Haptics {
-                        on: HapticEdge::Both,
-                        strength: HapticStrength::Low,
+                    feedback: Feedback {
+                        on_press: Some(Effect::Haptic(Click::Weak)),
+                        on_release: Some(Effect::Haptic(Click::Weak)),
                     },
                     ..Default::default()
                 },
@@ -662,9 +665,9 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![mouse(MouseButton::Right)],
                 settings: CommandSettings {
-                    haptics: Haptics {
-                        on: HapticEdge::Both,
-                        strength: HapticStrength::Low,
+                    feedback: Feedback {
+                        on_press: Some(Effect::Haptic(Click::Weak)),
+                        on_release: Some(Effect::Haptic(Click::Weak)),
                     },
                     ..Default::default()
                 },
@@ -1321,9 +1324,9 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
                         activator: Activator::Regular { interruptible: true },
                         actions: vec![Action::RemoveLayer(LayerRef("aim_stick_right".into()))],
                         settings: CommandSettings {
-                            haptics: Haptics {
-                                on: HapticEdge::OnPress,
-                                strength: HapticStrength::High,
+                            feedback: Feedback {
+                                on_press: Some(Effect::Haptic(Click::Strong)),
+                                on_release: None,
                             },
                             ..Default::default()
                         },
@@ -1351,9 +1354,9 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![Action::AddLayer(LayerRef("aim_stick_right".into()))],
                 settings: CommandSettings {
-                    haptics: Haptics {
-                        on: HapticEdge::OnPress,
-                        strength: HapticStrength::High,
+                    feedback: Feedback {
+                        on_press: Some(Effect::Haptic(Click::Strong)),
+                        on_release: None,
                     },
                     ..Default::default()
                 },
@@ -1541,9 +1544,9 @@ pub fn control_profile() -> ConfigDoc {
                     activator: Activator::Long { hold_ms: 450 },
                     actions: vec![key(Key::M)],
                     settings: CommandSettings {
-                        haptics: Haptics {
-                            on: HapticEdge::OnPress,
-                            strength: HapticStrength::Medium,
+                        feedback: Feedback {
+                            on_press: Some(Effect::Haptic(Click::Medium)),
+                            on_release: None,
                         },
                         ..Default::default()
                     },
@@ -1559,9 +1562,9 @@ pub fn control_profile() -> ConfigDoc {
                     activator: Activator::Long { hold_ms: 450 },
                     actions: vec![key(Key::N)],
                     settings: CommandSettings {
-                        haptics: Haptics {
-                            on: HapticEdge::OnPress,
-                            strength: HapticStrength::Medium,
+                        feedback: Feedback {
+                            on_press: Some(Effect::Haptic(Click::Medium)),
+                            on_release: None,
                         },
                         ..Default::default()
                     },
@@ -1661,9 +1664,9 @@ pub fn control_profile() -> ConfigDoc {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![mouse(MouseButton::Left)],
                 settings: CommandSettings {
-                    haptics: Haptics {
-                        on: HapticEdge::Both,
-                        strength: HapticStrength::Low,
+                    feedback: Feedback {
+                        on_press: Some(Effect::Haptic(Click::Weak)),
+                        on_release: Some(Effect::Haptic(Click::Weak)),
                     },
                     ..Default::default()
                 },
@@ -1687,9 +1690,9 @@ pub fn control_profile() -> ConfigDoc {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![mouse(MouseButton::Right)],
                 settings: CommandSettings {
-                    haptics: Haptics {
-                        on: HapticEdge::Both,
-                        strength: HapticStrength::Low,
+                    feedback: Feedback {
+                        on_press: Some(Effect::Haptic(Click::Weak)),
+                        on_release: Some(Effect::Haptic(Click::Weak)),
                     },
                     ..Default::default()
                 },

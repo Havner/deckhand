@@ -1,5 +1,5 @@
 //! The reader thread (PLAN 4.2 S9, D6): a persistent **device-session loop** that owns the current
-//! `Device`, is its **only writer** (read loop + keep-alive + config-on-`Connected` + rumble/click),
+//! `Device`, is its **only writer** (read loop + keep-alive + config-on-`Connected` + rumble/feedback),
 //! and survives a transport outage by **reacquiring** the same pinned device - [`LinkClient::detach`]
 //! then [`LinkClient::reattach`] re-mint the session behind the link, so the virtual pad never leaves.
 
@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use config::{DeviceConfig, GordonTuning, HapticStrength, RumbleTuning, Side};
+use config::{Click, DeviceConfig, Effect, GordonTuning, RumbleTuning, Side};
 use crossbeam_channel::Receiver;
 use steam_hid::{
     Device, DeviceId, DeviceKind, HapticIntensity, HapticPosition, HapticPulse, HapticSide,
@@ -20,7 +20,7 @@ use crate::event::{EngineEvent, EventSink};
 use crate::handle::Status;
 
 use super::link::LinkClient;
-use super::{Click, RumbleCmd};
+use super::RumbleCmd;
 
 /// How often the reader re-enumerates while waiting for the pinned device to return (D6).
 const REACQUIRE_POLL_MS: u64 = 1000;
@@ -280,10 +280,15 @@ fn read_session(
             }
         }
 
-        // One-shot command-haptic clicks fire immediately (no arbitration - a click may briefly
-        // interrupt the rumble train on its pad, which the re-fire above resumes).
-        while let Ok(click) = link.click_rx().try_recv() {
-            if let Err(e) = fire_click(device, &click, &kind) {
+        // Command feedback. STEP-1 SHIM (PLAN 7.5): the mapper already ships the full `Effect`, but
+        // the reader still demotes it to today's single click (first `Haptic*` click; audio/chirp
+        // ignored - no sequencer/HW yet). Replaced by the `feedback.rs` sequencer in step 4. Fires
+        // immediately (no arbitration - a click may briefly interrupt the rumble train, resumed next
+        // re-fire).
+        while let Ok(req) = link.feedback_rx().try_recv() {
+            if let Some(strength) = demote_to_click(&req.effect)
+                && let Err(e) = fire_click(device, &req.side, &strength, &kind)
+            {
                 log::warn!("click write failed: {e}");
             }
         }
@@ -448,28 +453,38 @@ const CLICK_INTERVAL_US: u16 = 1000;
 /// a `0x8f` pulse whose **duration** encodes strength (gain inert -> 0); the Deck uses a `0xea`
 /// `haptic_cmd` (`Strong` style) whose **gain** encodes strength, **per side** (the two motors
 /// differ). `Side::Left`->left actuator, `Side::Right`->right.
-fn fire_click(device: &mut Device, click: &Click, kind: &DeviceKind) -> Result<()> {
+fn fire_click(device: &mut Device, side: &Side, strength: &Click, kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::Gordon => {
             // Gordon's `0x8f` uses the swapped `HapticPosition` (Right=0/Left=1), no "both".
-            let position = match click.side {
+            let position = match side {
                 Side::Left => HapticPosition::Left,
                 Side::Right => HapticPosition::Right,
             };
-            let duration = gordon_click_duration(&click.strength);
+            let duration = gordon_click_duration(strength);
             device.haptic_pulse(position, HapticPulse { duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 })?;
         }
         DeviceKind::Neptune => {
-            let gain = neptune_click_gain(&click.side, &click.strength);
+            let gain = neptune_click_gain(side, strength);
             // Intensity stays System (0): 0..2 are identical on HW, and gain is the strength lever here.
-            device.haptic_cmd(haptic_side(&click.side), HapticType::Click, HapticIntensity::System, gain)?;
+            device.haptic_cmd(haptic_side(side), HapticType::Click, HapticIntensity::System, gain)?;
         }
         DeviceKind::Triton => {
-            let (style, amp) = triton_click(&click.strength);
-            device.haptic_command_triton(haptic_side(&click.side), style, amp)?;
+            let (style, amp) = triton_click(strength);
+            device.haptic_command_triton(haptic_side(side), style, amp)?;
         }
     }
     Ok(())
+}
+
+/// STEP-1 SHIM (PLAN 7.5 step 1): demote a feedback effect to today's single click - the first
+/// click of a `Haptic*` pattern; audio/chirp have no reader support yet so they play nothing. The
+/// step-4 sequencer replaces this with the full per-device expansion.
+fn demote_to_click(effect: &Effect) -> Option<Click> {
+    match effect {
+        Effect::Haptic(c) | Effect::HapticDouble(c, _) | Effect::HapticTriple(c, _, _) => Some(*c),
+        Effect::Audio(_) | Effect::AudioDouble(..) | Effect::AudioTriple(..) | Effect::Chirp(_) => None,
+    }
 }
 
 /// The `0/1/2` [`HapticSide`] for a mapper [`Side`] (the Deck's `0xEA` / Triton's `0x82` convention;
@@ -483,24 +498,24 @@ fn haptic_side(side: &Side) -> HapticSide {
 
 /// Gordon `0x8f` click pulse duration (us) for a strength level - the duration is the strength lever
 /// (gain is inert on Gordon). HW-tuned via the `haptic` example.
-fn gordon_click_duration(strength: &HapticStrength) -> u16 {
+fn gordon_click_duration(strength: &Click) -> u16 {
     match strength {
-        HapticStrength::Low => 500,
-        HapticStrength::Medium => 1000,
-        HapticStrength::High => 2000,
+        Click::Weak => 500,
+        Click::Medium => 1000,
+        Click::Strong => 2000,
     }
 }
 
 /// Deck `0xea` click gain (dB) for a strength level, **per side** (HW-tuned - the two motors differ,
 /// the right needing a couple dB more for a comparable feel).
-fn neptune_click_gain(side: &Side, strength: &HapticStrength) -> i8 {
+fn neptune_click_gain(side: &Side, strength: &Click) -> i8 {
     match (side, strength) {
-        (Side::Left, HapticStrength::Low) => -2,
-        (Side::Left, HapticStrength::Medium) => 1,
-        (Side::Left, HapticStrength::High) => 4,
-        (Side::Right, HapticStrength::Low) => -2,
-        (Side::Right, HapticStrength::Medium) => 2,
-        (Side::Right, HapticStrength::High) => 6,
+        (Side::Left, Click::Weak) => -2,
+        (Side::Left, Click::Medium) => 1,
+        (Side::Left, Click::Strong) => 4,
+        (Side::Right, Click::Weak) => -2,
+        (Side::Right, Click::Medium) => 2,
+        (Side::Right, Click::Strong) => 6,
     }
 }
 
@@ -509,11 +524,11 @@ fn neptune_click_gain(side: &Side, strength: &HapticStrength) -> i8 {
 /// `0..255`) and even `Weak` is a fairly firm click, so `style` is the only working lever - in
 /// practice there are just **two** distinct strengths. Low/Med both use `Weak` (Med carries a
 /// max amplitude only so there's a gradient if a firmware ever activates the byte); High = `Strong`.
-fn triton_click(strength: &HapticStrength) -> (HapticStyle, u8) {
+fn triton_click(strength: &Click) -> (HapticStyle, u8) {
     match strength {
-        HapticStrength::Low => (HapticStyle::Weak, 0),
-        HapticStrength::Medium => (HapticStyle::Weak, 255),
-        HapticStrength::High => (HapticStyle::Strong, 0),
+        Click::Weak => (HapticStyle::Weak, 0),
+        Click::Medium => (HapticStyle::Weak, 255),
+        Click::Strong => (HapticStyle::Strong, 0),
     }
 }
 

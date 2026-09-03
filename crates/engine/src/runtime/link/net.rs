@@ -5,10 +5,10 @@
 //! Two peers (roles chosen by the handle's input/output staging - slice 4):
 //! - [`NetServer`] (output/PC side) **binds** TCP+UDP on one port and exposes the *mapper-side*
 //!   channels: `frame_rx` (fed by UDP snapshots + TCP lifecycle events), `control_rx` (fed by TCP
-//!   config), and `rumble_tx`/`click_tx` (drained to the client over UDP).
+//!   config), and `rumble_tx`/`feedback_tx` (drained to the client over UDP).
 //! - [`NetClient`] (controller/Deck side) **dials** the server and exposes the *device-side*
 //!   channels: `frame_tx` (Reports; `State`->UDP, lifecycle->TCP), `control_tx` (config->TCP), and
-//!   `rumble_rx`/`click_rx` (fed by the UDP back-channel).
+//!   `rumble_rx`/`feedback_rx` (fed by the UDP back-channel).
 //!
 //! A **single connection** for now (no reconnect yet - slice 5). Idempotency split per 6.1:
 //! `State` snapshots ride UDP (latest-wins, `state.seq` drops stale); lifecycle + config ride TCP.
@@ -26,7 +26,8 @@ use crossbeam_channel::{Receiver, Sender, select, unbounded};
 
 use steam_hid::Report;
 
-use super::super::{Click, Control, RumbleCmd};
+use mapper::FeedbackReq;
+use super::super::{Control, RumbleCmd};
 use super::wire::{self, Downlink, FramePacket, PROTOCOL_VERSION, Uplink};
 
 /// Poll granularity for socket loops so a thread notices `running` cleared on shutdown.
@@ -71,7 +72,7 @@ pub(crate) struct NetServer {
     /// two-feeder `control_rx`, PLAN 6.1).
     control_tx: Sender<Control>,
     rumble_tx: Sender<RumbleCmd>,
-    click_tx: Sender<Click>,
+    feedback_tx: Sender<FeedbackReq>,
     shared: Arc<ServerShared>,
     threads: Vec<JoinHandle<()>>,
 }
@@ -90,7 +91,7 @@ impl NetServer {
         let (frame_tx, frame_rx) = unbounded::<Report>();
         let (control_tx, control_rx) = unbounded::<Control>();
         let (rumble_tx, rumble_rx) = unbounded::<RumbleCmd>();
-        let (click_tx, click_rx) = unbounded::<Click>();
+        let (feedback_tx, feedback_rx) = unbounded::<FeedbackReq>();
         let shared = Arc::new(ServerShared {
             running: AtomicBool::new(true),
             detached: Arc::new(AtomicBool::new(true)), // no client yet
@@ -109,7 +110,7 @@ impl NetServer {
         }));
         threads.push(spawn("net-srv-back", {
             let shared = shared.clone();
-            move || server_backchannel(&udp, &shared, &rumble_rx, &click_rx)
+            move || server_backchannel(&udp, &shared, &rumble_rx, &feedback_rx)
         }));
 
         Ok(NetServer {
@@ -118,7 +119,7 @@ impl NetServer {
             control_rx,
             control_tx,
             rumble_tx,
-            click_tx,
+            feedback_tx,
             shared,
             threads,
         })
@@ -148,8 +149,8 @@ impl NetServer {
     pub(super) fn rumble_tx(&self) -> &Sender<RumbleCmd> {
         &self.rumble_tx
     }
-    pub(super) fn click_tx(&self) -> &Sender<Click> {
-        &self.click_tx
+    pub(super) fn feedback_tx(&self) -> &Sender<FeedbackReq> {
+        &self.feedback_tx
     }
 }
 
@@ -304,12 +305,12 @@ fn server_backchannel(
     udp: &UdpSocket,
     shared: &ServerShared,
     rumble_rx: &Receiver<RumbleCmd>,
-    click_rx: &Receiver<Click>,
+    feedback_rx: &Receiver<FeedbackReq>,
 ) {
     while shared.running.load(Ordering::SeqCst) {
         let msg = select! {
             recv(rumble_rx) -> m => match m { Ok(r) => Downlink::Rumble(r), Err(_) => return },
-            recv(click_rx) -> m => match m { Ok(c) => Downlink::Click(c), Err(_) => return },
+            recv(feedback_rx) -> m => match m { Ok(c) => Downlink::Feedback(c), Err(_) => return },
             default(POLL) => continue,
         };
         let addr = *shared.client_udp.lock().unwrap();
@@ -346,7 +347,7 @@ pub(crate) struct NetClient {
     frame_tx: Sender<Report>,
     control_tx: Sender<Control>,
     rumble_rx: Receiver<RumbleCmd>,
-    click_rx: Receiver<Click>,
+    feedback_rx: Receiver<FeedbackReq>,
     shared: Arc<ClientShared>,
     threads: Vec<JoinHandle<()>>,
 }
@@ -368,7 +369,7 @@ impl NetClient {
         let (frame_tx, frame_rx) = unbounded::<Report>();
         let (control_tx, control_rx) = unbounded::<Control>();
         let (rumble_tx, rumble_rx) = unbounded::<RumbleCmd>();
-        let (click_tx, click_rx) = unbounded::<Click>();
+        let (feedback_tx, feedback_rx) = unbounded::<FeedbackReq>();
         let shared = Arc::new(ClientShared {
             running: AtomicBool::new(true),
             detached: Arc::new(AtomicBool::new(false)), // device present at connect
@@ -382,10 +383,10 @@ impl NetClient {
         }));
         threads.push(spawn("net-cli-down", {
             let shared = shared.clone();
-            move || client_downlink(&udp, &shared, &rumble_tx, &click_tx)
+            move || client_downlink(&udp, &shared, &rumble_tx, &feedback_tx)
         }));
 
-        Ok(NetClient { frame_tx, control_tx, rumble_rx, click_rx, shared, threads })
+        Ok(NetClient { frame_tx, control_tx, rumble_rx, feedback_rx, shared, threads })
     }
 
     pub(super) fn frame_tx(&self) -> &Sender<Report> {
@@ -397,8 +398,8 @@ impl NetClient {
     pub(super) fn rumble_rx(&self) -> &Receiver<RumbleCmd> {
         &self.rumble_rx
     }
-    pub(super) fn click_rx(&self) -> &Receiver<Click> {
-        &self.click_rx
+    pub(super) fn feedback_rx(&self) -> &Receiver<FeedbackReq> {
+        &self.feedback_rx
     }
 
     /// The local device went away -> drop the connection so the server sees link-down (->
@@ -546,7 +547,7 @@ fn client_downlink(
     udp: &UdpSocket,
     shared: &ClientShared,
     rumble_tx: &Sender<RumbleCmd>,
-    click_tx: &Sender<Click>,
+    feedback_tx: &Sender<FeedbackReq>,
 ) {
     let mut buf = [0u8; UDP_BUF];
     while shared.running.load(Ordering::SeqCst) {
@@ -561,8 +562,8 @@ fn client_downlink(
             Ok(Downlink::Rumble(r)) => {
                 let _ = rumble_tx.send(r);
             }
-            Ok(Downlink::Click(c)) => {
-                let _ = click_tx.send(c);
+            Ok(Downlink::Feedback(c)) => {
+                let _ = feedback_tx.send(c);
             }
             Err(_) => {}
         }
@@ -576,7 +577,7 @@ fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config::{HapticStrength, Side};
+    use config::{Click, Effect, Side};
     use steam_hid::ControllerState;
 
     fn loopback() -> SocketAddr {
@@ -604,10 +605,10 @@ mod tests {
         assert_eq!(got, cmd);
 
         // Server -> client: a one-shot click.
-        server.click_tx().send(Click { side: Side::Left, strength: HapticStrength::Medium }).unwrap();
+        server.feedback_tx().send(FeedbackReq { side: Side::Left, effect: Effect::Haptic(Click::Medium) }).unwrap();
         assert_eq!(
-            client.click_rx().recv_timeout(secs(2)).unwrap(),
-            Click { side: Side::Left, strength: HapticStrength::Medium }
+            client.feedback_rx().recv_timeout(secs(2)).unwrap(),
+            FeedbackReq { side: Side::Left, effect: Effect::Haptic(Click::Medium) }
         );
     }
 

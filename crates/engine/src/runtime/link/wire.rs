@@ -25,7 +25,8 @@ use steam_hid::{ControllerState, Report};
 
 use mapper::{Program, Role};
 
-use super::super::{Click, RumbleCmd};
+use mapper::FeedbackReq;
+use super::super::RumbleCmd;
 
 /// Client->server over **UDP**: a raw controller snapshot. Latest-wins - `state.seq` (a `u32` from
 /// the device) drops stale/out-of-order datagrams. The sink-side Mapper turns it into outputs
@@ -59,13 +60,13 @@ pub(super) enum Uplink {
     Event(Report),
 }
 
-/// Server->client over **UDP** (rare loss tolerable): the rumble/click back-channel.
+/// Server->client over **UDP** (rare loss tolerable): the rumble/feedback back-channel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) enum Downlink {
     /// Sustained rumble level - latest-wins, so a dropped datagram self-heals on the next update.
     Rumble(RumbleCmd),
-    /// One-shot command-haptic click - fire-and-forget; a rare miss is imperceptible.
-    Click(Click),
+    /// One-shot command feedback - fire-and-forget; a rare miss is imperceptible.
+    Feedback(FeedbackReq),
 }
 
 /// Upper bound on a single TCP frame (a fat `Program` is a few KB; slack + a guard against a bogus
@@ -127,7 +128,7 @@ mod tests {
         CompiledAction, CompiledBinding, CompiledCommand, CompiledLayer, CompiledSet, LayerId,
         ProgramMeta, SetId, SourceMap,
     };
-    use config::{Activator, HapticStrength, InputSource, Side};
+    use config::{Activator, Click, Effect, InputSource, Side};
 
     /// A non-trivial program exercising nested IR serde (sets, layers, a bound command, ids).
     fn sample_program() -> Program {
@@ -214,7 +215,7 @@ mod tests {
         // UDP back-channel: rumble level + one-shot click.
         for msg in [
             Downlink::Rumble(RumbleCmd { strong: 30000, weak: 12000 }),
-            Downlink::Click(Click { side: Side::Left, strength: HapticStrength::Medium }),
+            Downlink::Feedback(FeedbackReq { side: Side::Left, effect: Effect::Haptic(Click::Medium) }),
         ] {
             let bytes = encode(&msg).unwrap();
             assert_eq!(decode::<Downlink>(&bytes).unwrap(), msg);

@@ -1,7 +1,8 @@
 //! The manager shell - the runtime that owns the two device-driving threads and the control channel
 //! (PLAN 4.1, 4.2 S9). Split across three files:
 //! - **this module** - the [`Runtime`] lifecycle (spawn/join the threads) + the inter-thread message
-//!   types ([`Control`], [`RumbleCmd`], [`Click`]); the reader-side per-device `ReaderCfg` lives in
+//!   types ([`Control`], [`RumbleCmd`]; command feedback rides `mapper::FeedbackReq` over the
+//!   downlink); the reader-side per-device `ReaderCfg` lives in
 //!   [`reader`] (it's rebuilt there from the live [`DeviceConfig`]);
 //! - [`reader`] - the reader thread: a persistent device-session loop that owns the `Device`, is its
 //!   only writer, and reacquires the pinned device across a transport outage (D6);
@@ -24,7 +25,7 @@ use std::thread::{self, JoinHandle};
 use crossbeam_channel::{Sender, unbounded};
 use serde::{Deserialize, Serialize};
 
-use config::{Chords, DeviceConfig, HapticStrength, Side};
+use config::{Chords, DeviceConfig};
 use steam_hid::{Device, DeviceId};
 use virt_out::Sink;
 
@@ -58,17 +59,6 @@ pub(crate) enum Control {
 pub(crate) struct RumbleCmd {
     pub(crate) strong: u16,
     pub(crate) weak: u16,
-}
-
-/// One-shot command-haptic click for the reader to fire immediately on `side`'s pad, at one of three
-/// `strength` levels - **the reader maps the level to the device** (Gordon `0x8f` pulse duration,
-/// Deck `0xea` gain), distinct from the sustained rumble, with **no arbitration** (it briefly
-/// interrupts a rumble on the shared pad, which resumes next re-fire; the opposite pad is untouched
-/// - PLAN 1.9 haptics v1).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Click {
-    pub(crate) side: Side,
-    pub(crate) strength: HapticStrength,
 }
 
 /// Sentinel stored in the reader's battery readback before any battery frame has arrived (charge is

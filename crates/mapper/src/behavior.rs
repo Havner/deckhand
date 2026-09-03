@@ -31,7 +31,7 @@ use config::{
 use vocab_hid::{GYRO_RES_PER_DPS, Vec2};
 use vocab_out::GamepadAxis;
 
-use crate::mapper::{HapticReq, Tick};
+use crate::mapper::{FeedbackReq, Tick};
 use super::activator::{SlotState, SourceActivators};
 use super::command::eval_commands;
 use super::gyro::GravityEst;
@@ -73,7 +73,7 @@ pub(super) struct Ctx<'a> {
 pub(super) struct Sinks<'a> {
     pub desired: &'a mut DesiredLevels,
     pub ops: &'a mut LayerOps,
-    pub haptics: &'a mut Vec<HapticReq>,
+    pub haptics: &'a mut Vec<FeedbackReq>,
 }
 
 /// Evaluate one resolved binding into the desired output levels and/or relative accumulators.

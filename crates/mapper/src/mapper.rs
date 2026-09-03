@@ -1,13 +1,14 @@
 //! The [`Mapper`]: the live runtime state and the per-tick mapping pass ([`Mapper::tick`]).
 //!
 //! One acyclic pass per tick turns a [`LogicalFrame`](crate::LogicalFrame) plus an injected
-//! [`Tick`] clock into [`OutputEvent`]s (and [`HapticReq`]s), touching no hardware and no wall
+//! [`Tick`] clock into [`OutputEvent`]s (and [`FeedbackReq`]s), touching no hardware and no wall
 //! clock - so recorded `(frame, Tick)` traces replay identically in golden tests. The engine's
 //! manager loop drives it; the network sink drives the same core.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use config::{HapticEdge, HapticStrength, InputSource, Side};
+use config::{Effect, InputSource, Side};
+use serde::{Deserialize, Serialize};
 use vocab_out::OutputEvent;
 
 use crate::logical::LogicalFrame;
@@ -15,7 +16,7 @@ use crate::program::{CompiledBinding, CompiledSet, LayerId, Program, SetId};
 
 use crate::activator::{Activators, BindingKey};
 use crate::gyro::GravityEst;
-use crate::layers::{ArmedNodes, HeldLayer, HoldHaptic, LayerOps, NodeKey};
+use crate::layers::{ArmedNodes, HeldLayer, HoldFeedback, LayerOps, NodeKey};
 use crate::reconcile::{AppliedLevels, DesiredLevels, RelAccum};
 use crate::smooth::OneEuro2;
 
@@ -28,30 +29,28 @@ use crate::smooth::OneEuro2;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Tick(pub u64);
 
-/// A request for one haptic pulse, produced by the mapping pass and drained by the owning
-/// device's reader thread (PLAN 4.1 haptics; the seam kept from the start, decision C).
+/// A request for one feedback effect, produced by the mapping pass and drained by the owning
+/// device's reader thread (PLAN 7; the seam kept from the start, decision C).
 ///
-/// Each pulse targets a single actuator - the [`Side`] of the triggering input - at one of three
-/// strengths. Command haptics fill these in per tick: a level command's inline (`eval_commands`),
-/// an OpSet's deferred and gated on the effect landing (`reconcile_layer_ops`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HapticReq {
+/// Carries the [`Side`] of the triggering input (haptics play there, audio on both) and the resolved
+/// [`Effect`], already edge-picked by the mapper (press -> `on_press`, release -> `on_release`).
+/// Command feedback fills these in per tick: a level command's inline (`eval_commands`), an OpSet's
+/// deferred and gated on the effect landing (`reconcile_layer_ops`). Serde so it doubles as the
+/// engine's downlink over the 6 wire (server -> client back-channel; PLAN 7.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeedbackReq {
     pub side: Side,
-    pub strength: HapticStrength,
+    pub effect: Effect,
 }
 
-/// Push a `HoldLayer`'s engage (`engage = true`) or disengage click if its stored haptic opts into
-/// that edge: `OnPress`/`Both` on engage, `OnRelease`/`Both` on disengage, `Off` never.
-fn push_hold_click(haptic: &Option<HoldHaptic>, engage: bool, out: &mut Vec<HapticReq>) {
-    let Some(h) = haptic else { return };
-    let fire = match h.on {
-        HapticEdge::Off => false,
-        HapticEdge::OnPress => engage,
-        HapticEdge::OnRelease => !engage,
-        HapticEdge::Both => true,
-    };
-    if fire {
-        out.push(h.req.clone());
+/// Push a `HoldLayer`'s engage (`engage = true`) or disengage feedback: the stored `Feedback`'s
+/// `on_press` effect on engage, `on_release` on disengage. Nothing if that edge is `None`. The whole
+/// `Feedback` is stored (PLAN 7.3) so the disengage effect survives the release-tick self-shadow.
+fn push_hold_feedback(hold: &Option<HoldFeedback>, engage: bool, out: &mut Vec<FeedbackReq>) {
+    let Some(h) = hold else { return };
+    let effect = if engage { &h.feedback.on_press } else { &h.feedback.on_release };
+    if let Some(effect) = effect {
+        out.push(FeedbackReq { side: h.side.clone(), effect: effect.clone() });
     }
 }
 
@@ -159,7 +158,7 @@ impl Mapper {
         tick: Tick,
         program: &Program,
         out: &mut Vec<OutputEvent>,
-        haptics: &mut Vec<HapticReq>,
+        haptics: &mut Vec<FeedbackReq>,
     ) {
         let set = program.set(&self.active_set);
         let mut desired = DesiredLevels::default();
@@ -225,7 +224,7 @@ impl Mapper {
     /// A command's click is *paired to the effect that lands*: an OpSet's is deferred here so a
     /// dropped op stays silent - a persistent op fires iff it changed state (`applied`), a hold on its
     /// engage/disengage. Only a level command clicks inline (in `eval_commands`).
-    fn reconcile_layer_ops(&mut self, frame: &LogicalFrame, ops: LayerOps, haptics: &mut Vec<HapticReq>) {
+    fn reconcile_layer_ops(&mut self, frame: &LogicalFrame, ops: LayerOps, haptics: &mut Vec<FeedbackReq>) {
         // The nodes whose persistent op actually *changed state* this tick - the verdict the deferred
         // persistent-OpSet clicks are gated on (a mere dedup pass isn't enough: a no-op stays silent).
         let mut applied: HashSet<NodeKey> = HashSet::new();
@@ -257,7 +256,7 @@ impl Mapper {
 
         // Deferred persistent-OpSet clicks: fire iff the op landed (its node is in `applied`), so an
         // op deduped away, superseded by a `set_change`, or a no-op against the stack stays silent.
-        for (node, req) in ops.pending_haptics {
+        for (node, req) in ops.pending_feedback {
             if applied.contains(&node.key()) {
                 haptics.push(req);
             }
@@ -309,7 +308,7 @@ impl Mapper {
         &mut self,
         holds: &BTreeMap<LayerId, HeldLayer>,
         frame: &LogicalFrame,
-        haptics: &mut Vec<HapticReq>,
+        haptics: &mut Vec<FeedbackReq>,
     ) {
         let prev = std::mem::take(&mut self.held_layers);
         let mut next: BTreeMap<LayerId, HeldLayer> = BTreeMap::new();
@@ -325,12 +324,12 @@ impl Mapper {
         }
         for (l, held) in &next {
             if !prev.contains_key(l) {
-                push_hold_click(&held.haptic, true, haptics);
+                push_hold_feedback(&held.feedback, true, haptics);
             }
         }
         for (l, held) in &prev {
             if !next.contains_key(l) {
-                push_hold_click(&held.haptic, false, haptics);
+                push_hold_feedback(&held.feedback, false, haptics);
             }
         }
         self.held_layers = next;
@@ -391,8 +390,15 @@ mod tests {
     use crate::program::{
         CompiledAction, CompiledCommand, CompiledLayer, CompiledSet, ProgramMeta, Role, SourceMap,
     };
-    use config::{Activator, CommandSettings, HapticEdge, Haptics};
+    use config::{Activator, Click, CommandSettings, Effect, Feedback};
     use vocab_out::{GamepadButton, Key};
+
+    /// A single-`Haptic` command feedback for the given edges (mirrors the old `HapticEdge` cases in
+    /// the edge-parameterized command-feedback tests).
+    fn feedback(on_press: bool, on_release: bool, click: Click) -> Feedback {
+        let eff = || Effect::Haptic(click);
+        Feedback { on_press: on_press.then(eff), on_release: on_release.then(eff) }
+    }
 
     /// A `Regular` command firing the given actions.
     fn regular(actions: Vec<CompiledAction>) -> CompiledCommand {
@@ -433,13 +439,13 @@ mod tests {
         }
     }
 
-    /// A `Regular` command firing `action` with a `High` `OnPress` haptic - for command-click tests.
+    /// A `Regular` command firing `action` with a High on-press haptic - for command-click tests.
     fn regular_click(action: CompiledAction) -> CompiledCommand {
         CompiledCommand {
             activator: Activator::Regular { interruptible: false },
             actions: vec![action],
             settings: CommandSettings {
-                haptics: Haptics { on: HapticEdge::OnPress, strength: HapticStrength::High },
+                feedback: feedback(true, false, Click::Strong),
                 ..Default::default()
             },
         }
@@ -495,7 +501,7 @@ mod tests {
 
     /// Like [`run`] but returns the tick's haptic pulses (for command-click tests) instead of
     /// asserting there are none.
-    fn run_haptics(mapper: &mut Mapper, program: &Program, f: &LogicalFrame, t: u64) -> Vec<HapticReq> {
+    fn run_haptics(mapper: &mut Mapper, program: &Program, f: &LogicalFrame, t: u64) -> Vec<FeedbackReq> {
         let mut out = Vec::new();
         let mut haptics = Vec::new();
         mapper.tick(f, Tick(t), program, &mut out, &mut haptics);
@@ -1631,14 +1637,16 @@ mod tests {
         // A persistent op has no release: `OnRelease` never clicks, `OnPress`/`Both` click once on
         // the landing (press) edge and never on release. base L1 -> AddLayer(0); layer0 only marks
         // "active" (RGRIP -> A) so the add is a real change.
-        for (edge, press_clicks, release_clicks) in
-            [(HapticEdge::OnRelease, 0, 0), (HapticEdge::OnPress, 1, 0), (HapticEdge::Both, 1, 0)]
-        {
+        for (label, on_press, on_release, press_clicks, release_clicks) in [
+            ("on_release", false, true, 0, 0),
+            ("on_press", true, false, 1, 0),
+            ("both", true, true, 1, 0),
+        ] {
             let add = CompiledCommand {
                 activator: Activator::Regular { interruptible: false },
                 actions: vec![CompiledAction::AddLayer(LayerId::new(0))],
                 settings: CommandSettings {
-                    haptics: Haptics { on: edge.clone(), strength: HapticStrength::Medium },
+                    feedback: feedback(on_press, on_release, Click::Medium),
                     ..Default::default()
                 },
             };
@@ -1654,8 +1662,8 @@ mod tests {
             let press = run_haptics(&mut m, &program, &frame(lb.clone()), 0).len();
             let _hold = run_haptics(&mut m, &program, &frame(lb.clone()), 4);
             let release = run_haptics(&mut m, &program, &frame(vocab_hid::Buttons::empty()), 8).len();
-            assert_eq!(press, press_clicks, "{edge:?} press");
-            assert_eq!(release, release_clicks, "{edge:?} release");
+            assert_eq!(press, press_clicks, "{label} press");
+            assert_eq!(release, release_clicks, "{label} release");
         }
     }
 
@@ -1744,7 +1752,7 @@ mod tests {
             activator: Activator::Long { hold_ms: 200 },
             actions: vec![CompiledAction::HoldLayer(LayerId::new(0))],
             settings: CommandSettings {
-                haptics: Haptics { on: HapticEdge::Both, strength: HapticStrength::Medium },
+                feedback: feedback(true, true, Click::Medium),
                 ..Default::default()
             },
         };
@@ -1752,7 +1760,7 @@ mod tests {
             activator: Activator::Regular { interruptible: true },
             actions: vec![CompiledAction::RemoveLayer(LayerId::new(0))],
             settings: CommandSettings {
-                haptics: Haptics { on: HapticEdge::OnPress, strength: HapticStrength::Medium },
+                feedback: feedback(true, false, Click::Medium),
                 ..Default::default()
             },
         };
@@ -1930,18 +1938,18 @@ mod tests {
     fn hold_layer_lifecycle_click_follows_its_edge_config() {
         // A plain HoldLayer(0) whose layer does NOT rebind LB (no self-shadow): the click fires on the
         // layer's engage (press) and disengage (release) per the command's edge. Guards
-        // `push_hold_click` directly, without the self-shadow that the cp2077 test exercises.
-        for (edge, engage_want, release_want) in [
-            (HapticEdge::Off, 0, 0),
-            (HapticEdge::OnPress, 1, 0),
-            (HapticEdge::OnRelease, 0, 1),
-            (HapticEdge::Both, 1, 1),
+        // `push_hold_feedback` directly, without the self-shadow that the cp2077 test exercises.
+        for (label, on_press, on_release, engage_want, release_want) in [
+            ("off", false, false, 0, 0),
+            ("on_press", true, false, 1, 0),
+            ("on_release", false, true, 0, 1),
+            ("both", true, true, 1, 1),
         ] {
             let hold = CompiledCommand {
                 activator: Activator::Regular { interruptible: false },
                 actions: vec![CompiledAction::HoldLayer(LayerId::new(0))],
                 settings: CommandSettings {
-                    haptics: Haptics { on: edge.clone(), strength: HapticStrength::Medium },
+                    feedback: feedback(on_press, on_release, Click::Medium),
                     ..Default::default()
                 },
             };
@@ -1965,8 +1973,8 @@ mod tests {
                 release += run_haptics(&mut m, &program, &frame(vocab_hid::Buttons::empty()), t).len();
                 t += 4;
             }
-            assert_eq!(engage, engage_want, "{edge:?} engage");
-            assert_eq!(release, release_want, "{edge:?} release");
+            assert_eq!(engage, engage_want, "{label} engage");
+            assert_eq!(release, release_want, "{label} release");
         }
     }
 
@@ -1980,7 +1988,7 @@ mod tests {
             activator: Activator::Regular { interruptible: false },
             actions: vec![CompiledAction::ChangeActionSet(SetId::new(1))],
             settings: CommandSettings {
-                haptics: Haptics { on: HapticEdge::OnPress, strength: HapticStrength::Low },
+                feedback: feedback(true, false, Click::Weak),
                 ..Default::default()
             },
         };

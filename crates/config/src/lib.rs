@@ -30,7 +30,7 @@ pub use chords::{Chord, ChordAction, Chords, SwitchMode};
 pub use device::{DeviceConfig, GordonTuning, Lever, RumbleTuning};
 pub use profile::{ActionSet, ConfigDoc, Layer, RumbleSettings};
 pub use command::{
-    Activator, Command, CommandSettings, HapticEdge, HapticStrength, Haptics, Turbo,
+    Activator, Click, Command, CommandSettings, Effect, Feedback, Sweep, Tone, Turbo,
 };
 pub use input::{InputSource, Shape, Side, SourceKind};
 pub use settings::{
