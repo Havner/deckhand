@@ -13,6 +13,7 @@
 //! `Sync` `Device`) forwards frames over a channel to the mapping loop; commands/rumble flow back
 //! over channels. The pure helpers are unit-tested in `reader`/`mapping`.
 
+mod feedback;
 mod link;
 mod mapping;
 mod reader;
