@@ -2,7 +2,7 @@
 //! category page (reached from a gear menu, left via Back). Two kinds:
 //!
 //! - **Command settings** ([`command_settings`]) - the activator (kind + its own parameter) plus
-//!   toggle / turbo / haptics.
+//!   toggle / turbo / feedback.
 //! - **Per-behaviour settings** ([`behavior_settings`]) - a header over the behaviour's settings
 //!   **blocks** composed in the canonical field order (the per-behaviour compose fns). Each block is
 //!   a reusable row (shared across every behaviour that has that field) that emits one generic
@@ -18,14 +18,16 @@ use iced::widget::{Space, button, checkbox, column, container, pick_list, row, s
 use iced::{Center, Element, Fill};
 
 use config::{
-    Activation, ActivationMode, Activator, Axis, Command, Curve, DpadLayout, GyroSpace, HapticEdge,
-    HapticStrength, InputSource, Invert, MouseOutput, OneEuroFilter, Sensitivity, SourceBinding,
-    StickOutput, TriggerOutput,
+    Activation, ActivationMode, Activator, Axis, Click, Command, Curve, DpadLayout, Effect, GyroSpace,
+    InputSource, Invert, MouseOutput, OneEuroFilter, Sensitivity, SourceBinding, StickOutput, Sweep,
+    Tone, TriggerOutput,
 };
 
 use super::{CMD_SLOT, input_label};
-use crate::editor::{ActivatorKind, Behavior, CommandRef, EditorMessage, SettingEdit, SettingsView};
-use crate::view::{button_chips, label_row, setting_label, slot_display, small};
+use crate::editor::{
+    ActivatorKind, Behavior, CommandRef, EditorMessage, EffectKind, FeedbackEdge, SettingEdit, SettingsView,
+};
+use crate::view::{button_chips, group_header, label_row, setting_label, slot_display, small};
 use crate::{App, ButtonTarget, Message, style};
 
 /// The active settings sub-page, rendered *instead of* the current category page - `None` when no
@@ -39,8 +41,9 @@ pub(in crate::view) fn settings_screen(app: &App) -> Option<Element<'static, Mes
 }
 
 /// The per-command settings form: activator (kind + its own parameter - Long/Double time or the
-/// Regular's interruptible flag), then toggle / turbo / haptics. Applicability-gated (turbo hidden on
-/// Release, haptic strength only when the pulse is on) - decision B, invalid-unrepresentable.
+/// Regular's interruptible flag), then toggle / turbo / feedback. Applicability-gated (turbo hidden on
+/// Release, each feedback edge's effect row shown only when that edge is enabled) - decision B,
+/// invalid-unrepresentable.
 fn command_settings(app: &App, cref: &CommandRef) -> Element<'static, Message> {
     let back = button(text("‹ Back"))
         .style(style::option_button)
@@ -68,7 +71,7 @@ fn command_settings(app: &App, cref: &CommandRef) -> Element<'static, Message> {
     if !matches!(cmd.activator, Activator::Release) {
         col = col.push(turbo_setting(cref, cmd));
     }
-    col = col.push(haptic_settings(cref, cmd));
+    col = col.push(feedback_settings(cref, cmd));
     col.into()
 }
 
@@ -139,34 +142,124 @@ fn turbo_setting(cref: &CommandRef, cmd: &Command) -> Element<'static, Message> 
         .into()
 }
 
-/// Haptics: the pulse edge (Off/On press/On release/Both), plus a strength combobox that appears only
-/// when the pulse is on (strength is meaningless while Off).
-fn haptic_settings(cref: &CommandRef, cmd: &Command) -> Element<'static, Message> {
-    let edge = cmd.settings.haptics.on.clone();
-    let cref_edge = cref.clone();
-    let edge_combo = pick_list(
-        Some(edge.clone()),
-        vec![HapticEdge::Off, HapticEdge::OnPress, HapticEdge::OnRelease, HapticEdge::Both],
-        |e: &HapticEdge| haptic_edge_label(e).to_string(),
-    )
-    .on_select(move |e| Message::Editor(EditorMessage::SetHapticEdge(cref_edge.clone(), e)))
-    .menu_style(style::combo_menu)
-    .width(CMD_SLOT);
-    let mut col =
-        column![row![setting_label("Haptics"), edge_combo].spacing(12.0).align_y(Center)].spacing(8.0);
-    if edge != HapticEdge::Off {
-        let cref_strength = cref.clone();
-        let strength_combo = pick_list(
-            Some(cmd.settings.haptics.strength.clone()),
-            vec![HapticStrength::Low, HapticStrength::Medium, HapticStrength::High],
-            |s: &HapticStrength| haptic_strength_label(s).to_string(),
-        )
-        .on_select(move |s| Message::Editor(EditorMessage::SetHapticStrength(cref_strength.clone(), s)))
-        .menu_style(style::combo_menu)
-        .width(CMD_SLOT);
-        col = col.push(row![setting_label("Strength"), strength_combo].spacing(12.0).align_y(Center));
+/// Widths for the feedback effect row: the kind combobox and each note (click/tone/sweep) combobox.
+const EFFECT_KIND_SLOT: f32 = 130.0;
+const NOTE_SLOT: f32 = 120.0;
+
+const CLICKS: &[Click] = &[Click::Weak, Click::Medium, Click::Strong];
+const TONES: &[Tone] = &[
+    Tone::ShortLow, Tone::ShortMedium, Tone::ShortHigh, Tone::LongLow, Tone::LongMedium, Tone::LongHigh,
+];
+const SWEEPS: &[Sweep] =
+    &[Sweep::Up1, Sweep::Down1, Sweep::Up2, Sweep::Down2, Sweep::Up3, Sweep::Down3];
+
+/// Feedback (PLAN 7): a small "Feedback" header over two independent edges. Each is a checkbox; when
+/// on, an "Effect" row appears under it - the kind combobox plus its 1-3 dependent note comboboxes
+/// (clicks / tones) or the single sweep, all on one line.
+fn feedback_settings(cref: &CommandRef, cmd: &Command) -> Element<'static, Message> {
+    column![
+        group_header("Feedback"),
+        feedback_edge(cref, cmd, FeedbackEdge::Press, "On press"),
+        feedback_edge(cref, cmd, FeedbackEdge::Release, "On release"),
+    ]
+    .spacing(16.0)
+    .into()
+}
+
+/// The `on_press`/`on_release` effect of a command for an edge.
+fn feedback_effect(cmd: &Command, edge: FeedbackEdge) -> Option<&Effect> {
+    match edge {
+        FeedbackEdge::Press => cmd.settings.feedback.on_press.as_ref(),
+        FeedbackEdge::Release => cmd.settings.feedback.on_release.as_ref(),
+    }
+}
+
+/// One feedback edge: the enable checkbox, and (when enabled) the effect row under it.
+fn feedback_edge(
+    cref: &CommandRef,
+    cmd: &Command,
+    edge: FeedbackEdge,
+    label: &'static str,
+) -> Element<'static, Message> {
+    let effect = feedback_effect(cmd, edge);
+    let cref_check = cref.clone();
+    let check = row![
+        setting_label(label),
+        checkbox(effect.is_some())
+            .on_toggle(move |b| Message::Editor(EditorMessage::SetFeedbackEnabled(cref_check.clone(), edge, b))),
+    ]
+    .spacing(12.0)
+    .align_y(Center);
+    let mut col = column![check].spacing(16.0);
+    if let Some(e) = effect {
+        col = col.push(effect_row(cref, edge, e));
     }
     col.into()
+}
+
+/// The effect row: "Effect" label + the kind combobox + the kind's note comboboxes.
+fn effect_row(cref: &CommandRef, edge: FeedbackEdge, e: &Effect) -> Element<'static, Message> {
+    let cref_kind = cref.clone();
+    let kind_combo =
+        pick_list(Some(EffectKind::of(e)), EffectKind::ALL.to_vec(), |k: &EffectKind| k.label().to_string())
+            .on_select(move |k| Message::Editor(EditorMessage::SetFeedbackKind(cref_kind.clone(), edge, k)))
+            .menu_style(style::combo_menu)
+            .width(EFFECT_KIND_SLOT);
+    let mut r = row![setting_label("Effect"), kind_combo].spacing(12.0).align_y(Center);
+    match e {
+        Effect::Haptic(a) => r = r.push(click_combo(cref, edge, 0, *a)),
+        Effect::HapticDouble(a, b) => {
+            r = r.push(click_combo(cref, edge, 0, *a)).push(click_combo(cref, edge, 1, *b));
+        }
+        Effect::HapticTriple(a, b, c) => {
+            r = r
+                .push(click_combo(cref, edge, 0, *a))
+                .push(click_combo(cref, edge, 1, *b))
+                .push(click_combo(cref, edge, 2, *c));
+        }
+        Effect::Audio(a) => r = r.push(tone_combo(cref, edge, 0, *a)),
+        Effect::AudioDouble(a, b) => {
+            r = r.push(tone_combo(cref, edge, 0, *a)).push(tone_combo(cref, edge, 1, *b));
+        }
+        Effect::AudioTriple(a, b, c) => {
+            r = r
+                .push(tone_combo(cref, edge, 0, *a))
+                .push(tone_combo(cref, edge, 1, *b))
+                .push(tone_combo(cref, edge, 2, *c));
+        }
+        Effect::Chirp(s) => r = r.push(sweep_combo(cref, edge, *s)),
+    }
+    r.into()
+}
+
+/// A click-strength combobox for note `i` of a `Haptic*` effect.
+fn click_combo(cref: &CommandRef, edge: FeedbackEdge, i: usize, v: Click) -> Element<'static, Message> {
+    let cref = cref.clone();
+    pick_list(Some(v), CLICKS.to_vec(), |c: &Click| click_label(c).to_string())
+        .on_select(move |c| Message::Editor(EditorMessage::SetFeedbackClick(cref.clone(), edge, i, c)))
+        .menu_style(style::combo_menu)
+        .width(NOTE_SLOT)
+        .into()
+}
+
+/// A tone combobox (pitch x length) for note `i` of an `Audio*` effect.
+fn tone_combo(cref: &CommandRef, edge: FeedbackEdge, i: usize, v: Tone) -> Element<'static, Message> {
+    let cref = cref.clone();
+    pick_list(Some(v), TONES.to_vec(), |t: &Tone| tone_label(t).to_string())
+        .on_select(move |t| Message::Editor(EditorMessage::SetFeedbackTone(cref.clone(), edge, i, t)))
+        .menu_style(style::combo_menu)
+        .width(NOTE_SLOT)
+        .into()
+}
+
+/// A sweep combobox for a `Chirp` effect.
+fn sweep_combo(cref: &CommandRef, edge: FeedbackEdge, v: Sweep) -> Element<'static, Message> {
+    let cref = cref.clone();
+    pick_list(Some(v), SWEEPS.to_vec(), |s: &Sweep| sweep_label(s).to_string())
+        .on_select(move |s| Message::Editor(EditorMessage::SetFeedbackSweep(cref.clone(), edge, s)))
+        .menu_style(style::combo_menu)
+        .width(NOTE_SLOT)
+        .into()
 }
 
 /// A settings-form checkbox row: a fixed-width label + a bare checkbox (label lives in the row, not
@@ -201,22 +294,36 @@ fn slider_row(
     .into()
 }
 
-/// Display label for a haptic edge (UI-owned - `config` stays presentation-free).
-fn haptic_edge_label(e: &HapticEdge) -> &'static str {
-    match e {
-        HapticEdge::Off => "Off",
-        HapticEdge::OnPress => "On press",
-        HapticEdge::OnRelease => "On release",
-        HapticEdge::Both => "Both",
+/// Display label for a haptic click strength (UI-owned - `config` stays presentation-free).
+fn click_label(c: &Click) -> &'static str {
+    match c {
+        Click::Weak => "Weak",
+        Click::Medium => "Medium",
+        Click::Strong => "Strong",
     }
 }
 
-/// Display label for a haptic strength (UI-owned).
-fn haptic_strength_label(s: &HapticStrength) -> &'static str {
+/// Display label for an audio tone (pitch x length; UI-owned).
+fn tone_label(t: &Tone) -> &'static str {
+    match t {
+        Tone::ShortLow => "Short low",
+        Tone::ShortMedium => "Short med",
+        Tone::ShortHigh => "Short high",
+        Tone::LongLow => "Long low",
+        Tone::LongMedium => "Long med",
+        Tone::LongHigh => "Long high",
+    }
+}
+
+/// Display label for a sweep shape/direction (UI-owned).
+fn sweep_label(s: &Sweep) -> &'static str {
     match s {
-        HapticStrength::Low => "Low",
-        HapticStrength::Medium => "Medium",
-        HapticStrength::High => "High",
+        Sweep::Up1 => "Up 1",
+        Sweep::Down1 => "Down 1",
+        Sweep::Up2 => "Up 2",
+        Sweep::Down2 => "Down 2",
+        Sweep::Up3 => "Up 3",
+        Sweep::Down3 => "Down 3",
     }
 }
 

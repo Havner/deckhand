@@ -10,9 +10,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use config::{
-    Action, ActionSet, ActivationMode, Activator, Axis, Command, CommandSettings, ConfigDoc, Curve,
-    DpadLayout, GyroSpace, HapticEdge, HapticStrength, InputSource, Layer, MouseOutput, SourceBinding,
-    StickOutput, TriggerOutput, Turbo,
+    Action, ActionSet, ActivationMode, Activator, Axis, Click, Command, CommandSettings, ConfigDoc, Curve,
+    DpadLayout, Effect, Feedback, GyroSpace, InputSource, Layer, MouseOutput, SourceBinding,
+    StickOutput, Sweep, Tone, TriggerOutput, Turbo,
 };
 use iced::Task;
 use ipc::ProfileRole;
@@ -182,6 +182,140 @@ impl ActivatorKind {
     }
 }
 
+/// Which edge of a command's [`Feedback`] a feedback edit addresses (PLAN 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FeedbackEdge {
+    Press,
+    Release,
+}
+
+/// The variant of an [`Effect`] without its payload - the feedback "kind" combobox choice. An
+/// [`Effect`] carries its notes ([`Click`]/[`Tone`]/[`Sweep`]); this tags just the shape, and
+/// [`EffectKind::build`] supplies (or carries over) them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EffectKind {
+    Haptic,
+    HapticDouble,
+    HapticTriple,
+    Audio,
+    AudioDouble,
+    AudioTriple,
+    Chirp,
+}
+
+impl EffectKind {
+    pub(crate) const ALL: &'static [EffectKind] = &[
+        EffectKind::Haptic,
+        EffectKind::HapticDouble,
+        EffectKind::HapticTriple,
+        EffectKind::Audio,
+        EffectKind::AudioDouble,
+        EffectKind::AudioTriple,
+        EffectKind::Chirp,
+    ];
+
+    pub(crate) fn of(e: &Effect) -> Self {
+        match e {
+            Effect::Haptic(_) => EffectKind::Haptic,
+            Effect::HapticDouble(..) => EffectKind::HapticDouble,
+            Effect::HapticTriple(..) => EffectKind::HapticTriple,
+            Effect::Audio(_) => EffectKind::Audio,
+            Effect::AudioDouble(..) => EffectKind::AudioDouble,
+            Effect::AudioTriple(..) => EffectKind::AudioTriple,
+            Effect::Chirp(_) => EffectKind::Chirp,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            EffectKind::Haptic => "Haptic",
+            EffectKind::HapticDouble => "Haptic x2",
+            EffectKind::HapticTriple => "Haptic x3",
+            EffectKind::Audio => "Audio",
+            EffectKind::AudioDouble => "Audio x2",
+            EffectKind::AudioTriple => "Audio x3",
+            EffectKind::Chirp => "Chirp",
+        }
+    }
+
+    /// Build an effect of this kind, carrying over compatible notes from `prev` (clicks stay clicks,
+    /// tones stay tones, the sweep is kept) and filling the rest with defaults - so switching within
+    /// a medium (e.g. Haptic -> Haptic x2) keeps what's set, and switching medium starts fresh.
+    pub(crate) fn build(self, prev: Option<&Effect>) -> Effect {
+        let clicks = prev.map(effect_clicks).unwrap_or_default();
+        let tones = prev.map(effect_tones).unwrap_or_default();
+        let c = |i: usize| clicks.get(i).copied().unwrap_or_default();
+        let t = |i: usize| tones.get(i).copied().unwrap_or_default();
+        match self {
+            EffectKind::Haptic => Effect::Haptic(c(0)),
+            EffectKind::HapticDouble => Effect::HapticDouble(c(0), c(1)),
+            EffectKind::HapticTriple => Effect::HapticTriple(c(0), c(1), c(2)),
+            EffectKind::Audio => Effect::Audio(t(0)),
+            EffectKind::AudioDouble => Effect::AudioDouble(t(0), t(1)),
+            EffectKind::AudioTriple => Effect::AudioTriple(t(0), t(1), t(2)),
+            EffectKind::Chirp => Effect::Chirp(prev.and_then(effect_sweep).unwrap_or_default()),
+        }
+    }
+}
+
+/// The `on_press`/`on_release` slot of a [`Feedback`] for an edge.
+fn feedback_slot(fb: &mut Feedback, edge: FeedbackEdge) -> &mut Option<Effect> {
+    match edge {
+        FeedbackEdge::Press => &mut fb.on_press,
+        FeedbackEdge::Release => &mut fb.on_release,
+    }
+}
+
+/// The clicks of a `Haptic*` effect in order (empty for a non-haptic effect).
+fn effect_clicks(e: &Effect) -> Vec<Click> {
+    match e {
+        Effect::Haptic(a) => vec![*a],
+        Effect::HapticDouble(a, b) => vec![*a, *b],
+        Effect::HapticTriple(a, b, c) => vec![*a, *b, *c],
+        _ => Vec::new(),
+    }
+}
+
+/// The tones of an `Audio*` effect in order (empty for a non-audio effect).
+fn effect_tones(e: &Effect) -> Vec<Tone> {
+    match e {
+        Effect::Audio(a) => vec![*a],
+        Effect::AudioDouble(a, b) => vec![*a, *b],
+        Effect::AudioTriple(a, b, c) => vec![*a, *b, *c],
+        _ => Vec::new(),
+    }
+}
+
+/// The sweep of a `Chirp` effect (`None` otherwise).
+fn effect_sweep(e: &Effect) -> Option<Sweep> {
+    match e {
+        Effect::Chirp(s) => Some(*s),
+        _ => None,
+    }
+}
+
+/// Set the `i`-th click of a `Haptic*` effect (no-op out of range / wrong medium).
+fn set_effect_click(e: &mut Effect, i: usize, v: Click) {
+    match (e, i) {
+        (Effect::Haptic(a), 0) => *a = v,
+        (Effect::HapticDouble(a, _), 0) | (Effect::HapticTriple(a, _, _), 0) => *a = v,
+        (Effect::HapticDouble(_, b), 1) | (Effect::HapticTriple(_, b, _), 1) => *b = v,
+        (Effect::HapticTriple(_, _, c), 2) => *c = v,
+        _ => {}
+    }
+}
+
+/// Set the `i`-th tone of an `Audio*` effect (no-op out of range / wrong medium).
+fn set_effect_tone(e: &mut Effect, i: usize, v: Tone) {
+    match (e, i) {
+        (Effect::Audio(a), 0) => *a = v,
+        (Effect::AudioDouble(a, _), 0) | (Effect::AudioTriple(a, _, _), 0) => *a = v,
+        (Effect::AudioDouble(_, b), 1) | (Effect::AudioTriple(_, b, _), 1) => *b = v,
+        (Effect::AudioTriple(_, _, c), 2) => *c = v,
+        _ => {}
+    }
+}
+
 /// The initial target for a freshly-loaded profile: its first action set (no layer). A profile
 /// always has at least one set; the empty fallback only bites a malformed/empty doc.
 pub(crate) fn first_target(doc: &ConfigDoc) -> EditTarget {
@@ -286,8 +420,14 @@ pub(crate) enum EditorMessage {
     SetToggle(CommandRef, bool),
     SetTurbo(CommandRef, bool),
     SetTurboInterval(CommandRef, u32),
-    SetHapticEdge(CommandRef, HapticEdge),
-    SetHapticStrength(CommandRef, HapticStrength),
+    /// Feedback (PLAN 7): toggle an edge's effect on/off (seeds a default single click on enable).
+    SetFeedbackEnabled(CommandRef, FeedbackEdge, bool),
+    /// Change an edge's effect *kind* (the variant combobox); carries over compatible notes.
+    SetFeedbackKind(CommandRef, FeedbackEdge, EffectKind),
+    /// Set one note of a `Haptic*` effect (by index) / an `Audio*` effect / the `Chirp` sweep.
+    SetFeedbackClick(CommandRef, FeedbackEdge, usize, Click),
+    SetFeedbackTone(CommandRef, FeedbackEdge, usize, Tone),
+    SetFeedbackSweep(CommandRef, FeedbackEdge, Sweep),
     /// Open the per-behaviour settings sub-page for an input (the behaviour-row gear).
     OpenBehaviorSettings(InputSource),
     /// Apply one behaviour-settings field edit to an input's binding (settings sub-page).
@@ -514,16 +654,46 @@ pub(crate) fn update(app: &mut App, msg: EditorMessage) -> Task<Message> {
             app.save_editing();
             Task::none()
         }
-        EditorMessage::SetHapticEdge(cmd, edge) => {
+        EditorMessage::SetFeedbackEnabled(cmd, edge, on) => {
             if let Some(c) = command_mut(app, &cmd) {
-                c.settings.haptics.on = edge;
+                // Enabling seeds a single haptic click (a sensible starting effect); disabling clears it.
+                *feedback_slot(&mut c.settings.feedback, edge) =
+                    on.then(|| Effect::Haptic(Click::default()));
             }
             app.save_editing();
             Task::none()
         }
-        EditorMessage::SetHapticStrength(cmd, strength) => {
+        EditorMessage::SetFeedbackKind(cmd, edge, kind) => {
             if let Some(c) = command_mut(app, &cmd) {
-                c.settings.haptics.strength = strength;
+                let slot = feedback_slot(&mut c.settings.feedback, edge);
+                *slot = Some(kind.build(slot.as_ref()));
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetFeedbackClick(cmd, edge, i, v) => {
+            if let Some(c) = command_mut(app, &cmd)
+                && let Some(e) = feedback_slot(&mut c.settings.feedback, edge)
+            {
+                set_effect_click(e, i, v);
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetFeedbackTone(cmd, edge, i, v) => {
+            if let Some(c) = command_mut(app, &cmd)
+                && let Some(e) = feedback_slot(&mut c.settings.feedback, edge)
+            {
+                set_effect_tone(e, i, v);
+            }
+            app.save_editing();
+            Task::none()
+        }
+        EditorMessage::SetFeedbackSweep(cmd, edge, v) => {
+            if let Some(c) = command_mut(app, &cmd)
+                && let Some(Effect::Chirp(s)) = feedback_slot(&mut c.settings.feedback, edge)
+            {
+                *s = v;
             }
             app.save_editing();
             Task::none()

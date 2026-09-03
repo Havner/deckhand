@@ -22,14 +22,14 @@ done
 set -- $rest
 
 root="${CARGO_INSTALL_ROOT:-$HOME/.local}"
-cargo install --path crates/deckhandd  --root "$root" --force "$@"
-cargo install --path crates/deckhandctl --root "$root" --force
+cargo install --locked --path crates/deckhandd  --root "$root" --force "$@"
+cargo install --locked --path crates/deckhandctl --root "$root" --force
 echo "installed deckhandd + deckhandctl into $root/bin"
 
 # The deckhand UI app, into the same $root/bin as the tools (it's a workspace member but not a
 # default-member, so it's addressed by path). No backend features - it's a thin daemon client. On
 # Windows the built .exe carries its own embedded icon and runs as a GUI app (no console window).
-cargo install --path crates/deckhand --root "$root" --force
+cargo install --locked --path crates/deckhand --root "$root" --force
 echo "installed deckhand (UI) into $root/bin"
 
 # All three binaries above install on every platform. Everything below is Linux-only desktop
@@ -51,7 +51,7 @@ echo "installed desktop entry into $apps_dir and icon into $icon_dir"
 # desktop-entry + icon layout as the main UI, plus a double-clickable launcher symlink on ~/Desktop
 # (handy on the Deck; a symlink so it tracks the installed entry).
 if [ "$forwarder" -eq 1 ]; then
-    cargo install --path crates/forwarder-ui --root "$root" --force
+    cargo install --locked --path crates/forwarder-ui --root "$root" --force
     echo "installed deckhand-forwarder (UI) into $root/bin"
     cp crates/forwarder-ui/assets/deckhand-forwarder.desktop "$apps_dir/deckhand-forwarder.desktop"
     cp crates/forwarder-ui/assets/deckhand-forwarder.png "$icon_dir/deckhand-forwarder.png"
