@@ -27,7 +27,7 @@ mod validate;
 pub use action::{Action, ActionSetRef, LayerRef};
 pub use binding::SourceBinding;
 pub use chords::{Chord, ChordAction, Chords, SwitchMode};
-pub use device::{DeviceConfig, GordonTuning, Lever, RumbleTuning};
+pub use device::{DeviceConfig, GordonTuning, Lever, MotorTuning};
 pub use profile::{ActionSet, ConfigDoc, Layer, RumbleSettings};
 pub use command::{
     Activator, Click, Command, CommandSettings, Effect, Feedback, Sweep, Tone, Turbo,

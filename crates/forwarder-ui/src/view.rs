@@ -14,7 +14,8 @@ use config::{Lever, Shape};
 use ipc::RunState;
 
 use crate::{
-    App, GAIN_MAX_DB, GAIN_MIN_DB, INPUT_PRESETS, Message, RumbleLeverEdit, RumbleLeverId, style,
+    App, AUDIO_GAIN_MAX_DB, AUDIO_GAIN_MIN_DB, GAIN_MAX_DB, GAIN_MIN_DB, INPUT_PRESETS, Message,
+    RumbleLeverEdit, RumbleLeverId, style,
 };
 
 /// The whole window: content pane on top, status bar at the bottom.
@@ -142,27 +143,56 @@ fn rumble(app: &App) -> Element<'_, Message> {
     };
     let rows = match shape {
         Shape::Gordon => column![
-            speed_lever_row("Duty", &d.gordon.duty, RumbleLeverId::GordonDuty),
-            frequency_row(d.gordon.hz),
+            speed_lever_row("Rumble duty", &d.gordon.rumble_duty, RumbleLeverId::GordonDuty),
+            rumble_frequency_row(d.gordon.rumble_freq),
+            audio_duty_row(d.gordon.audio_duty),
         ],
         Shape::Neptune => column![
-            speed_lever_row("Speed", &d.neptune.speed, RumbleLeverId::NeptuneSpeed),
-            gain_lever_row("Gain", &d.neptune.gain, RumbleLeverId::NeptuneGain),
+            speed_lever_row("Rumble speed", &d.neptune.rumble_speed, RumbleLeverId::NeptuneSpeed),
+            gain_lever_row("Rumble gain", &d.neptune.rumble_gain, RumbleLeverId::NeptuneGain),
+            audio_gain_row(d.neptune.audio_gain, Message::NeptuneAudioGain),
         ],
         Shape::Triton => column![
-            speed_lever_row("Speed", &d.triton.speed, RumbleLeverId::TritonSpeed),
-            gain_lever_row("Gain", &d.triton.gain, RumbleLeverId::TritonGain),
+            speed_lever_row("Rumble speed", &d.triton.rumble_speed, RumbleLeverId::TritonSpeed),
+            gain_lever_row("Rumble gain", &d.triton.rumble_gain, RumbleLeverId::TritonGain),
+            audio_gain_row(d.triton.audio_gain, Message::TritonAudioGain),
         ],
     };
     rows.spacing(16.0).into()
 }
 
 /// The Gordon rumble-frequency row (30-150 Hz pulse-train rate).
-fn frequency_row(hz: u16) -> Element<'static, Message> {
+fn rumble_frequency_row(hz: u16) -> Element<'static, Message> {
     row![
-        setting_label("Frequency"),
+        setting_label("Rumble frequency"),
         slider(30..=150u16, hz, Message::RumbleHzChanged).step(1u16),
         text(format!("{hz} Hz")).size(13.0).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+/// Gordon's feedback-audio **volume** row: a plain 0..=100 % duty slider (not strength-scaled).
+fn audio_duty_row(value: u8) -> Element<'static, Message> {
+    row![
+        setting_label("Audio duty"),
+        slider(0..=100u8, value, Message::GordonAudioDuty),
+        pct_text(Some(value)),
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+/// A motor device's feedback-audio **gain** row (dB): a plain slider over the audio-gain range
+/// (distinct from the rumble gain range), routed to the given per-device message.
+fn audio_gain_row(value: i8, msg: fn(i16) -> Message) -> Element<'static, Message> {
+    let range = AUDIO_GAIN_MIN_DB as i16..=AUDIO_GAIN_MAX_DB as i16;
+    row![
+        setting_label("Audio gain"),
+        slider(range, value as i16, msg),
+        db_text(value),
     ]
     .spacing(12.0)
     .align_y(Center)

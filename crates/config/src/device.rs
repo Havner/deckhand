@@ -56,30 +56,37 @@ impl Lever<i8> {
     }
 }
 
-/// Gordon (original Steam Controller) rumble shaping. Gordon has **no motors** - it rumbles via the
-/// `0x8f` pulse-train on its trackpad actuators, so the only levers are the pulse **duty** (encodes
-/// felt strength) and the pulse **frequency**. Distinct from [`RumbleTuning`] on purpose: the
-/// dual-motor devices have nothing like a pulse frequency, and Gordon has nothing like a gain field.
+/// Gordon (original Steam Controller) per-device tuning. Gordon has **no motors** - it rumbles *and*
+/// beeps via the `0x8f` pulse-train on its trackpad actuators, so its levers are the pulse **duty**
+/// (encodes felt rumble strength) + **frequency**, plus an **audio volume** knob (the feedback beep is
+/// the same actuator; louder = higher duty). Distinct from [`MotorTuning`] on purpose: the dual-motor
+/// devices have no pulse frequency, and Gordon has no gain field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GordonTuning {
-    /// The pulse **duty** lever (percent of full drive -> the actuator's usable duty band). The felt
-    /// strength control; constant, or scaled into a band.
-    pub duty: Lever<u8>,
-    /// The pulse **frequency**, Hz - the pulse-train rate.
-    pub hz: u16,
+    /// The rumble pulse **duty** lever (percent of full drive -> the actuator's usable duty band). The
+    /// felt strength control; constant, or scaled into a band.
+    pub rumble_duty: Lever<u8>,
+    /// The rumble pulse **frequency**, Hz - the pulse-train rate.
+    pub rumble_freq: u16,
+    /// Feedback-audio **volume** (0..=100 %): the beep's pulse duty, mapped across the actuator's
+    /// usable audio-duty band (reader-side `AUDIO_MAX_DUTY`). Not strength-scaled - a fixed knob.
+    pub audio_duty: u8,
 }
 
-/// Neptune / Triton (dual-motor) rumble shaping: how the incoming per-motor strength maps onto the
-/// two amplitude levers of the dual-motor command (`0xeb` on the Deck, `0x80` on Triton - same param
-/// shape). Neptune and Triton each keep their own (identical shape, but different motors, so tuned
-/// separately). Gordon uses [`GordonTuning`] instead.
+/// Neptune / Triton (dual-motor) per-device tuning: the two rumble amplitude levers of the dual-motor
+/// command (`0xeb` on the Deck, `0x80` on Triton - same param shape) plus a feedback-**audio** gain.
+/// Neptune and Triton each keep their own (identical shape, different motors, so tuned separately).
+/// Gordon uses [`GordonTuning`] instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RumbleTuning {
-    /// The motor **speed/rate** lever (percent of full drive -> the device's `speed` field). The
-    /// coarse amplitude control; on its own it maps only weakly to felt strength.
-    pub speed: Lever<u8>,
-    /// The **gain** lever (dB). The real strength trim, layered on top of `speed`.
-    pub gain: Lever<i8>,
+pub struct MotorTuning {
+    /// The rumble motor **speed/rate** lever (percent of full drive -> the device's `speed` field).
+    /// The coarse amplitude control; on its own it maps only weakly to felt strength.
+    pub rumble_speed: Lever<u8>,
+    /// The rumble **gain** lever (dB). The real strength trim, layered on top of `rumble_speed`.
+    pub rumble_gain: Lever<i8>,
+    /// Feedback-audio **gain** (dB, ~-16..=8; saturates at 8). A fixed volume knob - a different range
+    /// than the rumble gain (tuned for sound, HW-verified). Not strength-scaled.
+    pub audio_gain: i8,
 }
 
 /// The device (above-profile) configuration - reader-side device settings, no chords. Every device's
@@ -92,12 +99,12 @@ pub struct DeviceConfig {
     pub led_brightness: Option<u8>,
     /// Sleep/idle timeout, seconds (applied on connect); `None` = leave default.
     pub idle_timeout: Option<u16>,
-    /// Gordon pulse-train rumble shaping (duty + frequency).
+    /// Gordon pulse-train tuning (rumble duty + frequency, audio volume).
     pub gordon: GordonTuning,
-    /// Neptune (Steam Deck) motor-rumble shaping - how per-motor strength drives speed + gain.
-    pub neptune: RumbleTuning,
-    /// Triton (new Steam Controller) motor-rumble shaping - separate from Neptune (different motors).
-    pub triton: RumbleTuning,
+    /// Neptune (Steam Deck) motor tuning - rumble speed + gain, audio gain.
+    pub neptune: MotorTuning,
+    /// Triton (new Steam Controller) motor tuning - separate from Neptune (different motors).
+    pub triton: MotorTuning,
 }
 
 impl Default for DeviceConfig {
@@ -105,13 +112,14 @@ impl Default for DeviceConfig {
         DeviceConfig {
             led_brightness: None,
             idle_timeout: None,
-            // Defaults reproduce the prior hard-coded behaviour exactly: strength passes straight
-            // through to the drive field (Scaled 0..100% is an identity on the raw u16), the Gordon
-            // pulse runs at 60 Hz, and gain is the constant the old `NEPTUNE_*_GAIN` / `TRITON_*_GAIN`
-            // reader constants used.
-            gordon: GordonTuning { duty: Lever::Scaled { min: 0, max: 100 }, hz: 60 },
-            neptune: RumbleTuning { speed: Lever::Scaled { min: 0, max: 100 }, gain: Lever::Fixed(2) },
-            triton: RumbleTuning { speed: Lever::Scaled { min: 0, max: 100 }, gain: Lever::Fixed(0) },
+            // Rumble defaults reproduce the prior hard-coded behaviour: strength passes straight
+            // through the drive field (Scaled 0..100% is an identity on the raw u16), the Gordon pulse
+            // runs at 60 Hz, and rumble gain is the constant the old `NEPTUNE_*_GAIN` / `TRITON_*_GAIN`
+            // reader constants used. Audio volume defaults to a moderate mid-level (Gordon 50 % duty,
+            // motors 0 dB).
+            gordon: GordonTuning { rumble_duty: Lever::Scaled { min: 0, max: 100 }, rumble_freq: 60, audio_duty: 50 },
+            neptune: MotorTuning { rumble_speed: Lever::Scaled { min: 0, max: 100 }, rumble_gain: Lever::Fixed(2), audio_gain: 2 },
+            triton: MotorTuning { rumble_speed: Lever::Scaled { min: 0, max: 100 }, rumble_gain: Lever::Fixed(0), audio_gain: 0 },
         }
     }
 }
@@ -125,9 +133,9 @@ mod tests {
         let d = DeviceConfig {
             led_brightness: Some(50),
             idle_timeout: None,
-            gordon: GordonTuning { duty: Lever::Fixed(40), hz: 90 },
-            neptune: RumbleTuning { speed: Lever::Fixed(70), gain: Lever::Scaled { min: -4, max: 12 } },
-            triton: RumbleTuning { speed: Lever::Scaled { min: 10, max: 90 }, gain: Lever::Fixed(3) },
+            gordon: GordonTuning { rumble_duty: Lever::Fixed(40), rumble_freq: 90, audio_duty: 70 },
+            neptune: MotorTuning { rumble_speed: Lever::Fixed(70), rumble_gain: Lever::Scaled { min: -4, max: 12 }, audio_gain: -3 },
+            triton: MotorTuning { rumble_speed: Lever::Scaled { min: 10, max: 90 }, rumble_gain: Lever::Fixed(3), audio_gain: 8 },
         };
         let s = ron::to_string(&d).unwrap();
         assert_eq!(ron::from_str::<DeviceConfig>(&s).unwrap(), d);

@@ -20,9 +20,10 @@ use std::time::{Duration, Instant};
 use config::{Click, Effect, Side, Sweep, Tone};
 use mapper::FeedbackReq;
 use steam_hid::{
-    Device, DeviceKind, HapticIntensity, HapticPosition, HapticPulse, HapticSide, HapticStyle,
-    HapticType, Result,
+    Device, HapticIntensity, HapticPosition, HapticPulse, HapticSide, HapticStyle, HapticType, Result,
 };
+
+use super::reader::DeviceTuning;
 
 // --- timing (device-independent; shared by `expand` and `fire_note`) ----------------------------
 
@@ -54,9 +55,11 @@ const SWEEP1: (u16, u16) = (800, 2000);
 const SWEEP2: (u16, u16) = (800, 1400);
 const SWEEP3: (u16, u16) = (1400, 2000);
 
-/// Amplitude (dB) for firmware-synthesized tones/sweeps (Deck/Triton; Gordon ignores gain). ~8 dB is
-/// a usable level (HW); a starting point.
-const AUDIO_GAIN_DB: i8 = 8;
+/// The duty cycle Gordon's audio volume (`GordonTuning::audio_duty`, 0..=100 %) maps onto: a
+/// full-volume knob drives the square-wave to this fraction of the period, where the beep saturates
+/// (HW: ~50 % duty). Analogous to the rumble path's `RUMBLE_MAX_DUTY`. Deck/Triton volume is the
+/// per-device `audio_gain` (dB) instead.
+const AUDIO_MAX_DUTY: f32 = 0.5;
 
 /// Trailing off-phase of the single click pulse (irrelevant to the felt tick at `count = 1`).
 const CLICK_INTERVAL_US: u16 = 1000;
@@ -91,11 +94,11 @@ impl Sequencer {
     /// Build from a request and **fire note 0 immediately** (its interval ignored), then keep any
     /// tail. Returns `None` for a single-note effect (already played, nothing to schedule) - so the
     /// reader clears its slot. A new call replaces the previous sequencer (latest-wins).
-    pub(super) fn start(req: FeedbackReq, kind: &DeviceKind, device: &mut Device) -> Option<Sequencer> {
+    pub(super) fn start(req: FeedbackReq, tuning: &DeviceTuning, device: &mut Device) -> Option<Sequencer> {
         let mut notes: VecDeque<SeqNote> = expand(&req.effect).into();
         let side = req.side;
         if let Some(head) = notes.pop_front() {
-            fire(kind, device, &head.note, &side);
+            fire(tuning, device, &head.note, &side);
         }
         let next_due = Instant::now() + Duration::from_millis(notes.front()?.interval_ms as u64);
         Some(Sequencer { side, notes, next_due })
@@ -103,10 +106,10 @@ impl Sequencer {
 
     /// Fire every note now due (usually 0 or 1 per ~4 ms reader lap), advancing the schedule
     /// drift-free. Returns `false` once the last note has played (the reader then clears its slot).
-    pub(super) fn advance(&mut self, now: Instant, kind: &DeviceKind, device: &mut Device) -> bool {
+    pub(super) fn advance(&mut self, now: Instant, tuning: &DeviceTuning, device: &mut Device) -> bool {
         while now >= self.next_due {
             let Some(due) = self.notes.pop_front() else { return false };
-            fire(kind, device, &due.note, &self.side);
+            fire(tuning, device, &due.note, &self.side);
             match self.notes.front() {
                 Some(next) => self.next_due += Duration::from_millis(next.interval_ms as u64),
                 None => return false,
@@ -143,21 +146,22 @@ fn expand(effect: &Effect) -> Vec<SeqNote> {
 
 /// Fire one note on the bound device, logging (non-fatal) on write error - a transient hiccup must
 /// not tear down the reader.
-fn fire(kind: &DeviceKind, device: &mut Device, note: &Note, side: &Side) {
-    if let Err(e) = fire_note(kind, device, note, side) {
+fn fire(tuning: &DeviceTuning, device: &mut Device, note: &Note, side: &Side) {
+    if let Err(e) = fire_note(tuning, device, note, side) {
         log::warn!("feedback write failed: {e}");
     }
 }
 
-/// Realize one note - the only device-aware step. A click plays on the triggering `side`; audio (tone
-/// / chirp) plays on both actuators (audio is heard, not felt - PLAN 7.1), `side` ignored.
-fn fire_note(kind: &DeviceKind, device: &mut Device, note: &Note, side: &Side) -> Result<()> {
+/// Realize one note - the only device-aware step (the [`DeviceTuning`] variant is both the device
+/// discriminant and its audio volume). A click plays on the triggering `side`; audio (tone / chirp)
+/// plays on both actuators (audio is heard, not felt - PLAN 7.1), `side` ignored.
+fn fire_note(tuning: &DeviceTuning, device: &mut Device, note: &Note, side: &Side) -> Result<()> {
     match note {
-        Note::Haptic(c) => fire_click(device, side, c, kind),
-        Note::Audio(t) => fire_tone(kind, device, tone_freq(*t), tone_dur_ms(*t)),
+        Note::Haptic(c) => fire_click(tuning, device, side, c),
+        Note::Audio(t) => fire_tone(tuning, device, tone_freq(*t), tone_dur_ms(*t)),
         Note::Chirp(s) => {
             let (start, end) = sweep_range(*s);
-            fire_chirp(kind, device, start, end)
+            fire_chirp(tuning, device, start, end)
         }
     }
 }
@@ -201,36 +205,41 @@ fn sweep_range(s: Sweep) -> (u16, u16) {
 /// uses a `0x8f` square-wave pulse (`duration == interval` = 50 % duty, `count ~ freq*ms/1000`
 /// cycles) on each pad; the Deck/Triton use their firmware tone (`0xEA cmd=Tone` / `0x83 LfoTone`),
 /// which tracks pitch cleanly.
-fn fire_tone(kind: &DeviceKind, device: &mut Device, freq: u16, dur_ms: u16) -> Result<()> {
-    match kind {
-        DeviceKind::Gordon => {
-            let half = (500_000 / freq.max(1) as u32).clamp(1, u16::MAX as u32) as u16;
+fn fire_tone(tuning: &DeviceTuning, device: &mut Device, freq: u16, dur_ms: u16) -> Result<()> {
+    match tuning {
+        DeviceTuning::Gordon(t) => {
+            // Volume = the square wave's duty, mapped across the usable audio-duty band.
+            let period = (1_000_000 / freq.max(1) as u32).clamp(2, u16::MAX as u32);
+            let duty_frac = (t.audio_duty as f32 / 100.0 * AUDIO_MAX_DUTY).clamp(0.0, 1.0);
+            let duration = ((period as f32 * duty_frac) as u32).clamp(1, period - 1) as u16;
+            let interval = period as u16 - duration;
             let count = ((freq as u32 * dur_ms as u32) / 1000).clamp(1, u16::MAX as u32) as u16;
-            let pulse = HapticPulse { duration: half, interval: half, count, gain: 0 };
+            let pulse = HapticPulse { duration, interval, count, gain: 0 };
             // Gordon has no `pad=2`, so both actuators are fired separately (they run concurrently).
             device.haptic_pulse(HapticPosition::Left, pulse.clone())?;
             device.haptic_pulse(HapticPosition::Right, pulse)?;
             Ok(())
         }
-        DeviceKind::Neptune => {
-            device.haptic_tone(HapticSide::Both, freq, dur_ms as i16, AUDIO_GAIN_DB, 0, 0)
+        DeviceTuning::Neptune(t) => {
+            device.haptic_tone(HapticSide::Both, freq, dur_ms as i16, t.audio_gain, 0, 0)
         }
-        DeviceKind::Triton => {
-            device.lfo_tone_triton(HapticSide::Both, freq, dur_ms, AUDIO_GAIN_DB, 0, 0)
+        DeviceTuning::Triton(t) => {
+            device.lfo_tone_triton(HapticSide::Both, freq, dur_ms, t.audio_gain, 0, 0)
         }
     }
 }
 
-/// Glide `start -> end` Hz over [`SWEEP_MS`] on both actuators. **No-op on Gordon** (no sweep path);
-/// the Deck/Triton use their firmware log-sweep (`0xEA cmd=LogSweep` / `0x84 LogSweep`).
-fn fire_chirp(kind: &DeviceKind, device: &mut Device, start: u16, end: u16) -> Result<()> {
-    match kind {
-        DeviceKind::Gordon => Ok(()),
-        DeviceKind::Neptune => {
-            device.haptic_logsweep(HapticSide::Both, start, end, SWEEP_MS as i16, AUDIO_GAIN_DB)
+/// Glide `start -> end` Hz over [`SWEEP_MS`] on both actuators, at the device's audio gain. **No-op on
+/// Gordon** (no sweep path); the Deck/Triton use their firmware log-sweep (`0xEA cmd=LogSweep` / `0x84
+/// LogSweep`).
+fn fire_chirp(tuning: &DeviceTuning, device: &mut Device, start: u16, end: u16) -> Result<()> {
+    match tuning {
+        DeviceTuning::Gordon(_) => Ok(()),
+        DeviceTuning::Neptune(t) => {
+            device.haptic_logsweep(HapticSide::Both, start, end, SWEEP_MS as i16, t.audio_gain)
         }
-        DeviceKind::Triton => {
-            device.logsweep_triton(HapticSide::Both, start, end, SWEEP_MS, AUDIO_GAIN_DB)
+        DeviceTuning::Triton(t) => {
+            device.logsweep_triton(HapticSide::Both, start, end, SWEEP_MS, t.audio_gain)
         }
     }
 }
@@ -238,10 +247,11 @@ fn fire_chirp(kind: &DeviceKind, device: &mut Device, start: u16, end: u16) -> R
 /// Fire one command-haptic click on its pad, mapping the `strength` level to the device: Gordon uses
 /// a `0x8f` pulse whose **duration** encodes strength (gain inert -> 0); the Deck uses a `0xea`
 /// `haptic_cmd` (`Click`) whose **gain** encodes strength, **per side** (the two motors differ);
-/// Triton uses its `0x82` command click. `Side::Left`->left actuator, `Side::Right`->right.
-fn fire_click(device: &mut Device, side: &Side, strength: &Click, kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Gordon => {
+/// Triton uses its `0x82` command click. `Side::Left`->left actuator, `Side::Right`->right. (A click
+/// is felt, not heard, so the device's audio volume doesn't apply.)
+fn fire_click(tuning: &DeviceTuning, device: &mut Device, side: &Side, strength: &Click) -> Result<()> {
+    match tuning {
+        DeviceTuning::Gordon(_) => {
             // Gordon's `0x8f` uses the swapped `HapticPosition` (Right=0/Left=1), no "both".
             let position = match side {
                 Side::Left => HapticPosition::Left,
@@ -250,12 +260,12 @@ fn fire_click(device: &mut Device, side: &Side, strength: &Click, kind: &DeviceK
             let duration = gordon_click_duration(strength);
             device.haptic_pulse(position, HapticPulse { duration, interval: CLICK_INTERVAL_US, count: 1, gain: 0 })
         }
-        DeviceKind::Neptune => {
+        DeviceTuning::Neptune(_) => {
             let gain = neptune_click_gain(side, strength);
             // Intensity stays System (0): 0..2 are identical on HW, and gain is the strength lever here.
             device.haptic_cmd(haptic_side(side), HapticType::Click, HapticIntensity::System, gain)
         }
-        DeviceKind::Triton => {
+        DeviceTuning::Triton(_) => {
             let (style, amp) = triton_click(strength);
             device.haptic_command_triton(haptic_side(side), style, amp)
         }

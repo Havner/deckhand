@@ -64,8 +64,8 @@ impl DeviceConfig {
     /// (the reader clamps to `16..=1000`; the UI offers a tighter range).
     pub fn validate(&self) -> Vec<Diagnostic> {
         let mut out = Vec::new();
-        if !(16..=1000).contains(&self.gordon.hz) {
-            warning(&mut out, format!("gordon.hz is {} (usable 16..=1000)", self.gordon.hz));
+        if !(16..=1000).contains(&self.gordon.rumble_freq) {
+            warning(&mut out, format!("gordon.rumble_freq is {} (usable 16..=1000)", self.gordon.rumble_freq));
         }
         out
     }

@@ -63,6 +63,16 @@ pub(crate) const IDLE_TIMEOUT_MINUTES: &[u16] = &[5, 10, 15];
 pub(crate) const GAIN_MIN_DB: i8 = -8;
 pub(crate) const GAIN_MAX_DB: i8 = 16;
 
+/// Feedback-**audio** gain bounds, dB (Neptune/Triton) - a different range than rumble gain (tuned
+/// for sound; saturates at the top). The slider range and the edit clamp.
+pub(crate) const AUDIO_GAIN_MIN_DB: i8 = -16;
+pub(crate) const AUDIO_GAIN_MAX_DB: i8 = 8;
+
+/// Clamp a raw audio-gain slider value (`i16`) into the dB range and narrow to `i8`.
+fn clamp_audio_gain(v: i16) -> i8 {
+    v.clamp(AUDIO_GAIN_MIN_DB as i16, AUDIO_GAIN_MAX_DB as i16) as i8
+}
+
 /// Apply a [`RumbleLeverEdit`] to a **speed** lever (percent, 0..=100). Enabling scaling from a
 /// fixed value opens the full `0..=v` band; disabling collapses to the band's `max` (its strongest
 /// point). `Min`/`Max` stay ordered (`min <= max`).
@@ -398,6 +408,11 @@ pub(crate) enum Message {
     /// Per-device rumble lever edit (Gordon duty / Neptune*Triton speed + gain). See [`RumbleLeverId`]/
     /// [`RumbleLeverEdit`]; routed to the lever helpers, then persisted + pushed like the others.
     DeviceRumbleLever(RumbleLeverId, RumbleLeverEdit),
+    /// Feedback-audio volume knobs (fixed, not strength-scaled): Gordon's beep duty (%) and the
+    /// motors' audio gain (dB, `i16` slider units clamped to [`AUDIO_GAIN_MIN_DB`]..=[`AUDIO_GAIN_MAX_DB`]).
+    DeviceGordonAudioDuty(u8),
+    DeviceNeptuneAudioGain(i16),
+    DeviceTritonAudioGain(i16),
     /// Tray settings.
     ToggleUseTray(bool),
     ToggleCloseToTray(bool),
@@ -717,18 +732,30 @@ impl App {
                 return self.apply_device_config();
             }
             Message::DeviceRumbleHz(v) => {
-                self.device_config.gordon.hz = v;
+                self.device_config.gordon.rumble_freq = v;
                 return self.apply_device_config();
             }
             Message::DeviceRumbleLever(id, edit) => {
                 let d = &mut self.device_config;
                 match id {
-                    RumbleLeverId::GordonDuty => edit_speed_lever(&mut d.gordon.duty, edit),
-                    RumbleLeverId::NeptuneSpeed => edit_speed_lever(&mut d.neptune.speed, edit),
-                    RumbleLeverId::NeptuneGain => edit_gain_lever(&mut d.neptune.gain, edit),
-                    RumbleLeverId::TritonSpeed => edit_speed_lever(&mut d.triton.speed, edit),
-                    RumbleLeverId::TritonGain => edit_gain_lever(&mut d.triton.gain, edit),
+                    RumbleLeverId::GordonDuty => edit_speed_lever(&mut d.gordon.rumble_duty, edit),
+                    RumbleLeverId::NeptuneSpeed => edit_speed_lever(&mut d.neptune.rumble_speed, edit),
+                    RumbleLeverId::NeptuneGain => edit_gain_lever(&mut d.neptune.rumble_gain, edit),
+                    RumbleLeverId::TritonSpeed => edit_speed_lever(&mut d.triton.rumble_speed, edit),
+                    RumbleLeverId::TritonGain => edit_gain_lever(&mut d.triton.rumble_gain, edit),
                 }
+                return self.apply_device_config();
+            }
+            Message::DeviceGordonAudioDuty(v) => {
+                self.device_config.gordon.audio_duty = v;
+                return self.apply_device_config();
+            }
+            Message::DeviceNeptuneAudioGain(v) => {
+                self.device_config.neptune.audio_gain = clamp_audio_gain(v);
+                return self.apply_device_config();
+            }
+            Message::DeviceTritonAudioGain(v) => {
+                self.device_config.triton.audio_gain = clamp_audio_gain(v);
                 return self.apply_device_config();
             }
 

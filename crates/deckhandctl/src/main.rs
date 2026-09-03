@@ -10,7 +10,7 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use config::{Chord, ChordAction, Chords, ConfigDoc, DeviceConfig, GordonTuning, Lever, RumbleTuning};
+use config::{Chord, ChordAction, Chords, ConfigDoc, DeviceConfig, GordonTuning, Lever, MotorTuning};
 use ipc::{BoundDevice, Client, Event, ProfileRole, Request, Response, StatusSnapshot};
 
 /// The command reference, shown under `--help` (the commands are raw args, so clap can't describe
@@ -277,14 +277,14 @@ fn lever_db(l: &Lever<i8>) -> String {
 fn devcfg_lines(d: &DeviceConfig) -> Vec<String> {
     let led = d.led_brightness.map_or_else(|| "default".to_string(), |v| format!("{v}%"));
     let idle = d.idle_timeout.map_or_else(|| "default".to_string(), |s| format!("{s}s"));
-    let GordonTuning { duty, hz } = &d.gordon;
-    let RumbleTuning { speed: nspeed, gain: ngain } = &d.neptune;
-    let RumbleTuning { speed: tspeed, gain: tgain } = &d.triton;
+    let GordonTuning { rumble_duty, rumble_freq, audio_duty } = &d.gordon;
+    let MotorTuning { rumble_speed: nspeed, rumble_gain: ngain, audio_gain: naudio } = &d.neptune;
+    let MotorTuning { rumble_speed: tspeed, rumble_gain: tgain, audio_gain: taudio } = &d.triton;
     vec![
         format!("led={led} idle={idle}"),
-        format!("gordon(duty {}, {hz}Hz)", lever_pct(duty)),
-        format!("neptune(speed {}, gain {})", lever_pct(nspeed), lever_db(ngain)),
-        format!("triton(speed {}, gain {})", lever_pct(tspeed), lever_db(tgain)),
+        format!("gordon(rumble duty {}, {rumble_freq}Hz; audio duty {audio_duty}%)", lever_pct(rumble_duty)),
+        format!("neptune(rumble speed {}, gain {}; audio gain {naudio}dB)", lever_pct(nspeed), lever_db(ngain)),
+        format!("triton(rumble speed {}, gain {}; audio gain {taudio}dB)", lever_pct(tspeed), lever_db(tgain)),
     ]
 }
 

@@ -9,8 +9,8 @@ use config::Lever;
 
 use super::{group_header, section_header, setting_label, small};
 use crate::{
-    App, GAIN_MAX_DB, GAIN_MIN_DB, IDLE_TIMEOUT_MINUTES, Message, RumbleLeverEdit, RumbleLeverId,
-    style,
+    App, AUDIO_GAIN_MAX_DB, AUDIO_GAIN_MIN_DB, GAIN_MAX_DB, GAIN_MIN_DB, IDLE_TIMEOUT_MINUTES, Message,
+    RumbleLeverEdit, RumbleLeverId, style,
 };
 
 /// The device-config page (Category::Device).
@@ -58,32 +58,66 @@ pub(super) fn device_screen(app: &App) -> Element<'_, Message> {
     .spacing(12.0)
     .align_y(Center);
 
-    // Rumble: three device-specific sections. Gordon has trackpad actuators driven as a pulse-train
-    // (a duty lever + a tunable frequency); Neptune and Triton have real motors whose speed + gain
-    // each map from the game's rumble strength via a lever (fixed, or scaled into a band).
-    let frequency = row![
-        setting_label("Frequency"),
-        slider(30..=150u16, d.gordon.hz, Message::DeviceRumbleHz).step(1u16),
-        text(format!("{} Hz", d.gordon.hz)).width(70.0),
-    ]
-    .spacing(12.0)
-    .align_y(Center);
-
+    // Rumble + audio: three device-specific sections. Gordon has trackpad actuators driven as a
+    // pulse-train (a duty lever + a tunable frequency); Neptune and Triton have real motors whose
+    // speed + gain each map from the game's rumble strength via a lever (fixed, or scaled into a
+    // band). Each group ends with a fixed feedback-audio volume knob (Gordon duty / motor gain).
     column![
         section_header("Device config"),
         led,
         idle,
-        group_header("Gordon rumble"),
-        speed_lever_row("Duty", &d.gordon.duty, RumbleLeverId::GordonDuty),
-        frequency,
-        group_header("Neptune rumble"),
-        speed_lever_row("Speed", &d.neptune.speed, RumbleLeverId::NeptuneSpeed),
-        gain_lever_row("Gain", &d.neptune.gain, RumbleLeverId::NeptuneGain),
-        group_header("Triton rumble"),
-        speed_lever_row("Speed", &d.triton.speed, RumbleLeverId::TritonSpeed),
-        gain_lever_row("Gain", &d.triton.gain, RumbleLeverId::TritonGain),
+        group_header("Gordon"),
+        speed_lever_row("Rumble duty", &d.gordon.rumble_duty, RumbleLeverId::GordonDuty),
+        rumble_frequency_row(d.gordon.rumble_freq),
+        audio_duty_row(d.gordon.audio_duty),
+        group_header("Neptune"),
+        speed_lever_row("Rumble speed", &d.neptune.rumble_speed, RumbleLeverId::NeptuneSpeed),
+        gain_lever_row("Rumble gain", &d.neptune.rumble_gain, RumbleLeverId::NeptuneGain),
+        audio_gain_row(d.neptune.audio_gain, Message::DeviceNeptuneAudioGain),
+        group_header("Triton"),
+        speed_lever_row("Rumble speed", &d.triton.rumble_speed, RumbleLeverId::TritonSpeed),
+        gain_lever_row("Rumble gain", &d.triton.rumble_gain, RumbleLeverId::TritonGain),
+        audio_gain_row(d.triton.audio_gain, Message::DeviceTritonAudioGain),
     ]
     .spacing(16.0)
+    .into()
+}
+
+/// The Gordon rumble-frequency row (30-150 Hz pulse-train rate).
+fn rumble_frequency_row(freq: u16) -> Element<'static, Message> {
+    row![
+        setting_label("Rumble frequency"),
+        slider(30..=150u16, freq, Message::DeviceRumbleHz).step(1u16),
+        text(format!("{freq} Hz")).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+/// Gordon's feedback-audio **volume** row: a plain 0..=100 % duty slider (not strength-scaled).
+fn audio_duty_row(value: u8) -> Element<'static, Message> {
+    row![
+        setting_label("Audio duty"),
+        slider(0..=100u8, value, Message::DeviceGordonAudioDuty),
+        pct_text(Some(value)),
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+/// A motor device's feedback-audio **gain** row (dB): a plain slider over the audio-gain range
+/// (distinct from the rumble gain range), routed to the given per-device message.
+fn audio_gain_row(value: i8, msg: fn(i16) -> Message) -> Element<'static, Message> {
+    let range = AUDIO_GAIN_MIN_DB as i16..=AUDIO_GAIN_MAX_DB as i16;
+    row![
+        setting_label("Audio gain"),
+        slider(range, value as i16, msg),
+        db_text(value),
+    ]
+    .spacing(12.0)
+    .align_y(Center)
     .into()
 }
 
