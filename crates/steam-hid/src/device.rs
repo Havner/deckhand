@@ -719,24 +719,20 @@ impl Device {
     }
 
     /// Fire a Triton **haptic command / click** - output report `0x82` (`HapticCommand`, 4 bytes):
-    /// `[side, style, amplitude]`. `style` is a [`HapticStyle`] (`0` off / `1` weak / `2` strong -
-    /// HW: `Weak` is a light click, `Strong` a firm one; this is the **main strength lever**).
-    /// `amplitude` is an **unsigned** trim, `0x00` = medium ... `0xFF` = strong (sc-controller's
-    /// observed layout - SDL's struct misleadingly types this byte as a signed `gain_db`, but its own
-    /// driver never sends `0x82`; HW confirms the audible effect of this byte is subtle).
-    /// [`HapticSide`] is the `0/1/2` Left/Right/Both convention. **Triton-only.**
+    /// `[side, style, gain]`. `style` is a [`HapticStyle`] (`0` off / `1` weak / `2` strong - HW:
+    /// `Weak` is a light click, `Strong` a firm one; this is the **only working strength lever**).
+    /// `gain` is a dB `i8` (following SDL) but is **HW-inert on current firmware** - the byte has no
+    /// felt effect. [`HapticSide`] is the `0/1/2` Left/Right/Both convention. **Triton-only.**
     pub fn haptic_command_triton(
         &mut self,
         side: HapticSide,
         style: HapticStyle,
-        amplitude: u8,
+        gain: i8,
     ) -> Result<()> {
-        // `command` = the haptic style (off/weak/strong); `gain_db` carries our unsigned amplitude
-        // trim (SDL types the byte i8, but HW treats it as 0=medium..255=strong - see the struct doc).
         let msg = protocol::MsgHapticCommand {
             side: side as u8,
             command: style as u8,
-            gain_db: amplitude as i8,
+            gain_db: gain,
         };
         self.output(TritonOutReport::Command, msg.as_bytes())
     }

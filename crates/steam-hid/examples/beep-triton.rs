@@ -270,19 +270,17 @@ fn main() -> Result<()> {
             }
         }
         // 0x82 COMMAND/CLICK - the proven baseline (rumble `0x80` + this are all the reader ships).
-        // Style Weak/Strong (the main strength lever) x a few amplitude trims, both pads.
+        // Style Weak/Strong is the only working lever (the gain byte is HW-inert), both pads.
         Some("clicks") => {
-            println!("0x82 command/click baseline (proven) - style x amplitude:");
+            println!("0x82 command/click baseline (proven) - style (gain is HW-inert):");
             for style in [HapticStyle::Weak, HapticStyle::Strong] {
-                for amp in [0u8, 128, 255] {
-                    if !running.alive() {
-                        return Ok(());
-                    }
-                    println!("  style={style:?} amp={amp:>3}");
-                    keep_lizard_off(&mut device);
-                    device.haptic_command_triton(BOTH, style, amp)?;
-                    sleep(Duration::from_millis(700));
+                if !running.alive() {
+                    return Ok(());
                 }
+                println!("  style={style:?}");
+                keep_lizard_off(&mut device);
+                device.haptic_command_triton(BOTH, style, 0)?;
+                sleep(Duration::from_millis(700));
             }
         }
         Some(other) => {

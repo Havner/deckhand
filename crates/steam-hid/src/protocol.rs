@@ -1149,9 +1149,9 @@ pub enum HapticStyle {
 }
 
 /// Triton `0x82` haptic **command / click** - SDL `MsgHapticCommand`. `command` is a [`HapticStyle`]
-/// (SDL types it a bare `u8`; only off/weak/strong are HW-verified). `gain_db` is `i8` in SDL, but HW
-/// shows this byte as a subtle **unsigned** amplitude trim (`0`=medium..`255`=strong, sc-controller);
-/// the reader sends it unsigned. Sent as [`TritonOutReport::Command`]. **HW-verified (puck).**
+/// (SDL types it a bare `u8`; only off/weak/strong are HW-verified). `gain_db` is `i8` (following SDL)
+/// but is **HW-inert on current firmware** - the byte has no felt effect, so `command` (the style) is
+/// the only working strength lever. Sent as [`TritonOutReport::Command`]. **HW-verified (puck).**
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct MsgHapticCommand {

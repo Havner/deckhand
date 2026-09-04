@@ -6,9 +6,9 @@
 //! Triton drives these as **output reports** (interrupt-OUT, report id in byte 0), not feature
 //! reports. `0x80` rumble has the same levers as the Deck's `0xEB`: per-motor `left`/`right` drive
 //! ("speed"), per-motor dB `gain`, and a finer inverted `intensity` (`0` = strongest); the firmware
-//! safety-times out in ~50 ms, so a sustained rumble is re-issued (~40 ms). `0x82` click's main lever
-//! is the `HapticStyle` (off/weak/strong), plus an unsigned `amplitude` trim (`0`=medium..`255`=strong,
-//! largely inert). **Triton-only.**
+//! safety-times out in ~50 ms, so a sustained rumble is re-issued (~40 ms). `0x82` click's only working
+//! lever is the `HapticStyle` (off/weak/strong); its dB `gain` byte is HW-inert on current firmware.
+//! **Triton-only.**
 //!
 //! Command set is **kept parallel with `haptic`/`haptic-neptune`**: the common functional modes first
 //! (`rumble`/`clicks`), then the motor levers (`speed`/`gain`), then the rest. `--wired`/`--bt`/
@@ -16,12 +16,13 @@
 //!   `cargo run -p steam-hid --example haptic-triton -- [MODE]`
 //! Common modes (same in haptic/haptic-neptune):
 //!   rumble                    sustained mid rumble, both motors (default)
-//!   clicks                    0x82 command/click - side x style (Weak/Strong) x amplitude
+//!   clicks                    0x82 command/click - side x style (Weak/Strong)
 //! Motor levers (device-specific primaries):
 //!   speed                     0x80 per-motor drive sweep (both motors)
 //!   gain                      0x80 GAIN sweep (dB) at mid drive
 //! Further Triton-only modes:
 //!   intensity                 0x80 intensity word sweep (finer, INVERTED amplitude; 0 = strongest)
+//!   clicks-gain               0x82 click gain sweep (dB) - confirms the gain byte is inert
 //!   pulse                     0x81 pulse-train freq sweep (rumble; ~600-700 Hz oscillates, else fine)
 //!   clicks-pulse              0x81 single-pulse clicks (repeat_count=1) - Gordon-style, width=strength
 //! Ctrl-C to stop a sweep early.
@@ -88,7 +89,7 @@ fn main() -> Result<()> {
 
     let mode = positional.first().map(String::as_str);
     // Real test modes get a 1s prep delay; help/unknown does not.
-    if matches!(mode, None | Some("rumble" | "clicks" | "speed" | "gain" | "intensity" | "pulse" | "clicks-pulse")) {
+    if matches!(mode, None | Some("rumble" | "clicks" | "speed" | "gain" | "intensity" | "clicks-gain" | "pulse" | "clicks-pulse")) {
         println!("Hold the controller - starting in 1s... (0x80/0x82 are Triton-only.)");
         sleep(Duration::from_secs(1));
     }
@@ -111,25 +112,23 @@ fn main() -> Result<()> {
                 sleep(pause);
             }
         }
-        // 0x82 command/click - side x style (Weak/Strong = the main strength lever) x amplitude
-        // (unsigned trim, 0=medium..255=strong; largely inert). BOTH honored.
+        // 0x82 command/click - side x style (Weak/Strong = the only working strength lever; the gain
+        // byte is HW-inert). BOTH honored.
         Some("clicks") => {
-            println!("0x82 command/click: side x style x amplitude:");
+            println!("0x82 command/click: side x style:");
             for (label, side) in [("LEFT ", HapticSide::Left), ("RIGHT", HapticSide::Right), ("BOTH ", HapticSide::Both)] {
                 if !running.alive() {
                     break;
                 }
                 println!("  {label}:");
                 for style in [HapticStyle::Weak, HapticStyle::Strong] {
-                    for amp in [0u8, 128, 255] {
-                        if !running.alive() {
-                            break;
-                        }
-                        println!("    style={style:?} amp={amp:>3}");
-                        keep_lizard_off(&mut device);
-                        device.haptic_command_triton(side, style, amp)?;
-                        sleep(Duration::from_millis(800));
+                    if !running.alive() {
+                        break;
                     }
+                    println!("    style={style:?}");
+                    keep_lizard_off(&mut device);
+                    device.haptic_command_triton(side, style, 0)?;
+                    sleep(Duration::from_millis(800));
                 }
             }
         }
@@ -186,6 +185,32 @@ fn main() -> Result<()> {
                 sleep(pause);
             }
         }
+        // 0x82 CLICK gain sweep - isolate the `gain_db` byte: side x style x gain -8/0/8/16 dB (same
+        // i8 values as haptic-neptune's clicks-gain). Confirms the byte is HW-inert (no felt change).
+        Some("clicks-gain") => {
+            println!("0x82 CLICK gain sweep: side x style x gain (dB) - byte is HW-inert:");
+            for (label, side) in [("LEFT ", HapticSide::Left), ("RIGHT", HapticSide::Right), ("BOTH ", HapticSide::Both)] {
+                if !running.alive() {
+                    break;
+                }
+                println!("  {label}:");
+                for style in [HapticStyle::Weak, HapticStyle::Strong] {
+                    if !running.alive() {
+                        break;
+                    }
+                    println!("    style={style:?}:");
+                    for gain in [-8i8, 0, 8, 16] {
+                        if !running.alive() {
+                            break;
+                        }
+                        println!("      gain={gain:>3} dB");
+                        keep_lizard_off(&mut device);
+                        device.haptic_command_triton(side, style, gain)?;
+                        sleep(Duration::from_millis(800));
+                    }
+                }
+            }
+        }
         // 0x81 pulse TRAIN frequency sweep - a usable pulse/RUMBLE across the range (HW: fine, except a
         // narrow ~600-700 Hz band that oscillates oddly). 50% duty, ~400ms train per step. Per side:
         // L/R are physically SWAPPED (like Gordon's 0x8f), so the label is the felt pad and the sent
@@ -235,7 +260,7 @@ fn main() -> Result<()> {
             }
         }
         Some(other) => {
-            println!("unknown mode {other:?} - use: rumble | clicks | speed | gain | intensity | pulse | clicks-pulse");
+            println!("unknown mode {other:?} - use: rumble | clicks | speed | gain | intensity | clicks-gain | pulse | clicks-pulse");
         }
     }
     Ok(())

@@ -266,8 +266,8 @@ fn fire_click(tuning: &DeviceTuning, device: &mut Device, side: &Side, strength:
             device.haptic_cmd(haptic_side(side), HapticType::Click, HapticIntensity::System, gain)
         }
         DeviceTuning::Triton(_) => {
-            let (style, amp) = triton_click(strength);
-            device.haptic_command_triton(haptic_side(side), style, amp)
+            // `0x82` gain is HW-inert, so `style` is the only lever - pass gain 0.
+            device.haptic_command_triton(haptic_side(side), triton_click(strength), 0)
         }
     }
 }
@@ -304,15 +304,12 @@ fn neptune_click_gain(side: &Side, strength: &Click) -> i8 {
     }
 }
 
-/// Triton command-click (output report `0x82`) per strength level: a [`HapticStyle`] effect + an
-/// amplitude byte. **HW-confirmed:** the amplitude byte is **inert** and even `Weak` is a fairly firm
-/// click, so `style` is the only working lever - in practice just **two** distinct strengths. Weak/Med
-/// both use `Weak` (Med carries a max amplitude only so there's a gradient if firmware ever activates
-/// the byte); Strong = `Strong`.
-fn triton_click(strength: &Click) -> (HapticStyle, u8) {
+/// Triton command-click (output report `0x82`) [`HapticStyle`] per strength level. **HW-confirmed:**
+/// the `0x82` gain byte is inert and even `Weak` is a fairly firm click, so `style` is the only working
+/// lever - in practice just **two** distinct strengths. Weak/Med both map to `Weak`; Strong = `Strong`.
+fn triton_click(strength: &Click) -> HapticStyle {
     match strength {
-        Click::Weak => (HapticStyle::Weak, 0),
-        Click::Medium => (HapticStyle::Weak, 255),
-        Click::Strong => (HapticStyle::Strong, 0),
+        Click::Weak | Click::Medium => HapticStyle::Weak,
+        Click::Strong => HapticStyle::Strong,
     }
 }
