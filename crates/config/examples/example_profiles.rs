@@ -1325,7 +1325,11 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
                         actions: vec![Action::RemoveLayer(LayerRef("aim_stick_right".into()))],
                         settings: CommandSettings {
                             feedback: Feedback {
-                                on_press: Some(Effect::Haptic(Click::Strong)),
+                                on_press: Some(Effect::AudioTriple(
+                                    config::Tone::ShortHigh,
+                                    config::Tone::ShortMedium,
+                                    config::Tone::ShortLow,
+                                )),
                                 on_release: None,
                             },
                             ..Default::default()
@@ -1355,7 +1359,11 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
                 actions: vec![Action::AddLayer(LayerRef("aim_stick_right".into()))],
                 settings: CommandSettings {
                     feedback: Feedback {
-                        on_press: Some(Effect::Haptic(Click::Strong)),
+                        on_press: Some(Effect::AudioTriple(
+                            config::Tone::ShortLow,
+                            config::Tone::ShortMedium,
+                            config::Tone::ShortHigh,
+                        )),
                         on_release: None,
                     },
                     ..Default::default()
