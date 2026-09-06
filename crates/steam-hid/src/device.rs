@@ -130,13 +130,17 @@ impl Device {
             return self.next_frame_ble(timeout_ms);
         }
         // The default path: **USB Gordon (wired + dongle) and Neptune** - one physical read is one
-        // 64-byte `0x01`-framed report (`[0x01, 0x00, <event>, ...]`), decoded by `report::parse`.
-        let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;
-        if n == 0 {
-            return Ok(None);
+        // 64-byte `0x01`-framed report (`[0x01, 0x00, <event>, ...]`), decoded by `report::parse`; an
+        // unknown/undecodable report is skipped (read again within the timeout budget), like Triton.
+        loop {
+            let n = self.backend.read_timeout(&mut self.buf, timeout_ms)?;
+            if n == 0 {
+                return Ok(None);
+            }
+            if let Some(report) = report::parse(&self.buf, self.now()) {
+                return Ok(Some(report));
+            }
         }
-        let report = report::parse(&self.buf, self.now())?;
-        Ok(Some(report))
     }
 
     /// Triton read path: one physical read == one report, dispatched by the **report id in byte 0**
@@ -152,10 +156,9 @@ impl Device {
             if n == 0 {
                 return Ok(None);
             }
-            let Some(report) = report::parse_triton(&self.buf[..n], self.now()) else {
-                continue; // undecoded report - keep reading
-            };
-            return Ok(Some(report));
+            if let Some(report) = report::parse_triton(&self.buf[..n], self.now()) {
+                return Ok(Some(report));
+            }
         }
     }
 

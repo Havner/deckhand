@@ -6,9 +6,8 @@
 //! intermediate - the wire struct converts directly here. Also folds each device's raw button
 //! bitfield into the unified [`Buttons`] (the `map_*` fns, next to their `from_*`).
 
-use crate::error::{Error, Result};
 use crate::protocol::{
-    ControllerStatus, GordonButtons, GordonState, NeptuneButtons, NeptuneState, REPORT_LEN,
+    ControllerStatus, GordonButtons, GordonState, NeptuneButtons, NeptuneState,
     TritonBatteryStatus, TritonButtons, TritonStateNoQuat, TritonWirelessStatus, Wire, WireQuat,
     WireVec2, WireVec3, WirelessEvent, ble, event_type, triton, wireless,
 };
@@ -42,40 +41,34 @@ pub struct Battery {
 
 // --- USB Gordon / Neptune dispatch (the `0x01`-framed report) ---
 
-/// Decode one 64-byte USB Gordon/Neptune report into a [`Report`], dispatching on the event byte.
-///
-/// Returns [`Error::ShortReport`] if `buf` is too small; a `State` snapshot is stamped with
+/// Decode one 64-byte USB Gordon/Neptune report, dispatching on the event byte. `None` for a
+/// known-but-undecoded event or a too-short buffer - the caller just reads again, like the Triton
+/// path (a malformed frame must not tear down the session). A `State` snapshot is stamped with
 /// `timestamp` (ignored for lifecycle frames).
-pub(crate) fn parse(buf: &[u8], timestamp: Timestamp) -> Result<Report> {
-    if buf.len() < REPORT_LEN {
-        return Err(Error::ShortReport { expected: REPORT_LEN, got: buf.len() });
-    }
-    // buf[0..2] == 0x01, 0x00; buf[2] == event type. `buf` is >= REPORT_LEN, so every cast fits.
-    match buf[2] {
-        event_type::STATE => Ok(Report::State(from_gordon(
-            GordonState::from_bytes(buf).unwrap(),
-            timestamp,
-        ))),
-        event_type::DECK_STATE => Ok(Report::State(from_neptune(
-            NeptuneState::from_bytes(buf).unwrap(),
-            timestamp,
-        ))),
-        event_type::WIRELESS => Ok(match WirelessEvent::from_bytes(buf).unwrap().event {
+pub(crate) fn parse(buf: &[u8], timestamp: Timestamp) -> Option<Report> {
+    // buf[0..2] == 0x01, 0x00; buf[2] == event type. Length-safe access throughout (`get`/`from_bytes`),
+    // so a short buffer folds to `None` rather than panicking or erroring.
+    match *buf.get(2)? {
+        event_type::STATE => Some(Report::State(from_gordon(GordonState::from_bytes(buf)?, timestamp))),
+        event_type::DECK_STATE => {
+            Some(Report::State(from_neptune(NeptuneState::from_bytes(buf)?, timestamp)))
+        }
+        event_type::WIRELESS => Some(match WirelessEvent::from_bytes(buf)?.event {
             wireless::DISCONNECTED => Report::Disconnected,
             _ => Report::Connected, // CONNECTED (0x02) and any other -> treat as connect
         }),
         event_type::STATUS => {
-            let p = ControllerStatus::from_bytes(buf).unwrap();
-            Ok(Report::Battery(Battery {
+            let p = ControllerStatus::from_bytes(buf)?;
+            Some(Report::Battery(Battery {
                 voltage_mv: p.voltage_mv,
                 charge_percent: p.charge_percent,
             }))
         }
-        // Unknown event byte: log it (so a new/unhandled type is visible, not silently dropped) and
-        // model as a benign connect ping for now (PLAN 1.4/1.9).
-        ev => {
-            log::trace!("steam-hid: unhandled Gordon/Neptune report event 0x{ev:02x}");
-            Ok(Report::Connected)
+        // Unknown event byte: log it (so a new type is visible, not silently dropped) and skip it -
+        // the caller reads again (matches the Triton path; PLAN 1.4/1.9).
+        id => {
+            log::trace!("steam-hid: unknown Gordon/Neptune report event 0x{id:02x}");
+            None
         }
     }
 }
@@ -293,10 +286,15 @@ pub(crate) fn parse_triton(buf: &[u8], timestamp: Timestamp) -> Option<Report> {
                 _ => None,
             }
         }
+        // Known reports we deliberately don't decode (layouts in `protocol.rs`): the lizard-mode
+        // mouse/keyboard and the wireless link telemetry. Skip silently - no point logging them.
+        triton::report::LIZARD_MOUSE
+        | triton::report::LIZARD_KEYBOARD
+        | triton::report::LINK_STATUS => None,
         // Anything else (incl. the 0x47 Ibex timestamped body we don't decode yet, PLAN 1.9): an
-        // unhandled id - log it at trace so it's visible if a unit streams it, then skip (keep reading).
+        // unknown id - log it at trace so it's visible if a unit streams it, then skip (keep reading).
         id => {
-            log::trace!("steam-hid: unhandled Triton report id 0x{id:02x}");
+            log::trace!("steam-hid: unknown Triton report id 0x{id:02x}");
             None
         }
     }
@@ -521,8 +519,8 @@ mod tests {
     }
 
     fn buttons_of(buf: &[u8]) -> Buttons {
-        match parse(buf, Timestamp::default()).unwrap() {
-            Report::State(s) => s.buttons,
+        match parse(buf, Timestamp::default()) {
+            Some(Report::State(s)) => s.buttons,
             other => panic!("expected State, got {other:?}"),
         }
     }
@@ -531,12 +529,12 @@ mod tests {
     fn parse_dispatches_lifecycle_frames() {
         let mut b = frame_buf(event_type::WIRELESS);
         b[4] = wireless::CONNECTED;
-        assert_eq!(parse(&b, Timestamp::default()).unwrap(), Report::Connected);
+        assert_eq!(parse(&b, Timestamp::default()), Some(Report::Connected));
         b[4] = wireless::DISCONNECTED;
-        assert_eq!(parse(&b, Timestamp::default()).unwrap(), Report::Disconnected);
+        assert_eq!(parse(&b, Timestamp::default()), Some(Report::Disconnected));
 
         let b = frame_buf(event_type::STATUS);
-        assert!(matches!(parse(&b, Timestamp::default()).unwrap(), Report::Battery(_)));
+        assert!(matches!(parse(&b, Timestamp::default()), Some(Report::Battery(_))));
     }
 
     /// The USB left-click multiplex resolves: a stick click (shares the `LPAD_PRESS` bit, no
@@ -583,8 +581,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_rejects_short_report() {
-        let short = [0u8; 10];
-        assert!(matches!(parse(&short, Timestamp::default()), Err(Error::ShortReport { .. })));
+    fn parse_skips_short_report() {
+        // A known event byte but a truncated buffer: `from_bytes` fails, so parse skips it (`None`)
+        // rather than panicking or erroring - the reader reads again instead of tearing down.
+        let mut short = [0u8; 10];
+        short[2] = event_type::STATE;
+        assert!(parse(&short, Timestamp::default()).is_none());
     }
 }
