@@ -45,6 +45,8 @@ windows = { version = "0.62", features = [
     # LoadLibraryW/GetProcAddress - reach the undocumented uxtheme exports that make the native tray
     # context menu follow the Windows dark/light setting (see tray.rs).
     "Win32_System_LibraryLoader",
+    # SetErrorMode - suppress the child-launch hard-error box on OS shutdown (see main.rs).
+    "Win32_System_Diagnostics_Debug",
 ] }
 
 # Embed the app icon into the .exe (taskbar / titlebar / Explorer). `build.rs` derives a multi-size

@@ -224,7 +224,28 @@ fn native_window_hide() -> bool {
     }
 }
 
+/// Suppress the OS "unable to start correctly (0xc0000142)" hard-error dialog for child processes.
+///
+/// In managed mode the connect loop relaunches `deckhandd` whenever it can't reach one (see
+/// [`daemon::run_event_loop`]). During a Windows reboot/logoff the OS kills the daemon while this UI
+/// is still alive, so the loop tries to spawn a replacement - which then fails DLL init
+/// (STATUS_DLL_INIT_FAILED = 0xc0000142) because the session is being torn down, popping a
+/// "deckhandd.exe - Application error" box. winit/iced surface no session-end event on Windows
+/// (WM_QUERYENDSESSION/WM_ENDSESSION are unhandled), so we can't reliably stop the relaunch; instead
+/// we make the doomed launch silent. A child inherits the creator's error mode at CreateProcess time
+/// (we don't pass CREATE_DEFAULT_ERROR_MODE), so `SEM_FAILCRITICALERRORS` set here suppresses the box
+/// for any `deckhandd` we spawn. Process-wide, so it also drops the WER crash box for this UI - fine
+/// for a tray app.
+#[cfg(target_os = "windows")]
+fn suppress_child_launch_error_box() {
+    use windows::Win32::System::Diagnostics::Debug::{SEM_FAILCRITICALERRORS, SetErrorMode};
+    unsafe { SetErrorMode(SEM_FAILCRITICALERRORS) };
+}
+
 fn main() -> iced::Result {
+    #[cfg(target_os = "windows")]
+    suppress_child_launch_error_box();
+
     // The UI-managed daemon handle, shared with the connect loop (populated when we launch a daemon)
     // and retained here so we can stop it on exit.
     let daemon = daemon::handle();
