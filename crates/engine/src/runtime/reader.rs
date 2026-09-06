@@ -167,13 +167,15 @@ fn read_session(
     }
     let mut cfg = ReaderCfg::for_device(&device.info().kind, &device.info().transport, device_config);
     apply_device_cfg(device, &cfg);
-    // A live session means the controller is present - publish it. This is the ONLY "connected"
-    // signal on wired/BT (the controller *is* the transport). It's also needed on the dongle: the
-    // receiver sends a `Connected` report on the *first* open but NOT on a re-open of an
-    // already-on controller, so presuming here is what makes a second `start()` report connected.
-    // The cost is a brief `true`->`false` when a dongle slot is opened with the pad turned off (the
-    // receiver then reports `Disconnected`) - accepted: a correct settled state beats no state.
-    set_connected(connected, events, true);
+    // Seed the connected state from the transport. Wired/BT are point-to-point - the controller *is*
+    // the transport, so it is present the moment the endpoint opens. The dongle multiplexes a
+    // possibly-absent controller: it announces `Connected` on the *first* open but not on a re-open of
+    // an already-on pad, and Triton does not retransmit its current state on the first poll either -
+    // so we cannot presume it present. Start it disconnected; the first `State`/`Connected` report
+    // below flips it true.
+    let start_connected =
+        matches!(device.info().transport, Transport::UsbWired | Transport::Bluetooth);
+    set_connected(connected, events, start_connected);
     // Haptic strategy is per-device: the Deck (Neptune) has real motors driven by `0xeb`
     // (`rumble_cmd`, re-issued periodically - see below); Gordon has only trackpad actuators,
     // driven as a re-fired pulse train (`0x8f`, `haptic_pulse`).
@@ -198,6 +200,12 @@ fn read_session(
                     // reconnect at the same charge stays quiet - `status()` already reads it directly.
                     Report::Battery(b) if battery.load(Ordering::Relaxed) != b.charge_percent as u16 => {
                         set_battery(battery, events, b.charge_percent);
+                    }
+                    // A State frame proves the pad is present. On the dongle this establishes the
+                    // initial connected state when no `Connected` arrived (Triton does not retransmit
+                    // it on first poll); the atomic guard makes it fire only on the false->true edge.
+                    Report::State(_) if !connected.load(Ordering::Relaxed) => {
+                        set_connected(connected, events, true);
                     }
                     // State (per-frame, too noisy) and an unchanged Battery need no event.
                     Report::State(_) | Report::Battery(_) => {}

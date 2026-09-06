@@ -74,7 +74,7 @@ pub(crate) fn parse(buf: &[u8], timestamp: Timestamp) -> Result<Report> {
         // Unknown event byte: log it (so a new/unhandled type is visible, not silently dropped) and
         // model as a benign connect ping for now (PLAN 1.4/1.9).
         ev => {
-            log::debug!("steam-hid: unhandled Gordon/Neptune report event 0x{ev:02x}");
+            log::trace!("steam-hid: unhandled Gordon/Neptune report event 0x{ev:02x}");
             Ok(Report::Connected)
         }
     }
@@ -294,9 +294,9 @@ pub(crate) fn parse_triton(buf: &[u8], timestamp: Timestamp) -> Option<Report> {
             }
         }
         // Anything else (incl. the 0x47 Ibex timestamped body we don't decode yet, PLAN 1.9): an
-        // unhandled id - log it at debug so it's visible if a unit streams it, then skip (keep reading).
+        // unhandled id - log it at trace so it's visible if a unit streams it, then skip (keep reading).
         id => {
-            log::debug!("steam-hid: unhandled Triton report id 0x{id:02x}");
+            log::trace!("steam-hid: unhandled Triton report id 0x{id:02x}");
             None
         }
     }

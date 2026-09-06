@@ -11,7 +11,7 @@ use crate::protocol::{
     self, ControllerStringAttributes, GyroMode, HapticIntensity, HapticPosition, HapticSide,
     HapticStyle, HapticType, MsgId, TrackpadDPadMode, TritonOutReport, Wire, setting,
 };
-use crate::report::{self, Battery, Report};
+use crate::report::{self, Report};
 use vocab_hid::{ControllerState, Timestamp};
 
 /// Internal read timeout for the "blocking" `read_*`; looped so it can later be
@@ -40,8 +40,6 @@ pub struct Device {
     backend: HidapiDevice,
     info: DeviceInfo,
     start: Instant,
-    connected: bool,
-    battery: Option<Battery>,
     buf: [u8; protocol::REPORT_LEN],
     /// BLE reassembly + accumulation state; `Some` only on the Bluetooth transport.
     ble: Option<BleState>,
@@ -77,9 +75,6 @@ impl BleState {
 
 impl Device {
     pub(crate) fn new(backend: HidapiDevice, info: DeviceInfo) -> Result<Self> {
-        // Wired USB and Bluetooth are point-to-point (connected the moment the
-        // endpoint opens); only the dongle multiplexes an absent controller.
-        let connected = matches!(info.transport, Transport::UsbWired | Transport::Bluetooth);
         // Gordon's BLE segmented-delta reassembly. Triton over BLE is a *different* framing (its own
         // report ids, no segmentation) handled by the Triton path - so this state is Gordon-only.
         let ble = (info.transport.is_bluetooth() && !info.kind.is_triton()).then(BleState::new);
@@ -87,8 +82,6 @@ impl Device {
             backend,
             info,
             start: Instant::now(),
-            connected,
-            battery: None,
             buf: [0u8; protocol::REPORT_LEN],
             ble,
         };
@@ -105,17 +98,6 @@ impl Device {
     /// The device this was opened from.
     pub fn info(&self) -> &DeviceInfo {
         &self.info
-    }
-
-    /// Whether a controller is currently connected on this endpoint (cached from
-    /// `0x03` frames; convenience, not load-bearing - PLAN 1.5).
-    pub fn is_connected(&self) -> bool {
-        self.connected
-    }
-
-    /// Last-known battery status, if any (wireless only).
-    pub fn battery(&self) -> Option<Battery> {
-        self.battery.clone()
     }
 
     // --- input: one physical read == one frame of some type ---
@@ -139,17 +121,7 @@ impl Device {
         Events::new(self)
     }
 
-    /// Update the cached connection/battery state from a decoded frame.
-    fn update_cache(&mut self, report: &Report) {
-        match report {
-            Report::Connected => self.connected = true,
-            Report::Disconnected => self.connected = false,
-            Report::Battery(b) => self.battery = Some(b.clone()),
-            Report::State(_) => {}
-        }
-    }
-
-    /// Read one frame, decode it straight to a [`Report`], and update cached state.
+    /// Read one frame and decode it straight to a [`Report`].
     fn next_frame(&mut self, timeout_ms: i32) -> Result<Option<Report>> {
         if self.info.kind.is_triton() {
             return self.next_frame_triton(timeout_ms);
@@ -164,7 +136,6 @@ impl Device {
             return Ok(None);
         }
         let report = report::parse(&self.buf, self.now())?;
-        self.update_cache(&report);
         Ok(Some(report))
     }
 
@@ -184,7 +155,6 @@ impl Device {
             let Some(report) = report::parse_triton(&self.buf[..n], self.now()) else {
                 continue; // undecoded report - keep reading
             };
-            self.update_cache(&report);
             return Ok(Some(report));
         }
     }
