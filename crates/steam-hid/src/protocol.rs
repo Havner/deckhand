@@ -1583,6 +1583,16 @@ pub(crate) const REPORT_ID_TRITON: u8 = 0x01;
 pub(crate) mod triton {
     /// Input/status report ids.
     pub(crate) mod report {
+        /// Lizard-mode HID **mouse** emulation report - the controller emulates a mouse+keyboard by
+        /// default. **NOT gamepad data**; streams only while lizard mode is active (at connect, before
+        /// lizard-off lands) then stops. A plain 6-byte HID mouse ([`super::TritonLizardMouse`]);
+        /// HW-verified default map: RT -> left button, LT -> right button, right pad -> cursor, left pad
+        /// -> wheel (vertical) / pan (horizontal).
+        pub(crate) const LIZARD_MOUSE: u8 = 0x40; // (used - silenced)
+        /// Lizard-mode HID **keyboard** emulation report - companion to [`LIZARD_MOUSE`], same lifetime
+        /// (lizard-only). A standard 9-byte HID boot keyboard ([`super::TritonLizardKeyboard`]);
+        /// HW-verified default map: A -> Enter, B -> Escape, dpad -> arrow keys (only mapped inputs emit).
+        pub(crate) const LIZARD_KEYBOARD: u8 = 0x41; // (used - silenced)
         /// Main gamepad state (older firmware appends an on-controller quaternion). **HW: the puck/
         /// dongle (0x1304) + wired (0x1302) stream `0x42` by default**; parsed as NoQuat regardless.
         pub(crate) const CONTROLLER_STATE: u8 = 0x42; // (used)
@@ -1598,6 +1608,11 @@ pub(crate) mod triton {
         pub(crate) const CONTROLLER_STATE_TIMESTAMP: u8 = 0x47;
         /// Wireless connect/disconnect status (dongle).
         pub(crate) const WIRELESS_STATUS: u8 = 0x79; // (used)
+        /// Wireless **link telemetry** (signal strength + link-quality counters) from the puck,
+        /// streamed a few Hz independent of input. **Dongle/wireless only - absent on the wired 0x1302
+        /// link (HW-checked).** Un-RE'd by SDL/sc-controller/InputPlumber; our own read - layout in
+        /// [`super::TritonLinkStatus`]. **NOT parsed** (reference/trace only, not surfaced).
+        pub(crate) const LINK_STATUS: u8 = 0x7b; // (used - silenced)
     }
 
     /// Values of [`super::TritonBatteryStatus::charge_state`] - SDL `EChargeState`. Trace.
@@ -1667,6 +1682,41 @@ bitflags::bitflags! {
         const LGRIP_TOUCH  = 1 << 29; // capacitive left handle
     }
 }
+
+/// `0x40` lizard-mode HID **mouse** report - a plain relative HID mouse (report id prepended to a
+/// standard 5-byte body). **NOT gamepad data / NOT parsed** (reference layout only). HW-verified:
+/// `buttons` bit0 = left (RT), bit1 = right (LT), bit2 = middle; `dx`/`dy` are relative i8 from the
+/// right pad (+x right, +y down; a single byte, so it saturates on a fast swipe); `wheel`/`hwheel` are
+/// i8 detents from the left pad (+/-1 per step - vertical wheel and horizontal pan).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct TritonLizardMouse {
+    pub report_id: u8, // 0
+    pub buttons: u8,   // 1 - bit0 left, bit1 right, bit2 middle
+    pub dx: i8,        // 2 - relative, + = right
+    pub dy: i8,        // 3 - relative, + = down
+    pub wheel: i8,     // 4 - vertical scroll detents
+    pub hwheel: i8,    // 5 - horizontal scroll / pan detents
+}
+impl Wire for TritonLizardMouse {}
+const _: () = assert!(core::mem::size_of::<TritonLizardMouse>() == 6);
+
+/// `0x41` lizard-mode HID **keyboard** report - a standard 8-byte HID boot keyboard (report id
+/// prepended). **NOT gamepad data / NOT parsed** (reference layout only). `modifiers` is the L/R
+/// Ctrl/Shift/Alt/Gui bitmask; `reserved` is always 0; `keys` holds up to 6 concurrent HID usage-page
+/// 0x07 keycodes (n-key rollover - fills/clears as keys go down/up, and the firmware may repack the
+/// array, so read it as an unordered set). HW-verified default map: A -> Enter (0x28), B -> Escape
+/// (0x29), dpad up/down/left/right -> 0x52/0x51/0x50/0x4f.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct TritonLizardKeyboard {
+    pub report_id: u8, // 0
+    pub modifiers: u8, // 1 - L/R Ctrl/Shift/Alt/Gui bitmask
+    pub reserved: u8,  // 2 - always 0
+    pub keys: [u8; 6], // 3 - up to 6 concurrent keycodes (HID usage page 0x07)
+}
+impl Wire for TritonLizardKeyboard {}
+const _: () = assert!(core::mem::size_of::<TritonLizardKeyboard>() == 9);
 
 // Triton state has three body variants (SDL `TritonMTU*_t`) that share the same leading fields;
 // **only `TritonStateNoQuat` is used for `from_bytes` decoding** (`state.rs`). `buttons` = raw
@@ -1776,6 +1826,36 @@ pub(crate) struct TritonWirelessStatus {
 }
 impl Wire for TritonWirelessStatus {}
 const _: () = assert!(core::mem::size_of::<TritonWirelessStatus>() == 2);
+
+/// Triton wireless **link telemetry** (`0x7b`) - our own RE (no SDL/sc-controller/InputPlumber decode
+/// exists). **Dongle/wireless only** - not present on the wired 0x1302 link (HW-checked). Streamed a
+/// few Hz independent of controller input; this is the source of the connectivity strength Steam shows
+/// (Steam presents it as ~-30 dBm "excellent" .. ~-70 dBm "weak" - a dBm conversion done in the Steam
+/// client, NOT readable from these fields, which are the raw *linear* metrics the firmware reports).
+/// 13 bytes = report id + six LE u16. **Field meanings are best-effort from a distance sweep (walking
+/// the controller away from the puck) and are UNVERIFIED:**
+/// - `strength` / `strength_2`: a correlated signal-strength pair - ~505 / ~132 next to the puck, both
+///   collapsing toward 0 at range (`strength_2` falls off harder). `strength` is the primary level.
+/// - `err_a` / `err_b`: small counts (~0..15 / ~3..40) that climb as the link degrades - likely
+///   per-window retransmit/error tallies.
+/// - `noise`: an inverse-quality term - ~195 close, rising to ~450..700 at range (noise floor / latency
+///   / retry cost; moves opposite `strength`).
+/// - `window`: near-constant (~520..590) regardless of distance, steps slowly - a measurement window or
+///   timebase, not a strength.
+/// **NOT parsed** (reference layout only; not surfaced through the runtime).
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub(crate) struct TritonLinkStatus {
+    pub report_id: u8,   // 0
+    pub strength: u16,   // 1  - primary connectivity strength (falls to 0 with distance)
+    pub strength_2: u16, // 3  - correlated companion to `strength` (falls off harder)
+    pub err_a: u16,      // 5  - small count, climbs as the link degrades
+    pub err_b: u16,      // 7  - small count, climbs as the link degrades
+    pub noise: u16,      // 9  - inverse-quality term (rises at range)
+    pub window: u16,     // 11 - measurement window / timebase (~constant vs distance)
+}
+impl Wire for TritonLinkStatus {}
+const _: () = assert!(core::mem::size_of::<TritonLinkStatus>() == 13);
 
 #[cfg(test)]
 mod tests {
