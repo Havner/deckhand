@@ -1,6 +1,6 @@
 # TLDR
 
-To quickly test the project on windows do the following:
+To quickly test the project on Windows do the following:
 
 Install ViGEm: https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0
 
@@ -70,23 +70,70 @@ This is how deckhand has been born. The main goals of this project are:
 > slop. It has been very carefully designed and reviewed to work as intended and
 > be maintainable even without AI in the future.
 
-# Installation
+# Installation from packages
 
 ## Windows
 
 For the default packages you need ViGEm:
 https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0
 
-I will probably provide VIIPER enabled binaries later on. The code is
+I will probably provide VIIPER-enabled binaries later on. The code is
 [there](crates/virt-out/src/win/viiper.rs), I'm just not fully sold on the way
 the upstream viiper's rust crate works currently.
 
-Windows has a portable package. I might provide an installer at a later date
-that installs the daemon (see below to learn what is the daemon here) as a
-Windows service. The portable version runs the daemon together with the UI and
-closes it on exit. For 99% of use cases that is completely fine. The UI has an
-optional tray, so you can hide the app and it will still function in the
-background.
+Windows has a portable package. Download deckhand-windows-portable-<version>.zip
+from the GitHub Releases page, unzip, run deckhand.exe. It will run the daemon
+automatically.
+
+I might provide an installer at a later date that installs the daemon (see below
+to learn what the daemon is here) as a Windows service. The portable version
+runs the daemon together with the UI and closes it on exit. For 99% of use cases
+that is completely fine. The UI has an optional tray, so you can hide the app
+and it will still function in the background.
+
+## Linux
+
+There are no general Linux prebuilt binaries (only for Steam Deck), so follow
+the "Installation from source" below.
+
+## Steam Deck
+
+Download the Steam Deck package from the GitHub Releases page:
+deckhand-steamdeck-<version>.tar.gz. Place it in your `$HOME` directory and
+unpack there. It will place all the files in the correct places. Most of the
+package contains "hidden" directories starting with a dot (`.config`,
+`.local`). After unpacking run the script that will update caches and reload
+required things. Afterwards you can remove the script.
+
+	cd $HOME
+	tar xf deckhand-steamdeck-<version>.tar.gz
+	./setup-deckhand.sh
+	rm setup-deckhand.sh
+
+You might need to relog if you want all the tools to be available in your
+`$PATH`. The deckhand main application and forwarder will be added to the
+launcher menu. The forwarder link will also get placed on the desktop. All 4
+applications will be in your `$PATH` so you can run them manually if needed:
+
+	deckhand
+	deckhand-forwarder
+	deckhandd
+	deckhandctl
+
+# Installation from source
+
+## Windows
+
+Download the repository, have rust installed:
+https://rust-lang.org/tools/install .
+
+Use cargo to compile/install the workspace. Something like:
+
+	cargo install --locked --path crates/deckhandd --root SOME_DIR
+	cargo install --locked --path crates/deckhandctl --root SOME_DIR
+	cargo install --locked --path crates/deckhand --root SOME_DIR
+
+The ready binaries will be in `SOME_DIR/bin`.
 
 ## Linux
 
@@ -95,20 +142,25 @@ https://rust-lang.org/tools/install .
 
 In the repository run:
 
-    ./install.sh
+	./install.sh
 
-It doesn't require admin privileges, it installs deckhand in your $HOME
+If you want the forwarder application as well use this instead:
+
+	./install.sh -f
+
+It doesn't require admin privileges, it installs deckhand in your `$HOME`
 directory only, to the following locations:
 
-    ~/.local/bin/                                  (binaries)
-    ~/.local/share/applications                    (desktop file)
-    ~/.local/share/icons/hicolor/512x512/apps/     (icon)
-    ~/.local/share/bash-completion/completions/    (bash completions)
-    ~/.config/systemd/user/                        (systemd user session units)
+	~/.local/bin/                                 (binaries)
+	~/.local/share/applications                   (desktop file)
+	~/.local/share/icons/hicolor/512x512/apps/    (icon)
+	~/.local/share/bash-completion/completions/   (bash completions)
+	~/.config/systemd/user/                       (systemd user session units)
+	~/Desktop/                                    (when -f used, desktop link to forwarder)
 
 If you want persistent daemon run:
 
-    systemctl --user enable --now deckhandd.socket
+	systemctl --user enable --now deckhandd.socket
 
 But the above step is optional. If not enabled the UI will run the daemon itself
 and close it on exit. Persistence allows you to have mappings without the UI
@@ -116,14 +168,38 @@ launched.
 
 Run `deckhand` either from console or from your desktop environment.
 
-## System configuration (Linux specific)
+## Steam Deck
+
+Steam Deck's installation from source follows mostly the Linux path. But
+Steam Deck does not have any developer environment by default. To set it up we
+need to do the following to install developer environment:
+
+	sudo steamos-readonly disable
+	sudo pacman-key --init
+	sudo pacman-key -u
+	sudo pacman-key --populate
+	sudo pacman -S glibc gcc pkgconf systemd-libs linux-api-headers
+	sudo steamos-readonly enable
+
+And then install Rust manually: https://rust-lang.org/tools/install .
+
+Having all that you can checkout the repository and do:
+
+	./install.sh -f
+
+# System configuration (Linux specific)
 
 > [!IMPORTANT]
 > This is important, do not skip this step. The steps below might require admin
 > privileges hence I'm not doing them automatically. They might be required,
 > might not, but if they are it's enough to do them just once.
 
-### UDEV
+If you just use the forwarder on Steam Deck you don't need any of this. If you'd
+want to use deckhand directly on Steam Deck to make use of its mapping under
+Proton you will need `SDL taking over` configuration and might need `HID-STEAM`
+configuration described below.
+
+## UDEV
 
 There is a chance everything will work just fine with the steps above, but that
 very much depends on your distribution and system configuration.
@@ -141,7 +217,7 @@ reboot is the easiest). The first file will add rules for Steam Controllers
 `uinput` access used for emulating inputs. All those rules enable the access for
 a local, logged in user (`uaccess` functionality).
 
-### HID-STEAM
+## HID-STEAM
 
 There is a chance that the default kernel module might fight with deckhand over
 the access to Steam Controllers. If something like that happens, blacklist the
@@ -151,7 +227,7 @@ all, ever.
 Create `/etc/modprobe.d/steam.conf` file and write `blacklist hid-steam` to
 it. Remove the module `rmmod hid-steam` or reboot.
 
-### SDL taking over
+## SDL taking over
 
 Proton/Wine include an SDL input implementation that might already try to
 configure your Steam Controllers as a regular controller (without any advanced
@@ -159,10 +235,14 @@ mappings) which will cause double inputs when used with `deckhand`.
 
 To disable that set the following env variable:
 
-    SDL_JOYSTICK_HIDAPI_STEAM=0
+	SDL_JOYSTICK_HIDAPI_STEAM=0
 
-Either in your `~/.bash_profile` or per game using Heroic or any other thing
-that allows that.
+Or the following on Steam Deck:
+
+	SDL_JOYSTICK_HIDAPI_STEAMDECK=0
+
+Either in your `~/.bash_profile` (add `export` before the lines) or per game
+using Heroic or any other thing that allows that.
 
 # Concepts
 
