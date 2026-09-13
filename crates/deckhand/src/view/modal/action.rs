@@ -1,11 +1,11 @@
 //! The output-Action picker modal - a tabbed chooser that returns one [`config::Action`].
 //!
 //! Tabs mirror the categories a binding's action can target: Gamepad (`GamepadButton`), Mouse
-//! (`MouseButton`), Keyboard / Numpad (`Key`, split like Steam), and Action Sets (the engine
-//! mode actions, each parameterised by a set/layer picked from the loaded profile). Clicking a tile
-//! or selecting a combobox value confirms immediately (Steam-style) - there is no OK button. Steam's
-//! SYSTEM/CAMERA tabs are dropped (no vocab); `Action::None` is intentionally not offered (a future
-//! gear "Unbind" falls the input back to `<unbound>` instead).
+//! (`MouseButton`), Keyboard / Numpad (`Key`, split like Steam), and Special - the engine mode
+//! actions (action-set / layer changes, each parameterised by a set/layer picked from the loaded
+//! profile) plus "No action" (`Action::None`, an output-silent command that still fires its
+//! feedback). Clicking a tile or selecting a combobox value confirms immediately (Steam-style) -
+//! there is no OK button. Steam's SYSTEM/CAMERA tabs are dropped (no vocab).
 
 use std::collections::HashSet;
 
@@ -42,7 +42,7 @@ pub(super) fn card(app: &App, tab: ActionTab) -> Element<'static, Message> {
         ActionTab::Mouse => mouse(),
         ActionTab::Keyboard => keyboard(),
         ActionTab::Numpad => numpad(),
-        ActionTab::ActionSets => action_sets(app),
+        ActionTab::Special => special(app),
     };
     // `width(Fill)` makes the body span the card so `align_x(Center)` centres the tab bar and the
     // content left<->right (they're otherwise shrink-width and would hug the left edge).
@@ -67,7 +67,7 @@ fn tab_bar(active: ActionTab) -> Element<'static, Message> {
         tab("Mouse", ActionTab::Mouse),
         tab("Keyboard", ActionTab::Keyboard),
         tab("Numpad", ActionTab::Numpad),
-        tab("Action Sets", ActionTab::ActionSets),
+        tab("Special", ActionTab::Special),
     ]
     .spacing(6.0)
     .into()
@@ -396,9 +396,9 @@ fn unplaced_keys() -> Vec<Key> {
     Key::ALL.iter().filter(|k| !placed.contains(*k)).cloned().collect()
 }
 
-// --- action sets -----------------------------------------------------------------------------
+// --- special (mode actions + no-action) ------------------------------------------------------
 
-fn action_sets(app: &App) -> Element<'static, Message> {
+fn special(app: &App) -> Element<'static, Message> {
     // Sets: all of them; layers: only those of the set the input pages currently edit
     // (`EditTarget.set`) - layer refs resolve within a single action set (compile.rs: per-set).
     let sets: Vec<String> = app
@@ -426,11 +426,20 @@ fn action_sets(app: &App) -> Element<'static, Message> {
         .width(280.0)
         .into();
 
+    // "No action": a command that emits no output but still runs its activators and fires feedback
+    // (a pure haptic/audio cue). Shows as "None" on the input pages' command bars.
+    let no_action: Element<'static, Message> = button(text("No action").center())
+        .width(280.0)
+        .style(style::option_button)
+        .on_press(Message::Editor(EditorMessage::ActionPicked(Action::None)))
+        .into();
+
     column![
         change,
         layer_pick("Hold Layer", layers.clone(), Action::HoldLayer),
         layer_pick("Add Layer", layers.clone(), Action::AddLayer),
         layer_pick("Remove Layer", layers, Action::RemoveLayer),
+        no_action,
     ]
     .spacing(12.0)
     .align_x(Center)

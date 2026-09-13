@@ -24,7 +24,10 @@ pub struct LayerRef(pub String);
 /// the simultaneous subcommand combo).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
-    /// No-op - explicitly unbound / blocks a fall-through to a lower layer or the set.
+    /// No output - the command still runs the full activator model (Regular/Long/Double/...) and
+    /// fires its `Feedback` on the resolved edges; it just presses nothing. A pure haptic/audio cue.
+    /// (Nullifying a base binding's fall-through is `SourceBinding::None`, resolved at binding level -
+    /// not this.)
     None,
     Key(Key),
     MouseButton(MouseButton),

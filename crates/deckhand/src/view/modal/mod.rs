@@ -47,14 +47,15 @@ pub(crate) enum Popup {
 }
 
 /// The tabs of the Action picker - one output/mode category each (mirrors the sidebar categories a
-/// binding's action can target). Steam's SYSTEM/CAMERA are dropped (no vocab).
+/// binding's action can target). Steam's SYSTEM/CAMERA are dropped (no vocab). `Special` holds the
+/// engine mode-actions (action-set / layer changes) plus "No action" (`Action::None`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActionTab {
     Gamepad,
     Mouse,
     Keyboard,
     Numpad,
-    ActionSets,
+    Special,
 }
 
 /// Layer the open [`Popup`] (if any) over `base` as a centered, dismissable overlay.

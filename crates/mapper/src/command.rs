@@ -775,4 +775,52 @@ mod tests {
         assert!(step_haptics(&c, &mut s, true, 0).is_empty());
         assert!(step_haptics(&c, &mut s, false, 8).is_empty());
     }
+
+    #[test]
+    fn none_action_is_output_silent_but_feeds_back_and_honors_activators() {
+        // A command whose only action is `None`: it runs the full activator model and fires its
+        // feedback on the resolved edges (a pure haptic/audio cue), but emits NO output level. The
+        // pipeline is action-agnostic - `command_route` sends `[None]` down `Route::Level`, so the
+        // feedback rides the activator's own edges while `apply_action(None)` presses nothing.
+        use config::{Click, Effect, Feedback};
+        let hi = || Effect::Haptic(Click::Strong);
+        let none_cmd = |activator, feedback| CompiledCommand {
+            activator,
+            actions: vec![CompiledAction::None],
+            settings: CommandSettings { feedback, ..Default::default() },
+        };
+        // One tick over a single `None` command: returns (desired levels, feedback requests).
+        let run = |c: &CompiledCommand, s: &mut SlotState, held, now| {
+            let mut d = DesiredLevels::default();
+            let mut ops = LayerOps::default();
+            let mut haptics = Vec::new();
+            let mut sinks = Sinks { desired: &mut d, ops: &mut ops, haptics: &mut haptics };
+            let node = NodeHeld::Button(config::InputSource::LeftBumper);
+            eval_commands(std::slice::from_ref(c), held, &node, &Side::Right, s, &Tick(now), &mut sinks);
+            (d, haptics)
+        };
+        let silent = |d: &DesiredLevels| *d == DesiredLevels::default();
+
+        // Regular, feedback on both edges: never emits output; cue on press and on release.
+        let c = none_cmd(regular(false), Feedback { on_press: Some(hi()), on_release: Some(hi()) });
+        let mut s = SlotState::default();
+        let (d, h) = run(&c, &mut s, true, 0); // press -> press cue, no output
+        assert!(silent(&d) && h.len() == 1);
+        let (d, h) = run(&c, &mut s, true, 4); // held, no edge -> nothing
+        assert!(silent(&d) && h.is_empty());
+        let (d, h) = run(&c, &mut s, false, 8); // release -> release cue, no output
+        assert!(silent(&d) && h.len() == 1);
+
+        // Long: the `None` action still honors the threshold - the cue fires only once it lands.
+        let c = none_cmd(Activator::Long { hold_ms: 100 }, Feedback { on_press: Some(hi()), on_release: None });
+        let mut s = SlotState::default();
+        let (d, h) = run(&c, &mut s, true, 0); // below threshold -> quiet
+        assert!(silent(&d) && h.is_empty());
+        let (d, h) = run(&c, &mut s, true, 50); // still below
+        assert!(silent(&d) && h.is_empty());
+        let (d, h) = run(&c, &mut s, true, 100); // Long lands -> cue, still no output
+        assert!(silent(&d) && h.len() == 1);
+        let (d, h) = run(&c, &mut s, false, 160); // release, on_press only -> quiet
+        assert!(silent(&d) && h.is_empty());
+    }
 }
