@@ -30,10 +30,10 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-/// The content pane: the daemon controls, the keypad, the sleep note, then the rumble settings, laid
-/// out top-to-bottom.
+/// The content pane: the daemon controls, then the keypad row (keypad centered, sleep note left,
+/// keypad hint right), then the rumble settings, laid out top-to-bottom.
 fn content(app: &App) -> Element<'_, Message> {
-    column![controls(app), keypad(), sleep_note(), rumble(app)]
+    column![controls(app), keypad_row(), rumble(app)]
         .spacing(16.0)
         .into()
 }
@@ -90,6 +90,31 @@ fn controls(app: &App) -> Element<'_, Message> {
 
 // --- keypad ---------------------------------------------------------------------------------
 
+/// The keypad row: the numeric keypad kept centered in the window, with the sleep note filling the
+/// free space to its left and a short "what the keypad does" hint filling the space to its right.
+/// The side notes wrap over several lines; the equal-`Fill` side panes keep the keypad centered.
+fn keypad_row() -> Element<'static, Message> {
+    // Left: the sleep reminder, wrapping in the free space to the left of the keypad.
+    let left = container(
+        text("Sleep may be prevented while this app is running.")
+            .size(16.0)
+            .center(),
+    )
+    .center(Fill)
+    .padding(12.0);
+    // Right: what the keypad is for.
+    let right = container(
+        text("The central keypad controls the output field.")
+            .size(16.0)
+            .center(),
+    )
+    .center(Fill)
+    .padding(12.0);
+    row![left, keypad(), right]
+        .align_y(Center)
+        .into()
+}
+
 /// The on-screen numeric keypad. A 3x4 phone grid (`1-9`, then `. 0 :`) with a tall backspace beside
 /// it. Every key edits the output field in place, regardless of focus.
 fn keypad() -> Element<'static, Message> {
@@ -114,10 +139,8 @@ fn keypad() -> Element<'static, Message> {
         .on_press(Message::Backspace)
         .width(70.0)
         .height(GRID_H);
-    // Centered in the window: the keypad block is its natural width, centered horizontally.
-    container(row![grid, back].spacing(8.0))
-        .center_x(Fill)
-        .into()
+    // The keypad block is its natural width; the surrounding row's Fill side panes center it.
+    row![grid, back].spacing(8.0).into()
 }
 
 /// One keypad key: a fixed-size button that appends its character to the output field.
@@ -305,18 +328,6 @@ fn pct_text(v: Option<u8>) -> Element<'static, Message> {
 /// A fixed-width trailing dB readout (signed), keeping the gain sliders aligned.
 fn db_text(v: i8) -> Element<'static, Message> {
     text(format!("{v:+} dB")).size(13.0).width(60.0).into()
-}
-
-/// A centered, prominent reminder that the app may hold a sleep inhibitor while running (the managed
-/// daemon is launched with `--prevent-sleep`).
-fn sleep_note() -> Element<'static, Message> {
-    container(
-        text("Sleep may be prevented while this app is running.")
-            .size(18.0)
-            .center(),
-    )
-    .center_x(Fill)
-    .into()
 }
 
 // --- bottom bar -----------------------------------------------------------------------------
