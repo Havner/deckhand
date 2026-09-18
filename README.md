@@ -81,9 +81,9 @@ I will probably provide VIIPER-enabled binaries later on. The code is
 [there](crates/virt-out/src/win/viiper.rs), I'm just not fully sold on the way
 the upstream viiper's rust crate works currently.
 
-Windows has a portable package. Download deckhand-windows-portable-<version>.zip
-from the GitHub Releases page, unzip, run deckhand.exe. It will run the daemon
-automatically.
+Windows has a portable package. Download
+`deckhand-windows-portable-<version>.zip` from the GitHub Releases page, unzip,
+run `deckhand.exe`. It will run the daemon automatically.
 
 I might provide an installer at a later date that installs the daemon (see below
 to learn what the daemon is here) as a Windows service. The portable version
@@ -99,7 +99,7 @@ the "Installation from source" below.
 ## Steam Deck
 
 Download the Steam Deck package from the GitHub Releases page:
-deckhand-steamdeck-<version>.tar.gz. Place it in your `$HOME` directory and
+`deckhand-steamdeck-<version>.tar.gz`. Place it in your `$HOME` directory and
 unpack there. It will place all the files in the correct places. Most of the
 package contains "hidden" directories starting with a dot (`.config`,
 `.local`). After unpacking run the script that will update caches and reload
@@ -204,7 +204,7 @@ configuration described below.
 There is a chance everything will work just fine with the steps above, but that
 very much depends on your distribution and system configuration.
 
-You need `deckhand` to be able to access the Steam Controllers and be able to
+You need deckhand to be able to access the Steam Controllers and be able to
 emulate keyboard/mouse/controller. All of this happens through linux input/evdev
 subsystem but that requires access to specific `/dev` files. There is a chance
 your distribution already provides that. But in case something doesn't work copy
@@ -231,7 +231,7 @@ it. Remove the module `rmmod hid-steam` or reboot.
 
 Proton/Wine include an SDL input implementation that might already try to
 configure your Steam Controllers as a regular controller (without any advanced
-mappings) which will cause double inputs when used with `deckhand`.
+mappings) which will cause double inputs when used with deckhand.
 
 To disable that set the following env variable:
 
