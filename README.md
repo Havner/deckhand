@@ -60,15 +60,16 @@ This is how deckhand has been born. The main goals of this project are:
 > [!NOTE]
 > AI disclosure. This project has been written by Claude Opus 4.8 under my very
 > careful guidance. 80% of the time has been spent on design and planning. Only
-> around 20% on actual code writing (see [PLAN.md](PLAN.md)). I am a software
-> engineer with over 25 years of open source and commercial experience,
-> including Rust. I just simply don't have 1-2 years of spare time that would
-> take me to write such a software. I prefer to spend that time actually playing
-> games with deckhand instead of implementing it. Do whatever you want with this
-> information. If that bothers you, that is fine. What I can promise is that I
-> used my whole experience to make sure this project was written not to be an AI
-> slop. It has been very carefully designed and reviewed to work as intended and
-> be maintainable even without AI in the future.
+> around 20% on actual code writing (see historical [PLAN.md](PLAN.md) and the
+> current [DESIGN.md](DESIGN.md)). I am a software engineer with over 25 years
+> of open source and commercial experience, including Rust. I just simply don't
+> have 1-2 years of spare time that would take me to write such a software. I
+> prefer to spend that time actually playing games with deckhand instead of
+> implementing it. Do whatever you want with this information. If that bothers
+> you, that is fine. What I can promise is that I used my whole experience to
+> make sure this project was written not to be an AI slop. It has been very
+> carefully designed and reviewed to work as intended and be maintainable even
+> without AI in the future.
 
 # Installation from packages
 
