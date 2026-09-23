@@ -1,5 +1,6 @@
 #!/bin/sh
-# Install the deckhand daemon + client + UI, plus (on Linux) the desktop integration.
+# Install the deckhand daemon + client + UI, plus (on Linux) the hidhide helper and desktop
+# integration.
 #
 # Usage: ./install.sh [-f|--forwarder] [-r|--root-prefix DIR] [cargo args...]
 #
@@ -73,6 +74,12 @@ if [ "$(uname -s)" != Linux ]; then
     exit 0
 fi
 
+# hidhide: a small Linux-only helper - an unprivileged user+mount namespace that hides matching HID
+# devices from a single command (the HidHide analog), e.g. `hidhide -- steam`. Linux-only (needs
+# namespaces), so it is installed here rather than with the always-on binaries above.
+cargo install --locked --path crates/hidhide --root "$root" --force
+echo "installed hidhide into $root/bin"
+
 # Desktop entry + icon so the UI shows up in the app launcher. The icon goes into the hicolor
 # theme at its native 512x512 size; the .desktop's `Icon=deckhand` resolves to it by name.
 mkdir -p "$apps_dir" "$icon_dir"
@@ -108,6 +115,7 @@ fi
 mkdir -p "$comp_dir"
 cp completions/deckhandd.bash "$comp_dir/deckhandd.bash"
 ln -sf deckhandd.bash "$comp_dir/deckhandctl.bash"
+cp completions/hidhide.bash "$comp_dir/hidhide.bash"
 echo "installed bash completions into $comp_dir"
 
 # systemd user units (Linux). Installed but NOT enabled. `deckhandd.socket` listens on
