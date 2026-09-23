@@ -6,7 +6,8 @@ output on Linux and Windows.
 
 This document describes the design of the project: what each crate is for, how the pieces fit
 together, and the reasoning behind the non-obvious choices. It is organized as an architectural
-overview followed by one section per crate, in dependency order:
+overview followed by one section per crate, in dependency order, then a final section for a
+standalone utility that stands outside the dependency graph:
 
     1  vocab-hid
     2  vocab-out
@@ -20,6 +21,7 @@ overview followed by one section per crate, in dependency order:
     10 deckhandctl
     11 deckhand
     12 forwarder-ui
+    13 hidhide
 
 
 ## 0. Overview
@@ -44,9 +46,10 @@ named descriptively.)
 ### 0.2 Architecture and crate map
 
 The workspace is twelve crates in a ports-and-adapters shape, organized around one idea: **the mapper
-is pure**. It reads one vocabulary and writes another and depends on nothing else - no hardware
-abstraction layer, no operating system, not even the runtime that drives it. Everything hardware- or
-process-shaped is an adapter layered around that core.
+is pure**. (A thirteenth crate, `hidhide`, is a standalone companion utility that is not part of this
+shape and is described on its own in section 13.) It reads one vocabulary and writes another and
+depends on nothing else - no hardware abstraction layer, no operating system, not even the runtime
+that drives it. Everything hardware- or process-shaped is an adapter layered around that core.
 
 The crates, from the leaves up:
 
@@ -135,7 +138,7 @@ without hardware.
 one another: the authoring model names inputs and outputs, and the HALs produce and consume them, yet
 `config` and the HALs never depend on each other.
 
-**One version, pinned dependencies.** All twelve crates share a single workspace version, and shared
+**One version, pinned dependencies.** All thirteen crates share a single workspace version, and shared
 dependency versions are pinned once in the workspace manifest.
 
 **APIs break freely; the config format will not.** The internal Rust APIs are deliberately unstable
@@ -1545,3 +1548,59 @@ completable by touch alone.
 factoring out a common crate, because the tool is small and single-purpose; sharing the device-config
 *file* (not the code) is what keeps its rumble edits consistent with the main UI without coupling the
 two binaries.
+
+
+## 13. hidhide
+
+A standalone utility that hides matching HID devices from a single command.
+
+### 13.1 Role and boundaries
+
+hidhide runs a command with a chosen set of HID devices hidden from it, and from that command alone.
+It is the Linux counterpart of a device-hiding filter driver, scoped to one process tree rather than
+applied system-wide: the motivating case is launching Steam so that it cannot claim the physical
+Steam Controller, while deckhand drives that controller and presents Steam a virtual gamepad instead.
+Steam still gets a controller - just the one it is meant to see.
+
+It stands apart from the rest of the workspace. It depends on no other crate and nothing depends on
+it; it is not part of the mapping pipeline and links neither the vocabularies, the HALs, nor the
+engine. It is Linux-only, since it relies on user and mount namespaces; on other platforms it builds
+only as a stub that says so (the equivalent on Windows is a separate kernel filter driver and is out
+of scope here).
+
+Its interface is a vendor id (defaulting to Valve's), zero or more product ids, and the command to
+run with its arguments. Ids are hexadecimal; with no product id given, every device of the vendor is
+hidden. So hiding all Valve devices from Steam is `hidhide -- steam`, and a single product can be
+named with a repeatable product option.
+
+### 13.2 Design and reasoning
+
+**How it hides.** It creates a new user and mount namespace, then bind-mounts the null device over
+each matching device node before running the command. Inside that namespace the command opens what
+still looks like the device path but receives the null device, whose control operations fail, so a
+library that enumerates HID or input devices lists the device yet skips it as unusable. Outside the
+namespace every other process still sees the real device untouched, and the masking disappears when
+the command exits. The device is thus visible-but-unopenable rather than removed - the same effect a
+filter driver produces, reached by substitution instead of by filtering enumeration.
+
+**Unprivileged by construction.** The namespaces are created without root, setuid, or sudo. The
+process enters a new user namespace and maps its own user and group identity back to itself: this
+keeps the launched command running as the real user, and at the same time grants, inside the new
+namespace, the capability that mounting requires. Mount propagation is then made private so the bind
+mounts never escape to the host. Requiring no elevation is what makes the tool safe to drop in front
+of an ordinary application launch.
+
+**Both node kinds, matched across transports.** Devices are matched on their HID vendor and product,
+which identifies them the same way over USB and Bluetooth. By default it masks both the raw HID nodes
+and the kernel's evdev and joystick nodes for the same device, because hiding only the raw nodes would
+leave an application free to read the kernel-provided gamepad instead; an option narrows it to the raw
+HID nodes alone.
+
+**A launch-time snapshot.** The set of nodes to hide is chosen once, when the command starts. This
+fits the common case - a controller receiver already exposes its device slots whether or not a
+controller is powered on, so a pad switched on later still lands on a hidden slot - while a controller
+first connected after the command has started would not be covered.
+
+**It replaces itself.** Once the namespace is prepared, the tool replaces its own process image with
+the command rather than spawning it as a child, so nothing lingers as a parent: the command runs
+directly in the namespace that was set up for it.
