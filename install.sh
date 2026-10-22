@@ -1,6 +1,6 @@
 #!/bin/sh
-# Install the deckhand daemon + client + UI, plus (on Linux) the hidhide and deckhand-refresh helpers
-# and desktop integration.
+# Install the deckhand daemon + client + UI, plus (on Linux) the deckhand-hidhide and
+# deckhand-refresh helpers and desktop integration.
 #
 # Usage: ./install.sh [-f|--forwarder] [-r|--root-prefix DIR] [cargo args...]
 #
@@ -74,11 +74,14 @@ if [ "$(uname -s)" != Linux ]; then
     exit 0
 fi
 
-# hidhide: a small Linux-only helper - an unprivileged user+mount namespace that hides matching HID
-# devices from a single command (the HidHide analog), e.g. `hidhide -- steam`. Linux-only (needs
-# namespaces), so it is installed here rather than with the always-on binaries above.
+# deckhand-hidhide: a small Linux-only helper - an unprivileged user+mount namespace that hides
+# matching HID devices from a single command (the HidHide analog), e.g. `deckhand-hidhide -- steam`.
+# Linux-only (needs namespaces), so it is installed here rather than with the always-on binaries
+# above. A `hidhide` short alias (relative symlink, survives relocation) mirrors Windows HidHide's
+# name - the one exception to the deckhand- prefix, and only at this install-level link.
 cargo install --locked --path crates/hidhide --root "$root" --force
-echo "installed hidhide into $root/bin"
+ln -sf deckhand-hidhide "$root/bin/hidhide"
+echo "installed deckhand-hidhide (+ hidhide alias) into $root/bin"
 
 # deckhand-refresh: a bash wrapper around kscreen-doctor (KDE) that steps a display's refresh rate
 # (`deckhand-refresh inc|dec|<Hz>`, primary output by default), meant to be bound to deckhand
@@ -124,7 +127,8 @@ fi
 mkdir -p "$comp_dir"
 cp completions/deckhandd.bash "$comp_dir/deckhandd.bash"
 ln -sf deckhandd.bash "$comp_dir/deckhandctl.bash"
-cp completions/hidhide.bash "$comp_dir/hidhide.bash"
+cp completions/deckhand-hidhide.bash "$comp_dir/deckhand-hidhide.bash"
+ln -sf deckhand-hidhide.bash "$comp_dir/hidhide.bash"
 echo "installed bash completions into $comp_dir"
 
 # systemd user units (Linux). Installed but NOT enabled. `deckhandd.socket` listens on

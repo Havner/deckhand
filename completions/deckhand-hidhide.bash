@@ -1,7 +1,8 @@
-# bash completion for hidhide (deckhand)
+# bash completion for deckhand-hidhide (and its `hidhide` short alias)
 #
 # Installed to "${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions" by install.sh
-# as hidhide.bash (the dir is lazily loaded by command name).
+# as deckhand-hidhide.bash, plus a hidhide.bash symlink to it (the dir is lazily loaded by command
+# name, so each command name needs its own file).
 
 # Id hints only - any hex id is accepted. Valve VID + the Steam Controller / Deck PIDs
 # (Gordon 1102/1106/1142, Neptune 1205, Triton 1302/1303/1304).
@@ -59,7 +60,7 @@ _hidhide() {
         return
     fi
 
-    # Still in hidhide's own words: an option, or a bare word starting the command.
+    # Still in deckhand-hidhide's own words: an option, or a bare word starting the command.
     if [[ $cur == -* ]]; then
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
     else
@@ -67,4 +68,4 @@ _hidhide() {
     fi
 }
 
-complete -F _hidhide hidhide
+complete -F _hidhide deckhand-hidhide hidhide

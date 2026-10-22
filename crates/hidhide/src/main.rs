@@ -1,4 +1,4 @@
-// hidhide - run a command with matching HID devices hidden from it (Linux).
+// deckhand-hidhide - run a command with matching HID devices hidden from it (Linux).
 //
 // The Linux analog of Windows HidHide, scoped to a single process tree: create an
 // unprivileged user + mount namespace, bind-mount /dev/null over every device node
@@ -17,7 +17,7 @@ fn main() {
     linux::main();
     #[cfg(not(target_os = "linux"))]
     {
-        eprintln!("hidhide: Linux-only (needs user + mount namespaces)");
+        eprintln!("deckhand-hidhide: Linux-only (needs user + mount namespaces)");
         std::process::exit(1);
     }
 }
@@ -35,9 +35,9 @@ mod linux {
     /// Hide HID devices matching VENDOR:PRODUCT from a command, then run the command.
     ///
     /// Ids are hex. With no -p, every device of the vendor is hidden.
-    /// Example: hidhide -- steam   (hides all Valve devices from Steam)
+    /// Example: deckhand-hidhide -- steam   (hides all Valve devices from Steam)
     #[derive(Parser)]
-    #[command(version, about, long_about = None)]
+    #[command(name = "deckhand-hidhide", version, about, long_about = None)]
     struct Args {
         /// Vendor id, hex (default: Valve = 28DE).
         #[arg(short = 'v', long, value_parser = parse_hex, default_value = "28DE")]
@@ -62,7 +62,7 @@ mod linux {
     pub fn main() {
         let args = Args::parse();
         if let Err(e) = run(&args) {
-            eprintln!("hidhide: {e}");
+            eprintln!("deckhand-hidhide: {e}");
             std::process::exit(1);
         }
     }
@@ -76,13 +76,13 @@ mod linux {
                 args.products.iter().map(|p| format!("{p:04x}")).collect::<Vec<_>>().join(",")
             };
             eprintln!(
-                "hidhide: no device matches {:04x}:{pids}; running with nothing hidden",
+                "deckhand-hidhide: no device matches {:04x}:{pids}; running with nothing hidden",
                 args.vendor
             );
         } else {
             hide(&nodes)?;
         }
-        // exec replaces this process image (hidhide leaves memory); returns on failure only.
+        // exec replaces this process image (we leave memory); returns on failure only.
         let err = Command::new(&args.command[0]).args(&args.command[1..]).exec();
         Err(format!("exec '{}': {err}", args.command[0]))
     }
