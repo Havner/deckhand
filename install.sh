@@ -1,6 +1,6 @@
 #!/bin/sh
-# Install the deckhand daemon + client + UI, plus (on Linux) the hidhide helper and desktop
-# integration.
+# Install the deckhand daemon + client + UI, plus (on Linux) the hidhide and deckhand-refresh helpers
+# and desktop integration.
 #
 # Usage: ./install.sh [-f|--forwarder] [-r|--root-prefix DIR] [cargo args...]
 #
@@ -79,6 +79,15 @@ fi
 # namespaces), so it is installed here rather than with the always-on binaries above.
 cargo install --locked --path crates/hidhide --root "$root" --force
 echo "installed hidhide into $root/bin"
+
+# deckhand-refresh: a bash wrapper around kscreen-doctor (KDE) that steps a display's refresh rate
+# (`deckhand-refresh inc|dec|<Hz>`, primary output by default), meant to be bound to deckhand
+# CommandExecute chords. Works with whatever modes the display offers; the Steam Deck's extra
+# rates come from a modified EDID that needs root and is set up by hand (edid/README.md).
+mkdir -p "$root/bin"
+cp scripts/deckhand-refresh "$root/bin/deckhand-refresh"
+chmod 755 "$root/bin/deckhand-refresh"
+echo "installed deckhand-refresh into $root/bin"
 
 # Desktop entry + icon so the UI shows up in the app launcher. The icon goes into the hicolor
 # theme at its native 512x512 size; the .desktop's `Icon=deckhand` resolves to it by name.

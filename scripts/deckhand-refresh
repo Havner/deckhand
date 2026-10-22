@@ -1,0 +1,93 @@
+#!/bin/bash
+# Set the refresh rate of a display through kscreen-doctor (KDE Plasma).
+#
+#   deckhand-refresh <Hz>   switch to the available rate closest to <Hz>
+#   deckhand-refresh inc    switch to the next higher rate (no wrap-around)
+#   deckhand-refresh dec    switch to the next lower rate (no wrap-around)
+#   deckhand-refresh        print the output, its current rate and the available ones
+#
+# Only modes with the current resolution are considered.
+# OUTPUT selects the output by name (e.g. eDP-1, DP-1); default is the primary one.
+set -euo pipefail
+
+# allow use from SSH / a TTY of the logged-in user
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+
+usage() {
+    echo "usage: ${0##*/} <Hz> | inc | dec" >&2
+    exit 2
+}
+
+json=$(kscreen-doctor -j)
+
+# default: the primary output = the enabled one with the lowest priority (1 = primary)
+if [ -z "${OUTPUT:-}" ]; then
+    OUTPUT=$(jq -r '[.outputs[] | select(.enabled)] | min_by(.priority) | .name // empty' \
+        <<<"$json")
+    [ -n "$OUTPUT" ] || { echo "no enabled output found" >&2; exit 1; }
+fi
+
+# "id rate" per line, sorted by rate, same resolution as the current mode,
+# one mode per (rounded) rate
+mapfile -t modes < <(jq -r --arg out "$OUTPUT" '
+    .outputs[] | select(.name == $out)
+    | (.currentModeId) as $cur
+    | (.modes[] | select(.id == $cur) | .size) as $size
+    | [.modes[] | select(.size == $size)]
+    | unique_by(.refreshRate | round) | sort_by(.refreshRate)[]
+    | "\(.id) \(.refreshRate)"' <<<"$json")
+current=$(jq -r --arg out "$OUTPUT" \
+    '.outputs[] | select(.name == $out) | .currentModeId' <<<"$json")
+
+[ ${#modes[@]} -gt 0 ] || { echo "output $OUTPUT not found" >&2; exit 1; }
+
+ids=() rates=() cur_idx=-1
+for i in "${!modes[@]}"; do
+    read -r id rate <<<"${modes[$i]}"
+    ids+=("$id")
+    rates+=("$rate")
+    [ "$id" = "$current" ] && cur_idx=$i
+done
+
+fmt() { printf '%.2f' "$1"; }
+
+if [ $# -eq 0 ]; then
+    echo "output: $OUTPUT"
+    [ "$cur_idx" -ge 0 ] && echo "current: $(fmt "${rates[$cur_idx]}") Hz"
+    echo -n "available:"
+    for r in "${rates[@]}"; do echo -n " $(fmt "$r")"; done
+    echo
+    exit 0
+fi
+[ $# -eq 1 ] || usage
+
+case $1 in
+inc | dec)
+    [ "$cur_idx" -ge 0 ] || { echo "current mode not in list" >&2; exit 1; }
+    step=1; [ "$1" = dec ] && step=-1
+    target=$((cur_idx + step))
+    if [ "$target" -lt 0 ] || [ "$target" -ge ${#ids[@]} ]; then
+        echo "already at $(fmt "${rates[$cur_idx]}") Hz"
+        exit 0
+    fi
+    ;;
+*[!0-9.]* | '' | *.*.*)
+    usage
+    ;;
+*)
+    # closest rate; on a tie the lower one wins (list is ascending)
+    target=$(printf '%s\n' "${rates[@]}" | awk -v want="$1" '
+        { d = $1 - want; if (d < 0) d = -d
+          if (NR == 1 || d < best) { best = d; idx = NR - 1 } }
+        END { print idx }')
+    ;;
+esac
+
+if [ "$target" -eq "$cur_idx" ]; then
+    echo "already at $(fmt "${rates[$target]}") Hz"
+    exit 0
+fi
+
+kscreen-doctor "output.$OUTPUT.mode.${ids[$target]}" >/dev/null
+echo "$(fmt "${rates[$cur_idx]}") Hz -> $(fmt "${rates[$target]}") Hz"
