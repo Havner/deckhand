@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 
 use config::{
-    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings, Axis, Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, Click, Effect, Feedback, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings,  Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, Click, Effect, Feedback, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings
 };
 use vocab_hid::Button;
 use vocab_out::{GamepadButton, Key, MouseButton};
@@ -41,33 +41,88 @@ fn mouse(b: MouseButton) -> Action {
 // --- system layer (used by all profiles) ------------------------------------------------
 
 pub fn system_keys_layer() -> Layer {
+    let mut base: BTreeMap<InputSource, SourceBinding> = BTreeMap::new();
+
+    base.insert(
+        InputSource::FaceButtons,
+        SourceBinding::ButtonPad {
+            up: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![key(Key::VolumeUp)],
+                settings: Default::default(),
+            }],
+            down: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![key(Key::VolumeDown)],
+                settings: Default::default(),
+            }],
+            left: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![key(Key::Rewind)],
+                settings: Default::default(),
+            }],
+            right: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![key(Key::PlayPause)],
+                settings: Default::default(),
+            }],
+        },
+    );
+
+    base.insert(
+        InputSource::LeftBumper,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![key(Key::BrightnessDown)],
+                settings: Default::default(),
+            }],
+        },
+    );
+
+    base.insert(
+        InputSource::RightBumper,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![key(Key::BrightnessUp)],
+                settings: Default::default(),
+            }],
+        },
+    );
+
+    // View (left small top button) -> RShift+F12.
+    base.insert(
+        InputSource::View,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![
+                    key(Key::RightShift),
+                    key(Key::F12),
+                ],
+                settings: Default::default(),
+            }],
+        },
+    );
+    // Menu (right small top button) -> RShift+F12.
+    base.insert(
+        InputSource::Menu,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![
+                    key(Key::RightShift),
+                    key(Key::F12),
+                ],
+                settings: Default::default(),
+            }],
+        },
+    );
+
     Layer {
         name: "system_keys".into(),
-        bindings: BTreeMap::from([(
-            InputSource::FaceButtons,
-            SourceBinding::ButtonPad {
-                up: vec![Command {
-                    activator: Activator::Regular { interruptible: true },
-                    actions: vec![key(Key::VolumeUp)],
-                    settings: Default::default(),
-                }],
-                down: vec![Command {
-                    activator: Activator::Regular { interruptible: true },
-                    actions: vec![key(Key::VolumeDown)],
-                    settings: Default::default(),
-                }],
-                left: vec![Command {
-                    activator: Activator::Regular { interruptible: true },
-                    actions: vec![key(Key::Rewind)],
-                    settings: Default::default(),
-                }],
-                right: vec![Command {
-                    activator: Activator::Regular { interruptible: true },
-                    actions: vec![key(Key::PlayPause)],
-                    settings: Default::default(),
-                }],
-            },
-        )]),
+        bindings: base,
     }
 }
 
@@ -333,7 +388,7 @@ pub fn desktop_profile() -> ConfigDoc {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(2.0),
-                deadzone: Deadzone { inner: 0.05 },
+                deadzone: Deadzone { inner: 0.1 },
                 ..Default::default()
             },
         },
@@ -375,7 +430,13 @@ pub fn desktop_profile() -> ConfigDoc {
             commands: vec![Command {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![mouse(MouseButton::Middle)],
-                settings: Default::default(),
+                settings: CommandSettings {
+                    feedback: Feedback {
+                        on_press: Some(Effect::Haptic(Click::Medium)),
+                        on_release: Some(Effect::Haptic(Click::Medium)),
+                    },
+                    ..Default::default()
+                },
             }],
         },
     );
@@ -879,7 +940,6 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                 SourceBinding::AsMouse {
                     settings: AsMouseSettings {
                         output: MouseOutput::Scroll,
-                        axis: Axis::Vertical,
                         sensitivity: Sensitivity { x: 1.5, y: 1.5 },
                         acceleration: Acceleration { factor: 0.05 },
                         smoothing: Some(OneEuroFilter {
@@ -1470,6 +1530,8 @@ pub fn cp2077_profile() -> ConfigDoc {
     profile
 }
 
+// --- System Shock profile --------------------------------------------------
+
 pub fn system_shock_profile() -> ConfigDoc {
     let mut profile = xbox_mouse_gyro_profile();
     profile.name = "System Shock".into();
@@ -1481,6 +1543,57 @@ pub fn system_shock_profile() -> ConfigDoc {
             commands: vec![Command {
                 activator: Activator::Regular { interruptible: true },
                 actions: vec![key(Key::L)],
+                settings: Default::default(),
+            }],
+        },
+    );
+
+    profile
+}
+
+// --- Prey 2017 profile --------------------------------------------------
+
+pub fn prey_profile() -> ConfigDoc {
+    let mut profile = xbox_mouse_gyro_profile();
+    profile.name = "Prey".into();
+
+    // Left Grips -> gyro activators
+    profile.action_sets[0].bindings.remove(&InputSource::LeftGrip);
+    profile.action_sets[0].bindings.remove(&InputSource::LeftGrip2);
+
+    if let Some(SourceBinding::GyroToMouse { settings }) =
+        profile.action_sets[0].bindings.get_mut(&InputSource::Gyro) {
+            settings.activation.gaters = vec![
+                Button::LGrip,
+                Button::LGrip2,
+            ];
+        };
+
+    // View (left small top button) -> gamepad Start + F5 (long).
+    profile.action_sets[0].bindings.insert(
+        InputSource::View,
+        SourceBinding::Button {
+            commands: vec![
+                Command {
+                    activator: Activator::Regular { interruptible: true },
+                    actions: vec![pad(GamepadButton::Start)],
+                    settings: Default::default(),
+                },
+                Command {
+                    activator: Activator::Long { hold_ms: 450 },
+                    actions: vec![key(Key::F5)],
+                    settings: Default::default(),
+                },
+            ],
+        },
+    );
+    // Menu (right small top button) -> gamepad Back.
+    profile.action_sets[0].bindings.insert(
+        InputSource::Menu,
+        SourceBinding::Button {
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![pad(GamepadButton::Back)],
                 settings: Default::default(),
             }],
         },
@@ -1879,13 +1992,20 @@ pub fn chords() -> Chords {
                     mode: SwitchMode::Toggle,
                 },
             },
-            // Chord {
-            //     buttons: vec![Button::Steam, Button::LGrip],
-            //     action: ChordAction::CommandExecute {
-            //         command: "ls".into(),
-            //         args: vec!["-l".into(), "/home/havner/Documents/Steam-Claude".into()],
-            //     },
-            // },
+            Chord {
+                buttons: vec![Button::Steam, Button::DpadUp],
+                action: ChordAction::CommandExecute {
+                    command: "deckhand-refresh".into(),
+                    args: vec!["inc".into()],
+                },
+            },
+            Chord {
+                buttons: vec![Button::Steam, Button::DpadDown],
+                action: ChordAction::CommandExecute {
+                    command: "deckhand-refresh".into(),
+                    args: vec!["dec".into()],
+                },
+            },
         ],
     }
 }
@@ -1923,6 +2043,7 @@ fn main() -> std::io::Result<()> {
         ("xbox_mouse_gyro.ron", xbox_mouse_gyro_profile()),
         ("cp2077.ron", cp2077_profile()),
         ("system_shock.ron", system_shock_profile()),
+        ("prey.ron", prey_profile()),
         ("control.ron", control_profile()),
     ] {
         write(profiles_dir.join(name), ron::ser::to_string_pretty(&doc, pretty.clone()).unwrap())?;
@@ -1954,8 +2075,9 @@ mod tests {
         assert_valid_and_round_trips(&xbox_profile());
         assert_valid_and_round_trips(&xbox_mouse_profile());
         assert_valid_and_round_trips(&cp2077_profile());
-        assert_valid_and_round_trips(&control_profile());
         assert_valid_and_round_trips(&system_shock_profile());
+        assert_valid_and_round_trips(&prey_profile());
+        assert_valid_and_round_trips(&control_profile());
 
         let no_errors = |ds: Vec<config::Diagnostic>| ds.iter().all(|d| d.severity != config::Severity::Error);
 
