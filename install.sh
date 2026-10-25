@@ -83,10 +83,11 @@ cargo install --locked --path crates/hidhide --root "$root" --force
 ln -sf deckhand-hidhide "$root/bin/hidhide"
 echo "installed deckhand-hidhide (+ hidhide alias) into $root/bin"
 
-# deckhand-refresh: a bash wrapper around kscreen-doctor (KDE) that steps a display's refresh rate
-# (`deckhand-refresh inc|dec|<Hz>`, primary output by default), meant to be bound to deckhand
-# CommandExecute chords. Works with whatever modes the display offers; the Steam Deck's extra
-# rates come from a modified EDID that needs root and is set up by hand (edid/README.md).
+# deckhand-refresh: a bash wrapper around kscreen-doctor (KDE) / gdctl (GNOME) that steps a
+# display's refresh rate (`deckhand-refresh inc|dec|<Hz>`, primary output by default), meant to be
+# bound to deckhand CommandExecute chords. Works with whatever modes the display offers; the Steam
+# Deck's extra rates come from a modified EDID that needs root and is set up by hand
+# (edid/README.md).
 mkdir -p "$root/bin"
 cp scripts/deckhand-refresh "$root/bin/deckhand-refresh"
 chmod 755 "$root/bin/deckhand-refresh"

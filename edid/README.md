@@ -248,11 +248,11 @@ the mode with no safety net.
 ## Switching rates: `deckhand-refresh`
 
 `deckhand-refresh` (`scripts/deckhand-refresh` in the deckhand tree) is a
-small bash wrapper around `kscreen-doctor` for switching rates from a
-terminal, a shortcut, SSH or a deckhand chord. It isn't tied to the Deck: it
-works on any display KDE Plasma drives, with whatever modes that display
-offers. deckhand's `install.sh` installs it into `~/.local/bin` on Linux (no
-root needed, unlike the EDID); by hand it's
+small bash wrapper around `kscreen-doctor` (KDE Plasma) and `gdctl` (GNOME)
+for switching rates from a terminal, a shortcut, SSH or a deckhand chord. It
+isn't tied to the Deck: it works on any display either desktop drives, with
+whatever modes that display offers. deckhand's `install.sh` installs it
+into `~/.local/bin` on Linux (no root needed, unlike the EDID); by hand it's
 `install -m 755 scripts/deckhand-refresh ~/.local/bin/`. Usage:
 
 ```
@@ -262,18 +262,31 @@ deckhand-refresh dec    # next lower rate; at the lowest it does nothing
 deckhand-refresh        # print the output, its current rate and all available ones
 ```
 
-- It reads the modes from `kscreen-doctor -j` (parsed with `jq`) and only
-  considers those at the current resolution. It sorts them by refresh rate
-  and switches with `kscreen-doctor output.<name>.mode.<id>`.
+- It picks the desktop from `XDG_CURRENT_DESKTOP`, or, without a session
+  environment (SSH, TTY), from the running compositor (`kwin_wayland`/`kwin_x11`
+  or `gnome-shell`).
+- It only considers modes at the current resolution, sorted by refresh rate
+  (one per rounded rate, so 59.94 and 60.00 count as one).
+- KDE: modes come from `kscreen-doctor -j` (parsed with `jq`), the switch is
+  `kscreen-doctor output.<name>.mode.<id>`.
+- GNOME: modes come from Mutter's `GetCurrentState` D-Bus call (`busctl
+  --json`, the same state `gdctl show` prints). VRR is a separate mode there
+  (`...@120.000+vrr`), so only modes of the current kind (variable or fixed)
+  are offered. `gdctl set` replaces the whole display configuration, so the
+  script restates every logical monitor as it is (position, scale, transform,
+  primary, each monitor's mode, color mode and RGB range) and changes only the
+  mode of the target output.
 - "Nearest" uses the actual rate, e.g. `55` picks 55.39 on SDC and `63` picks
   60.00 (60.003 is closer than 66.006). On an exact tie the lower rate wins.
-- It acts on the primary output (the enabled one with the lowest KDE
-  priority; on the Deck that's `eDP-1`). Set `OUTPUT=` to pick another by
-  name, e.g. `OUTPUT=DP-1 deckhand-refresh inc`.
-- When run over SSH it fills in `WAYLAND_DISPLAY=wayland-0` and
-  `XDG_RUNTIME_DIR=/run/user/<uid>` itself.
-- Like any `kscreen-doctor` change, there's no 15-second revert prompt. KWin
-  saves the chosen rate and restores it at the next login.
+- It acts on the primary output (KDE: the enabled one with the lowest
+  priority, on the Deck that's `eDP-1`; GNOME: the primary logical
+  monitor's). Set `OUTPUT=` to pick another by name, e.g. `OUTPUT=DP-1 deckhand-refresh inc`.
+- When run over SSH it fills in `WAYLAND_DISPLAY=wayland-0`,
+  `XDG_RUNTIME_DIR=/run/user/<uid>` and the session D-Bus address itself.
+- There's no 15-second revert prompt on either desktop. KWin saves the chosen
+  rate and restores it at the next login; on GNOME the change is temporary
+  (not written to `monitors.xml`) and lasts until the next display
+  reconfiguration or login.
 - From deckhand, bind it with `CommandExecute` chords, e.g. Steam + D-pad
   up/down as two entries of the `chords` list in `chords.ron`:
 

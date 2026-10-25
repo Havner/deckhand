@@ -1,46 +1,135 @@
 #!/bin/bash
-# Set the refresh rate of a display through kscreen-doctor (KDE Plasma).
+# Set the refresh rate of a display: KDE Plasma (kscreen-doctor) or GNOME (gdctl).
 #
 #   deckhand-refresh <Hz>   switch to the available rate closest to <Hz>
 #   deckhand-refresh inc    switch to the next higher rate (no wrap-around)
 #   deckhand-refresh dec    switch to the next lower rate (no wrap-around)
 #   deckhand-refresh        print the output, its current rate and the available ones
 #
-# Only modes with the current resolution are considered.
+# Only modes with the current resolution are considered (on GNOME also the same
+# variable/fixed refresh kind, as VRR is a separate mode there).
 # OUTPUT selects the output by name (e.g. eDP-1, DP-1); default is the primary one.
+# KDE saves the change; on GNOME it lasts until the next display reconfiguration.
 set -euo pipefail
 
 # allow use from SSH / a TTY of the logged-in user
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+export DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}
 
 usage() {
     echo "usage: ${0##*/} <Hz> | inc | dec" >&2
     exit 2
 }
 
-json=$(kscreen-doctor -j)
+die() {
+    echo "$*" >&2
+    exit 1
+}
 
-# default: the primary output = the enabled one with the lowest priority (1 = primary)
-if [ -z "${OUTPUT:-}" ]; then
-    OUTPUT=$(jq -r '[.outputs[] | select(.enabled)] | min_by(.priority) | .name // empty' \
-        <<<"$json")
-    [ -n "$OUTPUT" ] || { echo "no enabled output found" >&2; exit 1; }
-fi
+detect_desktop() {
+    case ${XDG_CURRENT_DESKTOP:-} in
+    *KDE*) echo kde; return ;;
+    *GNOME*) echo gnome; return ;;
+    esac
+    # no session environment (SSH, TTY): look for the running compositor
+    if pgrep -u "$(id -u)" -x 'kwin_wayland|kwin_x11' >/dev/null; then
+        echo kde
+    elif pgrep -u "$(id -u)" -x gnome-shell >/dev/null; then
+        echo gnome
+    else
+        die "unsupported desktop (KDE Plasma or GNOME required)"
+    fi
+}
 
-# "id rate" per line, sorted by rate, same resolution as the current mode,
-# one mode per (rounded) rate
-mapfile -t modes < <(jq -r --arg out "$OUTPUT" '
-    .outputs[] | select(.name == $out)
-    | (.currentModeId) as $cur
-    | (.modes[] | select(.id == $cur) | .size) as $size
-    | [.modes[] | select(.size == $size)]
-    | unique_by(.refreshRate | round) | sort_by(.refreshRate)[]
-    | "\(.id) \(.refreshRate)"' <<<"$json")
-current=$(jq -r --arg out "$OUTPUT" \
-    '.outputs[] | select(.name == $out) | .currentModeId' <<<"$json")
+# Backends. <desktop>_query sets OUTPUT (when unset: the primary output),
+# current (the id of the current mode) and modes ("id rate" lines, every mode
+# the rate may switch to); <desktop>_set <id> switches OUTPUT to that mode.
 
-[ ${#modes[@]} -gt 0 ] || { echo "output $OUTPUT not found" >&2; exit 1; }
+kde_json=
+
+kde_query() {
+    kde_json=$(kscreen-doctor -j)
+    # the primary output = the enabled one with the lowest priority (1 = primary)
+    OUTPUT=${OUTPUT:-$(jq -r '[.outputs[] | select(.enabled)] | min_by(.priority) | .name // empty' \
+        <<<"$kde_json")}
+    current=$(jq -r --arg out "$OUTPUT" \
+        '.outputs[] | select(.name == $out) | .currentModeId' <<<"$kde_json")
+    mapfile -t modes < <(jq -r --arg out "$OUTPUT" '
+        .outputs[] | select(.name == $out)
+        | (.currentModeId) as $cur
+        | (.modes[] | select(.id == $cur) | .size) as $size
+        | .modes[] | select(.size == $size) | "\(.id) \(.refreshRate)"' <<<"$kde_json")
+}
+
+kde_set() {
+    kscreen-doctor "output.$OUTPUT.mode.$1" >/dev/null
+}
+
+# Mutter's display state, as named fields. gdctl has no machine-readable output,
+# so it is read straight from the D-Bus call gdctl itself uses.
+gnome_json=
+
+gnome_query() {
+    gnome_json=$(busctl --user --json=short call org.gnome.Mutter.DisplayConfig \
+        /org/gnome/Mutter/DisplayConfig org.gnome.Mutter.DisplayConfig GetCurrentState |
+        jq '.data as [$serial, $monitors, $logical] | {
+            monitors: [$monitors[] | . as [[$connector], $modes, $props] | {
+                connector: $connector,
+                modes: [$modes[] | . as [$id, $w, $h, $rate, $pscale, $scales, $p] | {
+                    id: $id, size: "\($w)x\($h)", rate: $rate,
+                    current: ($p["is-current"].data // false),
+                    vrr: ($p["refresh-rate-mode"].data == "variable")}],
+                color_mode: $props["color-mode"].data,
+                rgb_range: $props["rgb-range"].data}],
+            logical: [$logical[] | . as [$x, $y, $scale, $transform, $primary, $mons] | {
+                # + 0: print as a plain double (1.25), not the D-Bus literal
+                x: $x, y: $y, scale: ($scale + 0), transform: $transform, primary: $primary,
+                connectors: [$mons[][0]]}]}')
+    OUTPUT=${OUTPUT:-$(jq -r '.logical[] | select(.primary) | .connectors[0]' <<<"$gnome_json")}
+    current=$(jq -r --arg out "$OUTPUT" \
+        '.monitors[] | select(.connector == $out) | .modes[] | select(.current) | .id' \
+        <<<"$gnome_json")
+    mapfile -t modes < <(jq -r --arg out "$OUTPUT" '
+        .monitors[] | select(.connector == $out) | .modes
+        | (.[] | select(.current)) as $cur
+        | .[] | select(.size == $cur.size and .vrr == $cur.vrr) | "\(.id) \(.rate)"' \
+        <<<"$gnome_json")
+}
+
+# gdctl set replaces the whole configuration: every logical monitor is restated
+# as it is now (position, scale, transform, primary, each monitor's mode, color
+# mode and RGB range), with only the mode of OUTPUT changed
+gnome_set() {
+    local args
+    mapfile -t args < <(jq -r --arg out "$OUTPUT" --arg mode "$1" '
+        (.monitors | map({(.connector): .}) | add) as $mon
+        | .logical[]
+        | "--logical-monitor", "--x", .x, "--y", .y, "--scale", .scale,
+          "--transform", (["normal", "90", "180", "270", "flipped",
+                           "flipped-90", "flipped-270", "flipped-180"][.transform]),
+          (if .primary then "--primary" else empty end),
+          (.connectors[] | $mon[.] as $m
+           | "--monitor", .,
+             "--mode", (if . == $out then $mode
+                        else $m.modes[] | select(.current) | .id end),
+             ($m.color_mode // empty
+              | "--color-mode", ["default", "bt2100", "sdr-native"][.]),
+             ($m.rgb_range // empty
+              | "--rgb-range", [null, "auto", "full", "limited"][.]))' <<<"$gnome_json")
+    gdctl set "${args[@]}"
+}
+
+desktop=$(detect_desktop)
+"${desktop}_query"
+
+[ -n "$OUTPUT" ] || die "no enabled output found"
+[ ${#modes[@]} -gt 0 ] || die "output $OUTPUT not found"
+
+# one mode per (rounded) rate, the current one winning its group, sorted by rate
+mapfile -t modes < <(printf '%s\n' "${modes[@]}" | awk -v cur="$current" '
+    { k = int($2 + 0.5); if (!(k in pick) || $1 == cur) pick[k] = $0 }
+    END { for (k in pick) print pick[k] }' | sort -k2 -g)
 
 ids=() rates=() cur_idx=-1
 for i in "${!modes[@]}"; do
@@ -64,7 +153,7 @@ fi
 
 case $1 in
 inc | dec)
-    [ "$cur_idx" -ge 0 ] || { echo "current mode not in list" >&2; exit 1; }
+    [ "$cur_idx" -ge 0 ] || die "current mode not in list"
     step=1; [ "$1" = dec ] && step=-1
     target=$((cur_idx + step))
     if [ "$target" -lt 0 ] || [ "$target" -ge ${#ids[@]} ]; then
@@ -89,5 +178,5 @@ if [ "$target" -eq "$cur_idx" ]; then
     exit 0
 fi
 
-kscreen-doctor "output.$OUTPUT.mode.${ids[$target]}" >/dev/null
+"${desktop}_set" "${ids[$target]}"
 echo "$(fmt "${rates[$cur_idx]}") Hz -> $(fmt "${rates[$target]}") Hz"
