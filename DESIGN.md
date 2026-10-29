@@ -599,6 +599,20 @@ not stop playback for us) and managing a small pool of effect ids; playback is s
 last-played effect wins. On Windows the rumble arrives over the selected backend's notification
 channel. A build with no controller backend returns zero.
 
+**On Linux a game never waits on the mapping loop.** Uploading or erasing an effect on a uinput
+device is a synchronous handshake: the kernel blocks the game's calling thread until the device's
+owner answers. Games re-upload the effect on every strength change, often from a time-critical
+thread (a game that drives rumble from its audio engine updates it once per audio buffer), so
+answering from the mapping loop - once per pass, after the mapping work - would stall the game for
+milliseconds at a time, enough to break up its audio. So the sink gives force feedback its own
+thread, mirroring the Windows notification threads: it owns the gamepad device, sleeps in `poll()`
+on it (bounded by the playing effect's auto-stop deadline, plus a wake-up descriptor for shutdown),
+answers each request the moment it arrives, and publishes the effective rumble, which `poll_rumble`
+reads without blocking. The mapping loop writes the pad's input events through a duplicate of the
+same descriptor - one uinput instance on two descriptors, which the kernel serializes - so neither
+side takes a lock, and only the mapping loop ever writes input. If the force-feedback thread fails,
+`poll_rumble` returns its error, surfacing it like any other sink failure.
+
 **Emission is best-effort where the OS can refuse it.** Synthetic input can be refused by the OS
 when a higher-integrity or switching foreground owns the input desktop (a fullscreen or elevated
 game exiting, a secure-desktop prompt); virt-out drops the refused frame and carries on rather than
@@ -1570,8 +1584,9 @@ of scope here).
 
 Its interface is a vendor id (defaulting to Valve's), zero or more product ids, and the command to
 run with its arguments. Ids are hexadecimal; with no product id given, every device of the vendor is
-hidden. So hiding all Valve devices from Steam is `hidhide -- steam`, and a single product can be
-named with a repeatable product option.
+hidden. So hiding all Valve devices from Steam is `deckhand-hidhide -- steam`, and a single product
+can be named with a repeatable product option. The binary is `deckhand-hidhide`; installs also
+provide a short `hidhide` alias.
 
 ### 13.2 Design and reasoning
 
