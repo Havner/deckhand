@@ -2,46 +2,36 @@
 //! `evdev`. The gamepad emulates an Xbox 360 pad (`input_id` 045e:028e + xpad code
 //! set) and advertises `FF_RUMBLE` so we can receive game rumble (PLAN 2.1).
 
-use std::collections::HashMap;
-use std::io;
-use std::time::{Duration, Instant};
+mod ff;
+
+use std::fs::File;
+use std::io::{self, Write};
+use std::os::fd::AsFd;
 
 use evdev::uinput::VirtualDevice;
 use evdev::{
-    AbsInfo, AbsoluteAxisCode, AbsoluteAxisEvent, AttributeSet, BusType, EventSummary,
-    FFEffectCode, FFEffectKind, InputEvent, InputId, KeyCode, KeyEvent, RelativeAxisCode,
-    RelativeAxisEvent, UInputCode, UinputAbsSetup,
+    AbsInfo, AbsoluteAxisCode, AbsoluteAxisEvent, AttributeSet, BusType, FFEffectCode, InputEvent,
+    InputId, KeyCode, KeyEvent, RelativeAxisCode, RelativeAxisEvent, SynchronizationCode,
+    SynchronizationEvent, UinputAbsSetup,
 };
 
 use crate::gamepad::{AxisButtons, Dpad, Rumble};
+use ff::{FF_MAX_EFFECTS, FfThread};
 use vocab_out::{GamepadAxis, GamepadButton, Key, MouseButton, OutputEvent};
-
-const FF_MAX_EFFECTS: u32 = 16;
-
-/// A stored force-feedback effect: its rumble magnitudes plus the replay timing we
-/// must honor ourselves (the uinput-userspace FF model makes us stop playback when
-/// `length` elapses - the kernel doesn't do it for us).
-struct FfEffect {
-    rumble: Rumble,
-    length_ms: u32, // 0 = play until an explicit stop
-    delay_ms: u32,
-}
 
 /// The output sink: owns the virtual devices and realizes [`OutputEvent`]s.
 ///
 /// Sync - call [`Sink::emit`] from the engine's mapping loop. [`Sink::poll_rumble`]
-/// drains rumble uploaded by a consumer of the virtual gamepad. Dropping the `Sink`
-/// destroys the uinput devices.
+/// reads the rumble a consumer of the virtual gamepad commands; a dedicated thread
+/// answers its force-feedback traffic (see `ff`). Dropping the `Sink` stops that
+/// thread and destroys the uinput devices.
 pub struct Sink {
     keyboard: VirtualDevice,
     mouse: VirtualDevice,
-    gamepad: VirtualDevice,
-    // Force-feedback state: a small pool of effect ids, the effects uploaded for each,
-    // the one currently playing, and when it should auto-stop (per its replay length).
-    ff_free_ids: Vec<i16>,
-    ff_effects: HashMap<i16, FfEffect>,
-    ff_playing: Option<i16>,
-    ff_until: Option<Instant>,
+    // The gamepad is one uinput instance on two fds: the FF thread owns its `VirtualDevice`
+    // (reads FF requests, answers them), we write input events through this dup.
+    gamepad: File,
+    ff: FfThread,
     // Dpad direction state, folded into the ABS_HAT0X/Y hat on change.
     dpad: Dpad,
     // Full-trigger / stick-direction pseudo-buttons, folded into the stick/trigger axes.
@@ -56,14 +46,13 @@ impl Sink {
     /// Create the three virtual devices. Needs write access to `/dev/uinput`
     /// (see `udev/70-deckhand-uinput.rules`).
     pub fn new() -> crate::Result<Self> {
+        let pad = build_gamepad()?;
+        let gamepad = File::from(pad.as_fd().try_clone_to_owned()?);
         Ok(Self {
             keyboard: build_keyboard()?,
             mouse: build_mouse()?,
-            gamepad: build_gamepad()?,
-            ff_free_ids: (0..FF_MAX_EFFECTS as i16).rev().collect(),
-            ff_effects: HashMap::new(),
-            ff_playing: None,
-            ff_until: None,
+            gamepad,
+            ff: FfThread::spawn(pad)?,
             dpad: Dpad::default(),
             axis_buttons: AxisButtons::default(),
             hi_res_wheel: 0,
@@ -152,98 +141,27 @@ impl Sink {
             self.mouse.emit(&mouse)?;
         }
         if !gp.is_empty() {
-            self.gamepad.emit(&gp)?;
+            gp.push(*SynchronizationEvent::new(SynchronizationCode::SYN_REPORT, 0));
+            write_events(&self.gamepad, &gp)?;
         }
         Ok(())
     }
 
-    /// Drain any force-feedback traffic from the virtual gamepad and return the
-    /// currently-commanded rumble (zero if nothing is playing). Non-blocking. Route
-    /// the result onward to real-controller haptics (PLAN 2.1 / 6).
+    /// The currently-commanded rumble (zero if nothing is playing). Non-blocking: the FF
+    /// thread answers the game and keeps this current; an error means that thread died.
+    /// Route the result onward to real-controller haptics (PLAN 2.1 / 6).
     pub fn poll_rumble(&mut self) -> crate::Result<Rumble> {
-        // The gamepad fd is non-blocking (set in `build_gamepad`), so with no FF traffic
-        // this returns `WouldBlock` - treat that as "nothing this cycle".
-        let events: Vec<InputEvent> = match self.gamepad.fetch_events() {
-            Ok(iter) => iter.collect(),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Vec::new(),
-            Err(e) => return Err(e.into()),
-        };
-        for event in events {
-            match event.destructure() {
-                // Upload an effect. New effects (id `-1`) get a pooled id; updates (a game
-                // changing an effect in place - e.g. dropping rumble to 0) keep their id.
-                // `FFUploadEvent` owns its fd, so it doesn't borrow `self.gamepad`.
-                EventSummary::UInput(ev, UInputCode::UI_FF_UPLOAD, _) => {
-                    let mut up = self.gamepad.process_ff_upload(ev)?;
-                    let existing = up.effect_id();
-                    let id = if existing >= 0 { Some(existing) } else { self.ff_free_ids.pop() };
-                    match id {
-                        Some(id) => {
-                            up.set_effect_id(id);
-                            up.set_retval(0);
-                        }
-                        None => up.set_retval(-1), // pool exhausted
-                    }
-                    let data = up.effect();
-                    if let (Some(id), FFEffectKind::Rumble { strong_magnitude, weak_magnitude }) =
-                        (id, data.kind)
-                    {
-                        self.ff_effects.insert(
-                            id,
-                            FfEffect {
-                                rumble: Rumble { strong: strong_magnitude, weak: weak_magnitude },
-                                length_ms: data.replay.length as u32,
-                                delay_ms: data.replay.delay as u32,
-                            },
-                        );
-                    }
-                }
-                // An effect is erased - reclaim its id.
-                EventSummary::UInput(ev, UInputCode::UI_FF_ERASE, _) => {
-                    let id = self.gamepad.process_ff_erase(ev)?.effect_id() as i16;
-                    self.ff_effects.remove(&id);
-                    if self.ff_playing == Some(id) {
-                        self.ff_playing = None;
-                        self.ff_until = None;
-                    }
-                    self.ff_free_ids.push(id);
-                }
-                // Play (value = repeat count >= 1) / stop (0) of an effect id. On play we
-                // honor the effect's replay `length` by scheduling an auto-stop - in the
-                // uinput-userspace FF model nothing stops it for us. `length == 0` means
-                // play until an explicit stop. (Single-slot: last-played effect wins.)
-                EventSummary::ForceFeedback(_, effect, value) => {
-                    let id = effect.0 as i16;
-                    if value != 0 {
-                        self.ff_playing = Some(id);
-                        let (length, delay) = self
-                            .ff_effects
-                            .get(&id)
-                            .map(|e| (e.length_ms, e.delay_ms))
-                            .unwrap_or((0, 0));
-                        self.ff_until = (length > 0).then(|| {
-                            let total = delay + length * value.max(1) as u32;
-                            Instant::now() + Duration::from_millis(total as u64)
-                        });
-                    } else if self.ff_playing == Some(id) {
-                        self.ff_playing = None;
-                        self.ff_until = None;
-                    }
-                }
-                _ => {}
-            }
-        }
-        // Auto-stop once the replay length has elapsed.
-        if self.ff_until.is_some_and(|t| Instant::now() >= t) {
-            self.ff_playing = None;
-            self.ff_until = None;
-        }
-        Ok(self
-            .ff_playing
-            .and_then(|id| self.ff_effects.get(&id))
-            .map(|e| e.rumble.clone())
-            .unwrap_or_default())
+        Ok(self.ff.rumble()?)
     }
+}
+
+/// Write input events to a uinput fd - what `VirtualDevice::emit` does, minus the
+/// `SYN_REPORT` it appends (the caller includes its own, so a frame is one `write`).
+fn write_events(mut fd: &File, events: &[InputEvent]) -> io::Result<()> {
+    // SAFETY: `InputEvent` is `repr(transparent)` over the plain-data `input_event`.
+    let bytes =
+        unsafe { std::slice::from_raw_parts(events.as_ptr().cast::<u8>(), size_of_val(events)) };
+    fd.write_all(bytes)
 }
 
 // --- device construction ---
@@ -309,7 +227,7 @@ fn build_gamepad() -> io::Result<VirtualDevice> {
         builder = builder.with_absolute_axis(&UinputAbsSetup::new(code, hat))?;
     }
     let device = builder.build()?;
-    set_nonblocking(&device)?; // so poll_rumble's fetch_events doesn't block on no FF
+    set_nonblocking(&device)?; // so the FF thread's drain stops at `WouldBlock`
     Ok(device)
 }
 

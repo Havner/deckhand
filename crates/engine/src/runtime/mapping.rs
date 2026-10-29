@@ -221,8 +221,8 @@ enum WaitOutcome {
 
 /// Transport-lost phase: release every applied output so nothing sticks, keep the virtual pad
 /// plugged, and idle until the reader reattaches (channels swapped) or a stop. Config hot-swaps are
-/// still accepted so a reattach uses the latest programs; the pad's rumble uploads are drained so a
-/// game's force-feedback thread doesn't block on the still-present pad.
+/// still accepted so a reattach uses the latest programs. Rumble isn't read here (no controller to
+/// feed); `virt-out`'s own FF thread keeps answering the still-present pad, so a game never blocks.
 #[allow(clippy::too_many_arguments)]
 fn run_waiting(
     sink: &mut Sink,
@@ -256,8 +256,6 @@ fn run_waiting(
         if link.poll_reattach() {
             return Ok(WaitOutcome::Reattached);
         }
-        // Discard rumble (no controller to feed) - but drain it so the game's FF thread isn't stuck.
-        let _ = sink.poll_rumble();
     }
     Ok(WaitOutcome::Stopped)
 }
