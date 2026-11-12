@@ -240,6 +240,13 @@ pub fn aim_stick_right_layer() -> Layer {
     );
 
     base.insert(
+        InputSource::LeftGrip2,
+        SourceBinding::Button {
+            commands: vec![aim_stick_right_add()],
+        },
+    );
+
+    base.insert(
         InputSource::RightGrip2,
         SourceBinding::Button {
             commands: vec![aim_stick_right_remove()],
@@ -1365,13 +1372,12 @@ pub fn xbox_profile() -> ConfigDoc {
     }
 }
 
-// --- Xbox + Mouse mixed controls profile --------------------------------------------------
+// --- Xbox + Mouse base --------------------------------------------------
 
-pub fn xbox_mouse_profile() -> ConfigDoc {
+pub fn xbox_mouse_base() -> ConfigDoc {
     let mut profile = xbox_profile();
-    profile.name = "Xbox+Mouse".into();
 
-    // Right grip 2 click adds the mode-shift layer (left stick -> right stick).
+    // Right grip 2 click holds the mode-shift layer (right stick -> right stick).
     profile.action_sets[0].bindings.insert(
         InputSource::RightGrip2,
         SourceBinding::Button {
@@ -1392,7 +1398,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
             },
         },
     );
-    // Right stick click stays right stick click.
+    // Right stick click -> stays right stick click.
 
     // Right pad -> mouse cursor.
     profile.action_sets[0].bindings.insert(
@@ -1410,36 +1416,19 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-pad click holds the mode-shift layer (left stick -> right stick).
+    // Right pad click -> right stick click.
     profile.action_sets[0].bindings.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
-            commands: vec![aim_stick_left_hold()],
+            commands: vec![Command {
+                activator: Activator::Regular { interruptible: true },
+                actions: vec![pad(GamepadButton::RightStick)],
+                settings: Default::default(),
+            }],
         },
     );
 
-    // Persistent aim_stick_right layer
-    let mut system_keys_layer = system_keys_layer();
-    system_keys_layer.bindings.insert(
-        InputSource::RightGrip2,
-        SourceBinding::Button {
-            commands: vec![aim_stick_right_add()],
-        },
-    );
-
-    profile.action_sets[0].layers =
-        vec![system_keys_layer, aim_stick_left_layer(), aim_stick_right_layer()];
-
-    profile
-}
-
-// --- Xbox + Mouse/Gyro mixed controls profile --------------------------------------------------
-
-pub fn xbox_mouse_gyro_profile() -> ConfigDoc {
-    let mut profile = xbox_mouse_profile();
-    profile.name = "Xbox+Mouse/Gyro".into();
-
-    // Gyro -> mouse (vertical inverted, as in the bridge), gated by the left full-pull.
+    // Gyro -> mouse (vertical inverted), disabled here.
     profile.action_sets[0].bindings.insert(
         InputSource::Gyro,
         SourceBinding::GyroToMouse {
@@ -1453,12 +1442,77 @@ pub fn xbox_mouse_gyro_profile() -> ConfigDoc {
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
-                    gaters: vec![Button::LT],
+                    gaters: vec![],
                 },
                 ..Default::default()
             },
         },
     );
+
+    profile.action_sets[0].layers =
+        vec![system_keys_layer(), aim_stick_left_layer(), aim_stick_right_layer()];
+
+    profile
+}
+
+// --- Xbox + Mouse/Gyro mixed controls profile --------------------------------------------------
+
+// Left trigger: left trigger
+// Left grips: gyro
+// Right grip: aim_left_stick layer
+// Right grip2: aim_right_stick layer
+// Right pad click: right stick click
+
+pub fn xbox_mouse_gyro_profile() -> ConfigDoc {
+    let mut profile = xbox_mouse_base();
+    profile.name = "Xbox+Mouse/Gyro".into();
+
+    // Right grip click holds the mode-shift layer (left stick -> right stick).
+    profile.action_sets[0].bindings.insert(
+        InputSource::RightGrip,
+        SourceBinding::Button {
+            commands: vec![aim_stick_left_hold()],
+        },
+    );
+
+    // Left Grips -> gyro activators
+    profile.action_sets[0].bindings.remove(&InputSource::LeftGrip);
+    profile.action_sets[0].bindings.remove(&InputSource::LeftGrip2);
+
+    // Gyro -> mouse (vertical inverted), gated by the left grips.
+    if let Some(SourceBinding::GyroToMouse { settings }) =
+        profile.action_sets[0].bindings.get_mut(&InputSource::Gyro) {
+            settings.activation.gaters = vec![Button::LGrip, Button::LGrip2];
+        };
+
+    profile
+}
+
+// --- Xbox + Mouse/Gyro FPS mixed controls profile --------------------------------------------------
+
+// Left trigger: left trigger + gyro
+// Left grips: left stick click
+// Right grip: right stick click
+// Right grip2: aim_right_stick layer
+// Right pad click: aim_left_stick layer
+
+pub fn xbox_mouse_gyro_fps_profile() -> ConfigDoc {
+    let mut profile = xbox_mouse_base();
+    profile.name = "Xbox+Mouse/Gyro FPS".into();
+
+    // Right pad click holds the mode-shift layer (left stick -> right stick).
+    profile.action_sets[0].bindings.insert(
+        InputSource::RightPadClick,
+        SourceBinding::Button {
+            commands: vec![aim_stick_left_hold()],
+        },
+    );
+
+    // Gyro -> mouse (vertical inverted), gated by the left full-pull.
+    if let Some(SourceBinding::GyroToMouse { settings }) =
+        profile.action_sets[0].bindings.get_mut(&InputSource::Gyro) {
+            settings.activation.gaters = vec![Button::LT];
+        };
 
     profile
 }
@@ -1466,7 +1520,7 @@ pub fn xbox_mouse_gyro_profile() -> ConfigDoc {
 // --- Cyberpunk 2077 profile --------------------------------------------------
 
 pub fn cp2077_profile() -> ConfigDoc {
-    let mut profile = xbox_mouse_gyro_profile();
+    let mut profile = xbox_mouse_gyro_fps_profile();
     profile.name = "Cyberpunk 2077".into();
 
     // Left stick click -> key MiddleMouse.
@@ -1537,7 +1591,7 @@ pub fn cp2077_profile() -> ConfigDoc {
 // --- System Shock profile --------------------------------------------------
 
 pub fn system_shock_profile() -> ConfigDoc {
-    let mut profile = xbox_mouse_gyro_profile();
+    let mut profile = xbox_mouse_gyro_fps_profile();
     profile.name = "System Shock".into();
 
     // Left stick click -> key L.
@@ -1560,18 +1614,6 @@ pub fn system_shock_profile() -> ConfigDoc {
 pub fn prey_profile() -> ConfigDoc {
     let mut profile = xbox_mouse_gyro_profile();
     profile.name = "Prey".into();
-
-    // Left Grips -> gyro activators
-    profile.action_sets[0].bindings.remove(&InputSource::LeftGrip);
-    profile.action_sets[0].bindings.remove(&InputSource::LeftGrip2);
-
-    if let Some(SourceBinding::GyroToMouse { settings }) =
-        profile.action_sets[0].bindings.get_mut(&InputSource::Gyro) {
-            settings.activation.gaters = vec![
-                Button::LGrip,
-                Button::LGrip2,
-            ];
-        };
 
     // View (left small top button) -> gamepad Start + F5 (long).
     profile.action_sets[0].bindings.insert(
@@ -2397,8 +2439,8 @@ fn main() -> std::io::Result<()> {
         ("desktop.ron", desktop_profile()),
         ("desktop_gordon.ron", desktop_gordon_profile()),
         ("xbox.ron", xbox_profile()),
-        ("xbox_mouse.ron", xbox_mouse_profile()),
         ("xbox_mouse_gyro.ron", xbox_mouse_gyro_profile()),
+        ("xbox_mouse_gyro_fps.ron", xbox_mouse_gyro_fps_profile()),
         ("cp2077.ron", cp2077_profile()),
         ("system_shock.ron", system_shock_profile()),
         ("prey.ron", prey_profile()),
@@ -2432,7 +2474,8 @@ mod tests {
         assert_valid_and_round_trips(&desktop_profile());
         assert_valid_and_round_trips(&desktop_gordon_profile());
         assert_valid_and_round_trips(&xbox_profile());
-        assert_valid_and_round_trips(&xbox_mouse_profile());
+        assert_valid_and_round_trips(&xbox_mouse_gyro_profile());
+        assert_valid_and_round_trips(&xbox_mouse_gyro_fps_profile());
         assert_valid_and_round_trips(&cp2077_profile());
         assert_valid_and_round_trips(&system_shock_profile());
         assert_valid_and_round_trips(&prey_profile());
