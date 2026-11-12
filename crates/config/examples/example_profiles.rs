@@ -40,6 +40,16 @@ fn mouse(b: MouseButton) -> Action {
 
 // --- system layer (used by all profiles) ------------------------------------------------
 
+const SYSTEM_KEYS_LABEL: &str = "system_keys";
+
+pub fn system_keys_hold() -> Command {
+    Command {
+        activator: Activator::Regular { interruptible: true },
+        actions: vec![Action::HoldLayer(LayerRef(SYSTEM_KEYS_LABEL.into()))],
+        settings: Default::default(),
+    }
+}
+
 pub fn system_keys_layer() -> Layer {
     let mut base: BTreeMap<InputSource, SourceBinding> = BTreeMap::new();
 
@@ -121,7 +131,177 @@ pub fn system_keys_layer() -> Layer {
     );
 
     Layer {
-        name: "system_keys".into(),
+        name: SYSTEM_KEYS_LABEL.into(),
+        bindings: base,
+    }
+}
+
+// --- aim_stick_left layer (used by mixed input profiles) ------------------------------------------------
+
+// Mode-shift layer: while the right pad is clicked, the left stick drives the RIGHT stick,
+// and the right pad itself is nullified (so holding it for the mode-shift doesn't jitter the
+// mouse). `None` overrides the base AsMouse binding for the duration of the layer.
+
+const AIM_STICK_LEFT_LABEL: &str = "aim_stick_left";
+
+pub fn aim_stick_left_hold() -> Command {
+    Command {
+        activator: Activator::Regular { interruptible: true },
+        actions: vec![Action::HoldLayer(LayerRef(AIM_STICK_LEFT_LABEL.into()))],
+        settings: Default::default(),
+    }
+}
+
+pub fn aim_stick_left_layer() -> Layer {
+    let mut base: BTreeMap<InputSource, SourceBinding> = BTreeMap::new();
+
+    base.insert(
+        InputSource::LeftStick,
+        SourceBinding::Joystick {
+            settings: JoystickSettings {
+                output: StickOutput::Right,
+                ..Default::default()
+            },
+            outer_ring: vec![],
+        },
+    );
+
+    base.insert(
+        InputSource::RightPad,
+        SourceBinding::None,
+    );
+
+    Layer {
+        name: AIM_STICK_LEFT_LABEL.into(),
+        bindings: base,
+    }
+}
+
+// --- aim_stick_right layer (used by mixed input profiles) ------------------------------------------------
+
+const AIM_STICK_RIGHT_LABEL: &str = "aim_stick_right";
+
+pub fn aim_stick_right_hold() -> Command {
+    Command {
+        activator: Activator::Regular { interruptible: true },
+        actions: vec![Action::HoldLayer(LayerRef(AIM_STICK_RIGHT_LABEL.into()))],
+        settings: Default::default(),
+    }
+}
+
+pub fn aim_stick_right_add() -> Command {
+    Command {
+        activator: Activator::Regular { interruptible: true },
+        actions: vec![Action::AddLayer(LayerRef(AIM_STICK_RIGHT_LABEL.into()))],
+        settings: CommandSettings {
+            feedback: Feedback {
+                on_press: Some(Effect::AudioTriple(
+                    config::Tone::ShortLow,
+                    config::Tone::ShortMedium,
+                    config::Tone::ShortHigh,
+                )),
+                on_release: None,
+            },
+            ..Default::default()
+        },
+    }
+}
+
+pub fn aim_stick_right_remove() -> Command {
+    Command {
+        activator: Activator::Regular { interruptible: true },
+        actions: vec![Action::RemoveLayer(LayerRef(AIM_STICK_RIGHT_LABEL.into()))],
+        settings: CommandSettings {
+            feedback: Feedback {
+                on_press: Some(Effect::AudioTriple(
+                    config::Tone::ShortHigh,
+                    config::Tone::ShortMedium,
+                    config::Tone::ShortLow,
+                )),
+                on_release: None,
+            },
+            ..Default::default()
+        },
+    }
+}
+
+pub fn aim_stick_right_layer() -> Layer {
+    let mut base: BTreeMap<InputSource, SourceBinding> = BTreeMap::new();
+
+    base.insert(
+        InputSource::RightStick,
+        SourceBinding::Joystick {
+            settings: JoystickSettings {
+                output: StickOutput::Right,
+                ..Default::default()
+            },
+            outer_ring: vec![],
+        },
+    );
+
+    base.insert(
+        InputSource::RightGrip2,
+        SourceBinding::Button {
+            commands: vec![aim_stick_right_remove()],
+        },
+    );
+
+    Layer {
+        name: AIM_STICK_RIGHT_LABEL.into(),
+        bindings: base,
+    }
+}
+
+// --- gyro layer (used by some profiles) ------------------------------------------------
+
+// Mode-shift layer: while the right pad is clicked, the gyro is enabled,
+// and the right pad itself is nullified (so holding it for the mode-shift doesn't jitter the
+// mouse). `None` overrides the base AsMouse binding for the duration of the layer.
+
+const GYRO_LABEL: &str = "gyro";
+
+pub fn gyro_hold() -> Command {
+    Command {
+        activator: Activator::Regular { interruptible: true },
+        actions: vec![Action::HoldLayer(LayerRef(GYRO_LABEL.into()))],
+        settings: CommandSettings {
+            feedback: Feedback {
+                on_press: Some(Effect::Haptic(Click::Medium)),
+                on_release: Some(Effect::Haptic(Click::Medium)),
+            },
+            ..Default::default()
+        },
+    }
+}
+
+pub fn gyro_layer() -> Layer {
+    let mut base: BTreeMap<InputSource, SourceBinding> = BTreeMap::new();
+
+    base.insert(
+        InputSource::Gyro,
+        SourceBinding::GyroToMouse {
+            settings: GyroToMouseSettings {
+                output: MouseOutput::Cursor,
+                acceleration: Acceleration { factor: 0.02 },
+                space: GyroSpace::PlayerSpace,
+                smoothing: Some(OneEuroFilter::default()),
+                deadzone: Deadzone { inner: 0.01 },
+                activation: Activation {
+                    mode: ActivationMode::HoldToDisable,
+                    gaters: vec![],
+                },
+                ..Default::default()
+            },
+        },
+    );
+
+    base.insert(
+        InputSource::RightPad,
+        SourceBinding::None
+    );
+
+    Layer {
+        name: GYRO_LABEL.into(),
         bindings: base,
     }
 }
@@ -281,11 +461,7 @@ pub fn desktop_profile() -> ConfigDoc {
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
+            commands: vec![system_keys_hold()],
         },
     );
     // Quick access button -> none (toggle profile).
@@ -462,17 +638,7 @@ pub fn desktop_profile() -> ConfigDoc {
     base.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("gyro".into()))],
-                settings: CommandSettings {
-                    feedback: Feedback {
-                        on_press: Some(Effect::Haptic(Click::Medium)),
-                        on_release: Some(Effect::Haptic(Click::Medium)),
-                    },
-                    ..Default::default()
-                },
-            }],
+            commands: vec![gyro_hold()],
         },
     );
 
@@ -484,35 +650,6 @@ pub fn desktop_profile() -> ConfigDoc {
         SourceBinding::None,
     );
 
-    // ----- LAYERS -----
-
-    let gyro = Layer {
-        name: "gyro".into(),
-        bindings: BTreeMap::from([
-            (
-                InputSource::Gyro,
-                SourceBinding::GyroToMouse {
-                    settings: GyroToMouseSettings {
-                        output: MouseOutput::Cursor,
-                        acceleration: Acceleration { factor: 0.02 },
-                        space: GyroSpace::PlayerSpace,
-                        smoothing: Some(OneEuroFilter::default()),
-                        deadzone: Deadzone { inner: 0.01 },
-                        activation: Activation {
-                            mode: ActivationMode::HoldToDisable,
-                            gaters: vec![],
-                        },
-                        ..Default::default()
-                    },
-                },
-            ),
-            (
-                InputSource::RightPad,
-                SourceBinding::None
-            ),
-        ]),
-    };
-
     // ----- CONFIG -----
 
     ConfigDoc {
@@ -522,7 +659,7 @@ pub fn desktop_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![system_keys_layer(), gyro],
+            layers: vec![system_keys_layer(), gyro_layer()],
         }],
     }
 }
@@ -666,11 +803,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
+            commands: vec![system_keys_hold()],
         },
     );
     // Quick access button -> none (toggle profile).
@@ -1098,11 +1231,7 @@ pub fn xbox_profile() -> ConfigDoc {
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
+            commands: vec![system_keys_hold()],
         },
     );
     // Quick access button -> none (toggle profile).
@@ -1250,11 +1379,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
     profile.action_sets[0].bindings.insert(
         InputSource::RightGrip2,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("aim_stick_right".into()))],
-                settings: Default::default(),
-            }],
+            commands: vec![aim_stick_right_hold()],
         },
     );
 
@@ -1294,98 +1419,20 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
     profile.action_sets[0].bindings.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("aim_stick_left".into()))],
-                settings: Default::default(),
-            }],
+            commands: vec![aim_stick_left_hold()],
         },
     );
-
-    // ----- LAYERS -----
-
-    // Mode-shift layer: while the right pad is clicked, the left stick drives the RIGHT stick,
-    // and the right pad itself is nullified (so holding it for the mode-shift doesn't jitter the
-    // mouse). `None` overrides the base AsMouse binding for the duration of the layer.
-    let aim_stick_left = Layer {
-        name: "aim_stick_left".into(),
-        bindings: BTreeMap::from([
-            (
-                InputSource::LeftStick,
-                SourceBinding::Joystick {
-                    settings: JoystickSettings {
-                        output: StickOutput::Right,
-                        ..Default::default()
-                    },
-                    outer_ring: vec![],
-                },
-            ),
-            (
-                InputSource::RightPad,
-                SourceBinding::None
-            ),
-        ]),
-    };
-    let aim_stick_right = Layer {
-        name: "aim_stick_right".into(),
-        bindings: BTreeMap::from([
-            (
-                InputSource::RightGrip2,
-                SourceBinding::Button {
-                    commands: vec![Command {
-                        activator: Activator::Regular { interruptible: true },
-                        actions: vec![Action::RemoveLayer(LayerRef("aim_stick_right".into()))],
-                        settings: CommandSettings {
-                            feedback: Feedback {
-                                on_press: Some(Effect::AudioTriple(
-                                    config::Tone::ShortHigh,
-                                    config::Tone::ShortMedium,
-                                    config::Tone::ShortLow,
-                                )),
-                                on_release: None,
-                            },
-                            ..Default::default()
-                        },
-                    }],
-                },
-            ),
-            (
-                InputSource::RightStick,
-                SourceBinding::Joystick {
-                    settings: JoystickSettings {
-                        output: StickOutput::Right,
-                        ..Default::default()
-                    },
-                    outer_ring: vec![],
-                },
-            ),
-        ]),
-    };
 
     let mut system_keys_layer = system_keys_layer();
     system_keys_layer.bindings.insert(
         InputSource::RightGrip2,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::AddLayer(LayerRef("aim_stick_right".into()))],
-                settings: CommandSettings {
-                    feedback: Feedback {
-                        on_press: Some(Effect::AudioTriple(
-                            config::Tone::ShortLow,
-                            config::Tone::ShortMedium,
-                            config::Tone::ShortHigh,
-                        )),
-                        on_release: None,
-                    },
-                    ..Default::default()
-                },
-            }],
+            commands: vec![aim_stick_right_add()],
         },
     );
 
     profile.action_sets[0].layers =
-        vec![system_keys_layer, aim_stick_left, aim_stick_right];
+        vec![system_keys_layer, aim_stick_left_layer(), aim_stick_right_layer()];
 
     profile
 }
@@ -1720,11 +1767,7 @@ pub fn control_profile() -> ConfigDoc {
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
+            commands: vec![system_keys_hold()],
         },
     );
     base.insert(
@@ -2089,11 +2132,7 @@ pub fn baldur_profile() -> ConfigDoc {
     base.insert(
         InputSource::Steam,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("system_keys".into()))],
-                settings: Default::default(),
-            }],
+            commands: vec![system_keys_hold()],
         },
     );
     base.insert(
@@ -2269,17 +2308,7 @@ pub fn baldur_profile() -> ConfigDoc {
     base.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
-            commands: vec![Command {
-                activator: Activator::Regular { interruptible: true },
-                actions: vec![Action::HoldLayer(LayerRef("gyro".into()))],
-                settings: CommandSettings {
-                    feedback: Feedback {
-                        on_press: Some(Effect::Haptic(Click::Medium)),
-                        on_release: Some(Effect::Haptic(Click::Medium)),
-                    },
-                    ..Default::default()
-                },
-            }],
+            commands: vec![gyro_hold()],
         },
     );
 
@@ -2290,35 +2319,6 @@ pub fn baldur_profile() -> ConfigDoc {
         SourceBinding::None,
     );
 
-    // ----- LAYERS -----
-
-    let gyro = Layer {
-        name: "gyro".into(),
-        bindings: BTreeMap::from([
-            (
-                InputSource::Gyro,
-                SourceBinding::GyroToMouse {
-                    settings: GyroToMouseSettings {
-                        output: MouseOutput::Cursor,
-                        acceleration: Acceleration { factor: 0.02 },
-                        space: GyroSpace::PlayerSpace,
-                        smoothing: Some(OneEuroFilter::default()),
-                        deadzone: Deadzone { inner: 0.01 },
-                        activation: Activation {
-                            mode: ActivationMode::HoldToDisable,
-                            gaters: vec![],
-                        },
-                        ..Default::default()
-                    },
-                },
-            ),
-            (
-                InputSource::RightPad,
-                SourceBinding::None
-            ),
-        ]),
-    };
-
     // ----- CONFIG -----
 
     ConfigDoc {
@@ -2328,7 +2328,7 @@ pub fn baldur_profile() -> ConfigDoc {
         action_sets: vec![ActionSet {
             name: "base".into(),
             bindings: base,
-            layers: vec![system_keys_layer(), gyro],
+            layers: vec![system_keys_layer(), gyro_layer()],
         }],
     }
 }
