@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 
 use config::{
-    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings,  Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, Click, Effect, Feedback, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, Rotation, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings,  Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, Click, Effect, Feedback, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
 };
 use vocab_hid::Button;
 use vocab_out::{GamepadButton, Key, MouseButton};
@@ -544,7 +544,7 @@ pub fn desktop_profile() -> ConfigDoc {
             },
         },
     );
-    // Left-stick click -> middle mouse button.
+    // Left stick click -> middle mouse button.
     base.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {
@@ -569,7 +569,7 @@ pub fn desktop_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-stick click -> Super/Meta.
+    // Right stick click -> Super/Meta.
     base.insert(
         InputSource::RightStickClick,
         SourceBinding::Button {
@@ -599,7 +599,7 @@ pub fn desktop_profile() -> ConfigDoc {
             },
         },
     );
-    // Left-pad click -> middle mouse button.
+    // Left pad click -> middle mouse button.
     base.insert(
         InputSource::LeftPadClick,
         SourceBinding::Button {
@@ -629,12 +629,11 @@ pub fn desktop_profile() -> ConfigDoc {
                     min_cutoff: 3.0,
                     beta: 0.5,
                 }),
-                rotation: Rotation { degrees: 0.0 },
                 ..Default::default()
             },
         },
     );
-    // Right-pad click -> gyro layer.
+    // Right pad click -> gyro layer.
     base.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
@@ -905,7 +904,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             outer_ring: vec![],
         },
     );
-    // Left-stick click -> Super/Meta.
+    // Left stick click -> Super/Meta.
     base.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {
@@ -930,7 +929,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-stick click -> none.
+    // Right stick click -> none.
     base.insert(
         InputSource::RightStickClick,
         SourceBinding::None,
@@ -954,7 +953,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
             },
         },
     );
-    // Left-pad click -> middle mouse button.
+    // Left pad click -> middle mouse button.
     base.insert(
         InputSource::LeftPadClick,
         SourceBinding::Button {
@@ -978,12 +977,11 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                     min_cutoff: 3.0,
                     beta: 0.5,
                 }),
-                rotation: Rotation { degrees: 0.0 },
                 ..Default::default()
             },
         },
     );
-    // Right-pad click holds the alt_mouse layer (left stick -> mouse instead of arrows).
+    // Right pad click holds the alt_mouse layer (left stick -> mouse instead of arrows).
     base.insert(
         InputSource::RightPadClick,
         SourceBinding::Button {
@@ -1286,7 +1284,7 @@ pub fn xbox_profile() -> ConfigDoc {
             outer_ring: vec![],
         },
     );
-    // Left-stick click -> left stick click.
+    // Left stick click -> left stick click.
     base.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {
@@ -1309,7 +1307,7 @@ pub fn xbox_profile() -> ConfigDoc {
             outer_ring: vec![],
         },
     );
-    // Right-stick click -> right stick click.
+    // Right stick click -> right stick click.
     base.insert(
         InputSource::RightStickClick,
         SourceBinding::Button {
@@ -1328,7 +1326,7 @@ pub fn xbox_profile() -> ConfigDoc {
         InputSource::RightPad,
         SourceBinding::None,
     );
-    // Right-pad click -> none.
+    // Right pad click -> none.
     base.insert(
         InputSource::RightPadClick,
         SourceBinding::None,
@@ -1339,7 +1337,7 @@ pub fn xbox_profile() -> ConfigDoc {
         InputSource::LeftPad,
         SourceBinding::None,
     );
-    // Left-pad click -> none.
+    // Left pad click -> none.
     base.insert(
         InputSource::LeftPadClick,
         SourceBinding::None,
@@ -1352,8 +1350,6 @@ pub fn xbox_profile() -> ConfigDoc {
         InputSource::Gyro,
         SourceBinding::None,
     );
-
-    // ----- LAYERS -----
 
     // ----- CONFIG -----
 
@@ -1396,7 +1392,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
             },
         },
     );
-    // Right-stick click stays right stick click.
+    // Right stick click stays right stick click.
 
     // Right pad -> mouse cursor.
     profile.action_sets[0].bindings.insert(
@@ -1410,7 +1406,6 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
                     min_cutoff: 3.0,
                     beta: 0.5,
                 }),
-                rotation: Rotation { degrees: 0.0 },
                 ..Default::default()
             },
         },
@@ -1423,6 +1418,7 @@ pub fn xbox_mouse_profile() -> ConfigDoc {
         },
     );
 
+    // Persistent aim_stick_right layer
     let mut system_keys_layer = system_keys_layer();
     system_keys_layer.bindings.insert(
         InputSource::RightGrip2,
@@ -1473,7 +1469,7 @@ pub fn cp2077_profile() -> ConfigDoc {
     let mut profile = xbox_mouse_gyro_profile();
     profile.name = "Cyberpunk 2077".into();
 
-    // Left-stick click -> key MiddleMouse.
+    // Left stick click -> key MiddleMouse.
     profile.action_sets[0].bindings.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {
@@ -1485,14 +1481,14 @@ pub fn cp2077_profile() -> ConfigDoc {
         },
     );
 
-    // Right-pad mouse sensitivity
+    // Right pad mouse sensitivity
     if let Some(SourceBinding::AsMouse { settings }) =
         profile.action_sets[0].bindings.get_mut(&InputSource::RightPad) {
             settings.sensitivity.x = 1.5;
             settings.sensitivity.y = 1.5;
         };
 
-    // Right-stick mouse sensitivity
+    // Right stick mouse sensitivity
     if let Some(SourceBinding::JoystickMouse { settings }) =
         profile.action_sets[0].bindings.get_mut(&InputSource::RightStick) {
             settings.sensitivity.x = 2.0;
@@ -1544,7 +1540,7 @@ pub fn system_shock_profile() -> ConfigDoc {
     let mut profile = xbox_mouse_gyro_profile();
     profile.name = "System Shock".into();
 
-    // Left-stick click -> key L.
+    // Left stick click -> key L.
     profile.action_sets[0].bindings.insert(
         InputSource::LeftStickClick,
         SourceBinding::Button {
@@ -1909,7 +1905,6 @@ pub fn control_profile() -> ConfigDoc {
                     min_cutoff: 3.0,
                     beta: 0.5,
                 }),
-                rotation: Rotation { degrees: 0.0 },
                 ..Default::default()
             },
         },
@@ -2300,7 +2295,6 @@ pub fn baldur_profile() -> ConfigDoc {
                     min_cutoff: 3.0,
                     beta: 0.5,
                 }),
-                rotation: Rotation { degrees: 0.0 },
                 ..Default::default()
             },
         },
