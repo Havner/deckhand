@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 
 use config::{
-    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings,  Command, CommandSettings, ConfigDoc, Curve, Deadzone, DirectionalPadSettings, DpadLayout, Click, Effect, Feedback, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
+    Acceleration, Action, ActionSet, Activation, ActivationMode, Activator, AsMouseSettings,  Command, CommandSettings, ConfigDoc, Curve, Deadzone, Threshold, DirectionalPadSettings, DpadLayout, Click, Effect, Feedback, ChordAction, Chord, Chords, DeviceConfig, GyroSpace, GyroToMouseSettings, InputSource, Invert, JoystickMouseSettings, JoystickSettings, Layer, LayerRef, MouseOutput, OneEuroFilter, RumbleSettings, Sensitivity, SoftPull, SourceBinding, StickOutput, SwitchMode, TriggerOutput, TriggerSettings, Turbo
 };
 use vocab_hid::Button;
 use vocab_out::{GamepadButton, Key, MouseButton};
@@ -292,7 +292,7 @@ pub fn gyro_layer() -> Layer {
                 acceleration: Acceleration { factor: 0.02 },
                 space: GyroSpace::PlayerSpace,
                 smoothing: Some(OneEuroFilter::default()),
-                deadzone: Deadzone { inner: 0.01 },
+                threshold: Threshold { value: 0.01 },
                 activation: Activation {
                     mode: ActivationMode::HoldToDisable,
                     gaters: vec![],
@@ -546,7 +546,7 @@ pub fn desktop_profile() -> ConfigDoc {
                 output: MouseOutput::SmoothScroll,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(2.0),
-                deadzone: Deadzone { inner: 0.1 },
+                deadzone: Deadzone { inner: 0.1, ..Default::default() },
                 ..Default::default()
             },
         },
@@ -571,7 +571,7 @@ pub fn desktop_profile() -> ConfigDoc {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(2.0),
-                deadzone: Deadzone { inner: 0.1 },
+                deadzone: Deadzone { inner: 0.1, ..Default::default() },
                 ..Default::default()
             },
         },
@@ -885,7 +885,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
         SourceBinding::DirectionalPad {
             settings: DirectionalPadSettings {
                 layout: DpadLayout::FourWay,
-                deadzone: Deadzone { inner: 0.3 },
+                threshold: Threshold { value: 0.3 },
                 ..Default::default()
             },
             up: vec![Command {
@@ -931,7 +931,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(2.0),
-                deadzone: Deadzone { inner: 0.05 },
+                deadzone: Deadzone { inner: 0.05, ..Default::default() },
                 ..Default::default()
             },
         },
@@ -1023,7 +1023,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                         output: MouseOutput::Cursor,
                         sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                         curve: Curve::Power(2.0),
-                        deadzone: Deadzone { inner: 0.05 },
+                        deadzone: Deadzone { inner: 0.05, ..Default::default() },
                         ..Default::default()
                     },
                 },
@@ -1051,7 +1051,7 @@ pub fn desktop_gordon_profile() -> ConfigDoc {
                         acceleration: Acceleration { factor: 0.02 },
                         space: GyroSpace::PlayerSpace,
                         smoothing: Some(OneEuroFilter::default()),
-                        deadzone: Deadzone { inner: 0.01 },
+                        threshold: Threshold { value: 0.01 },
                         activation: Activation {
                             mode: ActivationMode::HoldToDisable,
                             gaters: vec![],
@@ -1393,7 +1393,7 @@ pub fn xbox_mouse_base() -> ConfigDoc {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(2.0),
-                deadzone: Deadzone { inner: 0.05 },
+                deadzone: Deadzone { inner: 0.05, ..Default::default() },
                 ..Default::default()
             },
         },
@@ -1438,7 +1438,7 @@ pub fn xbox_mouse_base() -> ConfigDoc {
                 sensitivity: Sensitivity { x: 0.5, y: 0.5 },
                 acceleration: Acceleration { factor: 0.02 },
                 smoothing: Some(OneEuroFilter::default()),
-                deadzone: Deadzone { inner: 0.01 },
+                threshold: Threshold { value: 0.01 },
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
@@ -1874,7 +1874,7 @@ pub fn control_profile() -> ConfigDoc {
         SourceBinding::DirectionalPad {
             settings: DirectionalPadSettings {
                 layout: DpadLayout::EightWay,
-                deadzone: Deadzone { inner: 0.3 },
+                threshold: Threshold { value: 0.3 },
                 ..Default::default()
             },
             up: vec![Command {
@@ -1918,7 +1918,7 @@ pub fn control_profile() -> ConfigDoc {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(2.0),
-                deadzone: Deadzone { inner: 0.05 },
+                deadzone: Deadzone { inner: 0.05, ..Default::default() },
                 ..Default::default()
             },
         },
@@ -1982,7 +1982,7 @@ pub fn control_profile() -> ConfigDoc {
                 sensitivity: Sensitivity { x: 0.5, y: 0.5 },
                 acceleration: Acceleration { factor: 0.02 },
                 smoothing: Some(OneEuroFilter::default()),
-                deadzone: Deadzone { inner: 0.1 },
+                threshold: Threshold { value: 0.1 },
                 invert: Invert { x: false, y: true },
                 activation: Activation {
                     mode: ActivationMode::HoldToEnable,
@@ -2238,7 +2238,7 @@ pub fn baldur_profile() -> ConfigDoc {
         SourceBinding::DirectionalPad {
             settings: DirectionalPadSettings {
                 layout: DpadLayout::EightWay,
-                deadzone: Deadzone { inner: 0.33 },
+                threshold: Threshold { value: 0.33 },
                 ..Default::default()
             },
             up: vec![
@@ -2292,7 +2292,7 @@ pub fn baldur_profile() -> ConfigDoc {
                 output: MouseOutput::Cursor,
                 sensitivity: Sensitivity { x: 1.2, y: 1.2 },
                 curve: Curve::Power(2.0),
-                deadzone: Deadzone { inner: 0.1 },
+                deadzone: Deadzone { inner: 0.1, ..Default::default() },
                 ..Default::default()
             },
         },

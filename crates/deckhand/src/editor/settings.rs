@@ -7,7 +7,7 @@
 
 use config::{
     Acceleration, Activation, Axis, Curve, Deadzone, Invert, OneEuroFilter, OuterRing, Rotation,
-    Sensitivity, SourceBinding,
+    Sensitivity, SourceBinding, Threshold,
 };
 
 use super::SettingEdit;
@@ -95,9 +95,15 @@ pub(super) fn apply_setting(binding: &mut SourceBinding, edit: SettingEdit) {
                 f.beta = v;
             }
         }
-        E::Deadzone(v) => {
+        E::Deadzone(inner, outer) => {
             if let Some(d) = deadzone_mut(binding) {
-                d.inner = v;
+                d.inner = inner;
+                d.outer = outer;
+            }
+        }
+        E::Threshold(v) => {
+            if let Some(t) = threshold_mut(binding) {
+                t.value = v;
             }
         }
         E::AntiDeadzone(v) => {
@@ -146,10 +152,17 @@ fn deadzone_mut(b: &mut SourceBinding) -> Option<&mut Deadzone> {
     use SourceBinding as B;
     match b {
         B::Joystick { settings, .. } => Some(&mut settings.deadzone),
-        B::DirectionalPad { settings, .. } => Some(&mut settings.deadzone),
         B::JoystickMouse { settings } => Some(&mut settings.deadzone),
-        B::GyroToMouse { settings } => Some(&mut settings.deadzone),
         B::Trigger { settings, .. } => Some(&mut settings.deadzone),
+        _ => None,
+    }
+}
+
+fn threshold_mut(b: &mut SourceBinding) -> Option<&mut Threshold> {
+    use SourceBinding as B;
+    match b {
+        B::DirectionalPad { settings, .. } => Some(&mut settings.threshold),
+        B::GyroToMouse { settings } => Some(&mut settings.threshold),
         _ => None,
     }
 }

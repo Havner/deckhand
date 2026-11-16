@@ -480,13 +480,16 @@ fn abs_code(a: &GamepadAxis) -> AbsoluteAxisCode {
     }
 }
 
-// xpad ranges: sticks i16, triggers 0..255. (Dpad is a hat, set directly in emit.)
+// xpad ranges: sticks i16, triggers 0..255. (Dpad is a hat, set directly in emit.) Fuzz is 0,
+// unlike xpad's 16: our values are exact, and the kernel's defuzz would average a small final step
+// (e.g. the last few units to full deflection) and, since we emit only on change, leave it stuck
+// short.
 fn abs_info(a: &GamepadAxis) -> AbsInfo {
     match a {
         GamepadAxis::LeftStickX
         | GamepadAxis::LeftStickY
         | GamepadAxis::RightStickX
-        | GamepadAxis::RightStickY => AbsInfo::new(0, -32768, 32767, 16, 128, 0),
+        | GamepadAxis::RightStickY => AbsInfo::new(0, -32768, 32767, 0, 128, 0),
         GamepadAxis::LeftTrigger | GamepadAxis::RightTrigger => AbsInfo::new(0, 0, 255, 0, 0, 0),
     }
 }
@@ -497,8 +500,10 @@ fn abs_value(a: &GamepadAxis, v: f32) -> i32 {
         GamepadAxis::LeftStickX
         | GamepadAxis::LeftStickY
         | GamepadAxis::RightStickX
-        | GamepadAxis::RightStickY => (v.clamp(-1.0, 1.0) * 32767.0) as i32,
-        GamepadAxis::LeftTrigger | GamepadAxis::RightTrigger => (v.clamp(0.0, 1.0) * 255.0) as i32,
+        | GamepadAxis::RightStickY => (v.clamp(-1.0, 1.0) * 32767.0).round() as i32,
+        GamepadAxis::LeftTrigger | GamepadAxis::RightTrigger => {
+            (v.clamp(0.0, 1.0) * 255.0).round() as i32
+        }
     }
 }
 

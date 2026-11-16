@@ -18,9 +18,9 @@ use iced::widget::{Space, button, checkbox, column, container, pick_list, row, s
 use iced::{Center, Element, Fill};
 
 use config::{
-    Activation, ActivationMode, Activator, Axis, Click, Command, Curve, DpadLayout, Effect, GyroSpace,
-    InputSource, Invert, MouseOutput, OneEuroFilter, Sensitivity, SourceBinding, StickOutput, Sweep,
-    Tone, TriggerOutput,
+    Activation, ActivationMode, Activator, Axis, Click, Command, Curve, Deadzone, DpadLayout, Effect,
+    GyroSpace, InputSource, Invert, MouseOutput, OneEuroFilter, Sensitivity, SourceBinding, StickOutput,
+    Sweep, Tone, TriggerOutput,
 };
 
 use super::{CMD_SLOT, input_label};
@@ -367,7 +367,7 @@ fn joystick_view(input: &InputSource, s: &config::JoystickSettings) -> Element<'
         axis(input, s.axis.clone()),
         outer_ring(input, s.outer_ring.radius),
         curve(input, &s.curve),
-        deadzone(input, s.deadzone.inner),
+        deadzone(input, &s.deadzone),
         anti_deadzone(input, s.anti_deadzone.amount),
         invert(input, s.invert.clone()),
         rotation(input, s.rotation.degrees),
@@ -381,7 +381,7 @@ fn directional_pad_view(input: &InputSource, s: &config::DirectionalPadSettings)
     column![
         layout(input, s.layout.clone()),
         outer_ring(input, s.outer_ring.radius),
-        deadzone(input, s.deadzone.inner),
+        threshold(input, s.threshold.value),
         rotation(input, s.rotation.degrees),
         activation(input, &s.activation),
     ]
@@ -410,7 +410,7 @@ fn joystick_mouse_view(input: &InputSource, s: &config::JoystickMouseSettings) -
         axis(input, s.axis.clone()),
         sensitivity(input, s.sensitivity.clone()),
         curve(input, &s.curve),
-        deadzone(input, s.deadzone.inner),
+        deadzone(input, &s.deadzone),
         invert(input, s.invert.clone()),
         rotation(input, s.rotation.degrees),
         activation(input, &s.activation),
@@ -427,7 +427,7 @@ fn gyro_to_mouse_view(input: &InputSource, s: &config::GyroToMouseSettings) -> E
         sensitivity(input, s.sensitivity.clone()),
         acceleration(input, s.acceleration.factor),
         smoothing(input, &s.smoothing),
-        deadzone(input, s.deadzone.inner),
+        threshold(input, s.threshold.value),
         invert(input, s.invert.clone()),
         rotation(input, s.rotation.degrees),
         activation(input, &s.activation),
@@ -441,7 +441,7 @@ fn trigger_view(input: &InputSource, s: &config::TriggerSettings) -> Element<'st
         output_trigger(input, s.output.clone()),
         soft_pull(input, s.soft_pull.threshold),
         curve(input, &s.curve),
-        deadzone(input, s.deadzone.inner),
+        deadzone(input, &s.deadzone),
     ]
     .spacing(16.0)
     .into()
@@ -523,8 +523,32 @@ fn soft_pull(input: &InputSource, threshold: f32) -> Element<'static, Message> {
     slider_setting("Soft pull", threshold, 0.0..=1.0, 0.01, format!("{threshold:.2}"), input, SettingEdit::SoftPull)
 }
 
-fn deadzone(input: &InputSource, inner: f32) -> Element<'static, Message> {
-    slider_setting("Deadzone", inner, 0.0..=1.0, 0.01, format!("{inner:.2}"), input, SettingEdit::Deadzone)
+/// Inner + outer deadzone side by side (`inner [slider] outer [slider]`, like the device page's
+/// min/max levers). Same row spacing + trailing 70 px readout as [`slider_setting`], so the pair
+/// spans exactly the single sliders' rail. Each slider sends the pair, clamped so the handles never
+/// cross (`inner <= outer`).
+fn deadzone(input: &InputSource, d: &Deadzone) -> Element<'static, Message> {
+    let (inner, outer) = (d.inner, d.outer);
+    let edit = move |input: &InputSource, inner: f32, outer: f32| {
+        Message::Editor(EditorMessage::SetSetting(input.clone(), SettingEdit::Deadzone(inner, outer)))
+    };
+    let (in_i, in_o) = (input.clone(), input.clone());
+    row![
+        setting_label("Deadzone"),
+        small("inner"),
+        slider(0.0..=1.0, inner, move |v| edit(&in_i, v.min(outer), outer)).step(0.01),
+        text(format!("{inner:.2}")).width(40.0),
+        small("outer"),
+        slider(0.0..=1.0, outer, move |v| edit(&in_o, inner, v.max(inner))).step(0.01),
+        text(format!("{outer:.2}")).width(70.0),
+    ]
+    .spacing(12.0)
+    .align_y(Center)
+    .into()
+}
+
+fn threshold(input: &InputSource, value: f32) -> Element<'static, Message> {
+    slider_setting("Threshold", value, 0.0..=1.0, 0.01, format!("{value:.2}"), input, SettingEdit::Threshold)
 }
 
 fn anti_deadzone(input: &InputSource, amount: f32) -> Element<'static, Message> {

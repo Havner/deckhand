@@ -60,7 +60,10 @@ pub(crate) trait Wire: Copy {
 }
 
 /// A raw wire 2D vector (two little-endian `i16`) - sticks/pads, shared by the fixed packets below
-/// and the Gordon BLE chunk stream. Decodes into a [`crate::value::Vec2i`] in `state.rs`.
+/// and the Gordon BLE chunk stream. Decodes into a `vocab_hid::Vec2i` in `report.rs`.
+///
+/// **Range is symmetric `-32767..=32767`, never -32768** (HW-verified on the Gordon stick: raw
+/// frame and Steam's own tester both bottom out at -32767), so the full scale is 32767 both ways.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct WireVec2 {

@@ -115,7 +115,9 @@ pub(crate) enum SettingEdit {
     SmoothingEnabled(bool),
     SmoothingMinCutoff(f32),
     SmoothingBeta(f32),
-    Deadzone(f32),
+    /// Inner + outer deadzone, set together (each slider sends the pair, clamped `inner <= outer`).
+    Deadzone(f32, f32),
+    Threshold(f32),
     AntiDeadzone(f32),
     InvertX(bool),
     InvertY(bool),

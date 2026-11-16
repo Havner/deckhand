@@ -37,6 +37,6 @@ pub use settings::{
     Acceleration, Activation, ActivationMode, AntiDeadzone, AsMouseSettings, Axis, Curve, Deadzone,
     DirectionalPadSettings, DpadLayout, GyroSpace, GyroToMouseSettings, Invert, JoystickMouseSettings,
     JoystickSettings, MouseOutput, OneEuroFilter, OuterRing, Rotation, Sensitivity, SoftPull,
-    StickOutput, TriggerOutput, TriggerSettings,
+    StickOutput, Threshold, TriggerOutput, TriggerSettings,
 };
 pub use validate::{Diagnostic, Severity};

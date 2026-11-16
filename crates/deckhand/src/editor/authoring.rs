@@ -4,10 +4,10 @@
 //! `Unbound`). It's the value type the behaviour picker selects, and the seam for constructing a
 //! fresh binding when the user picks a behaviour: [`Behavior::default_binding`] builds the right
 //! variant with UI-authored **starting values** - tuned per behaviour, and per input where it
-//! matters (side-aware output; a trackpad DirectionalPad gated on that pad's click). Deadzones
-//! default to 0.0 (neutral), like `config`. `config` owns the data model + neutral `Default`;
-//! these *authoring* defaults live here in the UI, since no non-UI path ever needs them (this
-//! session's decision).
+//! matters (side-aware output; a trackpad DirectionalPad gated on that pad's click). Deadzones and
+//! thresholds default to neutral (deadzone `0..1`, threshold 0.0), like `config`. `config` owns the
+//! data model + neutral `Default`; these *authoring* defaults live here in the UI, since no non-UI
+//! path ever needs them (this session's decision).
 //!
 //! UI **ranges** (slider min/max) deliberately aren't here: they vary only by behaviour, so they'll
 //! live inline in each behaviour's settings view - no lookup table needed.
@@ -113,8 +113,8 @@ impl Behavior {
     /// Build a fresh binding of this behaviour for `input`. The only per-input tuning is **side-aware
     /// output** (left/right stick/trigger; left pad/stick -> scroll, right -> cursor) and the
     /// **trackpad DirectionalPad** gated on that pad's click; every value field is config's neutral
-    /// `Default` (sensitivity 1.0, acceleration 0.0, deadzones 0.0, smoothing off). This is the
-    /// *authoring* default - distinct from serde's `Default`, which is the on-disk fallback.
+    /// `Default` (sensitivity 1.0, acceleration 0.0, deadzone `0..1`, threshold 0.0, smoothing off).
+    /// This is the *authoring* default - distinct from serde's `Default`, which is the on-disk fallback.
     #[allow(dead_code)] // wired when the behaviour picker constructs a binding
     pub(crate) fn default_binding(self, input: &InputSource) -> SourceBinding {
         match self {
@@ -127,7 +127,7 @@ impl Behavior {
             },
             Behavior::Joystick => SourceBinding::Joystick {
                 // Drive the gamepad stick on the input's own side (left input -> left stick).
-                // Deadzone defaults to 0.0 (neutral) like every other behaviour - tune per profile.
+                // Deadzone defaults to `0..1` (neutral) like every other behaviour - tune per profile.
                 settings: JoystickSettings { output: stick_output(input), ..Default::default() },
                 outer_ring: Vec::new(),
             },

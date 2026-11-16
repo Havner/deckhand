@@ -479,8 +479,11 @@ fn norm_u8(v: u8) -> f32 {
 fn norm_i16(v: i16) -> f32 {
     (v as f32 / 32767.0).clamp(0.0, 1.0)
 }
+/// Normalize a bipolar `i16` (sticks, pad positions) to `-1.0..=1.0`. The wire range is symmetric
+/// `-32767..=32767` (`protocol::WireVec2`), so dividing by 32767 maps both ends to exactly +/-1.0;
+/// the clamp only guards an out-of-spec -32768.
 fn norm_axis(v: i16) -> f32 {
-    (v as f32 / 32768.0).clamp(-1.0, 1.0)
+    (v as f32 / 32767.0).clamp(-1.0, 1.0)
 }
 fn norm_stick(v: &Vec2i) -> Vec2 {
     Vec2 { x: norm_axis(v.x), y: norm_axis(v.y) }

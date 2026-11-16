@@ -1,7 +1,7 @@
 //! Behavior settings palette (PLAN 3, Round B).
 //!
-//! Shared setting types (deadzone, curve, sensitivity, ...) plus the per-behavior settings
-//! structs. These carry `f32` tuning values, so they are `PartialEq` but **not** `Eq`.
+//! Shared setting types (deadzone, threshold, curve, sensitivity, ...) plus the per-behavior
+//! settings structs. These carry `f32` tuning values, so they are `PartialEq` but **not** `Eq`.
 //! Each has a sensible `Default` and struct-level `#[serde(default)]`, so RON stays
 //! forgiving (omit what you don't override).
 
@@ -9,11 +9,32 @@ use serde::{Deserialize, Serialize};
 
 // --- shared setting types ---------------------------------------------------------------
 
-/// Inner **radial** deadzone (`0..=1`): input magnitude below this maps to neutral.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+/// **Radial** deflection deadzone (`0..=1`) for the behaviors that rescale a held deflection/pull
+/// (`Joystick`, `JoystickMouse`, `Trigger`): magnitude at or below `inner` maps to neutral, at or
+/// above `outer` to full, and `inner..outer` is rescaled onto `0..1`. `outer` is the saturation
+/// *point* (not a distance from the edge) - it lets a stick/trigger that never reaches full
+/// deflection still produce full output. Default `0..1` = no deadzone either side.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Deadzone {
     pub inner: f32,
+    pub outer: f32,
+}
+
+impl Default for Deadzone {
+    fn default() -> Self {
+        Deadzone { inner: 0.0, outer: 1.0 }
+    }
+}
+
+/// A plain activation **threshold** for the behaviors that gate rather than rescale
+/// (`DirectionalPad`: how far from centre before a direction registers; `GyroToMouse`: the
+/// per-frame cursor delta, in px, below which a frame is dropped - kills resting drift).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Threshold {
+    #[serde(alias = "inner")]
+    pub value: f32,
 }
 
 /// Output anti-deadzone (`0..=1`): pushes small outputs past a game's own stick deadzone.
@@ -242,8 +263,9 @@ pub struct JoystickSettings {
 pub struct DirectionalPadSettings {
     pub layout: DpadLayout,
     pub outer_ring: OuterRing,
-    /// Register deadzone: how far from centre before a direction activates.
-    pub deadzone: Deadzone,
+    /// How far from centre before a direction activates.
+    #[serde(alias = "deadzone")]
+    pub threshold: Threshold,
     pub rotation: Rotation,
     pub activation: Activation,
 }
@@ -292,8 +314,9 @@ pub struct GyroToMouseSettings {
     pub sensitivity: Sensitivity,
     pub acceleration: Acceleration,
     pub smoothing: Option<OneEuroFilter>,
-    /// Radial deadzone - kills the resting-bias drift (Round B / bridge).
-    pub deadzone: Deadzone,
+    /// Radial cursor-delta threshold - kills the resting-bias drift (Round B / bridge).
+    #[serde(alias = "deadzone")]
+    pub threshold: Threshold,
     pub invert: Invert,
     pub rotation: Rotation,
     pub activation: Activation,

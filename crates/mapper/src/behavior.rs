@@ -24,7 +24,7 @@
 //! HW-confirmed, distinct from the evdev vertical flip above.
 
 use config::{
-    Activation, ActivationMode, AsMouseSettings, Axis, DirectionalPadSettings, DpadLayout,
+    Activation, ActivationMode, AsMouseSettings, Axis, Deadzone, DirectionalPadSettings, DpadLayout,
     GyroSpace, GyroToMouseSettings, InputSource, JoystickMouseSettings, JoystickSettings,
     MouseOutput, StickOutput, TriggerOutput, TriggerSettings,
 };
@@ -167,7 +167,13 @@ fn eval_joystick(
     eval_commands(outer_ring, ring_held, &NodeHeld::Virtual, &source.side(), slot, now, sinks);
 }
 
-/// Deadzone-rescale -> curve -> anti-deadzone, direction preserved, per-axis invert.
+/// Deadzone-rescale -> curve -> anti-deadzone, direction preserved, per-axis clamp + invert.
+///
+/// The magnitude is deliberately **not** capped at 1 before the direction is re-applied: the
+/// stick's physical gate reaches past the unit circle (Gordon: full X with a few thousand of Y),
+/// and projecting that onto the circle would pull X below full whenever Y is non-zero. Clamping
+/// each axis instead lets the edge saturate like the raw stick (and lets an outer deadzone square
+/// off the corners, as it does in Steam).
 fn process_joystick(pos: &Vec2, s: &JoystickSettings) -> (f32, f32) {
     let (rx, ry) = rotate(pos.x, pos.y, s.rotation.degrees);
     // Axis limit makes this a 1-D control: mask the discarded output axis *before* the radial
@@ -179,8 +185,7 @@ fn process_joystick(pos: &Vec2, s: &JoystickSettings) -> (f32, f32) {
     if mag <= s.deadzone.inner || mag < 1e-6 {
         return (0.0, 0.0);
     }
-    let scaled = ((mag - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
-    let curved = s.curve.apply(scaled);
+    let curved = s.curve.apply(rescale_deadzone(&s.deadzone, mag));
     let ad = s.anti_deadzone.amount;
     let out_mag = if curved > 0.0 { ad + (1.0 - ad) * curved } else { 0.0 };
     let (ux, uy) = (rx / mag, ry / mag);
@@ -219,7 +224,7 @@ fn eval_directional_pad(
     let mag = pos.as_ref().map_or(0.0, magnitude);
     let (mut u, mut d, mut l, mut r) = (false, false, false, false);
     if let Some(pos) = &pos
-        && mag >= s.deadzone.inner
+        && mag >= s.threshold.value
         && mag > 1e-6
     {
         let (rx, ry) = rotate(pos.x, pos.y, s.rotation.degrees);
@@ -293,11 +298,7 @@ fn eval_trigger(
 }
 
 fn process_trigger(pull: f32, s: &TriggerSettings) -> f32 {
-    if pull <= s.deadzone.inner {
-        return 0.0;
-    }
-    let scaled = ((pull - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
-    s.curve.apply(scaled)
+    s.curve.apply(rescale_deadzone(&s.deadzone, pull).min(1.0))
 }
 
 // --- AsMouse (Pad -> cursor/scroll via frame-to-frame delta) -----------------------------
@@ -368,7 +369,7 @@ fn eval_joystick_mouse(source: &InputSource, s: &JoystickMouseSettings, ctx: &Ct
     // Deflection past the deadzone -> speed; integrated over dt into a pixel delta. The `curve`
     // shapes the deflection->rate response (precision near center, fast at the edge) - a stick is a
     // held deflection, not a velocity, so it takes a curve, not acceleration (matches Steam).
-    let scaled = ((mag - s.deadzone.inner) / (1.0 - s.deadzone.inner)).clamp(0.0, 1.0);
+    let scaled = rescale_deadzone(&s.deadzone, mag).min(1.0);
     let speed = s.curve.apply(scaled) * JOY_MOUSE_RATE * ctx.dt;
     let (ux, uy) = (rx / mag, ry / mag);
     let mut mx = ux * speed * s.sensitivity.x;
@@ -450,9 +451,9 @@ fn eval_gyro_to_mouse(
     if s.invert.y {
         my = -my;
     }
-    // Radial pixel deadzone kills the resting DC-bias drift (bridge finding; PLAN decision D). The
+    // Radial pixel threshold kills the resting DC-bias drift (bridge finding; PLAN decision D). The
     // mask already ran (above), so a discarded-axis drift can't keep a tiny kept-axis value alive.
-    if (mx * mx + my * my).sqrt() < s.deadzone.inner {
+    if (mx * mx + my * my).sqrt() < s.threshold.value {
         return;
     }
     emit_relative(&s.output, mx, my, rel);
@@ -506,6 +507,22 @@ fn magnitude(v: &Vec2) -> f32 {
     (v.x * v.x + v.y * v.y).sqrt()
 }
 
+/// Rescale a deflection/pull magnitude through a deadzone: `<= inner` -> 0, `outer` -> 1, linear
+/// between - and **not capped above** (past `outer` it keeps the same gain, so `> 1`). The cap is
+/// the caller's: a scalar (trigger, mouse rate) clamps to 1, while the joystick clamps **per axis**
+/// after re-applying the direction (see `process_joystick`). A crossed pair (`outer <= inner`, only
+/// reachable from hand-edited RON) degrades to a step at `inner` - no division by a non-positive
+/// span.
+fn rescale_deadzone(dz: &Deadzone, v: f32) -> f32 {
+    if v <= dz.inner {
+        0.0
+    } else if dz.outer <= dz.inner {
+        1.0
+    } else {
+        (v - dz.inner) / (dz.outer - dz.inner)
+    }
+}
+
 fn rotate(x: f32, y: f32, degrees: f32) -> (f32, f32) {
     if degrees == 0.0 {
         return (x, y);
@@ -530,7 +547,7 @@ mod tests {
     use crate::program::{CompiledAction, CompiledCommand};
     use config::{
         Activator, CommandSettings, Deadzone, GyroToMouseSettings, Invert, JoystickMouseSettings,
-        OuterRing, SoftPull,
+        OuterRing, SoftPull, Threshold,
     };
     use vocab_hid::{Buttons, ControllerState, TrackPad, Vec3i};
     use vocab_out::OutputEvent;
@@ -621,7 +638,7 @@ mod tests {
     fn joystick_deadzone_and_output_axis() {
         let binding = CompiledBinding::Joystick {
             settings: JoystickSettings {
-                deadzone: Deadzone { inner: 0.2 },
+                deadzone: Deadzone { inner: 0.2, ..Default::default() },
                 ..Default::default()
             },
             outer_ring: Vec::new(),
@@ -645,6 +662,54 @@ mod tests {
         );
         assert!(d.axis(&GamepadAxis::LeftStickX).unwrap() > 0.99);
         assert_eq!(d.axis(&GamepadAxis::LeftStickY), Some(0.0));
+    }
+
+    #[test]
+    fn joystick_outer_deadzone_saturates_and_rescales() {
+        let binding = CompiledBinding::Joystick {
+            settings: JoystickSettings {
+                deadzone: Deadzone { inner: 0.2, outer: 0.8 },
+                ..Default::default()
+            },
+            outer_ring: Vec::new(),
+        };
+        let x_at = |x: f32| {
+            let d = desired_of(
+                &binding,
+                &InputSource::LeftStick,
+                ControllerState { left_stick: Vec2 { x, y: 0.0 }, ..Default::default() },
+            );
+            d.axis(&GamepadAxis::LeftStickX).unwrap()
+        };
+        // At/past outer -> full output (a stick that can't reach the edge still saturates).
+        assert!(x_at(0.8) > 0.99);
+        assert!(x_at(0.9) > 0.99);
+        // Midway through <inner, outer> -> half output.
+        assert!((x_at(0.5) - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn joystick_full_x_survives_off_axis_y() {
+        // The raw gate reaches past the unit circle: full X with some Y must stay full X (per-axis
+        // clamp), not be projected onto the circle (which would give cos(angle) < 1).
+        let binding = CompiledBinding::Joystick {
+            settings: JoystickSettings::default(),
+            outer_ring: Vec::new(),
+        };
+        let d = desired_of(
+            &binding,
+            &InputSource::LeftStick,
+            ControllerState { left_stick: Vec2 { x: 1.0, y: 0.1 }, ..Default::default() },
+        );
+        assert_eq!(d.axis(&GamepadAxis::LeftStickX), Some(1.0));
+        assert!((d.axis(&GamepadAxis::LeftStickY).unwrap() + 0.1).abs() < 1e-4);
+    }
+
+    #[test]
+    fn rescale_deadzone_crossed_pair_is_a_step() {
+        let dz = Deadzone { inner: 0.6, outer: 0.4 };
+        assert_eq!(rescale_deadzone(&dz, 0.5), 0.0);
+        assert_eq!(rescale_deadzone(&dz, 0.61), 1.0);
     }
 
     #[test]
@@ -701,7 +766,7 @@ mod tests {
     #[test]
     fn directional_pad_four_way_cardinal() {
         let binding = CompiledBinding::DirectionalPad {
-            settings: DirectionalPadSettings { deadzone: Deadzone { inner: 0.2 }, ..Default::default() },
+            settings: DirectionalPadSettings { threshold: Threshold { value: 0.2 }, ..Default::default() },
             up: regular(Key::Up),
             down: regular(Key::Down),
             left: regular(Key::Left),
@@ -731,7 +796,7 @@ mod tests {
         let binding = CompiledBinding::DirectionalPad {
             settings: DirectionalPadSettings {
                 layout: DpadLayout::EightWay,
-                deadzone: Deadzone { inner: 0.2 },
+                threshold: Threshold { value: 0.2 },
                 ..Default::default()
             },
             up: regular(Key::Up),
@@ -1045,7 +1110,7 @@ mod tests {
     }
 
     #[test]
-    fn gyro_to_mouse_yaw_moves_horizontally_and_deadzones() {
+    fn gyro_to_mouse_yaw_moves_horizontally_and_thresholds() {
         // Yaw-left is +z and must move the cursor LEFT (negative REL_X).
         let binding = CompiledBinding::GyroToMouse { settings: GyroToMouseSettings::default() };
         let yaw_left = ControllerState {
@@ -1063,9 +1128,9 @@ mod tests {
         let out = relative_of(&binding, &InputSource::Gyro, None, pitch_up, 0.1);
         assert!(mouse_dy(&out) < 0);
 
-        // With a large radial deadzone, a tiny rate is dropped (kills resting drift).
+        // With a large radial threshold, a tiny rate is dropped (kills resting drift).
         let binding = CompiledBinding::GyroToMouse {
-            settings: GyroToMouseSettings { deadzone: Deadzone { inner: 5.0 }, ..Default::default() },
+            settings: GyroToMouseSettings { threshold: Threshold { value: 5.0 }, ..Default::default() },
         };
         let tiny = ControllerState {
             gyro: Vec3i { x: 0, y: 0, z: (0.5 * GYRO_RES_PER_DPS) as i16 },

@@ -202,10 +202,10 @@ fn dpad_bits((x, y): (i32, i32)) -> u16 {
 
 /// Normalized stick `-1.0..=1.0` -> XInput `i16`.
 fn stick(v: f32) -> i16 {
-    (v.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+    (v.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16
 }
 
 /// Normalized trigger `0.0..=1.0` -> XInput `u8`.
 fn trigger(v: f32) -> u8 {
-    (v.clamp(0.0, 1.0) * u8::MAX as f32) as u8
+    (v.clamp(0.0, 1.0) * u8::MAX as f32).round() as u8
 }
